@@ -27,4 +27,7 @@
 - [x] Add `zarc create --password` using a no-echo terminal prompt and disk-backed staging; encrypted output is authenticated and validated with the generated DEK before publication.
 - [x] Upgrade encryption dependencies to `aes-gcm 0.11.1`, `argon2 0.6.0`, `chacha20poly1305 0.11.0`, and `getrandom 0.4.3`; update nonce conversions for the current AEAD API.
 - [x] Validate encryption dependency upgrade: `cargo fmt --all`, `cargo test --workspace` (35 CLI and 44 library tests; doc-tests passed), and `cargo clippy --workspace --all-targets -- -D warnings`.
+- [x] Add zeroization for transient password-derived wrapping keys and recovered DEK plaintext buffers.
+- [ ] Track zeroization of long-lived archive DEKs and content crypto keys across CLI operations; currently caller-owned key buffers cannot be erased by `zarlib` after each operation.
+- [x] Validate crypto key zeroization changes: `cargo fmt --all`, `cargo test --workspace` (36 CLI and 44 library tests; doc-tests passed), and `cargo clippy --workspace --all-targets -- -D warnings`.
 
