@@ -33,4 +33,6 @@
 - [x] Keep `unwrap_dek_with_password` returning zeroize-on-drop `Zeroizing<[u8; 32]>` and expose `unwrap_dek_with_password_zeroizing` as an explicit alias for callers that want the security property to be obvious in the function name.
 - [x] Validate long-lived DEK zeroization changes: `cargo fmt --all -- --check`, `cargo test --workspace` (36 CLI and 44 library tests; doc-tests passed), and `cargo clippy --workspace --all-targets -- -D warnings`.
 - [x] Reconcile stale encryption and password-aware read-flow notes in `agents.md` with the implemented behavior; rerun `cargo test --workspace` successfully (36 CLI tests, 44 library tests, doc-tests passed).
+- [x] Add `zarc info --json` output containing commit IDs and framing sizes; document the option in CLI help and test the emitted JSON structure.
+- [x] Validate the latest `info --json` changes with `cargo fmt --all -- --check`, `cargo test --workspace` (37 CLI tests and 44 library tests passed; doc-tests passed), and `cargo clippy --workspace --all-targets -- -D warnings`.
 
