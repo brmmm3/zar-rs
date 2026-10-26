@@ -24,4 +24,6 @@
 - [x] Expand `zarc check` recovery behavior with opt-in `--recover` framing resynchronization. It scans for a prefix whose checksum and commit body validate, reports damaged framing gaps, resets derived TOC state across a gap, and exits with warning code 1; normal checks remain strict.
 - [x] Add library content encryption/decryption (AES-256-GCM and ChaCha20-Poly1305) and Argon2id password key wrapping with bounded parameters.
 - [x] Add `zarc create --password` using a no-echo terminal prompt and disk-backed staging; encrypted output is authenticated and validated with the generated DEK before publication.
+- [x] Upgrade encryption dependencies to `aes-gcm 0.11.1`, `argon2 0.6.0`, `chacha20poly1305 0.11.0`, and `getrandom 0.4.3`; update nonce conversions for the current AEAD API.
+- [x] Validate encryption dependency upgrade: `cargo fmt --all`, `cargo test --workspace` (35 CLI and 44 library tests; doc-tests passed), and `cargo clippy --workspace --all-targets -- -D warnings`.
 
