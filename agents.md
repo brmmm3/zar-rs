@@ -12,11 +12,12 @@
 - Stable encryption-descriptor wire encoding, parameter validation, optional TLV handling, and scope metadata. Cryptographic encryption/decryption and key derivation are not implemented.
 - Commit-body framing validation for descriptors, frame integrity, block-index uniqueness, encryption scope consistency, duplicate nonces, frame size limits, and block-count limits.
 - Canonical archive-relative UTF-8 path validation using `ArchivePath`: slash-separated paths only, rejecting absolute/drive-prefixed paths, empty/dot/parent components, NUL, and backslashes. Comparison is exact (no case folding or Unicode normalization).
+- In-memory logical TOC model with file and directory entries, ordered put/remove operations, recursive directory removal, file/block-reference checks, path-kind conflict detection, and atomic per-commit application.
 - CLI `check` validates commit bodies and frame integrity; `info` lists commit prefix sizes and IDs.
 
 ## Current limitations / next work
 
-- Logical header/TOC encoding and commit operation model are not yet implemented.
+- Canonical logical header/TOC wire encoding and decoding are not yet implemented; the current TOC is an in-memory operation model.
 - `zarc check` verifies framing and stored checksums, not decryption, decompression of all frames, or logical archive consistency.
 - Archive creation, extraction, listing, joining, and file-system scanning are not implemented.
 - Encryption descriptors are parsed and validated, but encryption and decryption are unsupported.
