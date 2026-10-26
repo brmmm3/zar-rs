@@ -28,6 +28,8 @@
 - [x] Upgrade encryption dependencies to `aes-gcm 0.11.1`, `argon2 0.6.0`, `chacha20poly1305 0.11.0`, and `getrandom 0.4.3`; update nonce conversions for the current AEAD API.
 - [x] Validate encryption dependency upgrade: `cargo fmt --all`, `cargo test --workspace` (35 CLI and 44 library tests; doc-tests passed), and `cargo clippy --workspace --all-targets -- -D warnings`.
 - [x] Add zeroization for transient password-derived wrapping keys and recovered DEK plaintext buffers.
-- [ ] Track zeroization of long-lived archive DEKs and content crypto keys across CLI operations; currently caller-owned key buffers cannot be erased by `zarlib` after each operation.
-- [x] Validate crypto key zeroization changes: `cargo fmt --all`, `cargo test --workspace` (36 CLI and 44 library tests; doc-tests passed), and `cargo clippy --workspace --all-targets -- -D warnings`.
+- [x] Track zeroization of long-lived archive DEKs across CLI operations using drop-zeroized key buffers, including per-block extraction key copies; password-unwrapped DEKs use `Zeroizing` ownership.
+- [x] Enable the AES-GCM and ChaCha20-Poly1305 `zeroize` backend features; their AES/ChaCha key schedules and AEAD-held key state are zeroized when cipher instances drop, as implemented by the selected RustCrypto crates.
+- [x] Keep `unwrap_dek_with_password` source-compatible as returning `[u8; 32]`; provide and use `unwrap_dek_with_password_zeroizing` for callers needing zeroize-on-drop ownership.
+- [x] Validate long-lived DEK zeroization changes: `cargo fmt --all`, `cargo test --workspace` (36 CLI and 44 library tests; doc-tests passed), and `cargo clippy --workspace --all-targets -- -D warnings`.
 
