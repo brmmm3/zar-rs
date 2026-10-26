@@ -16,7 +16,7 @@
 
 - [ ] Implement encryption/decryption and key derivation. Until then, encrypted block contents cannot be validated and header encryption prevents complete TOC consistency checks.
 - [ ] Verify or revise the provisional logical-header v0 wire encoding against an authoritative specification before claiming interoperability.
-- [ ] Extend configurable block size and compression level to `zarc join`; `create` and `add` already support these options. Define automatic sizing from available-memory and worker-budget rules in `plan.md` instead of treating `auto` as a fixed default.
+- [x] Extend configurable block size and compression level to `zarc join`; `auto` still selects the fixed 8 MiB default. Define automatic sizing from available-memory and worker-budget rules in `plan.md`.
 - [ ] Rework extraction to avoid materializing all decoded file contents in memory; the current per-block decode limit is 32 MiB by default.
 - [ ] Make extraction destination checks resilient to concurrent filesystem changes; current symlink checks have a time-of-check/time-of-use race.
 - [ ] Expand archive-wide validation/recovery behavior, including the optional framing resynchronization described in `plan.md`.
