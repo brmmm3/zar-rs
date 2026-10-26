@@ -9,13 +9,14 @@
 - [x] Add staging and validation safeguards for archive mutations, plus extraction dry-run, collision, and existing-file policies.
 - [x] Extend `zarc check` to decompress and verify unencrypted blocks, apply readable TOC changes across commits, check block references and decoded file sizes, and report validation limits caused by encryption.
 - [x] Add regression tests for size mismatches, cumulative TOC conflicts, per-commit block-index reuse, and encrypted-header reporting.
-- [x] Validate current workspace: `cargo fmt --all -- --check`, `cargo test --workspace` (29 CLI tests and 37 library tests passed; doc-tests passed), and `cargo clippy --workspace --all-targets -- -D warnings`.
+- [x] Add configurable `zarc create` and `zarc add` block sizes and Zstandard compression levels, with parser limits and create/add round-trip coverage.
+- [x] Validate current workspace: `cargo fmt --all`, `cargo test --workspace` (31 CLI tests and 37 library tests passed; doc-tests passed), and `cargo clippy --workspace --all-targets -- -D warnings`.
 
 ## Open
 
 - [ ] Implement encryption/decryption and key derivation. Until then, encrypted block contents cannot be validated and header encryption prevents complete TOC consistency checks.
 - [ ] Verify or revise the provisional logical-header v0 wire encoding against an authoritative specification before claiming interoperability.
-- [ ] Add configurable block size and compression level; current creation uses fixed 8 MiB blocks and Zstandard level 3.
+- [ ] Extend configurable block size and compression level to `zarc join`; `create` and `add` already support these options. Define automatic sizing from available-memory and worker-budget rules in `plan.md` instead of treating `auto` as a fixed default.
 - [ ] Rework extraction to avoid materializing all decoded file contents in memory; the current per-block decode limit is 32 MiB by default.
 - [ ] Make extraction destination checks resilient to concurrent filesystem changes; current symlink checks have a time-of-check/time-of-use race.
 - [ ] Expand archive-wide validation/recovery behavior, including the optional framing resynchronization described in `plan.md`.
