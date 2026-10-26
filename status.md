@@ -10,13 +10,13 @@
 - [x] Extend `zarc check` to decompress and verify unencrypted blocks, apply readable TOC changes across commits, check block references and decoded file sizes, and report validation limits caused by encryption.
 - [x] Add regression tests for size mismatches, cumulative TOC conflicts, per-commit block-index reuse, and encrypted-header reporting.
 - [x] Add configurable `zarc create` and `zarc add` block sizes and Zstandard compression levels; manual sizes follow the documented 64 KiB–32 MiB range, with create/add round-trip coverage.
-- [x] Validate current workspace: `cargo fmt --all`, `cargo test --workspace` (31 CLI tests and 37 library tests passed; doc-tests passed), and `cargo clippy --workspace --all-targets -- -D warnings`.
+- [x] Validate current workspace: `cargo fmt --all -- --check`, `cargo test --workspace` (31 CLI tests and 37 library tests passed; doc-tests passed), and `cargo clippy --workspace --all-targets -- -D warnings`.
+- [x] Extend configurable block size and compression level to `zarc join`; `auto` selects a 1–8 MiB block size from 50% of currently available memory, using a bounded per-worker estimate. The current pipeline is sequential, so automatic selection uses one worker; tests cover sizing, worker reduction, and low-memory warnings.
 
 ## Open
 
 - [ ] Implement encryption/decryption and key derivation. Until then, encrypted block contents cannot be validated and header encryption prevents complete TOC consistency checks.
 - [ ] Verify or revise the provisional logical-header v0 wire encoding against an authoritative specification before claiming interoperability.
-- [x] Extend configurable block size and compression level to `zarc join`; `auto` still selects the fixed 8 MiB default. Define automatic sizing from available-memory and worker-budget rules in `plan.md`.
 - [ ] Rework extraction to avoid materializing all decoded file contents in memory; the current per-block decode limit is 32 MiB by default.
 - [ ] Make extraction destination checks resilient to concurrent filesystem changes; current symlink checks have a time-of-check/time-of-use race.
 - [ ] Expand archive-wide validation/recovery behavior, including the optional framing resynchronization described in `plan.md`.
