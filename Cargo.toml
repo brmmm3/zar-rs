@@ -9,6 +9,7 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive"] }
+rayon = "1"
 xxhash-rust = { version = "0.8", features = ["xxh64"] }
 aes-gcm = { version = "0.11", features = ["zeroize"] }
 argon2 = "0.6"
