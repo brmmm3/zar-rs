@@ -12,21 +12,21 @@ A file begins with the four-byte magic `ZAR0`. Commits follow sequentially; the 
 Use a fixed-size, cleartext commit prefix so a reader can find and frame a commit without decrypting its header:
 
 ```text
-CommitPrefix (44 bytes, all integers little-endian)
+CommitPrefix (38 bytes, all integers little-endian)
   magic                 [4]  "ZCMT"
-  framing_version       u16
-  flags                 u16
+  framing_version       u8
+  flags                 u8
   total_commit_size     u64  includes this entire prefix
   commit_id             u32  archive-scoped counter starting at 1
-  header_frame_size     u64  includes header-frame metadata and payload
+  header_frame_size     u32  includes header-frame metadata and payload (maximum <4 GiB)
   data_section_size     u64  total bytes of all data-block frames
-  prefix_checksum       u64  xxhash64 of preceding 36 prefix bytes
+  prefix_checksum       u64  xxhash64 of preceding 30 prefix bytes
 ```
 
 Require:
 
 ```text
-total_commit_size = 44 + header_frame_size + data_section_size
+total_commit_size = 38 + header_frame_size + data_section_size
 ```
 
 Reject arithmetic overflow, invalid sizes, and unsupported framing versions. The prefix checksum detects accidental corruption; it is **not** an authentication mechanism. A reader can skip a framed commit it cannot decrypt. For resynchronization after damaged framing, an implementation may scan for `ZCMT`, but must validate the prefix and report that recovery was attempted.
@@ -220,11 +220,11 @@ Use explicit wire tags and separate on-disk metadata from runtime secrets. Avoid
 ```rust
 struct CommitPrefix {
     magic: [u8; 4],
-    framing_version: u16,
-    flags: u16,
+    framing_version: u8,
+    flags: u8,
     total_commit_size: u64,
     commit_id: u32,
-    header_frame_size: u64,
+    header_frame_size: u32,
     data_section_size: u64,
     prefix_checksum: u64,
 }
