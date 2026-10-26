@@ -17,7 +17,8 @@
 
 ## Open
 
-- [ ] Add password-aware `zarc check`, `list`, and `extract` flows; currently those commands cannot decrypt encrypted content.
+- [x] Add password-aware `zarc check`, `list`, and `extract` flows with no-echo prompts, authenticated encrypted block validation, and streamed extraction; wrong or missing passwords fail before extraction writes files. Regression tests verify wrong and correct passwords across check/list/extract.
+- [x] Resolve strict Clippy findings in CLI password handling and add a named validated-commit result type.
 - [ ] Verify or revise the provisional logical-header v0 wire encoding against an authoritative specification before claiming interoperability.
 - [x] Rework extraction to retain only validated block locations and decoded lengths, then stream-decode selected blocks directly to destination files instead of retaining all extracted contents in memory; per-block decode remains limited to 32 MiB by default.
 - [x] Make Unix extraction destination operations resilient to concurrent filesystem changes using directory-relative `openat`/`mkdirat`, `O_NOFOLLOW`, and exclusive creation for error/skip policies; non-Unix targets currently use a path-based fallback without equivalent race resistance.
