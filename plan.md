@@ -16,7 +16,7 @@ Files are grouped into following types (Rust enum):
     - BlockNumer
     - OffsetInBlock
 - Big files (files with the size at least block size)
-  - BigFile(DirEntry, Vec<BlockNumbers>)
+  - BigFiles(Vec<DirEntry, Vec<BlockNumbers>>)
 - Empty files
   - EmptyFiles(Vec<DirEntry>)
 - Symbolic links
@@ -25,6 +25,8 @@ Files are grouped into following types (Rust enum):
   - Hardlinks(Vec<DirEntry>)
 - Devices
   - Devices(Vec<DirEntry>)
+- Removed files (files to remove from container)
+  - Remove(Vec<String>)
 
 ## 1. Commit framing and integrity
 
