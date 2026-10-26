@@ -17,6 +17,6 @@
 
 - [ ] Implement encryption/decryption and key derivation. Until then, encrypted block contents cannot be validated and header encryption prevents complete TOC consistency checks.
 - [ ] Verify or revise the provisional logical-header v0 wire encoding against an authoritative specification before claiming interoperability.
-- [ ] Rework extraction to avoid materializing all decoded file contents in memory; the current per-block decode limit is 32 MiB by default.
+- [x] Rework extraction to retain only validated block locations and decoded lengths, then stream-decode selected blocks directly to destination files instead of retaining all extracted contents in memory; per-block decode remains limited to 32 MiB by default.
 - [ ] Make extraction destination checks resilient to concurrent filesystem changes; current symlink checks have a time-of-check/time-of-use race.
 - [ ] Expand archive-wide validation/recovery behavior, including the optional framing resynchronization described in `plan.md`.
