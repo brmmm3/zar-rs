@@ -5,6 +5,27 @@
 - Use latest dependencies
 - Use edition 2024
 
+## 0. File grouping
+
+Files are grouped into following types (Rust enum):
+
+- Small files (smaller than block size)
+  - SmallFiles(Vec<DirEntrySmall>)
+  - DirEntrySmall:
+    - DirEntry
+    - BlockNumer
+    - OffsetInBlock
+- Big files (files with the size at least block size)
+  - BigFile(DirEntry, Vec<BlockNumbers>)
+- Empty files
+  - EmptyFiles(Vec<DirEntry>)
+- Symbolic links
+  - Symlink(Vec<DirEntry>)
+- Hard links
+  - Hardlinks(Vec<DirEntry>)
+- Devices
+  - Devices(Vec<DirEntry>)
+
 ## 1. Commit framing and integrity
 
 A file begins with the four-byte magic `ZAR0`. Commits follow sequentially; the commit chain is the physical order in the file.
