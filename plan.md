@@ -12,21 +12,21 @@ A file begins with the four-byte magic `ZAR0`. Commits follow sequentially; the 
 Use a fixed-size, cleartext commit prefix so a reader can find and frame a commit without decrypting its header:
 
 ```text
-CommitPrefix (56 bytes, all integers little-endian)
+CommitPrefix (44 bytes, all integers little-endian)
   magic                 [4]  "ZCMT"
   framing_version       u16
   flags                 u16
   total_commit_size     u64  includes this entire prefix
-  commit_id             [16] cryptographically random
+  commit_id             u32  archive-scoped counter starting at 1
   header_frame_size     u64  includes header-frame metadata and payload
   data_section_size     u64  total bytes of all data-block frames
-  prefix_checksum       u64  xxhash64 of preceding 48 prefix bytes
+  prefix_checksum       u64  xxhash64 of preceding 36 prefix bytes
 ```
 
 Require:
 
 ```text
-total_commit_size = 56 + header_frame_size + data_section_size
+total_commit_size = 44 + header_frame_size + data_section_size
 ```
 
 Reject arithmetic overflow, invalid sizes, and unsupported framing versions. The prefix checksum detects accidental corruption; it is **not** an authentication mechanism. A reader can skip a framed commit it cannot decrypt. For resynchronization after damaged framing, an implementation may scan for `ZCMT`, but must validate the prefix and report that recovery was attempted.
@@ -197,7 +197,7 @@ Common options should include `--compression-level`, `--workers N`, `--leave-cor
 
 For extraction, expose separate options for path collisions (`--collision error|latest|first|rename|ask`) and existing destination files (`--existing overwrite|skip|error|ask`). `ask` is interactive-only and should fail clearly in non-interactive mode. Add `--dry-run` to show the final TOC and planned actions without writing files.
 
-`--through COMMIT_ID` selects the commit with that exact 32-hex-digit ID and applies commits from the beginning through and including it. The ID must exist and be unique; there is no index interpretation, and absent or malformed IDs are errors. Use `--password-for COMMIT_ID` to prompt for a password; never accept passwords directly as command-line values. Recipient private keys are supplied through protected key-file options and matched against recipient IDs. Any `ask` collision, overwrite, or rename policy requires an interactive terminal and is an error in non-interactive mode.
+`--through COMMIT_ID` selects the commit with that exact 8-hex-digit ID (the little-endian encoding of its nonzero `u32` counter) and applies commits from the beginning through and including it. The ID must exist and be unique; there is no index interpretation, and absent or malformed IDs are errors. Use `--password-for COMMIT_ID` to prompt for a password; never accept passwords directly as command-line values. Recipient private keys are supplied through protected key-file options and matched against recipient IDs. Any `ask` collision, overwrite, or rename policy requires an interactive terminal and is an error in non-interactive mode.
 
 `add`, `remove`, and other in-place operations should use a temporary output, validate it, and atomically replace the original. Use these exit codes:
 
@@ -223,7 +223,7 @@ struct CommitPrefix {
     framing_version: u16,
     flags: u16,
     total_commit_size: u64,
-    commit_id: [u8; 16],
+    commit_id: u32,
     header_frame_size: u64,
     data_section_size: u64,
     prefix_checksum: u64,
