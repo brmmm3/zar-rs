@@ -30,6 +30,7 @@
 - [x] Add zeroization for transient password-derived wrapping keys and recovered DEK plaintext buffers.
 - [x] Track zeroization of long-lived archive DEKs across CLI operations using drop-zeroized key buffers, including per-block extraction key copies; password-unwrapped DEKs use `Zeroizing` ownership.
 - [x] Enable the AES-GCM and ChaCha20-Poly1305 `zeroize` backend features; their AES/ChaCha key schedules and AEAD-held key state are zeroized when cipher instances drop, as implemented by the selected RustCrypto crates.
-- [x] Keep `unwrap_dek_with_password` source-compatible as returning `[u8; 32]`; provide and use `unwrap_dek_with_password_zeroizing` for callers needing zeroize-on-drop ownership.
-- [x] Validate long-lived DEK zeroization changes: `cargo fmt --all`, `cargo test --workspace` (36 CLI and 44 library tests; doc-tests passed), and `cargo clippy --workspace --all-targets -- -D warnings`.
+- [x] Keep `unwrap_dek_with_password` returning zeroize-on-drop `Zeroizing<[u8; 32]>` and expose `unwrap_dek_with_password_zeroizing` as an explicit alias for callers that want the security property to be obvious in the function name.
+- [x] Validate long-lived DEK zeroization changes: `cargo fmt --all -- --check`, `cargo test --workspace` (36 CLI and 44 library tests; doc-tests passed), and `cargo clippy --workspace --all-targets -- -D warnings`.
+- [x] Reconcile stale encryption and password-aware read-flow notes in `agents.md` with the implemented behavior; rerun `cargo test --workspace` successfully (36 CLI tests, 44 library tests, doc-tests passed).
 
