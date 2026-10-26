@@ -24,6 +24,7 @@
 - CLI tests cover nested file/directory round-trip extraction, empty files, archive validation, refusal to overwrite an existing output, appending a new file while preserving existing contents, replacing an existing file, file and recursive-directory removal, range joins including replacement/tombstone effects and a later suffix commit, and failure cleanup/original-archive preservation.
 - Listing uses a TOC-only load path that validates commit frames and logical-header block references without decoding data blocks. It can list data-encrypted commits when their headers are readable, and `--through` stops applying logical state after the selected commit while still validating subsequent commit framing/IDs.
 - Extraction supports collision policies (`error`, `first`, `latest`, `rename`, and interactive `ask`) and existing-file policies (`error`, `skip`, `overwrite`, and interactive `ask`). Case-folded archive path collisions are resolved according to TOC lexical ordering; rename candidates are reserved to avoid planned-path collisions. Tests cover first/latest/rename behavior and existing-file skip/overwrite.
+- Extraction `--through` tests now cover malformed, missing, and duplicate IDs, plus successful extraction through an earlier readable commit when a later commit is data-encrypted. Dry-run plan formatting is independently tested for the final TOC and planned directory/file actions. Non-interactive `ask` policies are tested to fail early, and existing-file `error` is verified not to overwrite the destination.
 
 ## Current limitations / next work
 
