@@ -9,7 +9,7 @@
 - [x] Add staging and validation safeguards for archive mutations, plus extraction dry-run, collision, and existing-file policies.
 - [x] Extend `zarc check` to decompress and verify unencrypted blocks, apply readable TOC changes across commits, check block references and decoded file sizes, and report validation limits caused by encryption.
 - [x] Add regression tests for size mismatches, cumulative TOC conflicts, per-commit block-index reuse, and encrypted-header reporting.
-- [x] Add configurable `zarc create` and `zarc add` block sizes and Zstandard compression levels, with parser limits and create/add round-trip coverage.
+- [x] Add configurable `zarc create` and `zarc add` block sizes and Zstandard compression levels; manual sizes follow the documented 64 KiB–32 MiB range, with create/add round-trip coverage.
 - [x] Validate current workspace: `cargo fmt --all`, `cargo test --workspace` (31 CLI tests and 37 library tests passed; doc-tests passed), and `cargo clippy --workspace --all-targets -- -D warnings`.
 
 ## Open
