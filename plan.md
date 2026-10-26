@@ -48,9 +48,32 @@ HeaderFrame
 
 The descriptor has a stable wire encoding, not Rust enum discriminants. It identifies the mode, algorithms, nonce/KDF parameters, and recipient-key records required to decrypt the header. It is cleartext so a reader can select the decryption method. It is covered by the commit’s authenticated data when the header is encrypted.
 
+The logical-header v0 canonical wire encoding is:
+
+```text
+LogicalHeader
+  magic                 [4]  "ZHDR"
+  version               u16  0
+  record_count          u32
+  records               [record_count] ordered records
+
+Each record begins with:
+  tag                   u8   1=put file, 2=put directory,
+                             3=remove file, 4=remove directory
+  path_len              u32
+  path                  [path_len] UTF-8 canonical archive-path bytes
+
+Put-file records then contain:
+  file_size             u64
+  block_reference_count u32
+  block_indices         [block_reference_count] u32 values
+```
+
+All integers are little-endian. Record order is significant and is preserved exactly; block-index order is also preserved. Paths use the canonical archive-path rules in section 6. A zero-length file has no block references; a non-empty file has at least one. Duplicate block indices within one file are invalid. The encoding has no padding or trailing bytes. Readers reject unsupported versions, unknown record tags, invalid UTF-8 or paths, truncation, trailing bytes, and configured size/count limit violations.
+
 The processing order is:
 
-1. Serialize the logical header in the canonical encoding for the format version.
+1. Serialize the logical header using the canonical v0 encoding above.
 2. Compress it with Zstandard.
 3. If encryption is enabled, encrypt the compressed bytes with AEAD.
 4. Store the resulting payload and its descriptor.

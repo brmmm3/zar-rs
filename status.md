@@ -19,7 +19,7 @@
 
 - [x] Add password-aware `zarc check`, `list`, and `extract` flows with no-echo prompts, authenticated encrypted block validation, and streamed extraction; wrong or missing passwords fail before extraction writes files. Regression tests verify wrong and correct passwords across check/list/extract.
 - [x] Resolve strict Clippy findings in CLI password handling and add a named validated-commit result type.
-- [ ] Verify or revise the provisional logical-header v0 wire encoding against an authoritative specification before claiming interoperability.
+- [x] Adopt the existing logical-header v0 byte layout as the canonical project encoding; document its exact fields in `plan.md` and add a fixed golden-byte encode/decode compatibility vector.
 - [x] Rework extraction to retain only validated block locations and decoded lengths, then stream-decode selected blocks directly to destination files instead of retaining all extracted contents in memory; per-block decode remains limited to 32 MiB by default.
 - [x] Make Unix extraction destination operations resilient to concurrent filesystem changes using directory-relative `openat`/`mkdirat`, `O_NOFOLLOW`, and exclusive creation for error/skip policies; non-Unix targets currently use a path-based fallback without equivalent race resistance.
 - [x] Expand `zarc check` recovery behavior with opt-in `--recover` framing resynchronization. It scans for a prefix whose checksum and commit body validate, reports damaged framing gaps, resets derived TOC state across a gap, and exits with warning code 1; normal checks remain strict.
@@ -35,4 +35,7 @@
 - [x] Reconcile stale encryption and password-aware read-flow notes in `agents.md` with the implemented behavior; rerun `cargo test --workspace` successfully (36 CLI tests, 44 library tests, doc-tests passed).
 - [x] Add `zarc info --json` output containing commit IDs and framing sizes; document the option in CLI help and test the emitted JSON structure.
 - [x] Validate the latest `info --json` changes with `cargo fmt --all -- --check`, `cargo test --workspace` (37 CLI tests and 44 library tests passed; doc-tests passed), and `cargo clippy --workspace --all-targets -- -D warnings`.
+- [x] Move the `zarc` CLI tests from `main.rs` into `zarc/src/tests.rs`; validate with `cargo fmt --all -- --check`, `cargo test --workspace` (37 CLI tests and 44 library tests passed; doc-tests passed), `cargo clippy --workspace --all-targets -- -D warnings`, and `git diff --check`.
+- [x] Move the `zarlib` library tests from `lib.rs` into `zarlib/src/tests.rs`; `cargo fmt --all -- --check`, `cargo test --workspace` (37 CLI tests, 44 library tests, doc-tests passed), strict workspace Clippy, and `git diff --check` all passed.
+- [x] Adopt the existing logical-header v0 layout as the canonical project encoding; specify field order, tags, endianness, paths, and record ordering in `plan.md`, and add a complete golden-byte encode/decode compatibility vector. Validation: `cargo fmt --all -- --check`, workspace tests (37 CLI, 45 library, doc-tests), strict workspace Clippy, targeted golden-vector test, and `git diff --check` passed.
 
