@@ -11,3 +11,7 @@ Thumbs.db
 .idea/
 testdata/
 .VSCodeCounter/
+*.zar
+*.zip
+*.7z
+*.gz
