@@ -26,12 +26,10 @@ The current TOC model stores file entries uniformly; `FileGroupKind` derives the
   - BigFiles(Vec<DirEntry, Vec<BlockNumbers>>)
 - Empty files
   - EmptyFiles(Vec<DirEntry>)
-- Symbolic links
-  - Symlink(Vec<DirEntry>)
-- Hard links
-  - Hardlinks(Vec<DirEntry>)
-- Devices
-  - Devices(Vec<DirEntry>)
+- Symbolic links (stored as the UTF-8 link target; extraction is opt-in and rejects targets that escape the extraction root)
+- Named pipes (stored as a special TOC entry and restored as FIFOs where supported)
+- Unix character/block devices (stored with kind plus major/minor numbers; extraction requires `--devices` and sufficient privileges)
+- Hard links are not yet represented as distinct entries.
 - Removed files (files to remove from container)
   - Remove(Vec<String>)
 
@@ -101,7 +99,11 @@ Put-file records then contain:
 
 All integers are little-endian. Record order is significant and is preserved exactly; block-index order is also preserved. Paths use the canonical archive-path rules in section 6. A zero-length file has no block references; a non-empty file has at least one. Duplicate block indices within one file are invalid. The encoding has no padding or trailing bytes. Readers reject unsupported versions, unknown record tags, invalid UTF-8 or paths, truncation, trailing bytes, and configured size/count limit violations.
 
-Logical-header version 4 adds commit-scoped arbitrary metadata and version 5 adds per-entry platform metadata while retaining version 0–3 compatibility. The v4 prefix is `magic`, `version`, `block_size` (`u32`, zero when absent), `metadata_count` (`u32`), metadata entries, then `record_count` and the existing records. Metadata entries are sorted by UTF-8 key bytes when encoding for deterministic output; each entry stores `key_len` (`u32`), key bytes, a one-byte value tag (`1=String`, `2=i64`, `3=f64`), then the value (`String` uses `value_len` (`u32`) plus UTF-8 bytes; numeric values use 8 little-endian bytes, with `f64` represented by its IEEE-754 bit pattern). Keys must be unique. Readers reject unknown value tags, duplicate keys, invalid UTF-8, and configured metadata limits. Metadata is an in-memory `HashMap<String, MetadataType>` and is scoped to the commit header. `f64` values preserve their exact bit pattern. Version 5 adds a sorted entry-metadata table after the v4 fields and before `record_count`: entry count (`u32`), followed by canonical path, platform tag string (`u16` byte length; currently `unix`, `windows`, or `other`), and three optional `u32` fields (owner, group, permissions), each encoded as a presence byte and a little-endian value when present. The table is keyed by archive path and duplicate or non-record paths are invalid. `create` and `add` accept `--metadata` to capture platform owner/group/permissions, and `extract --metadata` restores matching-platform values; platform mismatches are skipped with a warning. Unix extraction restores owner/group best-effort (warns if unavailable) and then permissions; Windows metadata restoration currently reports unsupported values.
+Logical-header version 4 adds commit-scoped arbitrary metadata, version 5 adds per-entry platform metadata, and version 6 adds symbolic-link, named-pipe, and Unix device records while retaining version 0–3 compatibility. The v4 prefix is `magic`, `version`, `block_size` (`u32`, zero when absent), `metadata_count` (`u32`), metadata entries, then `record_count` and the existing records. Metadata entries are sorted by UTF-8 key bytes when encoding for deterministic output; each entry stores `key_len` (`u32`), key bytes, a one-byte value tag (`1=String`, `2=i64`, `3=f64`), then the value (`String` uses `value_len` (`u32`) plus UTF-8 bytes; numeric values use 8 little-endian bytes, with `f64` represented by its IEEE-754 bit pattern). Keys must be unique. Readers reject unknown value tags, duplicate keys, invalid UTF-8, and configured metadata limits. Metadata is an in-memory `HashMap<String, MetadataType>` and is scoped to the commit header. `f64` values preserve their exact bit pattern. Version 5 adds a sorted entry-metadata table after the v4 fields and before `record_count`: entry count (`u32`), followed by canonical path, platform tag string (`u16` byte length; currently `unix`, `windows`, or `other`), and three optional `u32` fields (owner, group, permissions), each encoded as a presence byte and a little-endian value when present. The table is keyed by archive path and duplicate or non-record paths are invalid. `create` and `add` accept `--metadata` to capture platform owner/group/permissions, and `extract --metadata` restores matching-platform values; platform mismatches are skipped with a warning. Unix extraction restores owner/group best-effort (warns if unavailable) and then permissions; Windows metadata restoration currently reports unsupported values.
+
+Version 6 reuses the version 5 prefix and entry metadata table. File-type tags are `5=put symlink`, `6=put named pipe`, and `7=put device`. A symlink record stores a UTF-8 target as `target_len` (`u32`) followed by target bytes; an empty target or NUL is invalid. A device record stores kind (`1=character`, `2=block`), `major` (`u32`), and `minor` (`u32`). File-type entries participate in path replacement and removal like regular non-directory entries and carry no data blocks.
+
+`zarc create`/`add` include symbolic links, named pipes, and character/block devices in the TOC (strict mode continues to reject unsupported special inputs). Extraction creates FIFOs where supported; symlink creation is opt-in with `--symlinks` and rejects absolute or root-escaping targets; device creation is opt-in with `--devices` and may fail without privileges. Platform-specific unsupported operations return an error rather than silently producing a regular file.
 
 The processing order is:
 
