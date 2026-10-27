@@ -152,13 +152,13 @@ BlockFrame
   payload                 [compressed_len] bytes
 ```
 
-For version 0, `flags` is a bit field: bit 0 is `ENCRYPTED`, bit 1 is `NONCE_PRESENT`, and bits 2–15 are reserved and MUST be zero. `ENCRYPTED = 0` requires `NONCE_PRESENT = 0`; `ENCRYPTED = 1` requires `NONCE_PRESENT = 1`. The nonce is exactly 12 bytes and appears immediately after `block_index`. `reserved` must be zero; readers reject nonzero reserved bits or fields. `block_index` is zero-based and unique within the commit. Each encrypted block uses a fresh nonce under that commit's DEK; duplicate nonces within a commit are rejected. The checksum is xxhash64 over the exact stored payload bytes (ciphertext and tag if encrypted). It is not a checksum of the header.
+For version 0, `flags` is a bit field: bit 0 is `ENCRYPTED`, bit 1 is `NONCE_PRESENT`, bit 2 is `UNCOMPRESSED`, and bits 3–15 are reserved and MUST be zero. `UNCOMPRESSED` indicates that the stored payload is raw block data and is valid for both encrypted and unencrypted blocks. `ENCRYPTED = 0` requires `NONCE_PRESENT = 0`; `ENCRYPTED = 1` requires `NONCE_PRESENT = 1`. The nonce is exactly 12 bytes and appears immediately after `block_index`. `reserved` must be zero; readers reject nonzero reserved bits or fields. `block_index` is zero-based and unique within the commit. Each encrypted block uses a fresh nonce under that commit's DEK; duplicate nonces within a commit are rejected. The checksum is xxhash64 over the exact stored payload bytes (ciphertext and tag if encrypted). It is not a checksum of the header.
 
 The processing order for data is:
 
 1. Build a plaintext block from file data.
-2. Compress it with Zstandard.
-3. Encrypt the compressed bytes if enabled.
+2. Compress it with Zstandard. If the compressed output is not strictly smaller than the original block, store the original bytes with the `UNCOMPRESSED` block flag (bit 2) set.
+3. Encrypt the selected representation if enabled; the flag is included in AEAD associated data.
 4. Store the frame and checksum its stored payload.
 
 For encrypted blocks, AAD is the exact serialized commit-prefix bytes excluding `prefix_checksum`, concatenated with the exact serialized block-frame fields through `nonce`, excluding `checksum` and `payload`. Ensure all lengths are finalized before calculating AEAD. For unencrypted blocks, checksums provide corruption detection but no authenticity.
