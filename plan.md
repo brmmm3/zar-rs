@@ -9,6 +9,13 @@
 
 Files are grouped into following types (Rust enum):
 
+- Empty files (size 0), which have no data blocks or file checksum.
+- Tiny files (sizes 1–8 bytes), stored as file data without a file-level checksum; computing a 64-bit checksum for data no larger than the checksum is not useful. Frame checksums still protect stored block payloads.
+- Small files (sizes 9 bytes through one byte below block size), collected into blocks and carrying a file-level xxhash64 checksum.
+- Big files (size at least block size), split into blocks and carrying a file-level xxhash64 checksum.
+
+The current TOC model stores file entries uniformly; `FileGroupKind` derives these groups from file size and the commit's block size. File-level checksum presence is optional in the logical header, so the tiny-file rule does not change the wire format.
+
 - Small files (smaller than block size)
   - SmallFiles(Vec<DirEntrySmall>)
   - DirEntrySmall:
@@ -94,9 +101,11 @@ Put-file records then contain:
 
 All integers are little-endian. Record order is significant and is preserved exactly; block-index order is also preserved. Paths use the canonical archive-path rules in section 6. A zero-length file has no block references; a non-empty file has at least one. Duplicate block indices within one file are invalid. The encoding has no padding or trailing bytes. Readers reject unsupported versions, unknown record tags, invalid UTF-8 or paths, truncation, trailing bytes, and configured size/count limit violations.
 
+Logical-header version 4 adds commit-scoped arbitrary metadata while retaining version 0–3 compatibility. The v4 prefix is `magic`, `version`, `block_size` (`u32`, zero when absent), `metadata_count` (`u32`), metadata entries, then `record_count` and the existing records. Metadata entries are sorted by UTF-8 key bytes when encoding for deterministic output; each entry stores `key_len` (`u32`), key bytes, a one-byte value tag (`1=String`, `2=i64`, `3=f64`), then the value (`String` uses `value_len` (`u32`) plus UTF-8 bytes; numeric values use 8 little-endian bytes, with `f64` represented by its IEEE-754 bit pattern). Keys must be unique. Readers reject unknown value tags, duplicate keys, invalid UTF-8, and configured metadata limits. Metadata is an in-memory `HashMap<String, MetadataType>` and is scoped to the commit header. `f64` values preserve their exact bit pattern.
+
 The processing order is:
 
-1. Serialize the logical header using the canonical v0 encoding above.
+1. Serialize the logical header using the canonical version selected for its contents (v0–v3 for headers without metadata; v4 when metadata is present).
 2. Compress it with Zstandard.
 3. If encryption is enabled, encrypt the compressed bytes with AEAD.
 4. Store the resulting payload and its descriptor.
