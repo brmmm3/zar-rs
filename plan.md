@@ -177,7 +177,7 @@ per_worker_budget = budget / workers
 
 Choose an automatic block size no larger than 8 MiB and no larger than the per-worker budget, rounded down to a supported size. If the per-worker budget is below 1 MiB, use 1 MiB as the minimum block size and reduce worker count until the estimated total working set fits the budget. If even one 1 MiB worker would exceed the budget, use one worker and issue a warning; optionally offer a low-memory mode with smaller blocks.
 
-The memory estimate must include input buffers, compression workspace, encryption buffers, and queued output—not just the block buffer. Bound the queue so parallel workers cannot collectively exceed the budget. Manual block size is 64 KiB–32 MiB; it may exceed the automatic budget, but the CLI must warn and limit concurrency or fail if the configured memory limit would be exceeded.
+The memory estimate must include input buffers, compression workspace, encryption buffers, and queued output—not just the block buffer. Bound the queue so parallel workers cannot collectively exceed the budget. Manual block size is 64 KiB–32 MiB; it may exceed the automatic budget, but the CLI must warn and limit concurrency or fail if the configured memory limit would be exceeded. File creation uses a bounded reader/compressor pipeline: a dedicated reader fills block buffers from the input filesystem while the calling thread compresses blocks in parallel and writes frames in input order. The bounded queue applies backpressure when compression or output is slower than reading, and its depth is capped by the selected worker count to keep memory bounded. This allows slow storage reads to overlap compression without buffering an entire file.
 
 ## 6. File paths, TOC, and deduplication
 
