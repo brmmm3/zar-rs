@@ -537,6 +537,11 @@ The repository also contains `gozarlib`, a Go module outside the Cargo
 workspace. It uses cgo to expose the C ABI operation dispatcher with Go
 operation helpers, tests, and examples.
 
+The repository also contains `jzarlib-ffm` and `jzarlib-jni`, separate Java
+modules outside the Cargo workspace. They expose the full C ABI operation
+surface with Java FFM (Java 22+) and JNI, respectively, and include operation
+tests plus direct API and command-style examples.
+
 ## 11. Language bindings, desktop UI, documentation, and benchmark
 
 Keep the Rust API as the behavior source of truth. The Python package exports
@@ -566,6 +571,11 @@ Go helpers over the full JSON dispatcher. Include complete operation coverage,
 Go tests, direct API and command-style examples, and document the Rust library
 build prerequisite and cgo runtime linking requirements.
 
+The Java FFM module uses the stable Foreign Function & Memory API (Java 22+)
+to call the C ABI directly. The separate JNI module provides a native C shim,
+Java operation helpers, tests, and examples. Both must expose every operation
+through the same JSON contract and document native-library build/loading.
+
 The `zarg` GUI uses `zarlib` operations, runs long work outside the UI thread,
 and reports progress, warnings, results, and confirmations. It supports
 archive browsing with virtualized listings; create/add/remove/join/check/info/
@@ -574,7 +584,7 @@ supported password-aware listing/extraction. Embed the selected licensed
 icons and preserve their attribution and license files.
 
 Maintain a root project overview, CLI README, library developer guide, format
-description, processing-pipeline diagrams, and package-specific Python/C/C++/Go/GUI
+description, processing-pipeline diagrams, and package-specific Python/C/C++/Go/Java/GUI
 documentation. Documentation must state real support boundaries, including
 password fallback precedence and encrypted remove/join limitations.
 
