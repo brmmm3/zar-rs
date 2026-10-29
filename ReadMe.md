@@ -39,6 +39,9 @@ cargo install --path zarc
 # Create an archive from files and directories
 zarc create backup.zar documents/ src/ notes.txt
 
+# Replace backup.zar atomically with a newly created archive
+zarc create --overwrite backup.zar documents/ src/ notes.txt
+
 # Inspect the archive and list its current contents
 zarc info -v backup.zar
 zarc list backup.zar
