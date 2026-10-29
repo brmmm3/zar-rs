@@ -5,6 +5,21 @@
 - Use latest dependencies
 - Use edition 2024
 
+## Product scope and current implementation
+
+This plan describes the format and the user-facing project built around it. The
+implemented workspace contains the Rust library (`zarlib`), command-line tool
+(`zarc`), desktop application (`zarg`), Python package (`pyzarlib`), and C
+library (`czarlib`). Public APIs and documentation must agree on format
+semantics, password handling, extraction policies, and unsupported operations.
+
+The current scope includes readable and password-encrypted commits; create,
+append, remove, join, info, list, check, filesystem extraction, and in-memory
+extraction; include/exclude scanning filters; and Rust, Python, C, CLI, and GUI
+entry points where listed below. Do not treat aspirational details as supported
+features unless they are implemented in the library and exposed through the
+relevant interface.
+
 ## 0. File grouping
 
 Files are grouped into following types (Rust enum):
@@ -26,10 +41,12 @@ The current TOC model stores file entries uniformly; `FileGroupKind` derives the
   - BigFiles(Vec<DirEntry, Vec<(BlockOffset, BlockSize)>>)
 - Empty files
   - EmptyFiles(Vec<DirEntry>)
-- Symbolic links (stored as the UTF-8 link target; extraction is opt-in and rejects targets that escape the extraction root)
-- Named pipes (stored as a special TOC entry and restored as FIFOs where supported)
-- Unix character/block devices (stored with kind plus major/minor numbers; extraction requires `--devices` and sufficient privileges)
-- Hard links are not yet represented as distinct entries.
+- Symbolic links, named pipes, and devices are currently reported and skipped
+  during create/add by default; `--strict` rejects the unsupported inputs.
+  Their logical-header record tags are reserved/decoded, but create and
+  extraction do not currently provide end-to-end support for these types.
+- Hard links are not represented as distinct entries. Identical file contents
+  can share block references through content deduplication.
 - Removed files (files to remove from container)
   - Remove(Vec<String>)
 
@@ -65,8 +82,10 @@ The `next_header_offset` at the start of each commit forms a forward chain: the 
 
 1. Read the container header (magic + `first_header_offset`).
 2. Seek to `first_header_offset` and read the header frame. The header frame's cleartext metadata includes `commit_id`, `data_section_size`, `header_frame_size`, and the encryption descriptor (see section 2).
-3. Data blocks occupy `[header_offset - data_section_size, header_offset)`.
-4. `next_header_offset` is at `[header_offset - data_section_size - 8, header_offset - data_section_size)`.
+3. The 8-byte `next_header_offset` slot is at
+   `[header_offset - data_section_size - 8, header_offset - data_section_size)`.
+4. Data blocks occupy
+   `[header_offset - data_section_size, header_offset)`.
 5. To read the next commit, seek to `next_header_offset` and repeat from step 2. A zero `next_header_offset` indicates the last commit.
 
 To find the last commit directly: seek to the end of the file, read the final 8 bytes (`this_header_offset`), and seek to that offset.
@@ -139,7 +158,11 @@ Logical-header version 4 adds commit-scoped arbitrary metadata, version 5 adds p
 
 Version 6 reuses the version 5 prefix and entry metadata table. File-type tags are `5=put symlink`, `6=put named pipe`, and `7=put device`. A symlink record stores a UTF-8 target as `target_len` (`u32`) followed by target bytes; an empty target or NUL is invalid. A device record stores kind (`1=character`, `2=block`), `major` (`u32`), and `minor` (`u32`). File-type entries participate in path replacement and removal like regular non-directory entries and carry no data blocks.
 
-`zarc create`/`add` include symbolic links, named pipes, and character/block devices in the TOC (strict mode continues to reject unsupported special inputs). Extraction creates FIFOs where supported; symlink creation is opt-in with `--symlinks` and rejects absolute or root-escaping targets; device creation is opt-in with `--devices` and may fail without privileges. Platform-specific unsupported operations return an error rather than silently producing a regular file.
+Although the logical-header format can represent symlinks, named pipes, and
+devices, current `zarc create`/`add` do not write those entries and instead
+skip them with `W_UNSUPPORTED_TYPE`, or fail when `--strict` is enabled.
+Extraction therefore does not restore these entry types end to end. Preserve
+the safety requirements above if these types are implemented later.
 
 The processing order is:
 
@@ -150,18 +173,29 @@ The processing order is:
 
 `compressed_header_len` is the exact number of payload bytes on disk (ciphertext plus authentication tag when encrypted). `header_checksum` is xxhash64 over those exact on-disk payload bytes. Checksum verification can detect accidental damage before decryption; it does not replace AEAD authentication.
 
-For encrypted headers, define AAD as the exact serialized header-frame fields from `magic` through `encryption_descriptor`, excluding `header_checksum` and `header_payload`. The header checksum is computed from the stored payload, so including it in AAD would create a circular dependency. All frame lengths (`data_section_size`, `header_frame_size`, `compressed_header_len`) must be finalized before computing header AEAD. Specify the encoding unambiguously; do not use Rust's in-memory struct layout.
+For encrypted headers, AAD is the serialized fixed commit-header fields,
+followed by the stored encrypted payload length and descriptor length and
+bytes. For encrypted data blocks, AAD is `CommitHeader::identity_bytes()`
+(magic, version, flags, and commit ID; 10 bytes), followed by the stored
+payload length and the serialized block flags, reserved field, block index,
+and nonce. Do not include the checksum or payload itself in AAD. Specify the
+encoding unambiguously; do not use Rust's in-memory struct layout.
 
 For unencrypted headers, the checksum is still calculated over the stored compressed header payload. The descriptor says `Unencrypted`; no AEAD operation is performed.
 
 ## 3. Encryption, passwords, and nonces
 
-Each commit has its own encryption policy. Support:
+Each commit has its own encryption policy. The currently exposed encrypted
+create/add APIs support password-based encryption with:
 
 - **No encryption**
-- **Symmetric encryption** with AES-256-GCM or ChaCha20-Poly1305
-- **Recipient encryption** using HPKE to wrap a fresh random 32-byte DEK for each recipient
-- Optionally, **password encryption**, using a password-derived key to wrap the DEK
+- **Password encryption** using a password-derived key to wrap the commit DEK,
+  with AES-256-GCM or ChaCha20-Poly1305 for content encryption.
+
+The descriptor wire model reserves passwordless symmetric and HPKE recipient
+key-wrap variants (X25519/HKDF-SHA256/AES-128-GCM). Until recipient-key
+creation, unlocking, and public APIs are implemented and tested, these
+descriptor variants are not a supported user workflow.
 
 Use a fresh cryptographically random DEK per commit and a fresh random nonce for each independently encrypted object. Never reuse a nonce with the same key. For HPKE, record the full suite and encapsulated key (`enc`) per recipient; HPKE wrapping uses its own context and nonce sequence, separate from content AEAD.
 
@@ -170,6 +204,24 @@ Passwords must not be used directly as keys. Derive a wrapping key using Argon2i
 All on-disk enums use explicit one-byte tags, not Rust enum discriminants. Integers are little-endian. Variable-length byte strings use a `u32` length prefix. The encryption descriptor is at most 64 KiB; recipient count at most 1,024; recipient IDs 1–256 bytes; HPKE `enc` at most 1 KiB; wrapped DEK at most 4 KiB; password salt exactly 16 bytes. Readers reject unknown mandatory tags, duplicate recipient IDs, truncated fields, trailing bytes, and length overflows. Unknown optional TLVs may be skipped only when their high-bit optional tag is set. The format version defines mandatory tags and exact field order.
 
 Header encryption uses the commit DEK and a dedicated random 96-bit header nonce. Each block encrypted under that DEK uses a fresh random 96-bit nonce. Reject duplicate nonces within the commit; never reuse a nonce with the same key. Random nonces are stored in each encrypted header/block frame.
+
+The supported scopes are `data`, `header`, and `header-and-data`; password
+creation defaults to `header-and-data`. Data-only encryption leaves the
+compressed logical header readable, so `info` and `list` can inspect it
+without credentials while data extraction still requires the password.
+Header-only encryption authenticates the logical header while leaving blocks
+unencrypted. Store and report each commit's scope and content AEAD
+independently; an archive may mix encrypted and unencrypted commits, passwords,
+and AES/ChaCha algorithms.
+
+For archive reads, a password map associates passwords with canonical
+eight-hex-digit commit IDs. An explicitly mapped commit password takes
+precedence over a single default/fallback password; the fallback is tried for
+every encrypted commit without an override. Keep the existing single-password
+Rust APIs as fallback-compatible wrappers. Never put a password value in CLI
+arguments or logs: the CLI prompts without echo and accepts repeated
+`--password-for COMMIT_ID` prompts, with bare `--password` supplying the
+fallback. Python and C accept equivalent per-commit mappings.
 
 When the header is encrypted, the reader must first parse the cleartext prefix and bounded header descriptor, obtain the DEK, authenticate/decrypt the header, then decompress and parse it. The descriptor must say whether header, data blocks, or both are encrypted.
 
@@ -199,7 +251,12 @@ The processing order for data is:
 
 For encrypted blocks, AAD is the exact serialized header-frame fields from `magic` through `encryption_descriptor` (excluding `header_checksum` and `header_payload`), concatenated with the exact serialized block-frame fields through `nonce`, excluding `checksum` and `payload`. Ensure all lengths are finalized before calculating AEAD. For unencrypted blocks, checksums provide corruption detection but no authenticity.
 
-Put both compressed and uncompressed lengths, and the block’s index, in authenticated header metadata so decompression can enforce size limits and detect truncation or reordering. Enforce configured maximum sizes before allocation/decompression.
+The current logical header stores file sizes and ordered block references, not
+an independent uncompressed-size field for each block. Enforce configured
+payload and decompressed-block limits before allocation/decompression, validate
+frame checksums, and verify reconstructed file sizes against the logical
+header. Preserve block indices and ownership by commit to detect missing,
+duplicate, or cross-commit references.
 
 ## 5. Block sizing and parallelism
 
@@ -219,24 +276,44 @@ The memory estimate must include input buffers, compression workspace, encryptio
 
 The `create` and `add` commands use a multi-stage, multi-threaded pipeline that overlaps I/O, deduplication, compression, and encryption. The pipeline is assembled after the input file tree has been scanned and its TOC is known.
 
-**File grouping.** After the file tree is read, every input is classified into the file groups defined in section 0: empty, tiny, small, and big files, plus special entries (symbolic links, hard links, named pipes, and devices). Hard links are detected by filesystem node number (inode); files sharing the same node number are treated as hard links to the first-encountered regular file rather than as independent data. Special entries carry no data blocks and are recorded directly in the TOC.
+**File grouping.** After the file tree is scanned, every supported regular file
+is classified into the groups defined in section 0: empty, tiny, small, and big
+files. Symlinks and special files are currently skipped with a warning (or
+rejected in strict mode). Hard links are not stored as separate entry types;
+deduplication of equal file contents can reuse block references.
 
-**Reader threads.** One file-reader thread is spawned per CPU core. Reader threads only read file contents (or block-sized slices of big files) into buffers; they do not compress or encrypt. Each reader also performs deduplication: for files of at least 9 bytes it computes the size and xxhash64, and for tiny files it compares size plus exact content, against the shared deduplication map. A file that matches an already-seen candidate is recorded as a reference to the existing block indices and is not enqueued for compression.
+**Scanning and bounded worker pipeline.** The scanner walks inputs in
+deterministic order, validates archive-relative paths, applies include/exclude
+filters, classifies supported files, and builds TOC state. Compression workers
+are selected using available memory and bounded worker-memory estimates rather
+than a fixed per-core topology. Small/tiny and big-block work is sent through
+bounded queues; backpressure prevents unbounded in-flight buffers.
 
-**Worker threads.** One worker thread is spawned per performance core. Worker threads perform compression (Zstandard) and, when enabled, encryption (AEAD) of block payloads.
+Workers compress blocks using Zstandard and encrypt them inline when data
+encryption is selected. Deduplication uses uncompressed size and xxhash64 as a
+candidate key, then confirms content equality before reusing data.
 
-**Queues.** Two bounded queues feed the workers:
+**Queues.** Bounded queues feed the workers:
 
 - A small/tiny queue holds small and tiny files. Because small files are smaller than the block size, several small files are packed into a single block. Each queued item carries its block number and file id.
 - A big-file queue holds block-sized slices of big files. Each queued item carries its block number and file id.
 
-**Small/tiny workers.** A subset of the worker threads pulls from the small/tiny queue and accumulates small files into blocks. When a block is full, the worker compresses (and encrypts) it and forwards the finished block to the writer thread. When all small and tiny files have been processed, these workers switch to pulling from the big-file queue, and vice versa, so that no worker idles while work remains in the other queue.
+**Small/tiny workers.** Workers pull from the small/tiny queue and accumulate
+small files into blocks. When a block is full, it is compressed (and encrypted
+when configured) and forwarded for writing.
 
-**Big-file workers.** The remaining worker threads pull block-sized slices from the big-file queue, compress (and encrypt) each block, and forward the finished block to the writer thread.
+**Big-file workers.** Workers pull block-sized slices from the big-file queue,
+compress (and encrypt when configured) each block, and forward finished
+frames for writing.
 
-**Dedudplication.** Do deduplication only for files which are bigger than the data size which is used for deduplicated files.
+**Deduplication.** Deduplicate files by uncompressed size and content, retaining
+the existing tiny-file exact-comparison rule. Do not deduplicate across
+incompatible block boundaries or encryption contexts.
 
-**Writer thread.** A single writer thread receives finished blocks from all workers and writes them to the archive in block-index order. Because workers may finish blocks out of order, the writer reassembles them by block number before writing, preserving the on-disk invariant that data blocks appear in block-index order. The writer also tracks `data_section_size` and, once all blocks are written, builds and appends the header frame.
+**Writer.** Write finished blocks in block-index order, track
+`data_section_size`, and append the validated header frame after all data has
+been written. Bound queued output and preserve the block-index ordering
+invariant.
 
 The queues are bounded so that total in-flight memory (input buffers, compression workspace, encryption buffers, and queued output) stays within the memory budget described above. Backpressure is applied when a queue is full, so readers and workers block rather than buffering unbounded data.
 
@@ -257,7 +334,9 @@ For deduplication, xxhash64 is only a candidate lookup key. Confirm a match by c
 
 Use portable, tagged metadata records. Store only metadata that can be meaningfully represented, such as permissions and timestamps, with platform-specific values in optional, namespaced extensions. Owners should be stored as platform-specific identifiers rather than assumed portable names. Symlink targets must be validated according to extraction policy. Devices and other special files must require explicit opt-in to create on extraction.
 
-Unsupported file types are ignored with warnings by default; strict mode makes them errors. Do not silently follow symlinks during scanning unless the user explicitly requests it. A hard-link entry contains its archive-relative target path. The target must resolve to a regular file in the effective TOC when the commit is applied. It may target a file added earlier in the same commit or an earlier commit, but not a later entry. Invalid or unavailable targets are skipped with a warning in non-strict mode and fail in strict mode. If the destination filesystem cannot create hard links, extraction fails for that entry by default; `--hardlinks copy` may instead write a copy and issue a warning.
+Unsupported file types are ignored with warnings by default; strict mode makes
+them errors. Do not silently follow symlinks during scanning. Hard links are not
+stored as explicit entries in the current implementation.
 
 ## 7. Joining commits and history
 
@@ -269,9 +348,20 @@ Write to a temporary file, fsync as appropriate, and atomically replace the orig
 
 ## 8. Extraction and errors
 
-For extraction, first read and validate commit framing and build the selected commit sequence. Apply readable commits in order. In interactive mode, an encrypted commit without credentials is skipped with a warning by default. In non-interactive mode, missing credentials are an error unless `--skip-encrypted` is explicitly given; with that option the commit is skipped and `W_ENCRYPTED_SKIPPED` is reported. Credentials must be associated with a commit ID or recipient identity, not ambiguous password ordering. In strict mode, every warning is fatal; abort before writing extracted files, or stage output and publish it only after success.
+For extraction, first read and validate commit framing and build the selected
+commit sequence. Apply readable commits in order. If any encrypted portion
+needed for the requested operation lacks credentials or authentication fails,
+return an explicit error before writing extracted files; do not silently skip
+encrypted commits. Credentials are supplied as a per-commit password mapping
+with one default fallback, as described in section 3.
 
-Warnings have stable categories: `W_ENCRYPTED_SKIPPED` (encrypted commit lacks credentials), `W_UNSUPPORTED_TYPE` (unsupported file type), `W_COLLISION_RESOLVED` (archive paths collide), `W_DESTINATION_SKIPPED` (destination file skipped), `W_METADATA_NOT_APPLIED` (metadata could not be restored), `W_HARDLINK_COPIED` (hard link extracted as a copy), and `W_RECOVERY_SCAN` (damaged framing required recovery scanning). Errors include malformed framing or metadata, failed authentication, invalid paths, decompression limits exceeded, and failed writes. A checksum mismatch is an error for that commit; non-strict extraction may skip it and continue only if framing safely locates the next commit. Otherwise stop or enter an explicitly requested recovery scan.
+Warnings have stable categories, including `W_UNSUPPORTED_TYPE` (unsupported
+input type), collision and destination-policy warnings, and `W_RECOVERY_SCAN`
+(damaged framing required recovery scanning). Errors include malformed
+framing/metadata, failed authentication, missing or incorrect credentials,
+invalid paths, decompression limits exceeded, and failed writes. A checksum
+mismatch is an error for that commit; recovery is an explicit `check --recover`
+operation and does not modify the archive.
 
 ## 9. CLI interface
 
@@ -288,11 +378,32 @@ zarc check <archive.zar> [--recover] [--strict]
 zarc join <archive.zar> --from ID --through ID [options]
 ```
 
-Common options should include `--compression-level`, `--workers N`, `--leave-cores N`, `--performance-cores`, `--block-size SIZE|auto`, `--memory-limit SIZE`, and `--strict`. Encryption options should be explicit, for example `--encrypt aes-256-gcm`, `--encrypt chacha20-poly1305`, `--password-for COMMIT_ID` (prompt for the password), or recipient public-key inputs. Avoid passwords in command-line arguments because they may be exposed in process listings; support interactive prompts and protected input sources.
+Provide command aliases `c`, `a`, `r`, `j`, `k`, `i`, `l`, and `e` for
+create, add, remove, join, check, info, list, and extract respectively. Create
+and add support `--block-size SIZE|auto`, `--compression-level`, include/exclude
+file and folder patterns, filter-list files, optional metadata, special-file
+selection, progress, and strict input handling. Create refuses an existing
+destination by default; `--overwrite` enables replacement while preserving
+failure cleanup and atomic publication. The GUI exposes the same operation
+settings where supported.
+
+Encryption options include `--password`, `--aead aes-256-gcm|chacha20-poly1305`,
+and `--encryption-scope data|header|header-and-data` on encrypted create/add.
+Passwords are entered through a no-echo prompt, never a command-line value.
+Read operations accept `--password` for a fallback and repeatable
+`--password-for COMMIT_ID` for commit-specific prompts. Commit IDs are
+displayed and supplied in canonical eight-hex-digit counter order; never use
+the raw little-endian byte order as the display value.
 
 For extraction, expose separate options for path collisions (`--collision error|latest|first|rename|ask`) and existing destination files (`--existing overwrite|skip|error|ask`). `ask` is interactive-only and should fail clearly in non-interactive mode. Add `--dry-run` to show the final TOC and planned actions without writing files.
 
-`--through COMMIT_ID` selects the commit with that exact 8-hex-digit ID (the little-endian encoding of its nonzero `u32` counter) and applies commits from the beginning through and including it. The ID must exist and be unique; there is no index interpretation, and absent or malformed IDs are errors. Use `--password-for COMMIT_ID` to prompt for a password; never accept passwords directly as command-line values. Recipient private keys are supplied through protected key-file options and matched against recipient IDs. Any `ask` collision, overwrite, or rename policy requires an interactive terminal and is an error in non-interactive mode.
+`--through COMMIT_ID` selects the commit with that exact 8-hex-digit displayed
+ID and applies commits from the beginning through and including it. The ID
+must exist and be unique; there is no index interpretation, and absent or
+malformed IDs are errors. Any `ask` collision or existing-file policy requires
+an interactive terminal and fails early in non-interactive mode. `info`
+reports per-commit header/data encryption status and AEAD; JSON output is
+available for machine-readable framing and encryption information.
 
 `add`, `remove`, and other in-place operations should use a temporary output, validate it, and atomically replace the original. Use these exit codes:
 
@@ -318,60 +429,81 @@ struct ContainerHeader {
     first_header_offset: u64,
 }
 
-struct HeaderFrame {
+struct CommitHeader {
     magic: [u8; 4],              // "ZCMT"
     framing_version: u8,
     flags: u8,
     commit_id: [u8; 4],
     data_section_size: u64,
     header_frame_size: u32,
-    compressed_header_len: u32,
-    header_checksum: u64,
+}
+
+struct HeaderFrame {
+    commit_header: CommitHeader, // serialized fixed size: 22 bytes
+    payload_len: u32,
+    checksum: u64,
     encryption_descriptor_len: u32,
-    // followed by: encryption_descriptor, header_payload
+    // followed by: encryption_descriptor, compressed/encrypted payload
 }
 
-enum HeaderEncryption {
-    None,
-    Aes256Gcm {
+enum EncryptionDescriptor {
+    Unencrypted,
+    Symmetric {
+        scope: EncryptionScope,
+        algorithm: ContentAead,
         nonce: [u8; 12],
-        key_source: KeySource,
     },
-    ChaCha20Poly1305 {
-        nonce: [u8; 12],
-        key_source: KeySource,
-    },
-}
-
-enum KeySource {
     Password {
-        kdf: PasswordKdf,
-        salt: Vec<u8>,
-        memory_kib: u32,
-        iterations: u32,
-        parallelism: u32,
-        wrapped_dek: Vec<u8>,
-        wrap_nonce: [u8; 12],
+        scope: EncryptionScope,
+        algorithm: ContentAead,
+        nonce: [u8; 12],
+        key_wrap: PasswordKeyWrap,
     },
-    Recipients(Vec<RecipientEntry>),
+    Recipients {
+        scope: EncryptionScope,
+        algorithm: ContentAead,
+        nonce: [u8; 12],
+        recipients: Vec<RecipientKeyWrap>,
+    },
     PasswordAndRecipients {
+        scope: EncryptionScope,
+        algorithm: ContentAead,
+        nonce: [u8; 12],
         password: PasswordKeyWrap,
-        recipients: Vec<RecipientEntry>,
+        recipients: Vec<RecipientKeyWrap>,
     },
 }
 
-struct RecipientEntry {
+enum EncryptionScope {
+    Header,
+    Data,
+    HeaderAndData,
+}
+
+struct PasswordKeyWrap {
+    algorithm: ContentAead,
+    salt: [u8; 16],
+    memory_kib: u32,
+    iterations: u32,
+    parallelism: u32,
+    wrap_nonce: [u8; 12],
+    wrapped_dek: Vec<u8>,
+}
+
+struct RecipientKeyWrap {
     recipient_id: Vec<u8>,
     suite: HpkeSuite,
     enc: Vec<u8>,
     wrapped_dek: Vec<u8>,
 }
 
-struct HpkeSuite {
-    kem: HpkeKem,
-    kdf: HpkeKdf,
-    aead: HpkeAead,
+struct PasswordSet {
+    default: Option<Zeroizing<Vec<u8>>>,
+    by_commit: BTreeMap<[u8; 4], Zeroizing<Vec<u8>>>,
 }
+
+// The descriptor reserves symmetric-key and recipient-key variants, but
+// end-to-end public-key creation/unlocking is not exposed as a user workflow.
 
 struct BlockFrame {
     compressed_len: u32,
@@ -389,5 +521,60 @@ struct RuntimeSecrets {
 
 ## Rust workspace
 
-- For library use folder and crate name zarlib
-- For cli use folder and crate name zarc
+The Cargo workspace uses Rust edition 2024 and contains:
+
+- `zarlib`: format implementation, validation, compression/encryption, and
+  archive operations.
+- `zarc`: command-line application.
+- `zarg`: native `egui` desktop archive manager using the same library APIs.
+- `pyzarlib`: PyO3 module and Python package/CLI example.
+- `czarlib`: C ABI library with a JSON request/response dispatcher.
+
+## 11. Language bindings, desktop UI, documentation, and benchmark
+
+Keep the Rust API as the behavior source of truth. The Python package exports
+create, add, remove, join, check, info, list, filesystem extract, and
+in-memory extract operations. In-memory extraction returns a mapping from
+archive paths to bytes and accepts per-file size limits and a starting offset.
+Python tests should cover the API and run native Rust library tests where
+configured. Support Python 3.9 through 3.15 in metadata and CI. The CI matrix
+also covers free-threaded CPython 3.14t/3.15t; preserve PyO3's no-GIL declaration
+and verify concurrent calls and import without re-enabling the GIL.
+
+The C package exports the same operation surface through a UTF-8 JSON
+dispatcher, a public header, example program, and integration tests. Validate
+request types and required fields explicitly, return allocated response/error
+strings with the documented free function, and never retain caller-owned
+request pointers.
+
+The `zarg` GUI uses `zarlib` operations, runs long work outside the UI thread,
+and reports progress, warnings, results, and confirmations. It supports
+archive browsing with virtualized listings; create/add/remove/join/check/info/
+list/extract; collision and existing-file policies; filters; metadata; and
+supported password-aware listing/extraction. Embed the selected licensed
+icons and preserve their attribution and license files.
+
+Maintain a root project overview, CLI README, library developer guide, format
+description, processing-pipeline diagrams, and package-specific Python/C/GUI
+documentation. Documentation must state real support boundaries, including
+password fallback precedence and encrypted remove/join limitations.
+
+Provide a Linux benchmark program that downloads `linux-4.0.1.tar.gz` into
+`testdata/` only if absent, validates the tarball before extraction, and
+refreshes an incomplete/mismatched source tree. Benchmark compression and
+extraction with zarlib, ZIP, 7z, and tar.gz both without encryption and with
+encryption. Because tar.gz has no native encryption, wrap its output with
+OpenSSL CMS AES-256-GCM and document that wrapper's measured cost; document
+that ZIP's legacy ZipCrypto is not comparable in strength to AES-256-GCM or
+7z AES. Use ephemeral random credentials/keys and remove benchmark archives
+and key material on exit. Before every extraction, empty `testresults/`;
+after extraction, verify regular-file paths and sizes and clean the directory
+again even when extraction fails. Account explicitly for symlinks skipped by
+zarlib, case-fold collision renames, and 7z's unsafe-relative-link extraction
+warnings. Generate a Markdown report with tool versions, method and caveats,
+compression/extraction times, archive sizes, throughput, and SVG charts.
+
+For CI and release validation, run formatting, strict Clippy, Rust tests,
+Python wheel/pytest, C integration tests, and generated-document checks as
+appropriate. State which runtimes were actually exercised locally versus
+covered by CI; do not claim target-version support from metadata alone.
