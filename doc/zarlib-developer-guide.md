@@ -165,10 +165,11 @@ operation's integrity checks together.
 
 The wire format uses a 12-byte `ZAR0` container header and `ZCMT` commit
 headers. Data blocks precede their commit's header frame, allowing writers to
-stream data before the complete logical header is known. See the repository's
-[`plan.md`](../plan.md) for the current byte layouts and compatibility rules.
-Changes to the logical-header wire layout require an explicit versioned
-compatibility decision.
+stream data before the complete logical header is known. See the
+[ZAR file architecture diagram](./zar-file-format.md) for the current
+container, commit, header-frame, and block-frame layouts. Changes to the
+logical-header wire layout require an explicit versioned compatibility
+decision.
 
 For the execution flow of the CLI `create` and `add` operations, see the
 [PlantUML processing pipelines](./processing-pipelines.md).
