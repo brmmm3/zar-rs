@@ -3,6 +3,7 @@ use std::ffi::{CStr, CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::sync::Mutex;
+use zarlib::ContentAead;
 use zarlib::operations::{
     self, AddInputOptions, CollisionPolicy, CreateFilterOptions, CreateInputOptions,
     EncodingOptions, ExistingPolicy, ExtractionOptions, FilterSet, Progress,
@@ -141,17 +142,32 @@ fn password(request: &Value) -> Result<Option<Vec<u8>>, String> {
         .map(|password| password.map(|value| value.as_bytes().to_vec()))
 }
 
+fn content_aead(request: &Value) -> Result<ContentAead, String> {
+    match request
+        .get("aead")
+        .and_then(Value::as_str)
+        .unwrap_or("aes-256-gcm")
+    {
+        "aes-256-gcm" => Ok(ContentAead::Aes256Gcm),
+        "chacha20-poly1305" => Ok(ContentAead::ChaCha20Poly1305),
+        _ => Err("'aead' must be 'aes-256-gcm' or 'chacha20-poly1305'".to_owned()),
+    }
+}
+
 fn create(request: &Value) -> Result<Value, String> {
     let archive = required_string(request, "archive")?;
     let input_paths = paths(request)?;
     let options = encoding_options(request)?;
     let filters = filters(request)?;
-    let report = operations::create_archive_with_password_progress_and_filters(
+    let aead = content_aead(request)?;
+    let report = operations::create_archive_with_password_progress_and_filters_and_aead(
         archive,
         &input_paths,
         bool_option(request, "strict", false)?,
         options,
-        password(request)?.as_deref(),
+        password(request)?
+            .as_deref()
+            .map(|password| (password, aead)),
         None,
         CreateFilterOptions {
             input: CreateInputOptions {
@@ -167,6 +183,10 @@ fn create(request: &Value) -> Result<Value, String> {
     Ok(json!({
         "block_size": report.block_size,
         "warnings": report.warnings,
+        "aead": match aead {
+            ContentAead::Aes256Gcm => "aes-256-gcm",
+            ContentAead::ChaCha20Poly1305 => "chacha20-poly1305",
+        },
     }))
 }
 

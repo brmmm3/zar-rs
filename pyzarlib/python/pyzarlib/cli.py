@@ -57,6 +57,12 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--special-files", action="store_true")
     create.add_argument("--overwrite", action="store_true")
     create.add_argument("--password", action="store_true", help="prompt for encryption password")
+    create.add_argument(
+        "--aead",
+        choices=["aes-256-gcm", "chacha20-poly1305"],
+        default="aes-256-gcm",
+        help="content encryption algorithm used with --password (default: aes-256-gcm)",
+    )
     _add_filters(create)
     _add_encoding(create)
     create.add_argument("archive")
@@ -214,6 +220,7 @@ def _run(args: argparse.Namespace) -> int:
             save_metadata=args.metadata,
             include_special_files=args.special_files,
             verbose=args.verbose,
+            aead=args.aead,
             password=_password(args.password),
             **_encoding(args),
             **_filters(args),

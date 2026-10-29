@@ -200,7 +200,7 @@ The operation modules and their commonly used public entry points are:
 
 | Module | Main APIs | Purpose |
 |---|---|---|
-| `operations::create` | `create_archive`, `create_archive_with_options`, `create_archive_with_encoding`, `create_archive_with_password_progress_and_filters` | Create a new archive; optional strict scanning, encoding options, password encryption, and path filters. |
+| `operations::create` | `create_archive`, `create_archive_with_options`, `create_archive_with_encoding`, `create_archive_with_password_progress_and_filters`, `create_archive_with_password_progress_and_filters_and_aead` | Create a new archive; optional strict scanning, encoding options, password encryption, AEAD selection, and path filters. |
 | `operations::add` | `add_archive`, `add_archive_with_encoding`, `add_archive_with_encoding_progress_and_options_and_filters` | Append a commit that adds or replaces paths, optionally filtered. |
 | `operations::remove` | `remove_archive` | Append tombstones for existing archive-relative paths. |
 | `operations::join` | `join_archive_with_encoding` | Compact a contiguous commit range. |
@@ -326,9 +326,119 @@ For the execution flow of the CLI `create` and `add` operations, see the
 
 The library exports AES-256-GCM and ChaCha20-Poly1305 content primitives,
 Argon2id password-based DEK wrapping, stable encryption descriptors, and
-zeroizing key-handling helpers. `create_archive_with_password` and
-`extract_archive_with_progress` (or `extract_archive_with_options`) accept
-password bytes; do not log or persist those bytes unnecessarily.
+zeroizing key-handling helpers. The high-level creator defaults to
+AES-256-GCM. To select the content algorithm, use
+`create_archive_with_password_progress_and_filters_and_aead`; the selected AEAD
+is used both for the content and the password-wrapped data-encryption key.
+Pass the password as bytes and never log or persist those bytes unnecessarily.
+
+### Create AES-256-GCM or ChaCha20-Poly1305 archives
+
+The following example creates two separate encrypted archives with the same
+input, choosing one of the supported algorithms for each. The password prompt
+is intentionally outside this example; obtain it securely rather than
+hard-coding it in a real application.
+
+```rust,no_run
+use std::path::PathBuf;
+use zarlib::ContentAead;
+use zarlib::operations::{
+    CreateFilterOptions, CreateInputOptions, EncodingOptions, FilterSet,
+    create_archive_with_password_progress_and_filters_and_aead,
+};
+
+fn create_encrypted_examples(password: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    let paths = vec![PathBuf::from("secrets")];
+    let filters = FilterSet::default();
+    for (archive, aead) in [
+        ("secrets-aes.zar", ContentAead::Aes256Gcm),
+        ("secrets-chacha.zar", ContentAead::ChaCha20Poly1305),
+    ] {
+        create_archive_with_password_progress_and_filters_and_aead(
+            archive,
+            &paths,
+            false,
+            EncodingOptions::default(),
+            Some((password, aead)),
+            None,
+            CreateFilterOptions {
+                input: CreateInputOptions::default(),
+                filters: &filters,
+            },
+        )?;
+    }
+    Ok(())
+}
+```
+
+`ContentAead::Aes256Gcm` selects AES-256-GCM; `ContentAead::ChaCha20Poly1305`
+selects ChaCha20-Poly1305. The library generates a fresh data-encryption key
+and nonces, and uses Argon2id to derive the password key that wraps the data
+key. Do not create or reuse your own nonce/key material for these high-level
+operations.
+
+### Unlock, check, list, and extract
+
+The algorithm is recorded in each commit's encryption descriptor. Readers
+select the matching AEAD from the descriptor, so the same password-aware
+operations work for both algorithms:
+
+```rust,no_run
+use std::path::Path;
+use zarlib::operations::{
+    CollisionPolicy, ExistingPolicy, ExtractionOptions, check_archive_with_recovery,
+    extract_archive_with_progress, list_archive,
+};
+
+fn read_encrypted_example(password: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    let archive = "secrets-chacha.zar";
+    let check = check_archive_with_recovery(archive, false, Some(password))?;
+    println!("checked {} commit(s)", check.commits);
+
+    let toc = list_archive(archive, None, Some(password))?;
+    for (path, entry) in toc.iter() {
+        println!("{}: {entry:?}", path.as_str());
+    }
+
+    let plan = extract_archive_with_progress(
+        archive,
+        Path::new("restored"),
+        ExtractionOptions {
+            dry_run: false,
+            through: None,
+            collision_policy: CollisionPolicy::Rename,
+            existing_policy: ExistingPolicy::Error,
+            restore_metadata: false,
+            restore_symlinks: false,
+            restore_devices: false,
+        },
+        Some(password),
+        None,
+    )?;
+    println!("extracted {} file(s)", plan.files.len());
+    Ok(())
+}
+```
+
+For a dry run, set `dry_run: true`. A missing or incorrect password fails
+authentication. `check_archive_with_recovery` can report encrypted payloads as
+unverified when no password is supplied; use the password when you need
+authenticated content validation.
+
+The `zarc` CLI also provides password prompting without echo and defaults to
+AES-256-GCM:
+
+```sh
+zarc create --password secrets-aes.zar secrets/
+zarc create --password --aead chacha20-poly1305 secrets-chacha.zar secrets/
+zarc check --password secrets-chacha.zar
+zarc list --password secrets-chacha.zar
+zarc extract --password secrets-chacha.zar --to restored/
+```
+
+Do not pass passwords as command-line arguments; the CLI prompts interactively.
+Appending, removing, and joining encrypted archives are not supported because
+those operations cannot currently rewrite the accumulated encrypted TOC.
 
 Keep these current constraints in mind:
 

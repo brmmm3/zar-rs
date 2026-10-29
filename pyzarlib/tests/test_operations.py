@@ -300,6 +300,39 @@ def test_encrypted_archive_operations_authenticate_password(
     assert not (tmp_path / "locked").exists()
 
 
+@pytest.mark.parametrize("aead", ["aes-256-gcm", "chacha20-poly1305"])
+def test_selected_aead_can_create_check_and_extract(
+    tmp_path: Path, aead: str
+) -> None:
+    source = tmp_path / "source.txt"
+    source.write_bytes(b"encrypted example")
+    archive = tmp_path / f"{aead}.zar"
+    password = b"sample-password"
+
+    result = pyzarlib.create_archive(
+        archive,
+        [source],
+        password=password,
+        aead=aead,
+        block_size=64 * 1024,
+    )
+    assert result["aead"] == aead
+    assert pyzarlib.check_archive(archive, password=password)["commits"] == 1
+    assert pyzarlib.list_archive(archive, password=password)[0]["path"] == "source.txt"
+    assert pyzarlib.extract_archive_to_memory(
+        archive,
+        password=password,
+    ) == {"source.txt": b"encrypted example"}
+
+    destination = tmp_path / "restored"
+    pyzarlib.extract_archive(
+        archive,
+        destination,
+        password=password,
+    )
+    assert (destination / "source.txt").read_bytes() == b"encrypted example"
+
+
 def test_extension_is_safe_for_concurrent_python_threads(tmp_path: Path) -> None:
     payloads = [bytes([index]) * (64 * 1024 + index) for index in range(8)]
 

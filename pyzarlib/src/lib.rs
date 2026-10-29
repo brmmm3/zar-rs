@@ -8,7 +8,7 @@ use zarlib::operations::{
     CreateInputOptions, EncodingOptions, ExistingPolicy, ExtractedKind, ExtractionOptions,
     FilterSet, Progress,
 };
-use zarlib::{DeviceKind, Toc, TocEntry};
+use zarlib::{ContentAead, DeviceKind, Toc, TocEntry};
 
 struct WarningCollector {
     warnings: Mutex<Vec<String>>,
@@ -109,6 +109,16 @@ fn existing_policy(policy: &str) -> PyResult<ExistingPolicy> {
     }
 }
 
+fn content_aead(algorithm: &str) -> PyResult<ContentAead> {
+    match algorithm {
+        "aes-256-gcm" => Ok(ContentAead::Aes256Gcm),
+        "chacha20-poly1305" => Ok(ContentAead::ChaCha20Poly1305),
+        _ => Err(value_error(
+            "aead must be 'aes-256-gcm' or 'chacha20-poly1305'",
+        )),
+    }
+}
+
 fn commit_id(id: &[u8; 4]) -> String {
     id.iter().map(|byte| format!("{byte:02x}")).collect()
 }
@@ -129,11 +139,12 @@ fn commit_id(id: &[u8; 4]) -> String {
     include_files = None,
     exclude_files = None,
     include_folders = None,
-    exclude_folders = None
+    exclude_folders = None,
+    aead = "aes-256-gcm"
 ))]
 #[allow(clippy::too_many_arguments)]
-fn create_archive(
-    py: Python<'_>,
+fn create_archive<'py>(
+    py: Python<'py>,
     archive: PathBuf,
     paths: Vec<PathBuf>,
     strict: bool,
@@ -148,7 +159,8 @@ fn create_archive(
     exclude_files: Option<Vec<String>>,
     include_folders: Option<Vec<String>>,
     exclude_folders: Option<Vec<String>>,
-) -> PyResult<Bound<'_, PyDict>> {
+    aead: &str,
+) -> PyResult<Bound<'py, PyDict>> {
     let archive = archive_string(archive)?;
     let options = encoding_options(block_size, compression_level)?;
     let filters = filters(
@@ -157,14 +169,15 @@ fn create_archive(
         include_folders,
         exclude_folders,
     )?;
+    let aead = content_aead(aead)?;
     let report = py
         .detach(move || {
-            operations::create_archive_with_password_progress_and_filters(
+            operations::create_archive_with_password_progress_and_filters_and_aead(
                 &archive,
                 &paths,
                 strict,
                 options,
-                password.as_deref(),
+                password.as_deref().map(|password| (password, aead)),
                 None,
                 CreateFilterOptions {
                     input: CreateInputOptions {
@@ -182,6 +195,13 @@ fn create_archive(
     let result = PyDict::new(py);
     result.set_item("block_size", report.block_size)?;
     result.set_item("warnings", report.warnings)?;
+    result.set_item(
+        "aead",
+        match aead {
+            ContentAead::Aes256Gcm => "aes-256-gcm",
+            ContentAead::ChaCha20Poly1305 => "chacha20-poly1305",
+        },
+    )?;
     Ok(result)
 }
 

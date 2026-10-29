@@ -82,7 +82,7 @@ The output shapes follow the corresponding Python API:
 
 | Operation | Required request fields | Useful optional fields |
 |---|---|---|
-| `create_archive` | `archive`, `paths` | `block_size`, `compression_level`, `strict`, `overwrite`, `save_metadata`, `include_special_files`, `verbose`, `password`, `include_files`, `exclude_files`, `include_folders`, `exclude_folders` |
+| `create_archive` | `archive`, `paths` | `block_size`, `compression_level`, `strict`, `overwrite`, `save_metadata`, `include_special_files`, `verbose`, `password`, `aead`, `include_files`, `exclude_files`, `include_folders`, `exclude_folders` |
 | `add_archive` | `archive`, `paths` | Same encoding, scan, and filter fields as create except `overwrite` and `password` |
 | `remove_archive` | `archive`, `paths` | — |
 | `join_archive` | `archive`, `from_id`, `through_id` | `block_size`, `compression_level` |
@@ -96,6 +96,51 @@ Supported block sizes are `0` (automatic) or 64 KiB through 32 MiB;
 compression levels are -7 through 22. Filter values are arrays of fnmatch
 patterns. The `remove_archive` paths are archive-relative names, not filesystem
 paths to delete. Join endpoints are inclusive eight-hex-digit commit IDs.
+
+For password encryption, set `"password"` and optionally `"aead"` on a
+`create_archive` request. The `aead` value is `"aes-256-gcm"` (the default) or
+`"chacha20-poly1305"`. The descriptor records this algorithm, so check, list,
+and extraction requests only need the password and do not need an `aead` field.
+
+```c
+char *response = NULL;
+char *error = NULL;
+int status = czarlib_execute_json(
+    "create_archive",
+    "{\"archive\":\"secret.zar\",\"paths\":[\"secrets\"],"
+    "\"password\":\"read-from-a-secure-prompt\","
+    "\"aead\":\"chacha20-poly1305\"}",
+    &response,
+    &error
+);
+if (status != 0) {
+    fprintf(stderr, "create failed: %s\n", error ? error : "wrapper error");
+    czarlib_string_free(error);
+    return status;
+}
+czarlib_string_free(response);
+
+status = czarlib_execute_json(
+    "extract_archive",
+    "{\"archive\":\"secret.zar\",\"destination\":\"restored\","
+    "\"password\":\"read-from-a-secure-prompt\"}",
+    &response,
+    &error
+);
+if (status != 0) {
+    fprintf(stderr, "extract failed: %s\n", error ? error : "wrapper error");
+    czarlib_string_free(error);
+    return status;
+}
+czarlib_string_free(response);
+```
+
+In production code, populate the password field from a secure prompt, do not
+hardcode it in the request, and avoid logging the JSON request because it
+contains the plaintext password. Fresh key and nonce material is generated
+internally and the password-derived wrapping key uses Argon2id. Append, remove,
+and join currently reject encrypted archives because rewriting encrypted
+stateful TOCs is not implemented.
 
 `extract_archive_to_memory` returns a JSON object mapping archive paths to
 arrays of byte values, since JSON has no byte-string type. Its optional

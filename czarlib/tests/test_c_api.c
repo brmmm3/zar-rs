@@ -359,6 +359,32 @@ static void test_extract_policies_memory_and_encryption(void) {
         "{\"archive\":\"encrypted.zar\",\"paths\":[\"keep.txt\"]}",
         "encrypted");
     require_same_file("encrypted.zar", "encrypted-before-failed-add.zar");
+
+    encrypted = invoke(
+        "create_archive",
+        "{\"archive\":\"chacha.zar\",\"paths\":[\"input/alpha.txt\"],"
+        "\"block_size\":65536,\"password\":\"secret\","
+        "\"aead\":\"chacha20-poly1305\"}");
+    REQUIRE(strstr(encrypted, "\"aead\":\"chacha20-poly1305\"") != NULL);
+    czarlib_string_free(encrypted);
+    checked = invoke(
+        "check_archive",
+        "{\"archive\":\"chacha.zar\",\"password\":\"secret\"}");
+    REQUIRE(strstr(checked, "\"commits\":1") != NULL);
+    czarlib_string_free(checked);
+    unlocked_memory = invoke(
+        "extract_archive_to_memory",
+        "{\"archive\":\"chacha.zar\",\"password\":\"secret\"}");
+    REQUIRE(strstr(unlocked_memory, "\"input/alpha.txt\":[114,101,112,108,97,99,101,100]") != NULL);
+    czarlib_string_free(unlocked_memory);
+    plan = invoke(
+        "extract_archive",
+        "{\"archive\":\"chacha.zar\",\"destination\":\"chacha-restored\","
+        "\"password\":\"secret\"}");
+    czarlib_string_free(plan);
+    char chacha_contents[8];
+    read_file("chacha-restored/input/alpha.txt", chacha_contents, sizeof(chacha_contents));
+    REQUIRE(memcmp(chacha_contents, "replaced", sizeof(chacha_contents)) == 0);
 }
 
 struct thread_args {

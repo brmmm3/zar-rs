@@ -103,6 +103,60 @@ for path, data in contents.items():
     print(path, len(data))
 ```
 
+## Password encryption: AES-256-GCM and ChaCha20-Poly1305
+
+Password-encrypted creation encrypts both headers and block contents. The
+`aead` argument accepts `"aes-256-gcm"` or `"chacha20-poly1305"` and defaults
+to AES-256-GCM. The reader discovers the algorithm from the archive descriptor,
+so `check_archive`, `list_archive`, and both extraction methods use the same
+password-aware API for either cipher. The password is passed as `bytes`.
+
+```python
+from getpass import getpass
+from pathlib import Path
+
+import pyzarlib
+
+password = getpass("Archive password: ").encode("utf-8")
+inputs = [Path("secrets")]
+
+for algorithm in ("aes-256-gcm", "chacha20-poly1305"):
+    archive = f"secrets-{algorithm}.zar"
+    pyzarlib.create_archive(
+        archive,
+        inputs,
+        password=password,
+        aead=algorithm,
+    )
+
+    check = pyzarlib.check_archive(archive, password=password)
+    entries = pyzarlib.list_archive(archive, password=password)
+    plan = pyzarlib.extract_archive(
+        archive,
+        f"restored-{algorithm}",
+        password=password,
+        dry_run=True,
+    )
+    print(algorithm, check["commits"], len(entries), len(plan["files"]))
+```
+
+In a real script, don't put a password in source code or command-line
+arguments. The Python `zarc-py` CLI prompts without echo:
+
+```sh
+zarc-py create --password secrets-aes.zar secrets/
+zarc-py create --password --aead chacha20-poly1305 secrets-chacha.zar secrets/
+zarc-py check --password secrets-chacha.zar
+zarc-py list --password secrets-chacha.zar
+zarc-py extract --password --to restored/ secrets-chacha.zar
+```
+
+The archive stores the selected AEAD in its encryption descriptor. The
+implementation creates fresh key/nonce material and uses Argon2id for
+password-based key wrapping. Don't attempt to reuse nonces or store the
+password in the archive. Append, remove, and join currently reject encrypted
+archives because encrypted stateful rewriting is not implemented.
+
 ## Examples matching the `zarc` commands
 
 These Python examples use the same operations as the `zarc` create, add,
@@ -253,6 +307,12 @@ accept strings and `pathlib.Path` values. Include/exclude arguments are
 sequences of fnmatch patterns. Compression block size is 64 KiB through 32
 MiB; `block_size=0` requests automatic sizing. Zstandard compression levels
 range from -7 through 22.
+
+`create_archive` also accepts `aead="aes-256-gcm"` or
+`aead="chacha20-poly1305"` when creating an encrypted archive; the default is
+AES-256-GCM. This option selects the password wrapping and content AEAD
+algorithm. Read operations use the algorithm recorded in the archive and need
+only the matching password.
 
 Long-running Rust operations release the Python GIL. The initial binding does
 not expose per-operation progress callbacks.

@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pyzarlib
+import pyzarlib.cli as pyzarlib_cli
 from pyzarlib.cli import main
 
 
@@ -69,3 +70,29 @@ def test_python_zarc_cli_filelist_filters_inputs(
     assert [entry["path"] for entry in pyzarlib.list_archive("filtered.zar")] == [
         "keep.txt"
     ]
+
+
+def test_python_zarc_cli_creates_and_extracts_chacha_encrypted_archive(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("secret.txt").write_text("private", encoding="utf-8")
+    monkeypatch.setattr(pyzarlib_cli.getpass, "getpass", lambda _prompt: "test-password")
+
+    assert main(
+        [
+            "create",
+            "--password",
+            "--aead",
+            "chacha20-poly1305",
+            "encrypted.zar",
+            "secret.txt",
+        ]
+    ) == 0
+    capsys.readouterr()
+
+    assert main(["check", "--password", "encrypted.zar"]) == 0
+    assert "1 commit(s)" in capsys.readouterr().out
+    assert main(["extract", "--password", "--to", "restored", "encrypted.zar"]) == 0
+    capsys.readouterr()
+    assert Path("restored/secret.txt").read_text(encoding="utf-8") == "private"
