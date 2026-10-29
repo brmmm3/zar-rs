@@ -15,3 +15,5 @@ testdata/
 *.zip
 *.7z
 *.gz
+__pycache__/
+*.pyc

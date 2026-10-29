@@ -20,6 +20,19 @@ To build a wheel:
 maturin build --release
 ```
 
+For development, install the package with pytest support and run the Python API
+tests from this directory:
+
+```sh
+python -m pip install -e ".[test]"
+maturin develop
+python -m pytest
+```
+
+The Python API tests exercise archive operations through `pyzarlib`; the
+pytest suite also runs the complete native `zarlib` unit-test suite so
+Rust-only framing, crypto, and data-model tests are included.
+
 ## Example
 
 ```python
