@@ -59,14 +59,23 @@ The operation modules and their commonly used public entry points are:
 
 | Module | Main APIs | Purpose |
 |---|---|---|
-| `operations::create` | `create_archive`, `create_archive_with_options`, `create_archive_with_encoding`, `create_archive_with_password` | Create a new archive; optional strict scanning, encoding options, or password encryption. |
-| `operations::add` | `add_archive`, `add_archive_with_encoding` | Append a commit that adds or replaces paths. |
+| `operations::create` | `create_archive`, `create_archive_with_options`, `create_archive_with_encoding`, `create_archive_with_password_progress_and_filters` | Create a new archive; optional strict scanning, encoding options, password encryption, and path filters. |
+| `operations::add` | `add_archive`, `add_archive_with_encoding`, `add_archive_with_encoding_progress_and_options_and_filters` | Append a commit that adds or replaces paths, optionally filtered. |
 | `operations::remove` | `remove_archive` | Append tombstones for existing archive-relative paths. |
 | `operations::join` | `join_archive_with_encoding` | Compact a contiguous commit range. |
 | `operations::check` | `check_archive_with_recovery` | Validate framing and readable archive contents, optionally recovering past damaged framing. |
 | `operations::info` | `info_archive` | Read commit summaries, optionally including verbose file-group statistics. |
 | `operations::list` | `list_archive`, `load_toc_through` | Load the effective TOC, optionally as of a commit ID. |
-| `operations::extract` | `extract_archive`, `extract_archive_with_options`, `extract_archive_with_progress` | Plan and perform extraction with explicit policies and password support. |
+| `operations::extract` | `extract_archive`, `extract_archive_with_options`, `extract_archive_with_progress_and_filters` | Plan and perform extraction with explicit policies, filters, and password support. |
+
+`FilterSet::from_patterns` builds reusable fnmatch filters for create, add, and
+extract operations. Include rules limit matching entries; exclude rules take
+precedence. Folder rules apply to the matching folder and its descendants.
+Patterns match archive-relative paths, and `*` can match `/`. Its final
+argument accepts filter-list paths whose non-empty lines use the CLI
+`--filelist` syntax. The filtered create API packages its input settings and
+filter reference in `CreateFilterOptions`; the add and extract variants accept
+the filter set separately.
 
 `operations` also re-exports common option, report, and callback types, including
 `EncodingOptions`, `Progress`, `CheckReport`, `CommitInfo`, `ExtractionOptions`,
