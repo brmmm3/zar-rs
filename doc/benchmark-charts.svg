@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="925" viewBox="0 0 1120 925" role="img" aria-labelledby="title description">
+<title id="title">Linux 4.0.1 archive benchmark charts</title>
+<desc id="description">Archive size, compression time, and extraction time for four archive formats with and without encryption. Source size: 525.1 MiB.</desc>
+<style>
+  text { font-family: system-ui, sans-serif; fill: #172033; }
+  .heading { font-size: 19px; font-weight: 700; }
+  .label { font-size: 13px; }
+  .axis { font-size: 11px; fill: #64748b; }
+  .value { font-size: 12px; font-weight: 600; }
+  .grid { stroke: #dbe3ee; stroke-width: 1; }
+</style>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="24" y="40" class="heading">Archive size</text>
+<line x1="250" y1="74" x2="250" y2="314" class="grid"/>
+<text x="250" y="66" text-anchor="middle" class="axis">0.0</text>
+<line x1="425" y1="74" x2="425" y2="314" class="grid"/>
+<text x="425" y="66" text-anchor="middle" class="axis">38.3</text>
+<line x1="600" y1="74" x2="600" y2="314" class="grid"/>
+<text x="600" y="66" text-anchor="middle" class="axis">76.6</text>
+<line x1="775" y1="74" x2="775" y2="314" class="grid"/>
+<text x="775" y="66" text-anchor="middle" class="axis">115.0</text>
+<line x1="950" y1="74" x2="950" y2="314" class="grid"/>
+<text x="950" y="66" text-anchor="middle" class="axis">153.3</text>
+<text x="238" y="91" text-anchor="end" class="label">zarlib - plain</text>
+<rect x="250" y="77" width="694" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="952" y="91" class="value">152.00 MiB</text>
+<text x="238" y="121" text-anchor="end" class="label">zarlib - encrypted</text>
+<rect x="250" y="107" width="700" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
+<text x="958" y="121" class="value">153.30 MiB</text>
+<text x="238" y="151" text-anchor="end" class="label">zip - plain</text>
+<rect x="250" y="137" width="686" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="944" y="151" class="value">150.34 MiB</text>
+<text x="238" y="181" text-anchor="end" class="label">zip - encrypted</text>
+<rect x="250" y="167" width="692" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="950" y="181" class="value">151.65 MiB</text>
+<text x="238" y="211" text-anchor="end" class="label">7z - plain</text>
+<rect x="250" y="197" width="366" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="624" y="211" class="value">80.22 MiB</text>
+<text x="238" y="241" text-anchor="end" class="label">7z - encrypted</text>
+<rect x="250" y="227" width="366" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="624" y="241" class="value">80.22 MiB</text>
+<text x="238" y="271" text-anchor="end" class="label">tar.gz - plain</text>
+<rect x="250" y="257" width="557" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="815" y="271" class="value">122.15 MiB</text>
+<text x="238" y="301" text-anchor="end" class="label">tar.gz - encrypted</text>
+<rect x="250" y="287" width="557" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="815" y="301" class="value">122.15 MiB</text>
+<text x="24" y="325" class="heading">Compression time</text>
+<line x1="250" y1="359" x2="250" y2="599" class="grid"/>
+<text x="250" y="351" text-anchor="middle" class="axis">0.0</text>
+<line x1="425" y1="359" x2="425" y2="599" class="grid"/>
+<text x="425" y="351" text-anchor="middle" class="axis">27.3</text>
+<line x1="600" y1="359" x2="600" y2="599" class="grid"/>
+<text x="600" y="351" text-anchor="middle" class="axis">54.6</text>
+<line x1="775" y1="359" x2="775" y2="599" class="grid"/>
+<text x="775" y="351" text-anchor="middle" class="axis">81.8</text>
+<line x1="950" y1="359" x2="950" y2="599" class="grid"/>
+<text x="950" y="351" text-anchor="middle" class="axis">109.1</text>
+<text x="238" y="376" text-anchor="end" class="label">zarlib - plain</text>
+<rect x="250" y="362" width="33" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="291" y="376" class="value">5.27 s</text>
+<text x="238" y="406" text-anchor="end" class="label">zarlib - encrypted</text>
+<rect x="250" y="392" width="46" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
+<text x="304" y="406" class="value">7.25 s</text>
+<text x="238" y="436" text-anchor="end" class="label">zip - plain</text>
+<rect x="250" y="422" width="130" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="388" y="436" class="value">20.33 s</text>
+<text x="238" y="466" text-anchor="end" class="label">zip - encrypted</text>
+<rect x="250" y="452" width="168" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="426" y="466" class="value">26.28 s</text>
+<text x="238" y="496" text-anchor="end" class="label">7z - plain</text>
+<rect x="250" y="482" width="698" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="956" y="496" class="value">108.86 s</text>
+<text x="238" y="526" text-anchor="end" class="label">7z - encrypted</text>
+<rect x="250" y="512" width="700" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="958" y="526" class="value">109.12 s</text>
+<text x="238" y="556" text-anchor="end" class="label">tar.gz - plain</text>
+<rect x="250" y="542" width="116" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="374" y="556" class="value">18.11 s</text>
+<text x="238" y="586" text-anchor="end" class="label">tar.gz - encrypted</text>
+<rect x="250" y="572" width="143" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="401" y="586" class="value">22.33 s</text>
+<text x="24" y="610" class="heading">Extraction time</text>
+<line x1="250" y1="644" x2="250" y2="884" class="grid"/>
+<text x="250" y="636" text-anchor="middle" class="axis">0.0</text>
+<line x1="425" y1="644" x2="425" y2="884" class="grid"/>
+<text x="425" y="636" text-anchor="middle" class="axis">4.2</text>
+<line x1="600" y1="644" x2="600" y2="884" class="grid"/>
+<text x="600" y="636" text-anchor="middle" class="axis">8.4</text>
+<line x1="775" y1="644" x2="775" y2="884" class="grid"/>
+<text x="775" y="636" text-anchor="middle" class="axis">12.6</text>
+<line x1="950" y1="644" x2="950" y2="884" class="grid"/>
+<text x="950" y="636" text-anchor="middle" class="axis">16.7</text>
+<text x="238" y="661" text-anchor="end" class="label">zarlib - plain</text>
+<rect x="250" y="647" width="222" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="480" y="661" class="value">5.31 s</text>
+<text x="238" y="691" text-anchor="end" class="label">zarlib - encrypted</text>
+<rect x="250" y="677" width="330" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
+<text x="588" y="691" class="value">7.91 s</text>
+<text x="238" y="721" text-anchor="end" class="label">zip - plain</text>
+<rect x="250" y="707" width="463" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="721" y="721" class="value">11.08 s</text>
+<text x="238" y="751" text-anchor="end" class="label">zip - encrypted</text>
+<rect x="250" y="737" width="700" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="958" y="751" class="value">16.74 s</text>
+<text x="238" y="781" text-anchor="end" class="label">7z - plain</text>
+<rect x="250" y="767" width="594" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="852" y="781" class="value">14.21 s</text>
+<text x="238" y="811" text-anchor="end" class="label">7z - encrypted</text>
+<rect x="250" y="797" width="295" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="553" y="811" class="value">7.07 s</text>
+<text x="238" y="841" text-anchor="end" class="label">tar.gz - plain</text>
+<rect x="250" y="827" width="234" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="492" y="841" class="value">5.60 s</text>
+<text x="238" y="871" text-anchor="end" class="label">tar.gz - encrypted</text>
+<rect x="250" y="857" width="455" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="713" y="871" class="value">10.90 s</text>
+</svg>
