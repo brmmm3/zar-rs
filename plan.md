@@ -23,7 +23,7 @@ The current TOC model stores file entries uniformly; `FileGroupKind` derives the
     - BlockNumer
     - OffsetInBlock
 - Big files (files with the size at least block size)
-  - BigFiles(Vec<DirEntry, Vec<BlockNumbers>>)
+  - BigFiles(Vec<DirEntry, Vec<(BlockOffset, BlockSize)>>)
 - Empty files
   - EmptyFiles(Vec<DirEntry>)
 - Symbolic links (stored as the UTF-8 link target; extraction is opt-in and rejects targets that escape the extraction root)
@@ -35,29 +35,57 @@ The current TOC model stores file entries uniformly; `FileGroupKind` derives the
 
 ## 1. Commit framing and integrity
 
-A file begins with the four-byte magic `ZAR0`. Commits follow sequentially; the commit chain is the physical order in the file.
+A file begins with a container header. Commits follow sequentially; the commit chain is the physical order in the file. Each commit stores its data blocks first and its header last, so writers can stream data blocks directly to the final file and append the header once the TOC is finalized—no staging file is needed.
 
-Use a fixed-size, cleartext commit prefix so a reader can find and frame a commit without decrypting its header:
-
-```text
-CommitPrefix (38 bytes, all integers little-endian)
-  magic                 [4]  "ZCMT"
-  framing_version       u8
-  flags                 u8
-  total_commit_size     u64  includes this entire prefix
-  commit_id             u32  archive-scoped counter starting at 1
-  header_frame_size     u32  includes header-frame metadata and payload (maximum <4 GiB)
-  data_section_size     u64  total bytes of all data-block frames
-  prefix_checksum       u64  xxhash64 of preceding 30 prefix bytes
-```
-
-Require:
+### Container header (12 bytes, all integers little-endian)
 
 ```text
-total_commit_size = 38 + header_frame_size + data_section_size
+ContainerHeader
+  magic                 [4]  "ZAR0"
+  first_header_offset   u64  absolute file offset to the first commit's header
 ```
 
-Reject arithmetic overflow, invalid sizes, and unsupported framing versions. The prefix checksum detects accidental corruption; it is **not** an authentication mechanism. A reader can skip a framed commit it cannot decrypt. For resynchronization after damaged framing, an implementation may scan for `ZCMT`, but must validate the prefix and report that recovery was attempted.
+The container header is written once when the archive is created. The `first_header_offset` is filled in after the first commit's header is written.
+
+### Per-commit layout
+
+Each commit is laid out on disk as:
+
+```text
+Commit:
+  next_header_offset    u64   absolute offset to the next commit's header (0 if last commit)
+  data blocks...              data-block frames in block-index order
+  header frame                HeaderFrame (contains commit metadata, TOC, encryption descriptor)
+  this_header_offset    u64   absolute offset to this commit's header start
+```
+
+The `next_header_offset` at the start of each commit forms a forward chain: the container header points to the first commit's header, and each commit's `next_header_offset` points to the next. The `this_header_offset` at the end of each commit enables reverse traversal: seeking to the end of the file and reading the last 8 bytes yields the most recent commit's header offset.
+
+### Reading a commit
+
+1. Read the container header (magic + `first_header_offset`).
+2. Seek to `first_header_offset` and read the header frame. The header frame's cleartext metadata includes `commit_id`, `data_section_size`, `header_frame_size`, and the encryption descriptor (see section 2).
+3. Data blocks occupy `[header_offset - data_section_size, header_offset)`.
+4. `next_header_offset` is at `[header_offset - data_section_size - 8, header_offset - data_section_size)`.
+5. To read the next commit, seek to `next_header_offset` and repeat from step 2. A zero `next_header_offset` indicates the last commit.
+
+To find the last commit directly: seek to the end of the file, read the final 8 bytes (`this_header_offset`), and seek to that offset.
+
+### Writing a commit (no staging file)
+
+1. Record the current file position as `commit_start`.
+2. Write 8 bytes of zeros as a placeholder for `next_header_offset`.
+3. Scan input files, compress data blocks, and write block frames directly to the file. Track `data_section_size` as the total bytes of block frames written.
+4. After all blocks are written, build the logical header (TOC, block references, metadata) and encode the header frame. Record `header_offset` as the current file position.
+5. Write the header frame.
+6. Write `this_header_offset` (the `header_offset` from step 5) as 8 bytes.
+7. If this is the first commit, seek to the container header and write `first_header_offset`. If a previous commit exists, seek to that commit's `next_header_offset` placeholder and write `header_offset`.
+
+### Integrity and validation
+
+Reject arithmetic overflow, invalid sizes, and unsupported framing versions. The header frame checksum detects accidental corruption; it is **not** an authentication mechanism. A reader can skip a commit whose header it cannot decrypt by using `next_header_offset` to advance to the next commit. For resynchronization after damaged framing, an implementation may scan for header-frame magic, but must validate the frame and report that recovery was attempted.
+
+The total commit size is computed as `8 + data_section_size + header_frame_size + 8` (next_header_offset + data + header + this_header_offset).
 
 A commit’s header contains its own metadata and TOC. Commit-local encryption settings live in that header—not in a container-level header.
 
@@ -67,12 +95,20 @@ The header frame has cleartext metadata followed by the payload:
 
 ```text
 HeaderFrame
-  compressed_header_len  u32
-  header_checksum        u64
+  magic                 [4]  "ZCMT"
+  framing_version       u8
+  flags                 u8
+  commit_id             [4]  archive-scoped counter starting at 1 (little-endian u32)
+  data_section_size     u64  total bytes of all data-block frames in this commit
+  header_frame_size     u32  total bytes of this entire header frame (metadata + payload)
+  compressed_header_len u32  length of the compressed/encrypted header payload
+  header_checksum       u64  xxhash64 over the exact on-disk header payload bytes
   encryption_descriptor_len u32
   encryption_descriptor  [encryption_descriptor_len] bytes, bounded
   header_payload         [compressed_header_len] bytes
 ```
+
+The header frame begins with the `ZCMT` magic and contains all commit-level metadata that was previously in the `CommitPrefix`. The `header_frame_size` field is the total size of this frame (all fields from `magic` through `header_payload`), enabling a reader to skip the entire header in one seek. The `data_section_size` field tells the reader how many bytes of data blocks precede the header. The `commit_id` is a 4-byte little-endian counter.
 
 The descriptor has a stable wire encoding, not Rust enum discriminants. It identifies the mode, algorithms, nonce/KDF parameters, and recipient-key records required to decrypt the header. It is cleartext so a reader can select the decryption method. It is covered by the commit’s authenticated data when the header is encrypted.
 
@@ -114,7 +150,7 @@ The processing order is:
 
 `compressed_header_len` is the exact number of payload bytes on disk (ciphertext plus authentication tag when encrypted). `header_checksum` is xxhash64 over those exact on-disk payload bytes. Checksum verification can detect accidental damage before decryption; it does not replace AEAD authentication.
 
-For encrypted headers, define AAD as the exact serialized `CommitPrefix` **excluding** `prefix_checksum`, concatenated with the exact serialized header-frame metadata and encryption descriptor, excluding both `header_checksum` and `header_payload`. The header checksum is computed from the stored payload, so including it in AAD would create a circular dependency. The prefix’s final `total_commit_size` and frame lengths must be finalized before computing header AEAD. Specify the encoding unambiguously; do not use Rust’s in-memory struct layout.
+For encrypted headers, define AAD as the exact serialized header-frame fields from `magic` through `encryption_descriptor`, excluding `header_checksum` and `header_payload`. The header checksum is computed from the stored payload, so including it in AAD would create a circular dependency. All frame lengths (`data_section_size`, `header_frame_size`, `compressed_header_len`) must be finalized before computing header AEAD. Specify the encoding unambiguously; do not use Rust's in-memory struct layout.
 
 For unencrypted headers, the checksum is still calculated over the stored compressed header payload. The descriptor says `Unencrypted`; no AEAD operation is performed.
 
@@ -161,7 +197,7 @@ The processing order for data is:
 3. Encrypt the selected representation if enabled; the flag is included in AEAD associated data.
 4. Store the frame and checksum its stored payload.
 
-For encrypted blocks, AAD is the exact serialized commit-prefix bytes excluding `prefix_checksum`, concatenated with the exact serialized block-frame fields through `nonce`, excluding `checksum` and `payload`. Ensure all lengths are finalized before calculating AEAD. For unencrypted blocks, checksums provide corruption detection but no authenticity.
+For encrypted blocks, AAD is the exact serialized header-frame fields from `magic` through `encryption_descriptor` (excluding `header_checksum` and `header_payload`), concatenated with the exact serialized block-frame fields through `nonce`, excluding `checksum` and `payload`. Ensure all lengths are finalized before calculating AEAD. For unencrypted blocks, checksums provide corruption detection but no authenticity.
 
 Put both compressed and uncompressed lengths, and the block’s index, in authenticated header metadata so decompression can enforce size limits and detect truncation or reordering. Enforce configured maximum sizes before allocation/decompression.
 
@@ -178,6 +214,31 @@ per_worker_budget = budget / workers
 Choose an automatic block size no larger than 8 MiB and no larger than the per-worker budget, rounded down to a supported size. If the per-worker budget is below 1 MiB, use 1 MiB as the minimum block size and reduce worker count until the estimated total working set fits the budget. If even one 1 MiB worker would exceed the budget, use one worker and issue a warning; optionally offer a low-memory mode with smaller blocks.
 
 The memory estimate must include input buffers, compression workspace, encryption buffers, and queued output—not just the block buffer. Bound the queue so parallel workers cannot collectively exceed the budget. Manual block size is 64 KiB–32 MiB; it may exceed the automatic budget, but the CLI must warn and limit concurrency or fail if the configured memory limit would be exceeded. File creation uses a bounded reader/compressor pipeline: a dedicated reader fills block buffers from the input filesystem while the calling thread compresses blocks in parallel and writes frames in input order. The bounded queue applies backpressure when compression or output is slower than reading, and its depth is capped by the selected worker count to keep memory bounded. This allows slow storage reads to overlap compression without buffering an entire file.
+
+### Create/add pipeline
+
+The `create` and `add` commands use a multi-stage, multi-threaded pipeline that overlaps I/O, deduplication, compression, and encryption. The pipeline is assembled after the input file tree has been scanned and its TOC is known.
+
+**File grouping.** After the file tree is read, every input is classified into the file groups defined in section 0: empty, tiny, small, and big files, plus special entries (symbolic links, hard links, named pipes, and devices). Hard links are detected by filesystem node number (inode); files sharing the same node number are treated as hard links to the first-encountered regular file rather than as independent data. Special entries carry no data blocks and are recorded directly in the TOC.
+
+**Reader threads.** One file-reader thread is spawned per CPU core. Reader threads only read file contents (or block-sized slices of big files) into buffers; they do not compress or encrypt. Each reader also performs deduplication: for files of at least 9 bytes it computes the size and xxhash64, and for tiny files it compares size plus exact content, against the shared deduplication map. A file that matches an already-seen candidate is recorded as a reference to the existing block indices and is not enqueued for compression.
+
+**Worker threads.** One worker thread is spawned per performance core. Worker threads perform compression (Zstandard) and, when enabled, encryption (AEAD) of block payloads.
+
+**Queues.** Two bounded queues feed the workers:
+
+- A small/tiny queue holds small and tiny files. Because small files are smaller than the block size, several small files are packed into a single block. Each queued item carries its block number and file id.
+- A big-file queue holds block-sized slices of big files. Each queued item carries its block number and file id.
+
+**Small/tiny workers.** A subset of the worker threads pulls from the small/tiny queue and accumulates small files into blocks. When a block is full, the worker compresses (and encrypts) it and forwards the finished block to the writer thread. When all small and tiny files have been processed, these workers switch to pulling from the big-file queue, and vice versa, so that no worker idles while work remains in the other queue.
+
+**Big-file workers.** The remaining worker threads pull block-sized slices from the big-file queue, compress (and encrypt) each block, and forward the finished block to the writer thread.
+
+**Dedudplication.** Do deduplication only for files which are bigger than the data size which is used for deduplicated files.
+
+**Writer thread.** A single writer thread receives finished blocks from all workers and writes them to the archive in block-index order. Because workers may finish blocks out of order, the writer reassembles them by block number before writing, preserving the on-disk invariant that data blocks appear in block-index order. The writer also tracks `data_section_size` and, once all blocks are written, builds and appends the header frame.
+
+The queues are bounded so that total in-flight memory (input buffers, compression workspace, encryption buffers, and queued output) stays within the memory budget described above. Backpressure is applied when a queue is full, so readers and workers block rather than buffering unbounded data.
 
 ## 6. File paths, TOC, and deduplication
 
@@ -252,15 +313,22 @@ For `check`, exit code 4 indicates detected corruption; valid containers with wa
 Use explicit wire tags and separate on-disk metadata from runtime secrets. Avoid serializing Rust enum layouts directly.
 
 ```rust
-struct CommitPrefix {
-    magic: [u8; 4],
+struct ContainerHeader {
+    magic: [u8; 4],        // "ZAR0"
+    first_header_offset: u64,
+}
+
+struct HeaderFrame {
+    magic: [u8; 4],              // "ZCMT"
     framing_version: u8,
     flags: u8,
-    total_commit_size: u64,
-    commit_id: u32,
-    header_frame_size: u32,
+    commit_id: [u8; 4],
     data_section_size: u64,
-    prefix_checksum: u64,
+    header_frame_size: u32,
+    compressed_header_len: u32,
+    header_checksum: u64,
+    encryption_descriptor_len: u32,
+    // followed by: encryption_descriptor, header_payload
 }
 
 enum HeaderEncryption {
