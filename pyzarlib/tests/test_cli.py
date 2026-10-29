@@ -77,7 +77,21 @@ def test_python_zarc_cli_creates_and_extracts_chacha_encrypted_archive(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     Path("secret.txt").write_text("private", encoding="utf-8")
-    monkeypatch.setattr(pyzarlib_cli.getpass, "getpass", lambda _prompt: "test-password")
+    Path("second.txt").write_text("another secret", encoding="utf-8")
+    prompted_passwords = iter(
+        [
+            "first-password",
+            "second-password",
+            "first-password",
+            "first-password",
+            "second-password",
+            "first-password",
+            "second-password",
+        ]
+    )
+    monkeypatch.setattr(
+        pyzarlib_cli.getpass, "getpass", lambda _prompt: next(prompted_passwords)
+    )
 
     assert main(
         [
@@ -85,14 +99,37 @@ def test_python_zarc_cli_creates_and_extracts_chacha_encrypted_archive(
             "--password",
             "--aead",
             "chacha20-poly1305",
+            "--encryption-scope",
+            "data",
             "encrypted.zar",
             "secret.txt",
         ]
     ) == 0
     capsys.readouterr()
 
-    assert main(["check", "--password", "encrypted.zar"]) == 0
-    assert "1 commit(s)" in capsys.readouterr().out
-    assert main(["extract", "--password", "--to", "restored", "encrypted.zar"]) == 0
+    assert main(
+        [
+            "add",
+            "--password",
+            "--password-for",
+            "00000001",
+            "encrypted.zar",
+            "second.txt",
+        ]
+    ) == 0
+    capsys.readouterr()
+
+    password_options = [
+        "--password-for",
+        "00000001",
+        "--password-for",
+        "00000002",
+    ]
+    assert main(["check", *password_options, "encrypted.zar"]) == 0
+    assert "2 commit(s)" in capsys.readouterr().out
+    assert main(
+        ["extract", *password_options, "--to", "restored", "encrypted.zar"]
+    ) == 0
     capsys.readouterr()
     assert Path("restored/secret.txt").read_text(encoding="utf-8") == "private"
+    assert Path("restored/second.txt").read_text(encoding="utf-8") == "another secret"

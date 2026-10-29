@@ -1,6 +1,7 @@
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList, PyModule};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use zarlib::operations::{
@@ -8,7 +9,7 @@ use zarlib::operations::{
     CreateInputOptions, EncodingOptions, ExistingPolicy, ExtractedKind, ExtractionOptions,
     FilterSet, Progress,
 };
-use zarlib::{ContentAead, DeviceKind, Toc, TocEntry};
+use zarlib::{ContentAead, DeviceKind, EncryptionScope, Toc, TocEntry};
 
 struct WarningCollector {
     warnings: Mutex<Vec<String>>,
@@ -119,8 +120,32 @@ fn content_aead(algorithm: &str) -> PyResult<ContentAead> {
     }
 }
 
+fn parse_encryption_scope(scope: &str) -> PyResult<EncryptionScope> {
+    match scope {
+        "data" => Ok(EncryptionScope::Data),
+        "header" => Ok(EncryptionScope::Header),
+        "header-and-data" => Ok(EncryptionScope::HeaderAndData),
+        _ => Err(value_error(
+            "encryption_scope must be 'data', 'header', or 'header-and-data'",
+        )),
+    }
+}
+
+fn password_set(
+    default: Option<Vec<u8>>,
+    passwords: Option<HashMap<String, Vec<u8>>>,
+) -> PyResult<operations::PasswordSet> {
+    let mut result = operations::PasswordSet::new(default);
+    for (id, password) in passwords.unwrap_or_default() {
+        let id =
+            operations::parse_commit_id(&id).map_err(|error| value_error(error.to_string()))?;
+        result.insert_for_commit(id, password);
+    }
+    Ok(result)
+}
+
 fn commit_id(id: &[u8; 4]) -> String {
-    id.iter().map(|byte| format!("{byte:02x}")).collect()
+    format!("{:08x}", u32::from_le_bytes(*id))
 }
 
 #[pyfunction]
@@ -140,7 +165,8 @@ fn commit_id(id: &[u8; 4]) -> String {
     exclude_files = None,
     include_folders = None,
     exclude_folders = None,
-    aead = "aes-256-gcm"
+    aead = "aes-256-gcm",
+    encryption_scope = "header-and-data"
 ))]
 #[allow(clippy::too_many_arguments)]
 fn create_archive<'py>(
@@ -160,6 +186,7 @@ fn create_archive<'py>(
     include_folders: Option<Vec<String>>,
     exclude_folders: Option<Vec<String>>,
     aead: &str,
+    encryption_scope: &str,
 ) -> PyResult<Bound<'py, PyDict>> {
     let archive = archive_string(archive)?;
     let options = encoding_options(block_size, compression_level)?;
@@ -170,14 +197,17 @@ fn create_archive<'py>(
         exclude_folders,
     )?;
     let aead = content_aead(aead)?;
+    let encryption_scope = parse_encryption_scope(encryption_scope)?;
     let report = py
         .detach(move || {
-            operations::create_archive_with_password_progress_and_filters_and_aead(
+            operations::create_archive_with_password_progress_and_filters_and_encryption(
                 &archive,
                 &paths,
                 strict,
                 options,
-                password.as_deref().map(|password| (password, aead)),
+                password
+                    .as_deref()
+                    .map(|password| (password, aead, encryption_scope)),
                 None,
                 CreateFilterOptions {
                     input: CreateInputOptions {
@@ -219,11 +249,15 @@ fn create_archive<'py>(
     include_files = None,
     exclude_files = None,
     include_folders = None,
-    exclude_folders = None
+    exclude_folders = None,
+    password = None,
+    aead = "aes-256-gcm",
+    encryption_scope = "header-and-data",
+    passwords = None
 ))]
 #[allow(clippy::too_many_arguments)]
-fn add_archive(
-    py: Python<'_>,
+fn add_archive<'py>(
+    py: Python<'py>,
     archive: PathBuf,
     paths: Vec<PathBuf>,
     strict: bool,
@@ -236,7 +270,11 @@ fn add_archive(
     exclude_files: Option<Vec<String>>,
     include_folders: Option<Vec<String>>,
     exclude_folders: Option<Vec<String>>,
-) -> PyResult<Bound<'_, PyDict>> {
+    password: Option<Vec<u8>>,
+    aead: &str,
+    encryption_scope: &str,
+    passwords: Option<HashMap<String, Vec<u8>>>,
+) -> PyResult<Bound<'py, PyDict>> {
     let archive = archive_string(archive)?;
     let options = encoding_options(block_size, compression_level)?;
     let filters = filters(
@@ -245,9 +283,13 @@ fn add_archive(
         include_folders,
         exclude_folders,
     )?;
+    let aead = content_aead(aead)?;
+    let scope = parse_encryption_scope(encryption_scope)?;
+    let passwords = password_set(password.clone(), passwords)?;
+    let encryption = password.as_deref().map(|password| (password, aead, scope));
     let warnings = WarningCollector::new();
     py.detach(|| {
-        operations::add_archive_with_encoding_progress_and_options_and_filters(
+        operations::add_archive_with_encoding_progress_and_filters_and_encryption(
             &archive,
             &paths,
             options,
@@ -259,6 +301,8 @@ fn add_archive(
                 verbose,
             },
             &filters,
+            encryption,
+            &passwords,
         )
         .map_err(|error| error.to_string())
     })
@@ -312,17 +356,19 @@ fn join_archive(
 }
 
 #[pyfunction]
-#[pyo3(signature = (archive, *, recover = false, password = None))]
+#[pyo3(signature = (archive, *, recover = false, password = None, passwords = None))]
 fn check_archive(
     py: Python<'_>,
     archive: PathBuf,
     recover: bool,
     password: Option<Vec<u8>>,
+    passwords: Option<HashMap<String, Vec<u8>>>,
 ) -> PyResult<Bound<'_, PyDict>> {
     let archive = archive_string(archive)?;
+    let passwords = password_set(password, passwords)?;
     let report = py
         .detach(|| {
-            operations::check_archive_with_recovery(&archive, recover, password.as_deref())
+            operations::check_archive_with_recovery_and_passwords(&archive, recover, &passwords)
                 .map_err(|error| error.to_string())
         })
         .map_err(runtime_error)?;
@@ -344,17 +390,19 @@ fn info_archive(py: Python<'_>, archive: PathBuf, verbose: bool) -> PyResult<Bou
 }
 
 #[pyfunction]
-#[pyo3(signature = (archive, *, through = None, password = None))]
+#[pyo3(signature = (archive, *, through = None, password = None, passwords = None))]
 fn list_archive(
     py: Python<'_>,
     archive: PathBuf,
     through: Option<String>,
     password: Option<Vec<u8>>,
+    passwords: Option<HashMap<String, Vec<u8>>>,
 ) -> PyResult<Bound<'_, PyList>> {
     let archive = archive_string(archive)?;
+    let passwords = password_set(password, passwords)?;
     let toc = py
         .detach(|| {
-            operations::list_archive(&archive, through.as_deref(), password.as_deref())
+            operations::list_archive_with_passwords(&archive, through.as_deref(), &passwords)
                 .map_err(|error| error.to_string())
         })
         .map_err(runtime_error)?;
@@ -369,6 +417,7 @@ fn list_archive(
     dry_run = false,
     through = None,
     password = None,
+    passwords = None,
     collision = "rename",
     existing = "error",
     restore_metadata = false,
@@ -387,6 +436,7 @@ fn extract_archive<'py>(
     dry_run: bool,
     through: Option<String>,
     password: Option<Vec<u8>>,
+    passwords: Option<HashMap<String, Vec<u8>>>,
     collision: &str,
     existing: &str,
     restore_metadata: bool,
@@ -406,9 +456,10 @@ fn extract_archive<'py>(
         include_folders,
         exclude_folders,
     )?;
+    let passwords = password_set(password, passwords)?;
     let plan = py
         .detach(|| {
-            operations::extract_archive_with_progress_and_filters(
+            operations::extract_archive_with_passwords_progress_and_filters(
                 &archive,
                 &destination,
                 ExtractionOptions {
@@ -420,7 +471,7 @@ fn extract_archive<'py>(
                     restore_symlinks,
                     restore_devices,
                 },
-                password.as_deref(),
+                &passwords,
                 None,
                 &filters,
             )
@@ -474,6 +525,7 @@ fn extract_archive<'py>(
     *,
     through = None,
     password = None,
+    passwords = None,
     size_limit = None,
     offset = 0,
     include_files = None,
@@ -487,6 +539,7 @@ fn extract_archive_to_memory(
     archive: PathBuf,
     through: Option<String>,
     password: Option<Vec<u8>>,
+    passwords: Option<HashMap<String, Vec<u8>>>,
     size_limit: Option<u64>,
     offset: u64,
     include_files: Option<Vec<String>>,
@@ -501,12 +554,13 @@ fn extract_archive_to_memory(
         include_folders,
         exclude_folders,
     )?;
+    let passwords = password_set(password, passwords)?;
     let files = py
         .detach(|| {
-            operations::extract_archive_to_memory_with_filters(
+            operations::extract_archive_to_memory_with_passwords_and_filters(
                 &archive,
                 through.as_deref(),
-                password.as_deref(),
+                &passwords,
                 size_limit,
                 offset,
                 &filters,
@@ -545,6 +599,16 @@ fn commit_info_dict(py: Python<'_>, commit: CommitInfo) -> PyResult<Bound<'_, Py
     result.set_item("uncompressed_size", commit.uncompressed_size)?;
     result.set_item("ratio_percent", commit.ratio_percent)?;
     result.set_item("header_encrypted", commit.header_encrypted)?;
+    result.set_item("data_encrypted", commit.data_encrypted)?;
+    result.set_item(
+        "encryption_algorithm",
+        commit
+            .encryption_algorithm
+            .map(|algorithm| match algorithm {
+                ContentAead::Aes256Gcm => "aes-256-gcm",
+                ContentAead::ChaCha20Poly1305 => "chacha20-poly1305",
+            }),
+    )?;
     if let Some(header) = commit.header_compression {
         let header_dict = PyDict::new(py);
         header_dict.set_item("compressed_size", header.compressed_size)?;

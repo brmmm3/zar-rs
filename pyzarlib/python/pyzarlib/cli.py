@@ -63,6 +63,12 @@ def _parser() -> argparse.ArgumentParser:
         default="aes-256-gcm",
         help="content encryption algorithm used with --password (default: aes-256-gcm)",
     )
+    create.add_argument(
+        "--encryption-scope",
+        choices=["data", "header", "header-and-data"],
+        default="header-and-data",
+        help="what to encrypt (default: header-and-data)",
+    )
     _add_filters(create)
     _add_encoding(create)
     create.add_argument("archive")
@@ -73,6 +79,14 @@ def _parser() -> argparse.ArgumentParser:
     add.add_argument("--verbose", action="store_true")
     add.add_argument("--metadata", "--preserve-metadata", action="store_true")
     add.add_argument("--special-files", action="store_true")
+    add.add_argument("--password", action="store_true", help="encrypt the new commit")
+    add.add_argument("--aead", choices=["aes-256-gcm", "chacha20-poly1305"], default="aes-256-gcm")
+    add.add_argument(
+        "--encryption-scope",
+        choices=["data", "header", "header-and-data"],
+        default="header-and-data",
+    )
+    add.add_argument("--password-for", action="append", default=[], metavar="COMMIT_ID")
     _add_filters(add)
     _add_encoding(add)
     add.add_argument("archive")
@@ -91,6 +105,7 @@ def _parser() -> argparse.ArgumentParser:
     check = commands.add_parser("check", aliases=["k"], help="validate an archive")
     check.add_argument("--recover", action="store_true")
     check.add_argument("--password", action="store_true", help="prompt for archive password")
+    check.add_argument("--password-for", action="append", default=[], metavar="COMMIT_ID")
     check.add_argument("archive")
 
     info = commands.add_parser("info", aliases=["i"], help="show commit metadata")
@@ -101,6 +116,7 @@ def _parser() -> argparse.ArgumentParser:
     listing = commands.add_parser("list", aliases=["l"], help="list archive entries")
     listing.add_argument("--through")
     listing.add_argument("--password", action="store_true", help="prompt for archive password")
+    listing.add_argument("--password-for", action="append", default=[], metavar="COMMIT_ID")
     listing.add_argument("archive")
 
     extract = commands.add_parser("extract", aliases=["e"], help="extract archive contents")
@@ -113,6 +129,7 @@ def _parser() -> argparse.ArgumentParser:
     extract.add_argument("--symlinks", action="store_true")
     extract.add_argument("--devices", action="store_true")
     extract.add_argument("--password", action="store_true", help="prompt for archive password")
+    extract.add_argument("--password-for", action="append", default=[], metavar="COMMIT_ID")
     _add_filters(extract)
     extract.add_argument("archive")
 
@@ -183,6 +200,20 @@ def _password(enabled: bool) -> bytes | None:
         raise ValueError("password must not be empty")
     return value.encode()
 
+def _passwords(
+    enabled: bool, commit_ids: Sequence[str]
+) -> tuple[bytes | None, dict[str, bytes]]:
+    default = _password(enabled)
+    per_commit: dict[str, bytes] = {}
+    for commit_id in commit_ids:
+        if commit_id in per_commit:
+            raise ValueError(f"password for commit {commit_id} was specified more than once")
+        value = getpass.getpass(f"Password for commit {commit_id}: ")
+        if not value:
+            raise ValueError("password must not be empty")
+        per_commit[commit_id] = value.encode()
+    return default, per_commit
+
 
 def _display_size(size: int | None) -> str:
     if size is None:
@@ -199,12 +230,24 @@ def _display_size(size: int | None) -> str:
 def _format_commit(commit: dict[str, Any]) -> str:
     ratio = commit["ratio_percent"]
     ratio_text = "n/a" if ratio is None else f"{ratio:.2f}%"
+    header_encrypted = commit["header_encrypted"]
+    data_encrypted = commit["data_encrypted"]
+    scope = (
+        "header-and-data"
+        if header_encrypted and data_encrypted
+        else "header"
+        if header_encrypted
+        else "data"
+        if data_encrypted
+        else "none"
+    )
+    algorithm = commit["encryption_algorithm"] or "none"
     return (
         f"commit {commit['id']} size={_display_size(commit['size'])} "
         f"header={_display_size(commit['header_size'])} "
         f"data={_display_size(commit['data_size'])} "
         f"uncompressed={_display_size(commit['uncompressed_size'])} "
-        f"ratio={ratio_text}"
+        f"ratio={ratio_text} encryption={scope} algorithm={algorithm}"
     )
 
 
@@ -221,6 +264,7 @@ def _run(args: argparse.Namespace) -> int:
             include_special_files=args.special_files,
             verbose=args.verbose,
             aead=args.aead,
+            encryption_scope=args.encryption_scope,
             password=_password(args.password),
             **_encoding(args),
             **_filters(args),
@@ -241,6 +285,10 @@ def _run(args: argparse.Namespace) -> int:
             save_metadata=args.metadata,
             include_special_files=args.special_files,
             verbose=args.verbose,
+            password=_password(args.password),
+            aead=args.aead,
+            encryption_scope=args.encryption_scope,
+            passwords=_passwords(False, args.password_for)[1],
             **_encoding(args),
             **_filters(args),
         )
@@ -268,6 +316,7 @@ def _run(args: argparse.Namespace) -> int:
         report = check_archive(
             args.archive,
             recover=args.recover,
+            passwords=_passwords(False, args.password_for)[1],
             password=_password(args.password),
         )
         print(
@@ -297,6 +346,9 @@ def _run(args: argparse.Namespace) -> int:
                                 "size": item["size"],
                                 "header_size": item["header_size"],
                                 "data_size": item["data_size"],
+                                "header_encrypted": item["header_encrypted"],
+                                "data_encrypted": item["data_encrypted"],
+                                "encryption_algorithm": item["encryption_algorithm"],
                             }
                             for item in commits
                         ],
@@ -332,6 +384,7 @@ def _run(args: argparse.Namespace) -> int:
         entries = list_archive(
             args.archive,
             through=args.through,
+            passwords=_passwords(False, args.password_for)[1],
             password=_password(args.password),
         )
         for entry in entries:
@@ -357,6 +410,7 @@ def _run(args: argparse.Namespace) -> int:
             args.to,
             dry_run=args.dry_run,
             through=args.through,
+            passwords=_passwords(False, args.password_for)[1],
             password=_password(args.password),
             collision=args.collision,
             existing=args.existing,

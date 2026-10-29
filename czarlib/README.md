@@ -82,25 +82,37 @@ The output shapes follow the corresponding Python API:
 
 | Operation | Required request fields | Useful optional fields |
 |---|---|---|
-| `create_archive` | `archive`, `paths` | `block_size`, `compression_level`, `strict`, `overwrite`, `save_metadata`, `include_special_files`, `verbose`, `password`, `aead`, `include_files`, `exclude_files`, `include_folders`, `exclude_folders` |
-| `add_archive` | `archive`, `paths` | Same encoding, scan, and filter fields as create except `overwrite` and `password` |
+| `create_archive` | `archive`, `paths` | `block_size`, `compression_level`, `strict`, `overwrite`, `save_metadata`, `include_special_files`, `verbose`, `password`, `aead`, `encryption_scope`, `include_files`, `exclude_files`, `include_folders`, `exclude_folders` |
+| `add_archive` | `archive`, `paths` | Same encoding, scan, and filter fields as create; `password`, `passwords`, `aead`, `encryption_scope` |
 | `remove_archive` | `archive`, `paths` | — |
 | `join_archive` | `archive`, `from_id`, `through_id` | `block_size`, `compression_level` |
-| `check_archive` | `archive` | `recover`, `password` |
+| `check_archive` | `archive` | `recover`, `password`, `passwords` |
 | `info_archive` | `archive` | `verbose` |
-| `list_archive` | `archive` | `through`, `password` |
-| `extract_archive` | `archive`, `destination` | `dry_run`, `through`, `password`, `collision`, `existing`, `restore_metadata`, `restore_symlinks`, `restore_devices`, file/folder filters |
-| `extract_archive_to_memory` | `archive` | `through`, `password`, `size_limit`, `offset`, file/folder filters |
+| `list_archive` | `archive` | `through`, `password`, `passwords` |
+| `extract_archive` | `archive`, `destination` | `dry_run`, `through`, `password`, `passwords`, `collision`, `existing`, `restore_metadata`, `restore_symlinks`, `restore_devices`, file/folder filters |
+| `extract_archive_to_memory` | `archive` | `through`, `password`, `passwords`, `size_limit`, `offset`, file/folder filters |
 
 Supported block sizes are `0` (automatic) or 64 KiB through 32 MiB;
 compression levels are -7 through 22. Filter values are arrays of fnmatch
 patterns. The `remove_archive` paths are archive-relative names, not filesystem
 paths to delete. Join endpoints are inclusive eight-hex-digit commit IDs.
 
-For password encryption, set `"password"` and optionally `"aead"` on a
-`create_archive` request. The `aead` value is `"aes-256-gcm"` (the default) or
-`"chacha20-poly1305"`. The descriptor records this algorithm, so check, list,
-and extraction requests only need the password and do not need an `aead` field.
+For password encryption, set `"password"` and optionally `"aead"` and
+`"encryption_scope"` on a `create_archive` or `add_archive` request. The `aead`
+value is `"aes-256-gcm"` (the default) or `"chacha20-poly1305"`. The scope is
+`"data"`, `"header"`, or `"header-and-data"` (the default). Data-only encryption
+leaves the logical header readable, so `info_archive` and `list_archive` can
+inspect it without a password, while extraction of its data blocks still
+requires the password. `info_archive` reports each commit's header/data
+encryption status and AEAD algorithm.
+
+The optional `"passwords"` object maps eight-hex-digit commit IDs to passwords.
+The `"password"` field remains a default password and is tried for every
+encrypted commit without a specific entry. For example, callers can append a
+new commit with `"password":"new-password"` and unlock an earlier commit with
+`"passwords":{"00000001":"old-password"}`. Use the same `password` value alone
+when all encrypted commits share a password. Read operations accept this same
+shape.
 
 ```c
 char *response = NULL;
@@ -135,12 +147,13 @@ if (status != 0) {
 czarlib_string_free(response);
 ```
 
-In production code, populate the password field from a secure prompt, do not
+In production code, populate password fields from a secure prompt, do not
 hardcode it in the request, and avoid logging the JSON request because it
 contains the plaintext password. Fresh key and nonce material is generated
-internally and the password-derived wrapping key uses Argon2id. Append, remove,
-and join currently reject encrypted archives because rewriting encrypted
-stateful TOCs is not implemented.
+internally and the password-derived wrapping key uses Argon2id. `add_archive`
+can append a new encrypted commit when supplied credentials for any encrypted
+history it validates. `remove_archive` and `join_archive` still reject
+encrypted archives because encrypted stateful TOCs are not rewritten.
 
 `extract_archive_to_memory` returns a JSON object mapping archive paths to
 arrays of byte values, since JSON has no byte-string type. Its optional

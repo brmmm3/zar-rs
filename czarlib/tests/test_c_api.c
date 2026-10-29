@@ -133,7 +133,7 @@ static void test_create_list_check_extract(void) {
     czarlib_string_free(report);
 
     char *info = invoke("info_archive", "{\"archive\":\"sample.zar\"}");
-    REQUIRE(strstr(info, "\"id\":\"01000000\"") != NULL);
+    REQUIRE(strstr(info, "\"id\":\"00000001\"") != NULL);
     czarlib_string_free(info);
 
     char *plan = invoke(
@@ -210,12 +210,12 @@ static void test_add_replace_remove_and_through(void) {
     czarlib_string_free(files);
 
     char *info = invoke("info_archive", "{\"archive\":\"sample.zar\"}");
-    REQUIRE(strstr(info, "\"id\":\"01000000\"") != NULL);
+    REQUIRE(strstr(info, "\"id\":\"00000001\"") != NULL);
     czarlib_string_free(info);
 
     char *through = invoke(
         "list_archive",
-        "{\"archive\":\"sample.zar\",\"through\":\"01000000\"}");
+        "{\"archive\":\"sample.zar\",\"through\":\"00000001\"}");
     REQUIRE(strstr(through, "input/nested/new.txt") == NULL);
     czarlib_string_free(through);
     expect_error(
@@ -233,7 +233,7 @@ static void test_add_replace_remove_and_through(void) {
     char *through_plan = invoke(
         "extract_archive",
         "{\"archive\":\"sample.zar\",\"destination\":\"through\","
-        "\"through\":\"01000000\",\"dry_run\":true}");
+        "\"through\":\"00000001\",\"dry_run\":true}");
     REQUIRE(strstr(through_plan, "new.txt") == NULL);
     czarlib_string_free(through_plan);
     char *removed = invoke(
@@ -262,15 +262,15 @@ static void test_join_and_suffix_preservation(void) {
     czarlib_string_free(response);
 
     char *before = invoke("info_archive", "{\"archive\":\"sample.zar\"}");
-    REQUIRE(strstr(before, "\"id\":\"05000000\"") != NULL);
+    REQUIRE(strstr(before, "\"id\":\"00000005\"") != NULL);
     czarlib_string_free(before);
     response = invoke(
         "join_archive",
-        "{\"archive\":\"sample.zar\",\"from_id\":\"03000000\","
-        "\"through_id\":\"04000000\"}");
+        "{\"archive\":\"sample.zar\",\"from_id\":\"00000003\","
+        "\"through_id\":\"00000004\"}");
     czarlib_string_free(response);
     char *after = invoke("info_archive", "{\"archive\":\"sample.zar\"}");
-    REQUIRE(strstr(after, "\"id\":\"05000000\"") != NULL);
+    REQUIRE(strstr(after, "\"id\":\"00000005\"") != NULL);
     czarlib_string_free(after);
     char *listing = invoke("list_archive", "{\"archive\":\"sample.zar\"}");
     REQUIRE(strstr(listing, "input/one.txt") != NULL);
@@ -385,6 +385,23 @@ static void test_extract_policies_memory_and_encryption(void) {
     char chacha_contents[8];
     read_file("chacha-restored/input/alpha.txt", chacha_contents, sizeof(chacha_contents));
     REQUIRE(memcmp(chacha_contents, "replaced", sizeof(chacha_contents)) == 0);
+
+    encrypted = invoke(
+        "add_archive",
+        "{\"archive\":\"chacha.zar\",\"paths\":[\"input/alpha.txt\"],"
+        "\"block_size\":65536,\"password\":\"second-secret\","
+        "\"passwords\":{\"00000001\":\"secret\"},"
+        "\"aead\":\"aes-256-gcm\",\"encryption_scope\":\"data\"}");
+    czarlib_string_free(encrypted);
+    unlocked_memory = invoke(
+        "extract_archive_to_memory",
+        "{\"archive\":\"chacha.zar\",\"passwords\":{"
+        "\"00000001\":\"secret\",\"00000002\":\"second-secret\"}}");
+    REQUIRE(strstr(unlocked_memory, "\"input/alpha.txt\":[114,101,112,108,97,99,101,100]") != NULL);
+    czarlib_string_free(unlocked_memory);
+    char *info = invoke("info_archive", "{\"archive\":\"chacha.zar\"}");
+    REQUIRE(strstr(info, "\"data_encrypted\":true") != NULL);
+    czarlib_string_free(info);
 }
 
 struct thread_args {

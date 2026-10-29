@@ -105,11 +105,19 @@ for path, data in contents.items():
 
 ## Password encryption: AES-256-GCM and ChaCha20-Poly1305
 
-Password-encrypted creation encrypts both headers and block contents. The
-`aead` argument accepts `"aes-256-gcm"` or `"chacha20-poly1305"` and defaults
-to AES-256-GCM. The reader discovers the algorithm from the archive descriptor,
-so `check_archive`, `list_archive`, and both extraction methods use the same
-password-aware API for either cipher. The password is passed as `bytes`.
+Password-encrypted creation supports independently encrypted headers and data.
+The `encryption_scope` argument accepts `"data"`, `"header"`, or
+`"header-and-data"` (the default). With `"data"`, `info_archive` and
+`list_archive` can read the logical header without a password, but extracting
+data still requires one. `info_archive` reports each commit's header/data
+encryption status and AEAD algorithm.
+
+The `aead` argument accepts `"aes-256-gcm"` or `"chacha20-poly1305"` and
+defaults to AES-256-GCM. Each commit has its own encryption descriptor. For
+operations over multiple commits, pass `passwords={commit_id: password_bytes}`.
+A single `password=b"..."` is a fallback tried for every encrypted commit not
+listed in `passwords`; a specific entry takes precedence. The algorithm is
+read from each commit's descriptor.
 
 ```python
 from getpass import getpass
@@ -154,8 +162,41 @@ zarc-py extract --password --to restored/ secrets-chacha.zar
 The archive stores the selected AEAD in its encryption descriptor. The
 implementation creates fresh key/nonce material and uses Argon2id for
 password-based key wrapping. Don't attempt to reuse nonces or store the
-password in the archive. Append, remove, and join currently reject encrypted
-archives because encrypted stateful rewriting is not implemented.
+password in the archive. `add_archive` can append a new encrypted commit;
+provide credentials for encrypted earlier commits when those commits need
+validation. `remove_archive` and `join_archive` still reject encrypted archives
+because encrypted stateful rewriting is not implemented.
+
+### Different passwords per commit
+
+The global `password` is used as a fallback; explicit commit IDs override it.
+Commit IDs are the eight-hex-digit values returned by `info_archive`.
+
+```python
+commit_passwords = {
+    "00000001": b"older-commit-password",
+    "00000002": b"newer-commit-password",
+}
+
+entries = pyzarlib.list_archive("mixed.zar", passwords=commit_passwords)
+contents = pyzarlib.extract_archive_to_memory(
+    "mixed.zar",
+    passwords=commit_passwords,
+)
+```
+
+### Data-only encryption
+
+```python
+pyzarlib.create_archive(
+    "visible-header.zar",
+    ["public-index.txt"],
+    password=b"data-password",
+    encryption_scope="data",
+)
+
+print(pyzarlib.info_archive("visible-header.zar")[0]["data_encrypted"])
+```
 
 ## Examples matching the `zarc` commands
 
@@ -163,8 +204,8 @@ These Python examples use the same operations as the `zarc` create, add,
 remove, join, check, info, list, and extract commands. Run them from a working
 directory containing `src/`, `README.md`, and any other referenced input
 files. Inputs may be strings or `pathlib.Path` objects.
-These examples use an unencrypted archive; appending, removing, and joining
-encrypted archives are not supported by the current high-level operations.
+These examples use an unencrypted archive. Removing and joining encrypted
+archives are not supported by the current high-level operations.
 
 ### Create
 

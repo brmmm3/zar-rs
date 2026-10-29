@@ -66,8 +66,8 @@ These snippets use the same operations as the `zarc` create, add, remove,
 join, check, info, list, and extract commands. Run them from a working
 directory containing `src/`, `README.md`, and any other referenced input
 files. `PathBuf` inputs are mapped to archive-relative paths.
-These examples use an unencrypted archive; appending, removing, and joining
-encrypted archives are not supported by the current high-level operations.
+These examples use an unencrypted archive. Encrypted commits can be appended;
+removing or joining encrypted archives remains unsupported.
 
 ### Create
 
@@ -332,6 +332,40 @@ AES-256-GCM. To select the content algorithm, use
 is used both for the content and the password-wrapped data-encryption key.
 Pass the password as bytes and never log or persist those bytes unnecessarily.
 
+`create_archive_with_password_progress_and_filters_and_encryption` additionally
+selects `EncryptionScope::Data`, `EncryptionScope::Header`,
+`EncryptionScope::HeaderAndData`. Data-only encryption leaves the logical TOC
+readable: `info_archive` and `list_archive` can read it without credentials,
+while extraction still requires the password for the data blocks. `info`
+reports each commit's header/data encryption state and content algorithm.
+
+Each commit may use a different password and AEAD. Operations that read
+multiple encrypted commits accept `PasswordSet`: insert a password for a
+specific `[u8; 4]` commit ID with `insert_for_commit`. A password supplied as
+the set's default is used for every encrypted commit without an explicit
+entry; explicit entries take precedence. Existing single-password API
+functions remain available and use that password as the default for all
+encrypted commits.
+
+```rust,no_run
+use zarlib::operations::{
+    PasswordSet, extract_archive_to_memory_with_passwords, info_archive,
+};
+
+fn read_mixed_archive() -> Result<(), Box<dyn std::error::Error>> {
+    let archive = "mixed.zar";
+    let mut passwords = PasswordSet::default();
+    passwords.insert_for_commit([1, 0, 0, 0], b"older-password".to_vec());
+    passwords.insert_for_commit([2, 0, 0, 0], b"newer-password".to_vec());
+    let details = info_archive(archive, false)?;
+    println!("commit 1 header encrypted: {}", details[0].header_encrypted);
+    let files =
+        extract_archive_to_memory_with_passwords(archive, None, &passwords, None, 0)?;
+    println!("extracted {} file(s)", files.len());
+    Ok(())
+}
+```
+
 ### Create AES-256-GCM or ChaCha20-Poly1305 archives
 
 The following example creates two separate encrypted archives with the same
@@ -431,23 +465,29 @@ AES-256-GCM:
 ```sh
 zarc create --password secrets-aes.zar secrets/
 zarc create --password --aead chacha20-poly1305 secrets-chacha.zar secrets/
+zarc create --password --encryption-scope data visible-header.zar public/
+zarc add --password --aead chacha20-poly1305 archive.zar updated/
 zarc check --password secrets-chacha.zar
 zarc list --password secrets-chacha.zar
 zarc extract --password secrets-chacha.zar --to restored/
+zarc extract --password-for 00000001 --password-for 00000002 mixed.zar
 ```
 
 Do not pass passwords as command-line arguments; the CLI prompts interactively.
-Appending, removing, and joining encrypted archives are not supported because
-those operations cannot currently rewrite the accumulated encrypted TOC.
+The CLI accepts `--password-for COMMIT_ID` repeatedly for commit-specific
+prompts; a plain `--password` supplies a fallback used for all encrypted
+commits. `add` supports appending an encrypted commit when credentials are
+available for existing encrypted commits it validates. `remove` and `join`
+still reject encrypted archives because they cannot rewrite encrypted state.
 
 Keep these current constraints in mind:
 
-- Password-encrypted creation encrypts both headers and block payloads.
+- Password-encrypted commits can encrypt data, headers, or both.
 - Listing, checking, and extraction support password-aware access to encrypted
   content. When headers or blocks are encrypted, supply the correct password
   to authenticate and read them.
-- Append, remove, and join reject encrypted archives when they cannot read the
-  accumulated logical TOC. Encrypted stateful rewriting is not implemented.
+- `add` can append encrypted commits. `remove` and `join` do not yet rewrite
+  encrypted stateful TOCs.
 - `check_archive_with_recovery` reports what was checked; inaccessible
   encrypted portions are not equivalent to verified content. Recovery
   resynchronizes after damaged framing and does not repair the archive.

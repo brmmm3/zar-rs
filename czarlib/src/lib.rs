@@ -3,11 +3,11 @@ use std::ffi::{CStr, CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::sync::Mutex;
-use zarlib::ContentAead;
 use zarlib::operations::{
     self, AddInputOptions, CollisionPolicy, CreateFilterOptions, CreateInputOptions,
     EncodingOptions, ExistingPolicy, ExtractionOptions, FilterSet, Progress,
 };
+use zarlib::{ContentAead, EncryptionScope};
 
 struct WarningCollector(Mutex<Vec<String>>);
 
@@ -142,6 +142,38 @@ fn password(request: &Value) -> Result<Option<Vec<u8>>, String> {
         .map(|password| password.map(|value| value.as_bytes().to_vec()))
 }
 
+fn passwords(request: &Value) -> Result<operations::PasswordSet, String> {
+    let mut default = password(request)?;
+    let mut entries_by_commit = Vec::new();
+    if let Some(entries) = request.get("passwords") {
+        let entries = entries
+            .as_object()
+            .ok_or("'passwords' must be an object keyed by commit ID")?;
+        for (commit_id, value) in entries {
+            let value = value
+                .as_str()
+                .ok_or("password values must be strings")?
+                .as_bytes()
+                .to_vec();
+            if commit_id == "default" {
+                if default.is_some() {
+                    return Err("specify the default password only once".to_owned());
+                }
+                default = Some(value);
+            } else {
+                let id =
+                    operations::parse_commit_id(commit_id).map_err(|error| error.to_string())?;
+                entries_by_commit.push((id, value));
+            }
+        }
+    }
+    let mut result = operations::PasswordSet::new(default);
+    for (id, value) in entries_by_commit {
+        result.insert_for_commit(id, value);
+    }
+    Ok(result)
+}
+
 fn content_aead(request: &Value) -> Result<ContentAead, String> {
     match request
         .get("aead")
@@ -154,20 +186,34 @@ fn content_aead(request: &Value) -> Result<ContentAead, String> {
     }
 }
 
+fn encryption_scope(request: &Value) -> Result<EncryptionScope, String> {
+    match request
+        .get("encryption_scope")
+        .and_then(Value::as_str)
+        .unwrap_or("header-and-data")
+    {
+        "data" => Ok(EncryptionScope::Data),
+        "header" => Ok(EncryptionScope::Header),
+        "header-and-data" => Ok(EncryptionScope::HeaderAndData),
+        _ => Err("'encryption_scope' must be 'data', 'header', or 'header-and-data'".to_owned()),
+    }
+}
+
 fn create(request: &Value) -> Result<Value, String> {
     let archive = required_string(request, "archive")?;
     let input_paths = paths(request)?;
     let options = encoding_options(request)?;
     let filters = filters(request)?;
     let aead = content_aead(request)?;
-    let report = operations::create_archive_with_password_progress_and_filters_and_aead(
+    let scope = encryption_scope(request)?;
+    let report = operations::create_archive_with_password_progress_and_filters_and_encryption(
         archive,
         &input_paths,
         bool_option(request, "strict", false)?,
         options,
         password(request)?
             .as_deref()
-            .map(|password| (password, aead)),
+            .map(|password| (password, aead, scope)),
         None,
         CreateFilterOptions {
             input: CreateInputOptions {
@@ -196,7 +242,11 @@ fn add(request: &Value) -> Result<Value, String> {
     let options = encoding_options(request)?;
     let filters = filters(request)?;
     let warnings = WarningCollector::new();
-    operations::add_archive_with_encoding_progress_and_options_and_filters(
+    let password = password(request)?;
+    let aead = content_aead(request)?;
+    let scope = encryption_scope(request)?;
+    let passwords = passwords(request)?;
+    operations::add_archive_with_encoding_progress_and_filters_and_encryption(
         archive,
         &input_paths,
         options,
@@ -208,6 +258,8 @@ fn add(request: &Value) -> Result<Value, String> {
             verbose: bool_option(request, "verbose", false)?,
         },
         &filters,
+        password.as_deref().map(|password| (password, aead, scope)),
+        &passwords,
     )
     .map_err(|error| error.to_string())?;
     Ok(json!({ "warnings": warnings.take() }))
@@ -233,10 +285,11 @@ fn join(request: &Value) -> Result<Value, String> {
 }
 
 fn check(request: &Value) -> Result<Value, String> {
-    let report = operations::check_archive_with_recovery(
+    let passwords = passwords(request)?;
+    let report = operations::check_archive_with_recovery_and_passwords(
         required_string(request, "archive")?,
         bool_option(request, "recover", false)?,
-        password(request)?.as_deref(),
+        &passwords,
     )
     .map_err(|error| error.to_string())?;
     Ok(json!({
@@ -290,11 +343,7 @@ fn info(request: &Value) -> Result<Value, String> {
                     "ratio_percent": header.ratio_percent,
                 })
             });
-            let id = commit
-                .id
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>();
+            let id = format!("{:08x}", u32::from_le_bytes(commit.id));
             json!({
                 "id": id,
                 "size": commit.size,
@@ -303,6 +352,11 @@ fn info(request: &Value) -> Result<Value, String> {
                 "uncompressed_size": commit.uncompressed_size,
                 "ratio_percent": commit.ratio_percent,
                 "header_encrypted": commit.header_encrypted,
+                "data_encrypted": commit.data_encrypted,
+                "encryption_algorithm": commit.encryption_algorithm.map(|algorithm| match algorithm {
+                    ContentAead::Aes256Gcm => "aes-256-gcm",
+                    ContentAead::ChaCha20Poly1305 => "chacha20-poly1305",
+                }),
                 "header_compression": header_compression,
                 "details": details,
             })
@@ -312,10 +366,11 @@ fn info(request: &Value) -> Result<Value, String> {
 }
 
 fn list(request: &Value) -> Result<Value, String> {
-    let toc = operations::list_archive(
+    let passwords = passwords(request)?;
+    let toc = operations::list_archive_with_passwords(
         required_string(request, "archive")?,
         optional_string(request, "through")?,
-        password(request)?.as_deref(),
+        &passwords,
     )
     .map_err(|error| error.to_string())?;
     let entries = toc
@@ -389,9 +444,9 @@ fn extract(request: &Value) -> Result<Value, String> {
     let archive = required_string(request, "archive")?;
     let destination = PathBuf::from(required_string(request, "destination")?);
     let filters = filters(request)?;
-    let password = password(request)?;
+    let passwords = passwords(request)?;
     let dry_run = bool_option(request, "dry_run", false)?;
-    let plan = operations::extract_archive_with_progress_and_filters(
+    let plan = operations::extract_archive_with_passwords_progress_and_filters(
         archive,
         &destination,
         ExtractionOptions {
@@ -403,7 +458,7 @@ fn extract(request: &Value) -> Result<Value, String> {
             restore_symlinks: bool_option(request, "restore_symlinks", false)?,
             restore_devices: bool_option(request, "restore_devices", false)?,
         },
-        password.as_deref(),
+        &passwords,
         None,
         &filters,
     )
@@ -452,11 +507,12 @@ fn extract(request: &Value) -> Result<Value, String> {
 
 fn extract_to_memory(request: &Value) -> Result<Value, String> {
     let filters = filters(request)?;
+    let passwords = passwords(request)?;
     let files =
-        operations::extract_archive_to_memory_with_filters(
+        operations::extract_archive_to_memory_with_passwords_and_filters(
             required_string(request, "archive")?,
             optional_string(request, "through")?,
-            password(request)?.as_deref(),
+            &passwords,
             match request.get("size_limit") {
                 None | Some(Value::Null) => None,
                 Some(value) => Some(value.as_u64().ok_or_else(|| {

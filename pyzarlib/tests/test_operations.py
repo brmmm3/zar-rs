@@ -332,6 +332,45 @@ def test_selected_aead_can_create_check_and_extract(
     )
     assert (destination / "source.txt").read_bytes() == b"encrypted example"
 
+def test_commits_accept_individual_passwords_and_data_only_headers(tmp_path: Path) -> None:
+    first = tmp_path / "first.txt"
+    second = tmp_path / "second.txt"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+    archive = tmp_path / "mixed.zar"
+
+    pyzarlib.create_archive(
+        archive,
+        [first],
+        password=b"first-password",
+        encryption_scope="data",
+        block_size=64 * 1024,
+    )
+    info = pyzarlib.info_archive(archive)
+    assert info[0]["id"] == "00000001"
+    assert info[0]["header_encrypted"] is False
+    assert info[0]["data_encrypted"] is True
+    assert info[0]["encryption_algorithm"] == "aes-256-gcm"
+
+    pyzarlib.add_archive(
+        archive,
+        [second],
+        password=b"second-password",
+        aead="chacha20-poly1305",
+        passwords={"00000001": b"first-password"},
+        block_size=64 * 1024,
+    )
+    commit_passwords = {
+        "00000001": b"first-password",
+        "00000002": b"second-password",
+    }
+    assert len(pyzarlib.list_archive(archive, passwords=commit_passwords)) == 2
+    assert pyzarlib.extract_archive_to_memory(
+        archive, passwords=commit_passwords
+    ) == {"first.txt": b"first", "second.txt": b"second"}
+    with pytest.raises(RuntimeError):
+        pyzarlib.extract_archive_to_memory(archive, password=b"first-password")
+
 
 def test_extension_is_safe_for_concurrent_python_threads(tmp_path: Path) -> None:
     payloads = [bytes([index]) * (64 * 1024 + index) for index in range(8)]

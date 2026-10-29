@@ -3,14 +3,17 @@
 These diagrams follow the current CLI and `zarlib::operations` implementations.
 Both commands scan source paths into canonical archive-relative paths, apply
 filters, and feed selected entries through the shared scan/encode pipeline.
-They differ in archive publication, commit chaining, and encryption support.
+They differ in archive publication and commit chaining. Either operation can
+create a password-encrypted commit using AES-256-GCM or ChaCha20-Poly1305 and
+the selected header/data encryption scope.
 
 ## Create
 
 `create` writes a new one-commit archive to a unique temporary file in the
-destination directory. Data block frames are streamed before the logical
-header frame. With `--password`, a new DEK is generated before scanning and
-used to encrypt data blocks inline; the logical header is encrypted too.
+destination directory. Data block frames are streamed before the logical header frame. With
+`--password`, a new DEK and descriptor are created before scanning. The
+`--encryption-scope` choice controls whether blocks, the logical header, or
+both are encrypted.
 
 ```plantuml
 @startuml
@@ -25,7 +28,7 @@ if (Invalid options or filters?) then (yes)
 endif
 
 if (Password encryption requested?) then (yes)
-  :Prompt for password;
+  :Prompt for password and read encryption scope/AEAD;
 endif
 
 :Check destination filename and parent directory;
@@ -36,8 +39,12 @@ endif
 :Create exclusive temporary archive beside destination;
 :Write ZAR0 container header and placeholder first-header offset;
 if (Password supplied?) then (yes)
-  :Generate DEK and password-wrapping descriptor;
-  :Configure inline block encryption;
+  :Generate DEK and password-wrapping descriptor with scope;
+  if (Scope encrypts data?) then (yes)
+    :Configure inline block encryption;
+  else (no)
+    :Keep data blocks unencrypted;
+  endif
 else (no)
   :Configure unencrypted block encoding;
 endif
@@ -107,7 +114,7 @@ if (No TOC changes were produced?) then (yes)
   stop
 endif
 :Encode logical TOC header and optional entry metadata;
-:Compress header and encrypt it when password was supplied;
+:Compress header and encrypt it only when scope includes header;
 :Write header frame after data and append its offset;
 :Update container first-header offset;
 :Read back and validate header and expected archive length;
@@ -128,11 +135,13 @@ stop
 
 ## Add
 
-`add` appends one unencrypted commit. It never writes directly into the
-existing archive: new data and the combined archive are staged beside it,
-validated, and then the staged archive replaces the original. Existing
-commits remain in place; the previous last-commit link is updated to point to
-the new commit.
+`add` appends a commit that may be unencrypted or encrypted independently of
+earlier commits. It never writes directly into the existing archive: new data
+and the combined archive are staged beside it, validated, and then the staged
+archive replaces the original. Existing commits remain in place; the previous
+last-commit link is updated to point to the new commit. For encrypted history,
+`--password` provides a fallback and `--password-for COMMIT_ID` supplies
+per-commit overrides.
 
 ```plantuml
 @startuml
@@ -146,17 +155,20 @@ if (Invalid options or filters?) then (yes)
   stop
 endif
 :Check archive path and parent directory;
-:Read commit descriptors;
-if (Any existing commit is encrypted?) then (yes)
-  :Reject mutation before staging;
-  stop
-endif
-:Load effective TOC from existing archive;
+:Read commit descriptors and prompt for required passwords;
+:Load effective TOC using per-commit passwords and fallback;
 if (Archive or TOC invalid/unreadable?) then (yes)
   :Return error without modifying archive;
   stop
 endif
+:Choose next commit ID;
 :Create exclusive staged-data file beside archive;
+if (New commit encryption requested?) then (yes)
+  :Generate DEK and descriptor from password, AEAD, and scope;
+  if (Scope encrypts data?) then (yes)
+    :Configure inline block encryption;
+  endif
+endif
 :Resolve input paths and archive-relative prefixes;
 :Walk input trees and classify entries;
 if (Scan/path error?) then (yes)
@@ -206,7 +218,7 @@ while (Selected entries remain?) is (yes)
         else (no)
           :Split into blocks using configured block size;
           :Compress unless extension is compression-exempt;
-          :Write unencrypted data block frames in local-index order;
+          :Encrypt selected block payloads and write frames in local-index order;
         endif
         :Record file size, checksum, block references, and optional metadata;
       endif
@@ -220,8 +232,7 @@ if (No TOC changes were produced?) then (yes)
 endif
 :Encode logical TOC header and optional entry metadata;
 :Flush staged data;
-:Choose next commit ID from existing commit chain;
-:Build unencrypted compressed header frame;
+:Build header frame, encrypting only when selected scope includes the header;
 :Create staged full archive;
 :Copy original archive unchanged into staged full archive;
 :Append zero next-commit pointer, new data, new header, and trailing header offset;
@@ -231,7 +242,7 @@ else (no)
   :Set container first-header offset;
 endif
 :Validate new commit body and its local block references against TOC changes;
-:Validate all commit bodies in staged full archive;
+:Validate all staged commit bodies with their commit-specific passwords;
 if (Validation failed?) then (yes)
   :Return error, original archive preserved, staged files removed;
   stop
