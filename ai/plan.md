@@ -549,10 +549,12 @@ request types and required fields explicitly, return allocated response/error
 strings with the documented free function, and never retain caller-owned
 request pointers.
 
-The C++ package uses `cxx`/`cxx-build` to expose the shared JSON dispatcher
-through a CXX bridge. It returns Rust-owned strings and maps request or archive
-errors to CXX errors rather than requiring manual C string allocation. Include
-a native C++ example and document bridge-header and static-library linking.
+The C++ package uses `cxx`/`cxx-build` to expose the same full JSON operation
+dispatcher as the C wrapper through a CXX bridge. It returns Rust-owned strings
+and maps request or archive errors to CXX errors rather than requiring manual
+C string allocation. Port the C API integration coverage to native C++ tests
+and include direct API and command-style examples. Document bridge-header and
+static-library linking.
 
 The `zarg` GUI uses `zarlib` operations, runs long work outside the UI thread,
 and reports progress, warnings, results, and confirmations. It supports
