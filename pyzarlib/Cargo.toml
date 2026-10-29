@@ -1,0 +1,13 @@
+[package]
+name = "pyzarlib"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "_pyzarlib"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.30.1", features = ["extension-module"] }
+zarlib = { path = "../zarlib" }

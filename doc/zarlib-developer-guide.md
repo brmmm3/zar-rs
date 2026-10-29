@@ -53,6 +53,13 @@ The `extract_archive` return value is an `ExtractionPlan`, containing the
 effective TOC and planned directories and files. Pass `true` for the `dry_run`
 argument to plan extraction without modifying the destination.
 
+For applications that need file data in memory, use
+`operations::extract_archive_to_memory`. It returns a `HashMap` from canonical
+archive-relative file paths to byte vectors. The optional size limit caps the
+bytes returned per file after the specified offset. Directories and special
+entries are omitted. The filtered variant accepts the same `FilterSet` used by
+file extraction.
+
 ### Operation reference
 
 The operation modules and their commonly used public entry points are:
@@ -102,6 +109,13 @@ fn create_with_custom_encoding() -> Result<(), Box<dyn std::error::Error>> {
 The supported creation block size is 64 KiB through 32 MiB. The default is
 8 MiB; the default compression level is 3, and valid Zstandard levels are -7
 through 22.
+
+## Python bindings
+
+The workspace also includes [pyzarlib](../pyzarlib/README.md), a PyO3 package
+that exposes high-level create, add, remove, join, check, info, list, and
+extract operations to Python. See its README for build instructions, API
+options, and examples.
 
 ## Progress callbacks
 
