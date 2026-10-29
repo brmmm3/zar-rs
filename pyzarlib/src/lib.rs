@@ -597,7 +597,7 @@ fn toc_dicts(py: Python<'_>, toc: Toc) -> PyResult<Bound<'_, PyList>> {
     Ok(output)
 }
 
-#[pymodule]
+#[pymodule(gil_used = false)]
 fn _pyzarlib(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(create_archive, module)?)?;
     module.add_function(wrap_pyfunction!(add_archive, module)?)?;

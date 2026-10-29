@@ -2540,7 +2540,7 @@ dependencies = [
 
 [[package]]
 name = "pyzarlib"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "pyo3",
  "zarlib",
@@ -4028,7 +4028,7 @@ checksum = "550a2b930b62486a393c52d5c3b84bff264b28aa437ed64694d31e93b1757af7"
 
 [[package]]
 name = "zarc"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "clap",
  "indicatif",
@@ -4038,7 +4038,7 @@ dependencies = [
 
 [[package]]
 name = "zarg"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "eframe",
  "image",
@@ -4048,7 +4048,7 @@ dependencies = [
 
 [[package]]
 name = "zarlib"
-version = "0.1.0"
+version = "0.5.0"
 dependencies = [
  "aes-gcm",
  "argon2",

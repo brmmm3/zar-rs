@@ -1,4 +1,7 @@
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+import sys
+import sysconfig
 
 import pytest
 
@@ -295,3 +298,26 @@ def test_encrypted_archive_operations_authenticate_password(
     with pytest.raises(RuntimeError):
         pyzarlib.extract_archive(encrypted, tmp_path / "locked")
     assert not (tmp_path / "locked").exists()
+
+
+def test_extension_is_safe_for_concurrent_python_threads(tmp_path: Path) -> None:
+    payloads = [bytes([index]) * (64 * 1024 + index) for index in range(8)]
+
+    def create_check_and_read(index: int, payload: bytes) -> tuple[int, bytes]:
+        source = tmp_path / f"thread-{index}.bin"
+        archive = tmp_path / f"thread-{index}.zar"
+        source.write_bytes(payload)
+        pyzarlib.create_archive(archive, [source], block_size=64 * 1024)
+        assert pyzarlib.check_archive(archive)["commits"] == 1
+        return index, pyzarlib.extract_archive_to_memory(archive)[source.name]
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(create_check_and_read, range(8), payloads))
+
+    assert results == list(enumerate(payloads))
+
+
+def test_free_threaded_interpreter_keeps_gil_disabled() -> None:
+    if sysconfig.get_config_var("Py_GIL_DISABLED") != 1:
+        pytest.skip("requires a free-threaded CPython build")
+    assert not sys._is_gil_enabled()

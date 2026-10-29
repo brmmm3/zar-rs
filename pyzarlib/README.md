@@ -4,6 +4,18 @@
 The package exposes high-level create, add, remove, join, check, info, list,
 and extract operations.
 
+## Python compatibility
+
+The package requires Python 3.9 or newer. The CI matrix covers standard CPython
+3.9 through 3.15, plus free-threaded CPython 3.14t and 3.15t. The PyO3
+extension declares that it does not require the GIL; concurrent-call tests
+exercise the binding from multiple Python threads. A free-threaded test verifies
+that importing the extension does not turn the GIL back on.
+
+Compatibility review: the official [Python 3.14](https://docs.python.org/3.14/whatsnew/3.14.html)
+and [Python 3.15](https://docs.python.org/3.15/whatsnew/3.15.html) release
+notes and porting sections, and the [PyO3 free-threading guide](https://pyo3.rs/v0.30.1/free-threading.html).
+
 ## Build and install
 
 Install [Maturin](https://maturin.rs) and build/install the package from this
