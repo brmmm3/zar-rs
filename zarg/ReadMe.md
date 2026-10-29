@@ -13,10 +13,13 @@ cargo run --release -p zarg
 ```
 
 The application is a desktop program built with eframe/egui. On Linux, native
-file selection uses the XDG desktop portal. The PNG icon is embedded in the
-window binary. Wayland requires a matching desktop entry to show the app icon
-in the dock or app switcher; `data/zarg.desktop` provides the entry. After
-installing the `zarg` executable, install the launcher and icon with:
+file selection uses the XDG desktop portal. The PNG app icon and selected
+KDE4 Crystal Diamond icons for buttons and archive entry types are embedded in
+the window binary. Icon attribution and license information is in
+[`assets/icons/README.md`](./assets/icons/README.md). Wayland requires a
+matching desktop entry to show the app icon in the dock or app switcher;
+`data/zarg.desktop` provides the entry. After installing the `zarg` executable,
+install the launcher and icon with:
 
 ```sh
 install -Dm644 zarg/data/zarg.desktop ~/.local/share/applications/zarg.desktop

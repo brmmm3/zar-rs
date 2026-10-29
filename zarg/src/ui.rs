@@ -1,5 +1,6 @@
 use eframe::egui;
-use std::collections::BTreeSet;
+use std::cell::RefCell;
+use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -39,20 +40,179 @@ enum OperationKind {
     Extract,
 }
 
-fn file_icon(path: &str) -> &'static str {
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+enum UiIcon {
+    OpenArchive,
+    CreateArchive,
+    Quit,
+    SelectAll,
+    ClearSelection,
+    Refresh,
+    ListContents,
+    TestArchive,
+    Join,
+    About,
+    Add,
+    AddFolder,
+    Extract,
+    Info,
+    Remove,
+    Browse,
+    ClearInputs,
+    Confirm,
+    Cancel,
+    AddFilterList,
+    Folder,
+    Symlink,
+    Image,
+    Audio,
+    Video,
+    Archive,
+    Pdf,
+    Code,
+    Python,
+    Java,
+    Script,
+    JavaScript,
+    Text,
+    Word,
+    Spreadsheet,
+    Presentation,
+    Generic,
+    SpecialData,
+}
+
+fn icon_bytes(icon: UiIcon) -> &'static [u8] {
+    match icon {
+        UiIcon::OpenArchive => include_bytes!("../assets/icons/actions/document-open.png"),
+        UiIcon::CreateArchive => include_bytes!("../assets/icons/actions/document-new.png"),
+        UiIcon::Quit => include_bytes!("../assets/icons/actions/application-exit.png"),
+        UiIcon::SelectAll => include_bytes!("../assets/icons/actions/edit-select-all.png"),
+        UiIcon::ClearSelection | UiIcon::ClearInputs => {
+            include_bytes!("../assets/icons/actions/edit-clear.png")
+        }
+        UiIcon::Refresh => include_bytes!("../assets/icons/actions/view-refresh.png"),
+        UiIcon::ListContents => {
+            include_bytes!("../assets/icons/actions/document-preview-archive.png")
+        }
+        UiIcon::TestArchive => include_bytes!("../assets/icons/actions/dialog-ok-apply.png"),
+        UiIcon::Join => include_bytes!("../assets/icons/actions/archive-insert.png"),
+        UiIcon::About => include_bytes!("../assets/icons/actions/help-about.png"),
+        UiIcon::Add => include_bytes!("../assets/icons/actions/archive-insert.png"),
+        UiIcon::AddFolder => {
+            include_bytes!("../assets/icons/actions/archive-insert-directory.png")
+        }
+        UiIcon::Extract => include_bytes!("../assets/icons/actions/archive-extract.png"),
+        UiIcon::Info => include_bytes!("../assets/icons/actions/document-properties.png"),
+        UiIcon::Remove => include_bytes!("../assets/icons/actions/archive-remove.png"),
+        UiIcon::Browse => include_bytes!("../assets/icons/actions/document-open-folder.png"),
+        UiIcon::Confirm => include_bytes!("../assets/icons/actions/dialog-ok.png"),
+        UiIcon::Cancel => include_bytes!("../assets/icons/actions/dialog-cancel.png"),
+        UiIcon::AddFilterList => include_bytes!("../assets/icons/actions/list-add.png"),
+        UiIcon::Folder => include_bytes!("../assets/icons/places/folder.png"),
+        UiIcon::Symlink => include_bytes!("../assets/icons/mimetypes/emblem-symbolic-link.png"),
+        UiIcon::Image => include_bytes!("../assets/icons/mimetypes/image-x-generic.png"),
+        UiIcon::Audio => include_bytes!("../assets/icons/mimetypes/audio-x-generic.png"),
+        UiIcon::Video => include_bytes!("../assets/icons/mimetypes/video-x-generic.png"),
+        UiIcon::Archive => include_bytes!("../assets/icons/mimetypes/application-x-archive.png"),
+        UiIcon::Pdf => include_bytes!("../assets/icons/mimetypes/application-pdf.png"),
+        UiIcon::Code => include_bytes!("../assets/icons/mimetypes/text-x-csrc.png"),
+        UiIcon::Python => include_bytes!("../assets/icons/mimetypes/text-x-python.png"),
+        UiIcon::Java => include_bytes!("../assets/icons/mimetypes/text-x-java.png"),
+        UiIcon::Script => include_bytes!("../assets/icons/mimetypes/text-x-script.png"),
+        UiIcon::JavaScript => {
+            include_bytes!("../assets/icons/mimetypes/application-x-javascript.png")
+        }
+        UiIcon::Text => include_bytes!("../assets/icons/mimetypes/text-plain.png"),
+        UiIcon::Word => include_bytes!("../assets/icons/mimetypes/application-vnd.ms-word.png"),
+        UiIcon::Spreadsheet => {
+            include_bytes!("../assets/icons/mimetypes/application-vnd.ms-excel.png")
+        }
+        UiIcon::Presentation => {
+            include_bytes!("../assets/icons/mimetypes/application-vnd.ms-powerpoint.png")
+        }
+        UiIcon::Generic => include_bytes!("../assets/icons/mimetypes/unknown.png"),
+        UiIcon::SpecialData => {
+            include_bytes!("../assets/icons/mimetypes/application-octet-stream.png")
+        }
+    }
+}
+
+fn icon_texture(
+    context: &egui::Context,
+    cache: &RefCell<HashMap<UiIcon, egui::TextureHandle>>,
+    icon: UiIcon,
+) -> egui::TextureHandle {
+    if let Some(texture) = cache.borrow().get(&icon) {
+        return texture.clone();
+    }
+
+    let image = image::load_from_memory(icon_bytes(icon))
+        .expect("bundled KDE icon must be a valid image")
+        .into_rgba8();
+    let [width, height] = [image.width() as usize, image.height() as usize];
+    let texture = context.load_texture(
+        format!("zarg-icon-{icon:?}"),
+        egui::ColorImage::from_rgba_unmultiplied([width, height], image.as_raw()),
+        egui::TextureOptions::LINEAR,
+    );
+    cache.borrow_mut().insert(icon, texture.clone());
+    texture
+}
+
+fn icon_button(
+    ui: &mut egui::Ui,
+    cache: &RefCell<HashMap<UiIcon, egui::TextureHandle>>,
+    icon: UiIcon,
+    label: impl Into<egui::WidgetText>,
+    enabled: bool,
+) -> egui::Response {
+    let texture = icon_texture(ui.ctx(), cache, icon);
+    ui.add_enabled(
+        enabled,
+        egui::Button::image_and_text(
+            egui::Image::new(&texture).fit_to_exact_size(egui::vec2(16.0, 16.0)),
+            label,
+        ),
+    )
+}
+
+fn icon_menu_button<R>(
+    ui: &mut egui::Ui,
+    texture: egui::TextureHandle,
+    label: impl Into<egui::WidgetText>,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> egui::InnerResponse<Option<R>> {
+    ui.menu_image_text_button(
+        egui::Image::new(&texture).fit_to_exact_size(egui::vec2(16.0, 16.0)),
+        label,
+        add_contents,
+    )
+}
+
+fn file_icon(path: &str) -> UiIcon {
     let extension = path.rsplit_once('.').map(|(_, extension)| extension);
     match extension.map(str::to_ascii_lowercase).as_deref() {
-        Some("png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "svg" | "tif" | "tiff") => "🖼️",
-        Some("mp3" | "wav" | "flac" | "ogg" | "m4a" | "aac") => "🎵",
-        Some("mp4" | "mkv" | "mov" | "avi" | "webm" | "mpeg" | "mpg") => "🎬",
-        Some("zip" | "7z" | "rar" | "tar" | "gz" | "bz2" | "xz" | "zar") => "📦",
-        Some("pdf") => "📕",
+        Some("png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "svg" | "tif" | "tiff") => {
+            UiIcon::Image
+        }
+        Some("mp3" | "wav" | "flac" | "ogg" | "m4a" | "aac") => UiIcon::Audio,
+        Some("mp4" | "mkv" | "mov" | "avi" | "webm" | "mpeg" | "mpg") => UiIcon::Video,
+        Some("zip" | "7z" | "rar" | "tar" | "gz" | "bz2" | "xz" | "zar") => UiIcon::Archive,
+        Some("pdf") => UiIcon::Pdf,
+        Some("py") => UiIcon::Python,
+        Some("java" | "kt") => UiIcon::Java,
+        Some("sh" | "bash" | "zsh") => UiIcon::Script,
+        Some("js" | "jsx" | "mjs" | "cjs") => UiIcon::JavaScript,
+        Some("doc" | "docx" | "odt") => UiIcon::Word,
+        Some("xls" | "xlsx" | "ods" | "csv") => UiIcon::Spreadsheet,
+        Some("ppt" | "pptx" | "odp") => UiIcon::Presentation,
         Some(
-            "rs" | "c" | "h" | "cpp" | "hpp" | "js" | "ts" | "jsx" | "tsx" | "py" | "go" | "java"
-            | "kt" | "cs" | "toml" | "yaml" | "yml" | "json" | "xml" | "html" | "css" | "sh",
-        ) => "🧩",
-        Some("md" | "txt" | "log" | "csv" | "rtf") => "📝",
-        _ => "📄",
+            "rs" | "c" | "h" | "cpp" | "hpp" | "ts" | "tsx" | "go" | "cs" | "toml" | "yaml" | "yml"
+            | "json" | "xml" | "html" | "css",
+        ) => UiIcon::Code,
+        Some("md" | "txt" | "log" | "rtf") => UiIcon::Text,
+        _ => UiIcon::Generic,
     }
 }
 
@@ -207,6 +367,7 @@ struct WorkerChannels {
 
 #[derive(Default)]
 pub struct ZargApp {
+    icons: RefCell<HashMap<UiIcon, egui::TextureHandle>>,
     archive: String,
     location: String,
     entries: Vec<(String, EntryData)>,
@@ -482,90 +643,165 @@ impl ZargApp {
 
     fn render_menus(&mut self, ui: &mut egui::Ui) {
         egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button("File", |ui| {
-                if ui.button("Open archive...").clicked() {
-                    self.open_dialog();
-                    ui.close();
-                }
-                if ui.button("Create archive...").clicked() {
-                    self.show_operation(OperationKind::Create);
-                    ui.close();
-                }
-                ui.separator();
-                if ui
-                    .add_enabled(!self.busy, egui::Button::new("Quit"))
+            icon_menu_button(
+                ui,
+                icon_texture(ui.ctx(), &self.icons, UiIcon::OpenArchive),
+                "File",
+                |ui| {
+                    if icon_button(
+                        ui,
+                        &self.icons,
+                        UiIcon::OpenArchive,
+                        "Open archive...",
+                        true,
+                    )
                     .clicked()
-                {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-            });
-            ui.menu_button("Edit", |ui| {
-                if ui
-                    .add_enabled(
+                    {
+                        self.open_dialog();
+                        ui.close();
+                    }
+                    if icon_button(
+                        ui,
+                        &self.icons,
+                        UiIcon::CreateArchive,
+                        "Create archive...",
+                        true,
+                    )
+                    .clicked()
+                    {
+                        self.show_operation(OperationKind::Create);
+                        ui.close();
+                    }
+                    ui.separator();
+                    if icon_button(ui, &self.icons, UiIcon::Quit, "Quit", !self.busy).clicked() {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                },
+            );
+            icon_menu_button(
+                ui,
+                icon_texture(ui.ctx(), &self.icons, UiIcon::SelectAll),
+                "Edit",
+                |ui| {
+                    if icon_button(
+                        ui,
+                        &self.icons,
+                        UiIcon::SelectAll,
+                        "Select all",
                         !self.selected.is_empty() && !self.busy,
-                        egui::Button::new("Select all"),
                     )
                     .clicked()
-                {
-                    self.selected
-                        .extend(self.entries.iter().map(|(path, _)| path.clone()));
-                    ui.close();
-                }
-                if ui.button("Clear selection").clicked() {
-                    self.selected.clear();
-                    ui.close();
-                }
-            });
-            ui.menu_button("View", |ui| {
-                if ui.text_edit_singleline(&mut self.filter_text).changed() {
-                    self.rebuild_visible_entry_indices();
-                }
-                if ui.button("Refresh").clicked() && !self.archive.is_empty() {
-                    self.open_archive(PathBuf::from(&self.archive), None);
-                    ui.close();
-                }
-            });
-            ui.menu_button("Favorites", |ui| {
-                ui.label("Recently opened archives");
-                if !self.archive.is_empty() && ui.button(&self.archive).clicked() {
-                    self.open_archive(PathBuf::from(&self.archive), None);
-                    ui.close();
-                }
-            });
-            ui.menu_button("Archive", |ui| {
-                if ui
-                    .add_enabled(
+                    {
+                        self.selected
+                            .extend(self.entries.iter().map(|(path, _)| path.clone()));
+                        ui.close();
+                    }
+                    if icon_button(
+                        ui,
+                        &self.icons,
+                        UiIcon::ClearSelection,
+                        "Clear selection",
+                        true,
+                    )
+                    .clicked()
+                    {
+                        self.selected.clear();
+                        ui.close();
+                    }
+                },
+            );
+            icon_menu_button(
+                ui,
+                icon_texture(ui.ctx(), &self.icons, UiIcon::Refresh),
+                "View",
+                |ui| {
+                    if ui.text_edit_singleline(&mut self.filter_text).changed() {
+                        self.rebuild_visible_entry_indices();
+                    }
+                    if icon_button(
+                        ui,
+                        &self.icons,
+                        UiIcon::Refresh,
+                        "Refresh",
+                        !self.archive.is_empty(),
+                    )
+                    .clicked()
+                    {
+                        self.open_archive(PathBuf::from(&self.archive), None);
+                        ui.close();
+                    }
+                },
+            );
+            icon_menu_button(
+                ui,
+                icon_texture(ui.ctx(), &self.icons, UiIcon::OpenArchive),
+                "Favorites",
+                |ui| {
+                    ui.label("Recently opened archives");
+                    if !self.archive.is_empty()
+                        && icon_button(ui, &self.icons, UiIcon::OpenArchive, &self.archive, true)
+                            .clicked()
+                    {
+                        self.open_archive(PathBuf::from(&self.archive), None);
+                        ui.close();
+                    }
+                },
+            );
+            icon_menu_button(
+                ui,
+                icon_texture(ui.ctx(), &self.icons, UiIcon::Archive),
+                "Archive",
+                |ui| {
+                    if icon_button(
+                        ui,
+                        &self.icons,
+                        UiIcon::ListContents,
+                        "List contents...",
                         !self.busy && !self.archive.is_empty(),
-                        egui::Button::new("List contents..."),
                     )
                     .clicked()
-                {
-                    self.show_operation(OperationKind::List);
-                    ui.close();
-                }
-            });
-            ui.menu_button("Tools", |ui| {
-                if ui
-                    .add_enabled(!self.busy, egui::Button::new("Test archive"))
+                    {
+                        self.show_operation(OperationKind::List);
+                        ui.close();
+                    }
+                },
+            );
+            icon_menu_button(
+                ui,
+                icon_texture(ui.ctx(), &self.icons, UiIcon::TestArchive),
+                "Tools",
+                |ui| {
+                    if icon_button(
+                        ui,
+                        &self.icons,
+                        UiIcon::TestArchive,
+                        "Test archive",
+                        !self.busy,
+                    )
                     .clicked()
-                {
-                    self.show_operation(OperationKind::Check);
-                    ui.close();
-                }
-                if ui
-                    .add_enabled(!self.busy, egui::Button::new("Join commits..."))
-                    .clicked()
-                {
-                    self.show_operation(OperationKind::Join);
-                    ui.close();
-                }
-            });
-            ui.menu_button("Help", |ui| {
-                if ui.button("About zarg").clicked() {
-                    self.show_about = true;
-                    ui.close();
-                }
-            });
+                    {
+                        self.show_operation(OperationKind::Check);
+                        ui.close();
+                    }
+                    if icon_button(ui, &self.icons, UiIcon::Join, "Join commits...", !self.busy)
+                        .clicked()
+                    {
+                        self.show_operation(OperationKind::Join);
+                        ui.close();
+                    }
+                },
+            );
+            icon_menu_button(
+                ui,
+                icon_texture(ui.ctx(), &self.icons, UiIcon::About),
+                "Help",
+                |ui| {
+                    if icon_button(ui, &self.icons, UiIcon::About, "About zarg", true).clicked() {
+                        self.show_about = true;
+                        ui.close();
+                    }
+                },
+            );
         });
     }
 
@@ -580,39 +816,45 @@ impl ZargApp {
 
     fn render_toolbar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            for (label, kind) in [
-                ("＋ Add", OperationKind::Add),
-                ("⇩ Extract", OperationKind::Extract),
-                ("✓ Test", OperationKind::Check),
-                ("ℹ Info", OperationKind::Info),
+            for (label, icon, kind) in [
+                ("Add", UiIcon::Add, OperationKind::Add),
+                ("Extract", UiIcon::Extract, OperationKind::Extract),
+                ("Test", UiIcon::TestArchive, OperationKind::Check),
+                ("Info", UiIcon::Info, OperationKind::Info),
             ] {
-                if ui
-                    .add_enabled(
-                        !self.busy && !self.archive.is_empty(),
-                        egui::Button::new(label),
-                    )
-                    .clicked()
+                if icon_button(
+                    ui,
+                    &self.icons,
+                    icon,
+                    label,
+                    !self.busy && !self.archive.is_empty(),
+                )
+                .clicked()
                 {
                     self.show_operation(kind);
                 }
             }
-            if ui
-                .add_enabled(
-                    !self.busy && !self.archive.is_empty(),
-                    egui::Button::new("− Remove"),
-                )
-                .clicked()
+            if icon_button(
+                ui,
+                &self.icons,
+                UiIcon::Remove,
+                "Remove",
+                !self.busy && !self.archive.is_empty(),
+            )
+            .clicked()
             {
                 let mut form = OperationForm::new(OperationKind::Remove, &self.archive);
                 form.remove_text = self.selected.iter().cloned().collect::<Vec<_>>().join("\n");
                 self.operation = form;
             }
-            if ui
-                .add_enabled(
-                    !self.busy && !self.archive.is_empty(),
-                    egui::Button::new("＋ Create"),
-                )
-                .clicked()
+            if icon_button(
+                ui,
+                &self.icons,
+                UiIcon::CreateArchive,
+                "Create",
+                !self.busy && !self.archive.is_empty(),
+            )
+            .clicked()
             {
                 self.show_operation(OperationKind::Create);
             }
@@ -646,7 +888,7 @@ impl ZargApp {
             ui.horizontal(|ui| {
                 ui.label("Archive:");
                 ui.text_edit_singleline(&mut self.operation.archive);
-                if ui.button("Browse...").clicked() {
+                if icon_button(ui, &self.icons, UiIcon::Browse, "Browse...", true).clicked() {
                     self.choose_archive(kind == OperationKind::Create);
                 }
             });
@@ -655,13 +897,17 @@ impl ZargApp {
         match kind {
             OperationKind::Create | OperationKind::Add => {
                 ui.horizontal(|ui| {
-                    if ui.button("Add files...").clicked() {
+                    if icon_button(ui, &self.icons, UiIcon::Add, "Add files...", true).clicked() {
                         self.choose_inputs();
                     }
-                    if ui.button("Add folder...").clicked() {
+                    if icon_button(ui, &self.icons, UiIcon::AddFolder, "Add folder...", true)
+                        .clicked()
+                    {
                         self.choose_inputs_folder();
                     }
-                    if ui.button("Clear inputs").clicked() {
+                    if icon_button(ui, &self.icons, UiIcon::ClearInputs, "Clear inputs", true)
+                        .clicked()
+                    {
                         self.operation.input_paths.clear();
                     }
                 });
@@ -755,7 +1001,7 @@ impl ZargApp {
                 ui.horizontal(|ui| {
                     ui.label("Destination:");
                     ui.text_edit_singleline(&mut self.operation.destination);
-                    if ui.button("Browse...").clicked()
+                    if icon_button(ui, &self.icons, UiIcon::Browse, "Browse...", true).clicked()
                         && let Some(path) = rfd::FileDialog::new().pick_folder()
                     {
                         self.operation.destination = path.to_string_lossy().into_owned();
@@ -806,11 +1052,21 @@ impl ZargApp {
         }
         ui.separator();
         ui.horizontal(|ui| {
-            if ui.button(kind.title()).clicked() {
+            let (icon, label) = match kind {
+                OperationKind::Create => (UiIcon::CreateArchive, "Create"),
+                OperationKind::Add => (UiIcon::Add, "Add"),
+                OperationKind::Remove => (UiIcon::Remove, "Remove"),
+                OperationKind::Join => (UiIcon::Join, "Join"),
+                OperationKind::Check => (UiIcon::TestArchive, "Test"),
+                OperationKind::Info => (UiIcon::Info, "Info"),
+                OperationKind::List => (UiIcon::ListContents, "List"),
+                OperationKind::Extract => (UiIcon::Extract, "Extract"),
+            };
+            if icon_button(ui, &self.icons, icon, label, true).clicked() {
                 let form = std::mem::take(&mut self.operation);
                 self.start_operation(form);
             }
-            if ui.button("Cancel").clicked() {
+            if icon_button(ui, &self.icons, UiIcon::Cancel, "Cancel", true).clicked() {
                 self.operation = OperationForm::default();
             }
         });
@@ -848,7 +1104,14 @@ impl ZargApp {
                 );
             });
             ui.horizontal(|ui| {
-                if ui.button("Add filter list...").clicked()
+                if icon_button(
+                    ui,
+                    &self.icons,
+                    UiIcon::AddFilterList,
+                    "Add filter list...",
+                    true,
+                )
+                .clicked()
                     && let Some(paths) = rfd::FileDialog::new()
                         .add_filter("Text file", &["txt", "list"])
                         .pick_files()
@@ -872,7 +1135,15 @@ impl eframe::App for ZargApp {
             self.render_toolbar(ui);
             ui.separator();
             ui.horizontal(|ui| {
-                if ui.button("📂").clicked() {
+                if icon_button(
+                    ui,
+                    &self.icons,
+                    UiIcon::OpenArchive,
+                    "Open archive...",
+                    true,
+                )
+                .clicked()
+                {
                     self.open_dialog();
                 }
                 ui.add_enabled_ui(false, |ui| {
@@ -948,11 +1219,12 @@ impl eframe::App for ZargApp {
                                 ui.set_min_width(content_width);
                                 let selected = self.selected.contains(path);
                                 let icon = match data {
-                                    EntryData::Directory => "📁",
+                                    EntryData::Directory => UiIcon::Folder,
                                     EntryData::File(_) => file_icon(path),
-                                    EntryData::Symlink(_) => "🔗",
-                                    EntryData::NamedPipe => "◉",
-                                    EntryData::Device(_) => "▣",
+                                    EntryData::Symlink(_) => UiIcon::Symlink,
+                                    EntryData::NamedPipe | EntryData::Device(_) => {
+                                        UiIcon::SpecialData
+                                    }
                                 };
                                 let hover_text = match data {
                                     EntryData::Symlink(target) => {
@@ -960,11 +1232,13 @@ impl eframe::App for ZargApp {
                                     }
                                     _ => path.clone(),
                                 };
+                                let texture = icon_texture(&context, &self.icons, icon);
                                 left_aligned_cell(
                                     ui,
                                     24.0,
                                     row_height,
-                                    egui::Label::new(icon).halign(egui::Align::Min),
+                                    egui::Image::new(&texture)
+                                        .fit_to_exact_size(egui::vec2(20.0, 20.0)),
                                 );
                                 let name_response = left_aligned_cell(
                                     ui,
@@ -1090,10 +1364,10 @@ impl eframe::App for ZargApp {
                 .show(&context, |ui| {
                     ui.label(prompt);
                     ui.horizontal(|ui| {
-                        if ui.button("Yes").clicked() {
+                        if icon_button(ui, &self.icons, UiIcon::Confirm, "Yes", true).clicked() {
                             self.answer_confirmation(true);
                         }
-                        if ui.button("No").clicked() {
+                        if icon_button(ui, &self.icons, UiIcon::Cancel, "No", true).clicked() {
                             self.answer_confirmation(false);
                         }
                     });
@@ -1541,11 +1815,59 @@ mod tests {
     }
 
     #[test]
-    fn file_icons_follow_common_mime_type_extensions() {
-        assert_eq!(file_icon("images/photo.JPEG"), "🖼️");
-        assert_eq!(file_icon("music/song.flac"), "🎵");
-        assert_eq!(file_icon("src/main.rs"), "🧩");
-        assert_eq!(file_icon("unknown.data"), "📄");
+    fn file_icons_follow_mime_type_extensions() {
+        assert_eq!(file_icon("images/photo.JPEG"), UiIcon::Image);
+        assert_eq!(file_icon("music/song.flac"), UiIcon::Audio);
+        assert_eq!(file_icon("src/main.rs"), UiIcon::Code);
+        assert_eq!(file_icon("unknown.data"), UiIcon::Generic);
+    }
+
+    #[test]
+    fn bundled_kde_icons_are_valid_images() {
+        let icons = [
+            UiIcon::OpenArchive,
+            UiIcon::CreateArchive,
+            UiIcon::Quit,
+            UiIcon::SelectAll,
+            UiIcon::ClearSelection,
+            UiIcon::Refresh,
+            UiIcon::ListContents,
+            UiIcon::TestArchive,
+            UiIcon::Join,
+            UiIcon::About,
+            UiIcon::Add,
+            UiIcon::AddFolder,
+            UiIcon::Extract,
+            UiIcon::Info,
+            UiIcon::Remove,
+            UiIcon::Browse,
+            UiIcon::ClearInputs,
+            UiIcon::Confirm,
+            UiIcon::Cancel,
+            UiIcon::AddFilterList,
+            UiIcon::Folder,
+            UiIcon::Symlink,
+            UiIcon::Image,
+            UiIcon::Audio,
+            UiIcon::Video,
+            UiIcon::Archive,
+            UiIcon::Pdf,
+            UiIcon::Code,
+            UiIcon::Python,
+            UiIcon::Java,
+            UiIcon::Script,
+            UiIcon::JavaScript,
+            UiIcon::Text,
+            UiIcon::Word,
+            UiIcon::Spreadsheet,
+            UiIcon::Presentation,
+            UiIcon::Generic,
+            UiIcon::SpecialData,
+        ];
+        for icon in icons {
+            image::load_from_memory(icon_bytes(icon))
+                .unwrap_or_else(|error| panic!("invalid bundled icon {icon:?}: {error}"));
+        }
     }
 
     #[test]
