@@ -1,0 +1,16 @@
+[package]
+name = "cxxzarlib"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+cxx = "1.0"
+czarlib = { path = "../czarlib" }
+
+[build-dependencies]
+cxx-build = "1.0"

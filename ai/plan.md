@@ -9,14 +9,15 @@
 
 This plan describes the format and the user-facing project built around it. The
 implemented workspace contains the Rust library (`zarlib`), command-line tool
-(`zarc`), desktop application (`zarg`), Python package (`pyzarlib`), and C
-library (`czarlib`). Public APIs and documentation must agree on format
+(`zarc`), desktop application (`zarg`), Python package (`pyzarlib`), C library
+(`czarlib`), and C++ CXX-bridge package (`cxxzarlib`). Public APIs and
+documentation must agree on format
 semantics, password handling, extraction policies, and unsupported operations.
 
 The current scope includes readable and password-encrypted commits; create,
 append, remove, join, info, list, check, filesystem extraction, and in-memory
-extraction; include/exclude scanning filters; and Rust, Python, C, CLI, and GUI
-entry points where listed below. Do not treat aspirational details as supported
+extraction; include/exclude scanning filters; and Rust, Python, C, C++, CLI,
+and GUI entry points where listed below. Do not treat aspirational details as supported
 features unless they are implemented in the library and exposed through the
 relevant interface.
 
@@ -529,6 +530,7 @@ The Cargo workspace uses Rust edition 2024 and contains:
 - `zarg`: native `egui` desktop archive manager using the same library APIs.
 - `pyzarlib`: PyO3 module and Python package/CLI example.
 - `czarlib`: C ABI library with a JSON request/response dispatcher.
+- `cxxzarlib`: CXX bridge exposing the shared JSON operation dispatcher to C++.
 
 ## 11. Language bindings, desktop UI, documentation, and benchmark
 
@@ -547,6 +549,11 @@ request types and required fields explicitly, return allocated response/error
 strings with the documented free function, and never retain caller-owned
 request pointers.
 
+The C++ package uses `cxx`/`cxx-build` to expose the shared JSON dispatcher
+through a CXX bridge. It returns Rust-owned strings and maps request or archive
+errors to CXX errors rather than requiring manual C string allocation. Include
+a native C++ example and document bridge-header and static-library linking.
+
 The `zarg` GUI uses `zarlib` operations, runs long work outside the UI thread,
 and reports progress, warnings, results, and confirmations. It supports
 archive browsing with virtualized listings; create/add/remove/join/check/info/
@@ -555,7 +562,7 @@ supported password-aware listing/extraction. Embed the selected licensed
 icons and preserve their attribution and license files.
 
 Maintain a root project overview, CLI README, library developer guide, format
-description, processing-pipeline diagrams, and package-specific Python/C/GUI
+description, processing-pipeline diagrams, and package-specific Python/C/C++/GUI
 documentation. Documentation must state real support boundaries, including
 password fallback precedence and encrypted remove/join limitations.
 

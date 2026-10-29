@@ -545,6 +545,20 @@ fn execute(operation: &str, request: &Value) -> Result<Value, String> {
     }
 }
 
+/// Execute a pyzarlib-compatible operation using JSON request and response data.
+///
+/// The request must be a JSON object. Operation errors and malformed requests
+/// are returned as descriptive strings.
+pub fn execute_json(operation: &str, request_json: &str) -> Result<String, String> {
+    let request: Value = serde_json::from_str(request_json)
+        .map_err(|error| format!("invalid request JSON: {error}"))?;
+    if !request.is_object() {
+        return Err("request JSON must be an object".to_owned());
+    }
+    let response = execute(operation, &request)?;
+    serde_json::to_string(&response).map_err(|error| error.to_string())
+}
+
 fn write_string(output: *mut *mut c_char, value: String) -> Result<(), ()> {
     let value = CString::new(value).map_err(|_| ())?;
     unsafe {
@@ -589,14 +603,7 @@ pub unsafe extern "C" fn czarlib_execute_json(
         let request_json = unsafe { CStr::from_ptr(request_json) }
             .to_str()
             .map_err(|_| "request JSON is not valid UTF-8".to_owned())?;
-        let request: Value = serde_json::from_str(request_json)
-            .map_err(|error| format!("invalid request JSON: {error}"))?;
-        if !request.is_object() {
-            return Err("request JSON must be an object".to_owned());
-        }
-        execute(operation, &request).and_then(|response| {
-            serde_json::to_string(&response).map_err(|error| error.to_string())
-        })
+        execute_json(operation, request_json)
     }));
     match result {
         Ok(Ok(response)) => {
