@@ -28,7 +28,10 @@ under Wayland.
 
 ## Features
 
-- Open and browse archives with file type and logical size.
+- Open and browse archives in a virtualized list with MIME-style icons,
+  compressed/uncompressed sizes, ratio, and saved owner/permission metadata
+  when available.
+- Virtualize large archive listings so only visible rows are rendered.
 - Create or append archives from selected files and folders.
 - Remove selected archive entries or paths.
 - Join a contiguous range of commits.

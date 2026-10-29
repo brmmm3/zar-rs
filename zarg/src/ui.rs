@@ -4,10 +4,28 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use zarlib::operations::{
-    self, AddInputOptions, CheckReport, CollisionPolicy, CommitInfo, CreateFilterOptions,
-    CreateInputOptions, EncodingOptions, ExistingPolicy, ExtractionOptions, FilterSet, Progress,
+    self, AddInputOptions, ArchiveEntryDetails, CheckReport, CollisionPolicy, CommitInfo,
+    CreateFilterOptions, CreateInputOptions, EncodingOptions, ExistingPolicy, ExtractionOptions,
+    FilterSet, Progress,
 };
-use zarlib::{Toc, TocEntry};
+use zarlib::{ArchivePath, Toc, TocEntry};
+
+fn left_aligned_cell(
+    ui: &mut egui::Ui,
+    width: f32,
+    height: f32,
+    widget: impl egui::Widget,
+) -> egui::Response {
+    ui.allocate_ui_with_layout(
+        egui::vec2(width, height),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |cell_ui| {
+            cell_ui.set_min_size(egui::vec2(width, height));
+            cell_ui.add(widget)
+        },
+    )
+    .inner
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OperationKind {
@@ -19,6 +37,23 @@ enum OperationKind {
     Info,
     List,
     Extract,
+}
+
+fn file_icon(path: &str) -> &'static str {
+    let extension = path.rsplit_once('.').map(|(_, extension)| extension);
+    match extension.map(str::to_ascii_lowercase).as_deref() {
+        Some("png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "svg" | "tif" | "tiff") => "🖼️",
+        Some("mp3" | "wav" | "flac" | "ogg" | "m4a" | "aac") => "🎵",
+        Some("mp4" | "mkv" | "mov" | "avi" | "webm" | "mpeg" | "mpg") => "🎬",
+        Some("zip" | "7z" | "rar" | "tar" | "gz" | "bz2" | "xz" | "zar") => "📦",
+        Some("pdf") => "📕",
+        Some(
+            "rs" | "c" | "h" | "cpp" | "hpp" | "js" | "ts" | "jsx" | "tsx" | "py" | "go" | "java"
+            | "kt" | "cs" | "toml" | "yaml" | "yml" | "json" | "xml" | "html" | "css" | "sh",
+        ) => "🧩",
+        Some("md" | "txt" | "log" | "csv" | "rtf") => "📝",
+        _ => "📄",
+    }
 }
 
 impl OperationKind {
@@ -118,7 +153,15 @@ enum UiEvent {
     Total(u64),
     Warning(String),
     Confirm(String),
-    Loaded(Result<Toc, String>),
+    Loaded(
+        Result<
+            (
+                Toc,
+                std::collections::BTreeMap<ArchivePath, ArchiveEntryDetails>,
+            ),
+            String,
+        >,
+    ),
     Finished(Result<String, String>),
 }
 
@@ -167,6 +210,8 @@ pub struct ZargApp {
     archive: String,
     location: String,
     entries: Vec<(String, EntryData)>,
+    entry_details: std::collections::BTreeMap<String, ArchiveEntryDetails>,
+    visible_entry_indices: Vec<usize>,
     selected: BTreeSet<String>,
     status: String,
     operation: OperationForm,
@@ -210,6 +255,7 @@ impl ZargApp {
         self.archive.clone_from(&archive);
         self.location.clone_from(&archive);
         self.selected.clear();
+        self.report = None;
         let (events_tx, events_rx) = mpsc::channel();
         let (answer_tx, answer_rx) = mpsc::channel();
         drop(answer_rx);
@@ -217,7 +263,7 @@ impl ZargApp {
         self.opening_archive = true;
         self.begin_worker(events_rx, answer_tx, "Reading archive");
         std::thread::spawn(move || {
-            let result = operations::list_archive(
+            let result = operations::list_archive_with_details(
                 &archive,
                 None,
                 (!password.is_empty()).then_some(password.as_bytes()),
@@ -225,7 +271,7 @@ impl ZargApp {
             .map_err(|error| error.to_string());
             match result {
                 Ok(toc) => {
-                    let count = toc.len();
+                    let count = toc.0.len();
                     let _ = events_tx.send(UiEvent::Loaded(Ok(toc)));
                     finish_with_events(events_tx, Ok(format!("{count} entries loaded")));
                 }
@@ -278,15 +324,22 @@ impl ZargApp {
         self.report = None;
         self.warnings.clear();
         std::thread::spawn(move || {
-            let outcome = result();
-            if outcome.is_ok()
-                && let Ok(toc) = operations::list_archive(
+            let mut outcome = result();
+            if outcome.is_ok() {
+                match operations::list_archive_with_details(
                     &archive,
                     refresh_through.as_deref(),
                     refresh_password.as_deref().map(str::as_bytes),
-                )
-            {
-                let _ = events_tx.send(UiEvent::Loaded(Ok(toc)));
+                ) {
+                    Ok(toc) => {
+                        let _ = events_tx.send(UiEvent::Loaded(Ok(toc)));
+                    }
+                    Err(error) => {
+                        outcome = Err(format!(
+                            "Operation completed, but archive refresh failed: {error}"
+                        ));
+                    }
+                }
             }
             finish_with_events(events_tx, outcome);
         });
@@ -331,9 +384,9 @@ impl ZargApp {
                 }
                 UiEvent::Confirm(prompt) => self.confirmation = Some(prompt),
                 UiEvent::Loaded(result) => match result {
-                    Ok(toc) => {
+                    Ok((toc, details)) => {
                         self.opening_archive = false;
-                        self.set_entries(toc);
+                        self.set_entries(toc, details);
                     }
                     Err(error) => {
                         self.status = error.clone();
@@ -350,12 +403,6 @@ impl ZargApp {
                     match result {
                         Ok(summary) => {
                             self.status = summary.clone();
-                            let report = if self.warnings.is_empty() {
-                                summary
-                            } else {
-                                format!("{}\n\n{}", summary, self.warnings.join("\n"))
-                            };
-                            self.report = Some(report);
                         }
                         Err(error) => {
                             self.status = error.clone();
@@ -376,10 +423,19 @@ impl ZargApp {
         context.request_repaint_after(std::time::Duration::from_millis(100));
     }
 
-    fn set_entries(&mut self, toc: Toc) {
+    fn set_entries(
+        &mut self,
+        toc: Toc,
+        details: std::collections::BTreeMap<ArchivePath, ArchiveEntryDetails>,
+    ) {
+        self.entry_details = details
+            .into_iter()
+            .map(|(path, details)| (path.as_str().to_owned(), details))
+            .collect();
         self.entries = toc
             .iter()
             .map(|(path, entry)| {
+                let path_string = path.as_str().to_owned();
                 let data = match entry {
                     TocEntry::Directory => EntryData::Directory,
                     TocEntry::File(file) => EntryData::File(file.size),
@@ -389,10 +445,15 @@ impl ZargApp {
                         EntryData::Device(format!("{kind:?} {major}:{minor}"))
                     }
                 };
-                (path.as_str().to_owned(), data)
+                (path_string, data)
             })
             .collect();
         self.entries.sort_by(|left, right| left.0.cmp(&right.0));
+        self.rebuild_visible_entry_indices();
+    }
+
+    fn rebuild_visible_entry_indices(&mut self) {
+        self.visible_entry_indices = filtered_entry_indices(&self.entries, &self.filter_text);
     }
 
     fn choose_inputs(&mut self) {
@@ -456,7 +517,9 @@ impl ZargApp {
                 }
             });
             ui.menu_button("View", |ui| {
-                ui.text_edit_singleline(&mut self.filter_text);
+                if ui.text_edit_singleline(&mut self.filter_text).changed() {
+                    self.rebuild_visible_entry_indices();
+                }
                 if ui.button("Refresh").clicked() && !self.archive.is_empty() {
                     self.open_archive(PathBuf::from(&self.archive), None);
                     ui.close();
@@ -840,62 +903,182 @@ impl eframe::App for ZargApp {
                 });
                 return;
             }
+            let columns = [360.0, 110.0, 110.0, 80.0, 110.0, 100.0, 110.0];
+            let headers = [
+                "Name",
+                "Compressed",
+                "Uncompressed",
+                "Ratio",
+                "Owner",
+                "Permissions",
+                "Type",
+            ];
+            let content_width = columns.iter().sum::<f32>() + 8.0 * columns.len() as f32;
             ui.horizontal(|ui| {
-                ui.strong("Name");
-                ui.separator();
-                ui.strong("Size");
-                ui.separator();
-                ui.strong("Type");
+                ui.set_min_width(content_width);
+                left_aligned_cell(ui, 24.0, ui.spacing().interact_size.y, egui::Label::new(""));
+                left_aligned_cell(
+                    ui,
+                    columns[0] - 28.0,
+                    ui.spacing().interact_size.y,
+                    egui::Label::new(headers[0]).halign(egui::Align::Min),
+                );
+                for (header, width) in headers.iter().skip(1).zip(columns.iter().skip(1)) {
+                    left_aligned_cell(
+                        ui,
+                        *width,
+                        ui.spacing().interact_size.y,
+                        egui::Label::new(*header).halign(egui::Align::Min),
+                    );
+                }
             });
             ui.separator();
+            let row_height = ui.spacing().interact_size.y;
             egui::ScrollArea::both()
                 .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    egui::Grid::new("archive_entries")
-                        .striped(true)
-                        .num_columns(3)
-                        .show(ui, |ui| {
-                            let filter = self.filter_text.to_lowercase();
-                            for (path, data) in &self.entries {
-                                if !filter.is_empty() && !path.to_lowercase().contains(&filter) {
-                                    continue;
-                                }
+                .show_rows(
+                    ui,
+                    row_height,
+                    self.visible_entry_indices.len(),
+                    |ui, row_range| {
+                        ui.set_min_width(content_width);
+                        for row in row_range {
+                            let (path, data) = &self.entries[self.visible_entry_indices[row]];
+                            ui.horizontal(|ui| {
+                                ui.set_min_width(content_width);
                                 let selected = self.selected.contains(path);
-                                let display = match data {
-                                    EntryData::Directory => format!("📁 {path}"),
-                                    EntryData::File(_) => format!("📄 {path}"),
-                                    EntryData::Symlink(target) => format!("↗ {path} → {target}"),
-                                    EntryData::NamedPipe => format!("◉ {path}"),
-                                    EntryData::Device(_) => format!("▣ {path}"),
+                                let icon = match data {
+                                    EntryData::Directory => "📁",
+                                    EntryData::File(_) => file_icon(path),
+                                    EntryData::Symlink(_) => "🔗",
+                                    EntryData::NamedPipe => "◉",
+                                    EntryData::Device(_) => "▣",
                                 };
-                                let response =
-                                    ui.selectable_label(selected, display).on_hover_text(path);
-                                if response.clicked() {
+                                let hover_text = match data {
+                                    EntryData::Symlink(target) => {
+                                        format!("{path} → {target}")
+                                    }
+                                    _ => path.clone(),
+                                };
+                                left_aligned_cell(
+                                    ui,
+                                    24.0,
+                                    row_height,
+                                    egui::Label::new(icon).halign(egui::Align::Min),
+                                );
+                                let name_response = left_aligned_cell(
+                                    ui,
+                                    columns[0] - 28.0,
+                                    row_height,
+                                    egui::Label::new(egui::RichText::new(path).color(
+                                        if selected {
+                                            ui.visuals().selection.stroke.color
+                                        } else {
+                                            ui.visuals().text_color()
+                                        },
+                                    ))
+                                    .halign(egui::Align::Min)
+                                    .truncate()
+                                    .sense(egui::Sense::click()),
+                                )
+                                .on_hover_text(hover_text);
+                                if name_response.clicked() {
                                     if selected {
                                         self.selected.remove(path);
                                     } else {
                                         self.selected.insert(path.clone());
                                     }
                                 }
-                                let (size, kind) = match data {
-                                    EntryData::Directory => (String::new(), "Folder".to_owned()),
+                                let details = self.entry_details.get(path);
+                                let (compressed, uncompressed, ratio, kind) = match data {
                                     EntryData::File(size) => {
-                                        (display_size(*size), "File".to_owned())
+                                        let compressed_size =
+                                            details.and_then(|details| details.compressed_size);
+                                        let ratio = compressed_size
+                                            .map(|compressed| {
+                                                if *size == 0 {
+                                                    "—".to_owned()
+                                                } else {
+                                                    format!(
+                                                        "{:.1}%",
+                                                        compressed as f64 * 100.0 / *size as f64
+                                                    )
+                                                }
+                                            })
+                                            .unwrap_or_else(|| "—".to_owned());
+                                        (
+                                            compressed_size
+                                                .map(display_size)
+                                                .unwrap_or_else(|| "—".to_owned()),
+                                            display_size(*size),
+                                            ratio,
+                                            "File",
+                                        )
                                     }
-                                    EntryData::Symlink(_) => {
-                                        (String::new(), "Symbolic link".to_owned())
+                                    EntryData::Directory => {
+                                        ("—".to_owned(), "—".to_owned(), "—".to_owned(), "Folder")
                                     }
-                                    EntryData::NamedPipe => {
-                                        (String::new(), "Named pipe".to_owned())
-                                    }
-                                    EntryData::Device(kind) => (String::new(), kind.clone()),
+                                    EntryData::Symlink(_) => (
+                                        "—".to_owned(),
+                                        "—".to_owned(),
+                                        "—".to_owned(),
+                                        "Symbolic link",
+                                    ),
+                                    EntryData::NamedPipe => (
+                                        "—".to_owned(),
+                                        "—".to_owned(),
+                                        "—".to_owned(),
+                                        "Named pipe",
+                                    ),
+                                    EntryData::Device(kind) => (
+                                        "—".to_owned(),
+                                        "—".to_owned(),
+                                        "—".to_owned(),
+                                        kind.as_str(),
+                                    ),
                                 };
-                                ui.label(size);
-                                ui.label(kind);
-                                ui.end_row();
-                            }
-                        });
-                });
+                                let owner = details
+                                    .and_then(|details| match (details.owner, details.group) {
+                                        (Some(owner), Some(group)) => {
+                                            Some(format!("{owner}:{group}"))
+                                        }
+                                        (Some(owner), None) => Some(owner.to_string()),
+                                        _ => None,
+                                    })
+                                    .unwrap_or_else(|| "—".to_owned());
+                                let permissions = details
+                                    .and_then(|details| {
+                                        details.permissions.map(|permissions| {
+                                            if details.metadata_platform.as_deref() == Some("unix")
+                                            {
+                                                format!("{permissions:04o}")
+                                            } else if permissions == 0 {
+                                                "writable".to_owned()
+                                            } else {
+                                                "read-only".to_owned()
+                                            }
+                                        })
+                                    })
+                                    .unwrap_or_else(|| "—".to_owned());
+                                for (value, width) in [
+                                    (compressed, columns[1]),
+                                    (uncompressed, columns[2]),
+                                    (ratio, columns[3]),
+                                    (owner, columns[4]),
+                                    (permissions, columns[5]),
+                                    (kind.to_owned(), columns[6]),
+                                ] {
+                                    left_aligned_cell(
+                                        ui,
+                                        width,
+                                        row_height,
+                                        egui::Label::new(value).halign(egui::Align::Min).truncate(),
+                                    );
+                                }
+                            });
+                        }
+                    },
+                );
         });
 
         self.render_operation_dialog(&context);
@@ -929,7 +1112,7 @@ impl eframe::App for ZargApp {
         }
         if let Some(report) = self.report.clone() {
             let mut open = true;
-            egui::Window::new("Operation result")
+            egui::Window::new("Operation error")
                 .open(&mut open)
                 .resizable(true)
                 .default_width(520.0)
@@ -1163,6 +1346,17 @@ fn lines(text: &str) -> Vec<String> {
         .collect()
 }
 
+fn filtered_entry_indices(entries: &[(String, EntryData)], filter: &str) -> Vec<usize> {
+    let filter = filter.trim().to_lowercase();
+    entries
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (path, _))| {
+            (filter.is_empty() || path.to_lowercase().contains(&filter)).then_some(index)
+        })
+        .collect()
+}
+
 fn parse_block_size(value: &str) -> Result<usize, Box<dyn std::error::Error>> {
     let value = value.trim();
     if value.eq_ignore_ascii_case("auto") {
@@ -1318,8 +1512,40 @@ mod tests {
     }
 
     #[test]
+    fn archive_list_cells_preserve_column_widths() {
+        let mut row_width = 0.0;
+        egui::__run_test_ui(|ui| {
+            ui.horizontal(|ui| {
+                left_aligned_cell(ui, 110.0, 20.0, egui::Label::new("1.2 KiB"));
+                left_aligned_cell(ui, 110.0, 20.0, egui::Label::new("4.8 KiB"));
+                row_width = ui.min_rect().width();
+            });
+        });
+        assert!(row_width >= 220.0, "row width collapsed to {row_width}");
+    }
+
+    #[test]
     fn repeated_filter_text_lines_are_parsed() {
         assert_eq!(lines(" *.rs \n\n*.toml"), ["*.rs", "*.toml"]);
+    }
+
+    #[test]
+    fn archive_list_filter_returns_matching_entry_indexes() {
+        let entries = vec![
+            ("docs/ReadMe.md".to_owned(), EntryData::File(12)),
+            ("src/main.rs".to_owned(), EntryData::File(20)),
+            ("docs/guide.md".to_owned(), EntryData::File(30)),
+        ];
+        assert_eq!(filtered_entry_indices(&entries, ""), [0, 1, 2]);
+        assert_eq!(filtered_entry_indices(&entries, "DOCS/"), [0, 2]);
+    }
+
+    #[test]
+    fn file_icons_follow_common_mime_type_extensions() {
+        assert_eq!(file_icon("images/photo.JPEG"), "🖼️");
+        assert_eq!(file_icon("music/song.flac"), "🎵");
+        assert_eq!(file_icon("src/main.rs"), "🧩");
+        assert_eq!(file_icon("unknown.data"), "📄");
     }
 
     #[test]
