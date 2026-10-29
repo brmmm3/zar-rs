@@ -170,6 +170,9 @@ stream data before the complete logical header is known. See the repository's
 Changes to the logical-header wire layout require an explicit versioned
 compatibility decision.
 
+For the execution flow of the CLI `create` and `add` operations, see the
+[PlantUML processing pipelines](./processing-pipelines.md).
+
 ## Encryption and operation constraints
 
 The library exports AES-256-GCM and ChaCha20-Poly1305 content primitives,
