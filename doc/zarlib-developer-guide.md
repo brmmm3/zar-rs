@@ -60,6 +60,140 @@ bytes returned per file after the specified offset. Directories and special
 entries are omitted. The filtered variant accepts the same `FilterSet` used by
 file extraction.
 
+## Examples matching the `zarc` commands
+
+These snippets use the same operations as the `zarc` create, add, remove,
+join, check, info, list, and extract commands. Run them from a working
+directory containing `src/`, `README.md`, and any other referenced input
+files. `PathBuf` inputs are mapped to archive-relative paths.
+These examples use an unencrypted archive; appending, removing, and joining
+encrypted archives are not supported by the current high-level operations.
+
+### Create
+
+Equivalent CLI: `zarc create backup.zar src/ README.md`
+
+```rust,no_run
+use std::path::PathBuf;
+use zarlib::operations::create_archive;
+
+create_archive(
+    "backup.zar",
+    &[PathBuf::from("src"), PathBuf::from("README.md")],
+)?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+### Add or replace files
+
+Equivalent CLI: `zarc add backup.zar config.toml`
+
+```rust,no_run
+use std::path::PathBuf;
+use zarlib::operations::add_archive;
+
+add_archive("backup.zar", &[PathBuf::from("config.toml")])?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+### List and inspect commits
+
+Equivalent CLI: `zarc list backup.zar` and `zarc info backup.zar`
+
+```rust,no_run
+use zarlib::operations::{info_archive, list_archive};
+
+let toc = list_archive("backup.zar", None, None)?;
+for (path, entry) in toc.iter() {
+    println!("{}: {entry:?}", path.as_str());
+}
+
+for commit in info_archive("backup.zar", false)? {
+    let id = commit
+        .id
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    println!("commit {id}: {} bytes", commit.size);
+}
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+### Check integrity
+
+Equivalent CLI: `zarc check backup.zar`
+
+```rust,no_run
+use zarlib::operations::check_archive_with_recovery;
+
+let report = check_archive_with_recovery("backup.zar", false, None)?;
+println!(
+    "{} commits checked; {} data blocks verified",
+    report.commits, report.checked_blocks
+);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+### Extract files
+
+Equivalent CLI: `zarc extract backup.zar --to restored`
+
+```rust,no_run
+use std::path::Path;
+use zarlib::operations::extract_archive;
+
+let plan = extract_archive("backup.zar", Path::new("restored"), false)?;
+println!("Extracted {} files", plan.files.len());
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Pass `true` for the final argument to preview the extraction without writing
+files.
+
+### Remove a path
+
+Equivalent CLI: `zarc remove backup.zar obsolete.txt`
+
+```rust,no_run
+use std::path::PathBuf;
+use zarlib::operations::remove_archive;
+
+remove_archive("backup.zar", &[PathBuf::from("obsolete.txt")])?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Removal paths are archive-relative names, not filesystem paths to delete.
+Removing a directory also removes its descendants from the effective table of
+contents; earlier commits remain unchanged.
+
+### Join a commit range
+
+Equivalent CLI: `zarc join backup.zar --from <first-id> --through <last-id>`
+
+The IDs are the eight-hex-digit commit IDs shown by `info_archive`. This example
+compacts the first two commits in physical order:
+
+```rust,no_run
+use zarlib::operations::{EncodingOptions, info_archive, join_archive_with_encoding};
+
+let commits = info_archive("backup.zar", false)?;
+if commits.len() >= 2 {
+    let id = |bytes: &[u8; 4]| {
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>()
+    };
+    join_archive_with_encoding(
+        "backup.zar",
+        &id(&commits[0].id),
+        &id(&commits[1].id),
+        EncodingOptions::default(),
+    )?;
+}
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+The range endpoints are inclusive and must identify a contiguous range in
+physical commit order.
+
 ### Operation reference
 
 The operation modules and their commonly used public entry points are:

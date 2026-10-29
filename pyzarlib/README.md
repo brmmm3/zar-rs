@@ -103,6 +103,114 @@ for path, data in contents.items():
     print(path, len(data))
 ```
 
+## Examples matching the `zarc` commands
+
+These Python examples use the same operations as the `zarc` create, add,
+remove, join, check, info, list, and extract commands. Run them from a working
+directory containing `src/`, `README.md`, and any other referenced input
+files. Inputs may be strings or `pathlib.Path` objects.
+These examples use an unencrypted archive; appending, removing, and joining
+encrypted archives are not supported by the current high-level operations.
+
+### Create
+
+Equivalent CLI: `zarc create backup.zar src/ README.md`
+
+```python
+import pyzarlib
+
+result = pyzarlib.create_archive("backup.zar", ["src", "README.md"])
+print(f"Created using {result['block_size']} byte blocks")
+```
+
+### Add or replace files
+
+Equivalent CLI: `zarc add backup.zar config.toml`
+
+```python
+import pyzarlib
+
+pyzarlib.add_archive("backup.zar", ["config.toml"])
+```
+
+### List and inspect commits
+
+Equivalent CLI: `zarc list backup.zar` and `zarc info backup.zar`
+
+```python
+import pyzarlib
+
+for entry in pyzarlib.list_archive("backup.zar"):
+    print(entry["path"], entry["type"], entry.get("size", ""))
+
+for commit in pyzarlib.info_archive("backup.zar"):
+    print(f"commit {commit['id']}: {commit['size']} bytes")
+```
+
+### Check integrity
+
+Equivalent CLI: `zarc check backup.zar`
+
+```python
+import pyzarlib
+
+report = pyzarlib.check_archive("backup.zar")
+print(
+    f"{report['commits']} commits checked; "
+    f"{report['checked_blocks']} data blocks verified"
+)
+```
+
+### Extract files
+
+Equivalent CLI: `zarc extract backup.zar --to restored`
+
+```python
+import pyzarlib
+
+plan = pyzarlib.extract_archive("backup.zar", "restored")
+print(f"Extracted {len(plan['files'])} files")
+```
+
+Pass `dry_run=True` to preview the extraction without writing files.
+
+### Remove a path
+
+Equivalent CLI: `zarc remove backup.zar obsolete.txt`
+
+```python
+import pyzarlib
+
+pyzarlib.remove_archive("backup.zar", ["obsolete.txt"])
+```
+
+Removal paths are archive-relative names, not filesystem paths to delete.
+Removing a directory also removes its descendants from the effective table of
+contents; earlier commits remain unchanged.
+
+### Join a commit range
+
+Equivalent CLI: `zarc join backup.zar --from <first-id> --through <last-id>`
+
+The IDs are the eight-hex-digit commit IDs returned by `info_archive`. This
+example compacts the first two commits in physical order:
+
+```python
+import pyzarlib
+
+commits = pyzarlib.info_archive("backup.zar")
+if len(commits) >= 2:
+    result = pyzarlib.join_archive(
+        "backup.zar",
+        commits[0]["id"],
+        commits[1]["id"],
+    )
+    print(f"Join completed with {len(result['warnings'])} warning(s)")
+```
+
+The range endpoints are inclusive and must identify a contiguous range in
+physical commit order.
+
 ## API
 
 - `create_archive(archive, paths, *, strict=False, overwrite=False,
