@@ -100,4 +100,4 @@ to call the Rust API directly.
 ## License
 
 This workspace is licensed under either of the licenses listed in the
-workspace manifests: MIT or Apache-2.0.
+workspace manifests: [MIT](./LICENSE-MIT) or [Apache-2.0](./LICENSE-APACHE).
