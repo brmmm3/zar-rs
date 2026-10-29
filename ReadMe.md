@@ -1,9 +1,10 @@
 # ZAR
 
 ZAR is a Rust workspace for creating, inspecting, validating, and extracting
-`.zar` archives. It contains two crates:
+`.zar` archives. It contains three crates:
 
 - **[`zarc`](./zarc/ReadMe.md)** is the command-line application.
+- **[`zarg`](./zarg/ReadMe.md)** is the egui desktop archive manager.
 - **[`zarlib`](./doc/zarlib-developer-guide.md)** is the reusable archive
   format and operations library.
 
@@ -25,6 +26,7 @@ Run the CLI directly from the workspace:
 
 ```sh
 cargo run --release -p zarc -- --help
+cargo run --release -p zarg
 ```
 
 Or install the executable into Cargo's binary directory:

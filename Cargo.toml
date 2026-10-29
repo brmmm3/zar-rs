@@ -1,5 +1,5 @@
 [workspace]
-members = ["zarlib", "zarc"]
+members = ["zarlib", "zarc", "zarg"]
 resolver = "3"
 
 [workspace.package]
