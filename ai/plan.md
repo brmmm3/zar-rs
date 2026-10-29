@@ -10,7 +10,8 @@
 This plan describes the format and the user-facing project built around it. The
 implemented workspace contains the Rust library (`zarlib`), command-line tool
 (`zarc`), desktop application (`zarg`), Python package (`pyzarlib`), C library
-(`czarlib`), and C++ CXX-bridge package (`cxxzarlib`). Public APIs and
+(`czarlib`), C++ CXX-bridge package (`cxxzarlib`), and Go cgo package
+(`gozarlib`). Public APIs and
 documentation must agree on format
 semantics, password handling, extraction policies, and unsupported operations.
 
@@ -532,6 +533,10 @@ The Cargo workspace uses Rust edition 2024 and contains:
 - `czarlib`: C ABI library with a JSON request/response dispatcher.
 - `cxxzarlib`: CXX bridge exposing the shared JSON operation dispatcher to C++.
 
+The repository also contains `gozarlib`, a Go module outside the Cargo
+workspace. It uses cgo to expose the C ABI operation dispatcher with Go
+operation helpers, tests, and examples.
+
 ## 11. Language bindings, desktop UI, documentation, and benchmark
 
 Keep the Rust API as the behavior source of truth. The Python package exports
@@ -556,6 +561,11 @@ C string allocation. Port the C API integration coverage to native C++ tests
 and include direct API and command-style examples. Document bridge-header and
 static-library linking.
 
+The Go package binds to `czarlib` through cgo and provides operation-specific
+Go helpers over the full JSON dispatcher. Include complete operation coverage,
+Go tests, direct API and command-style examples, and document the Rust library
+build prerequisite and cgo runtime linking requirements.
+
 The `zarg` GUI uses `zarlib` operations, runs long work outside the UI thread,
 and reports progress, warnings, results, and confirmations. It supports
 archive browsing with virtualized listings; create/add/remove/join/check/info/
@@ -564,7 +574,7 @@ supported password-aware listing/extraction. Embed the selected licensed
 icons and preserve their attribution and license files.
 
 Maintain a root project overview, CLI README, library developer guide, format
-description, processing-pipeline diagrams, and package-specific Python/C/C++/GUI
+description, processing-pipeline diagrams, and package-specific Python/C/C++/Go/GUI
 documentation. Documentation must state real support boundaries, including
 password fallback precedence and encrypted remove/join limitations.
 
