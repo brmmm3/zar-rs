@@ -6,6 +6,7 @@ resolver = "3"
 edition = "2024"
 version = "0.5.0"
 license = "MIT OR Apache-2.0"
+authors = ["Martin Bammer <mrbm74@gmail.com>"]
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive"] }
