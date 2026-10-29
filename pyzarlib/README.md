@@ -29,6 +29,29 @@ maturin develop
 python -m pytest
 ```
 
+## Python zarc example
+
+The package includes a Python CLI port of the main `zarc` archive commands.
+Install the package to get the `zarc-py` command, or run the example entry point
+from this directory:
+
+```sh
+zarc-py --help
+python examples/zarc.py create backup.zar src/ README.md
+zarc-py list backup.zar
+zarc-py check backup.zar
+zarc-py extract backup.zar --to restored --dry-run
+```
+
+It supports create (`c`), add (`a`), remove (`r`), join (`j`), check (`k`),
+info (`i`), list (`l`), and extract (`e`), including path filters and file
+list rules. `--password` prompts without echo where encryption is supported.
+Progress bars and interactive `ask` extraction policies are omitted because
+the current Python binding does not provide an interactive progress callback.
+The source is in [`python/pyzarlib/cli.py`](./python/pyzarlib/cli.py); it is an
+example consumer of the same public Python API documented below, not a second
+archive implementation.
+
 The Python API tests exercise archive operations through `pyzarlib`; the
 pytest suite also runs the complete native `zarlib` unit-test suite so
 Rust-only framing, crypto, and data-model tests are included.
