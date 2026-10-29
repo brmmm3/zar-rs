@@ -1,12 +1,31 @@
 # ZAR
 
 ZAR is a Rust workspace for creating, inspecting, validating, and extracting
-`.zar` archives. It contains three crates:
+`.zar` archives. Its core consists of three crates (language wrappers are listed below):
 
 - **[`zarc`](./zarc/ReadMe.md)** is the command-line application.
 - **[`zarg`](./zarg/ReadMe.md)** is the egui desktop archive manager.
 - **[`zarlib`](./doc/zarlib-developer-guide.md)** is the reusable archive
   format and operations library.
+
+## Language wrappers
+
+`zarlib` is also available from other languages. All wrappers expose the same
+operations (create, add, remove, join, check, info, list, extract, and
+in-memory extract) and include tests and examples.
+
+| Wrapper | Language | Mechanism |
+|---------|----------|-----------|
+| **[`pyzarlib`](./pyzarlib/README.md)** | Python | PyO3 extension module |
+| **[`czarlib`](./czarlib/README.md)** | C | JSON C ABI (shared/static library and header) |
+| **[`cxxzarlib`](./cxxzarlib/README.md)** | C++ | CXX bridge |
+| **[`gozarlib`](./gozarlib/README.md)** | Go | cgo over `czarlib` |
+| **[`jzarlib-ffm`](./jzarlib-ffm/README.md)** | Java 22+ | Foreign Function & Memory API over `czarlib` |
+| **[`jzarlib-jni`](./jzarlib-jni/README.md)** | Java | JNI shim over `czarlib` |
+| **[`csharpzarlib`](./csharpzarlib/README.md)** | C# (.NET 10) | P/Invoke over `czarlib` |
+
+The Go, Java, and C# wrappers load the `czarlib` shared library, which is built
+with `cargo build -p czarlib`.
 
 The archive format stores data in commits. Commits support compressed and
 deduplicated data blocks, an ordered logical table of contents (TOC), integrity
