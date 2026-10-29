@@ -11,7 +11,7 @@ This plan describes the format and the user-facing project built around it. The
 implemented workspace contains the Rust library (`zarlib`), command-line tool
 (`zarc`), desktop application (`zarg`), Python package (`pyzarlib`), C library
 (`czarlib`), C++ CXX-bridge package (`cxxzarlib`), and Go cgo package
-(`gozarlib`). Public APIs and
+(`gozarlib`), Java FFM/JNI modules, and C# package (`csharpzarlib`). Public APIs and
 documentation must agree on format
 semantics, password handling, extraction policies, and unsupported operations.
 
@@ -542,6 +542,10 @@ modules outside the Cargo workspace. They expose the full C ABI operation
 surface with Java FFM (Java 22+) and JNI, respectively, and include operation
 tests plus direct API and command-style examples.
 
+The repository also contains `csharpzarlib`, a .NET 10 solution outside the
+Cargo workspace (`ZarLib` class library, `ZarLib.Tests` xUnit project, and
+`examples/Basic` and `examples/Zarc`). It P/Invokes the C ABI.
+
 ## 11. Language bindings, desktop UI, documentation, and benchmark
 
 Keep the Rust API as the behavior source of truth. The Python package exports
@@ -576,6 +580,12 @@ to call the C ABI directly. The separate JNI module provides a native C shim,
 Java operation helpers, tests, and examples. Both must expose every operation
 through the same JSON contract and document native-library build/loading.
 
+The C# package (`csharpzarlib`) P/Invokes the C ABI with a `ZarLibrary` static
+class (`ExecuteJson`, nine operation helpers, in-memory extraction returning
+`Dictionary<string, byte[]>`) and `ZarException`. A DllImport resolver honours
+`ZAR_LIBRARY` and otherwise searches `target/{debug,release}`. Tests (xUnit)
+port the C API coverage; examples include a direct API demo and a zarc-style CLI.
+
 The `zarg` GUI uses `zarlib` operations, runs long work outside the UI thread,
 and reports progress, warnings, results, and confirmations. It supports
 archive browsing with virtualized listings; create/add/remove/join/check/info/
@@ -584,7 +594,7 @@ supported password-aware listing/extraction. Embed the selected licensed
 icons and preserve their attribution and license files.
 
 Maintain a root project overview, CLI README, library developer guide, format
-description, processing-pipeline diagrams, and package-specific Python/C/C++/Go/Java/GUI
+description, processing-pipeline diagrams, and package-specific Python/C/C++/Go/Java/C#/GUI
 documentation. Documentation must state real support boundaries, including
 password fallback precedence and encrypted remove/join limitations.
 

@@ -19,3 +19,5 @@ testresults/
 __pycache__/
 *.pyc
 .pytest_cache/
+bin/
+obj/
