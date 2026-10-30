@@ -1,0 +1,72 @@
+# zcopy
+
+Copies a file tree from one machine to another over TCP, compressed and
+optionally encrypted, using the `zarlib` create/extract pipelines. Only files
+that are missing on the destination or newer on the source are sent.
+
+```sh
+# destination machine (folder is created if missing)
+zcopy -s /data/backup -p secret --allow laptop,10.0.0.5
+
+# source machine
+zcopy -c server.example.com ~/projects -p secret
+```
+
+The client pushes: `-s` names the folder that receives files, `-c` names the
+server and the optional positional `SOURCE` (default `.`) is the tree to send.
+
+## How it works
+
+1. At startup the server scans its folder with `scandir` and caches path, size,
+   mtime and kind.
+2. On connect the server sends that metadata zstd-compressed.
+3. The client scans its source (symlinks and special files are skipped) and
+   sends a file when it is missing remotely or its mtime is newer. Empty
+   directories missing remotely are sent too.
+4. Files travel in batches as `zarlib` archives (zstd-compressed, encrypted when a
+   password is set). The server extracts each batch, restores mtimes, and updates
+   its cache.
+
+A second run therefore sends nothing unless something changed. Files deleted on
+the source are not deleted on the destination.
+
+## Options
+
+| Option | Meaning |
+|---|---|
+| `-s, --server <FOLDER>` | Run as server |
+| `-c, --client <HOST[:PORT]>` | Run as client |
+| `[SOURCE]` | Folder to send (client), default `.` |
+| `-p, --password` | Password for authentication and encryption; also `ZCOPY_PASSWORD` |
+| `--aead` | `aes-256-gcm` or `chacha20-poly1305` (client defaults to the server's) |
+| `-l, --level` | zstd compression level (client defaults to the server's) |
+| `--allow a,b,c` | Machine names or IPs allowed to connect (server) |
+| `--port`, `--bind` | TCP port (default 7878) and listen address (default `0.0.0.0`) |
+| `--batch-mib` | Approximate batch size, default 512 |
+| `--temp <DIR>` | Directory for temporary archives (client) |
+| `--config <FILE>` | Settings file, default `zcopy.json` if present |
+
+## zcopy.json
+
+All of `password`, `aead`, `level`, `allow`, `port`, `bind` and `batch_mib` can be
+set in a JSON file; command-line arguments take precedence. Unknown keys are an
+error.
+
+```json
+{ "password": "secret", "aead": "chacha20-poly1305", "level": 5,
+  "allow": ["laptop", "10.0.0.5"], "port": 7878 }
+```
+
+The password is stored in plain text, so protect the file's permissions.
+
+## Security notes
+
+- With a password, the connection is authenticated and encrypted (Argon2id key,
+  AES-256-GCM frames) and file data is encrypted by `zarlib`. Without a password
+  nothing is encrypted or authenticated; combine at least an allow list with a
+  trusted network. The server warns when neither is configured.
+- The allow list compares the peer IP with the resolved addresses of each entry,
+  so it is only as trustworthy as your network and DNS.
+- The server rejects absolute, `..` and backslash paths from clients.
+- The server uses `<folder>/.zcopy-tmp` for incoming archives; that name is
+  never synchronised.

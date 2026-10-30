@@ -1,0 +1,314 @@
+//! Receiving side: caches the destination tree and extracts incoming batches.
+
+use std::fs::{self, File};
+use std::io::{BufWriter, Read, Write};
+use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::sync_channel;
+use std::sync::{Arc, Mutex};
+
+use zarlib::operations::{
+    CollisionPolicy, ExistingPolicy, ExtractionOptions, FilterSet, PasswordSet,
+    extract_archive_with_passwords_progress_and_filters,
+};
+
+use crate::config::{Settings, parse_aead};
+use crate::net::*;
+use crate::scan::{self, Meta, Tree};
+
+pub const TEMP_DIR: &str = ".zcopy-tmp";
+static EXTRACT_LOCK: Mutex<()> = Mutex::new(());
+static CONNECTIONS: AtomicU64 = AtomicU64::new(0);
+
+type Item = (String, i64, bool);
+
+enum Job {
+    Batch { archive: PathBuf, items: Vec<Item> },
+    Done,
+}
+
+pub struct Server {
+    root: PathBuf,
+    settings: Settings,
+    cache: Arc<Mutex<Tree>>,
+    listener: TcpListener,
+}
+
+impl Server {
+    /// Creates the folder if needed, scans it, and starts listening.
+    pub fn bind(root: &Path, settings: Settings) -> Res<Self> {
+        fs::create_dir_all(root)?;
+        let root = root.canonicalize()?;
+        let temp = root.join(TEMP_DIR);
+        let _ = fs::remove_dir_all(&temp);
+        fs::create_dir_all(&temp)?;
+        parse_aead(settings.aead.as_deref().unwrap_or("aes-256-gcm"))?;
+        let tree = scan::scan_tree(&root, &[TEMP_DIR])?;
+        let address = (
+            settings.bind.as_deref().unwrap_or("0.0.0.0"),
+            settings.port(),
+        );
+        let listener = TcpListener::bind(address)
+            .map_err(|error| format!("cannot listen on {}:{}: {error}", address.0, address.1))?;
+        Ok(Self {
+            root,
+            settings,
+            cache: Arc::new(Mutex::new(tree)),
+            listener,
+        })
+    }
+
+    pub fn local_addr(&self) -> SocketAddr {
+        self.listener.local_addr().expect("bound listener")
+    }
+
+    pub fn cached_entries(&self) -> usize {
+        self.cache.lock().unwrap().len()
+    }
+
+    /// Accepts connections forever, one thread each.
+    pub fn serve(self) -> Res<()> {
+        let shared = Arc::new(self);
+        for stream in shared.listener.incoming() {
+            let stream = match stream {
+                Ok(stream) => stream,
+                Err(error) => {
+                    eprintln!("zcopy: accept failed: {error}");
+                    continue;
+                }
+            };
+            let server = Arc::clone(&shared);
+            std::thread::spawn(move || {
+                let peer = stream
+                    .peer_addr()
+                    .map(|a| a.to_string())
+                    .unwrap_or_default();
+                if let Err(error) = server.handle(stream) {
+                    eprintln!("zcopy: {peer}: {error}");
+                }
+            });
+        }
+        Ok(())
+    }
+
+    fn allowed(&self, peer: IpAddr) -> bool {
+        let Some(allow) = &self.settings.allow else {
+            return true;
+        };
+        let peer = match peer {
+            IpAddr::V6(v6) => v6.to_ipv4_mapped().map(IpAddr::V4).unwrap_or(peer),
+            other => other,
+        };
+        allow.iter().any(|entry| {
+            let entry = entry.trim();
+            match entry.parse::<IpAddr>() {
+                Ok(ip) => ip == peer,
+                Err(_) => (entry, 0)
+                    .to_socket_addrs()
+                    .map(|mut found| found.any(|addr| addr.ip() == peer))
+                    .unwrap_or(false),
+            }
+        })
+    }
+
+    fn handle(&self, mut stream: TcpStream) -> Res<()> {
+        let peer = stream.peer_addr()?;
+        if !self.allowed(peer.ip()) {
+            return Err("rejected: address not in allow list".into());
+        }
+        let password = self.settings.password.as_deref().map(str::as_bytes);
+        let mut salt = [0; 16];
+        getrandom::fill(&mut salt).map_err(|error| error.to_string())?;
+        let mut hello = Vec::from(MAGIC);
+        hello.push(password.is_some() as u8);
+        hello.extend_from_slice(&salt);
+        stream.write_all(&hello)?;
+        let key = password.map(|pw| derive_key(pw, &salt)).transpose()?;
+
+        let mut reader = FrameReader::new(stream.try_clone()?, key, DIR_CLIENT_TO_SERVER);
+        let mut writer = FrameWriter::new(stream.try_clone()?, key, DIR_SERVER_TO_CLIENT);
+        if !matches!(reader.recv_msg(), Ok(Msg::Auth)) {
+            return Err("authentication failed".into());
+        }
+        let level = self.settings.level.unwrap_or(3);
+        let entries = scan::to_entries(&self.cache.lock().unwrap());
+        writer.send_msg(&Msg::Manifest {
+            entries: entries.len() as u64,
+            aead: self
+                .settings
+                .aead
+                .clone()
+                .unwrap_or_else(|| "aes-256-gcm".into()),
+            level,
+        })?;
+        writer.send_compressed(&entries, level)?;
+        drop(entries);
+        println!("zcopy: {peer} connected");
+
+        let id = CONNECTIONS.fetch_add(1, Ordering::Relaxed);
+        let (jobs, queue) = sync_channel::<Job>(2);
+        let passwords = password.map(|pw| pw.to_vec());
+        let root = self.root.clone();
+        let cache = Arc::clone(&self.cache);
+        let worker = std::thread::spawn(move || {
+            extractor(&root, &cache, passwords, queue, writer);
+        });
+
+        let result = self.receive(&mut reader, &jobs, id);
+        let _ = jobs.send(Job::Done);
+        drop(jobs);
+        let _ = worker.join();
+        let _ = stream.shutdown(Shutdown::Both);
+        result
+    }
+
+    fn receive(
+        &self,
+        reader: &mut FrameReader<TcpStream>,
+        jobs: &std::sync::mpsc::SyncSender<Job>,
+        id: u64,
+    ) -> Res<()> {
+        let temp = self.root.join(TEMP_DIR);
+        for number in 0u64.. {
+            match reader.recv_msg()? {
+                Msg::Done => return Ok(()),
+                Msg::Batch { bytes, .. } => {
+                    let items: Vec<Item> = reader.recv_compressed()?;
+                    let archive = temp.join(format!("{id}-{number}.zar"));
+                    let mut file = BufWriter::new(File::create(&archive)?);
+                    let received = reader
+                        .recv_raw(&mut file, bytes)
+                        .and_then(|()| Ok(file.flush()?));
+                    if let Err(error) = received {
+                        let _ = fs::remove_file(&archive);
+                        return Err(error);
+                    }
+                    jobs.send(Job::Batch { archive, items })
+                        .map_err(|_| "extractor stopped")?;
+                }
+                _ => return Err("unexpected message".into()),
+            }
+        }
+        Ok(())
+    }
+}
+
+fn extractor(
+    root: &Path,
+    cache: &Mutex<Tree>,
+    password: Option<Vec<u8>>,
+    queue: std::sync::mpsc::Receiver<Job>,
+    mut writer: FrameWriter<TcpStream>,
+) {
+    for job in queue {
+        match job {
+            Job::Done => {
+                let _ = writer.send_msg(&Msg::Done);
+                return;
+            }
+            Job::Batch { archive, items } => {
+                let outcome = extract_batch(root, cache, &password, &archive, &items);
+                let _ = fs::remove_file(&archive);
+                let ack = match outcome {
+                    Ok(files) => Msg::Ack {
+                        ok: true,
+                        message: String::new(),
+                        files,
+                    },
+                    Err(message) => Msg::Ack {
+                        ok: false,
+                        message,
+                        files: 0,
+                    },
+                };
+                if writer.send_msg(&ack).is_err() {
+                    return;
+                }
+            }
+        }
+    }
+}
+
+fn extract_batch(
+    root: &Path,
+    cache: &Mutex<Tree>,
+    password: &Option<Vec<u8>>,
+    archive: &Path,
+    items: &[Item],
+) -> Result<u64, String> {
+    if let Some((bad, _, _)) = items
+        .iter()
+        .find(|(path, _, _)| !scan::is_safe_relative(path))
+    {
+        return Err(format!("unsafe path from client: {bad}"));
+    }
+    let _guard = EXTRACT_LOCK.lock().unwrap();
+    let passwords = PasswordSet::new(password.clone());
+    extract_archive_with_passwords_progress_and_filters(
+        &archive.to_string_lossy(),
+        root,
+        ExtractionOptions {
+            dry_run: false,
+            through: None,
+            collision_policy: CollisionPolicy::Error,
+            existing_policy: ExistingPolicy::Overwrite,
+            restore_metadata: false,
+            restore_symlinks: false,
+            restore_devices: false,
+        },
+        &passwords,
+        None,
+        &FilterSet::default(),
+    )
+    .map_err(|error| error.to_string())?;
+
+    let mut cache = cache.lock().unwrap();
+    for (path, mtime, is_dir) in items {
+        let target = root.join(path);
+        if !is_dir {
+            let applied = File::options()
+                .write(true)
+                .open(&target)
+                .and_then(|file| file.set_modified(scan::system_time(*mtime)));
+            if let Err(error) = applied {
+                return Err(format!("cannot set mtime of {path}: {error}"));
+            }
+        }
+        let size = if *is_dir {
+            0
+        } else {
+            fs::metadata(&target)
+                .map_err(|e| format!("{path}: {e}"))?
+                .len()
+        };
+        let mut ancestor = path.as_str();
+        while let Some((parent, _)) = ancestor.rsplit_once('/') {
+            cache.entry(parent.to_owned()).or_insert(Meta {
+                size: 0,
+                mtime: 0,
+                dir: true,
+            });
+            ancestor = parent;
+        }
+        cache.insert(
+            path.clone(),
+            Meta {
+                size,
+                mtime: *mtime,
+                dir: *is_dir,
+            },
+        );
+    }
+    Ok(items.len() as u64)
+}
+
+/// Reads and checks the 21-byte server greeting.
+pub fn read_hello(stream: &mut impl Read) -> Res<(bool, [u8; 16])> {
+    let mut hello = [0; 21];
+    stream.read_exact(&mut hello)?;
+    if hello[..4] != MAGIC {
+        return Err("not a zcopy server".into());
+    }
+    Ok((hello[4] != 0, hello[5..].try_into().unwrap()))
+}

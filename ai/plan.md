@@ -532,6 +532,7 @@ The Cargo workspace uses Rust edition 2024 and contains:
 - `pyzarlib`: PyO3 module and Python package/CLI example.
 - `czarlib`: C ABI library with a JSON request/response dispatcher.
 - `cxxzarlib`: CXX bridge exposing the shared JSON operation dispatcher to C++.
+- `zcopy`: network file-tree copy tool built on the `zarlib` create/extract pipelines.
 
 The repository also contains `gozarlib`, a Go module outside the Cargo
 workspace. It uses cgo to expose the C ABI operation dispatcher with Go
@@ -628,3 +629,32 @@ For CI and release validation, run formatting, strict Clippy, Rust tests,
 Python wheel/pytest, C integration tests, and generated-document checks as
 appropriate. State which runtimes were actually exercised locally versus
 covered by CI; do not claim target-version support from metadata alone.
+
+## 12. `zcopy` network copy
+
+`zcopy -s <FOLDER>` serves and `zcopy -c <HOST[:PORT]> [SOURCE]` pushes; the
+client's files go to the server folder (created if missing). Settings (password,
+`aead`, `level`, `allow`, `port`, `bind`, `batch_mib`) come from `zcopy.json`
+when present; command-line values override it; `ZCOPY_PASSWORD` is accepted.
+
+- Server: scan the folder with `scandir` (skip `.zcopy-tmp`), cache path, size,
+  mtime (seconds) and kind; apply the optional allow list (names resolved at
+  connect time, IPv4-mapped IPv6 normalised) to the peer address.
+- Handshake: `ZCP1`, a password-in-use flag, and a 16-byte salt. With a
+  password both sides derive a key with Argon2id (64 MiB, 2 passes); frames are
+  `u32` length plus AES-256-GCM body with a direction/counter nonce, so a wrong
+  password fails the first frame. Messages: `Auth`, `Manifest`, `Batch`,
+  `Ack`, `Done`.
+- On connect the server sends `Manifest` plus a zstd-compressed JSON entry list.
+  The client scans its source (skipping symlinks and special files) and sends a
+  file when it is missing remotely, remote is a directory, or its mtime is
+  newer; empty directories missing remotely are sent too.
+- A batch (about 512 MiB or 100k files) is a `zarlib` archive created from
+  relative paths (the client changes into the source directory) with the
+  configured compression level and, when a password is set, content
+  encryption. The server stores it in `.zcopy-tmp`, validates relative paths,
+  extracts with overwrite, sets mtimes, updates its cache, and acknowledges.
+  Creation, transfer, and extraction are pipelined.
+- Tests cover framing, planning, configuration merge, and an end-to-end sync
+  over loopback (first copy, incremental resend, server restart, password,
+  wrong password, allow-list rejection).
