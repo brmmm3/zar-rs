@@ -1,28 +1,36 @@
 #!/usr/bin/env python3
-"""Benchmark zarlib, zip, 7z, and tar.gz using the Linux 4.0.1 source tree."""
+"""Benchmark zarlib, zip, 7z, tar, and tar.gz using the Linux 4.0.1 source tree.
+
+Every format is measured with a hot file cache (the source tree is read once
+beforehand) and, when running with root/administrator rights, with a cold cache
+(dropped before each measured operation).
+"""
 
 from __future__ import annotations
 
 import argparse
 import datetime as dt
-import fcntl
 from collections import deque
 import html
 import os
-import pty
 import re
 import secrets
-import select
 import shutil
 import subprocess
 import sys
 import tarfile
-import termios
 import tempfile
 import time
 import urllib.request
+import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Callable
+
+if os.name == "posix":
+    import fcntl
+    import pty
+    import select
+    import termios
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,15 +45,160 @@ CHART_PATH = ROOT / "doc" / "benchmark-charts.svg"
 SOURCE_URL = "https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.0.1.tar.gz"
 ENCRYPTED_PASSWORD = secrets.token_urlsafe(24)
 PROMPT_RE = re.compile(rb"(?im)^[^\r\n]*(?:password|passphrase)[^\r\n]*:\s*$")
+RAMMAP_URL = "https://download.sysinternals.com/files/RAMMap.zip"
+TOOLS_DIR = TESTDATA / "tools"
 COLLISION_SUFFIX_RE = re.compile(r" \(\d+\)(?=\.[^.]+$|$)")
 
 
 def require_tools() -> dict[str, str]:
-    names = ("cargo", "zip", "unzip", "7z", "tar", "openssl")
-    missing = [name for name in names if shutil.which(name) is None]
+    tools: dict[str, str] = {}
+    missing: list[str] = []
+    for name in ("cargo", "tar", "openssl"):
+        found = shutil.which(name)
+        if found:
+            tools[name] = found
+        else:
+            missing.append(name)
+
+    seven_zip = next(
+        (found for name in ("7z", "7zz", "7za") if (found := shutil.which(name))), None
+    )
+    if seven_zip is None and os.name == "nt":
+        for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
+            candidate = Path(base) / "7-Zip" / "7z.exe" if base else None
+            if candidate and candidate.is_file():
+                seven_zip = str(candidate)
+                break
+    if seven_zip:
+        tools["7z"] = seven_zip
+    else:
+        missing.append("7z")
+
+    # Info-ZIP is rarely installed on Windows; the zip format is skipped there.
+    for name in ("zip", "unzip"):
+        found = shutil.which(name)
+        if found:
+            tools[name] = found
+        elif os.name != "nt":
+            missing.append(name)
+        else:
+            print(f"warning: {name} not found; skipping the zip benchmark", file=sys.stderr)
     if missing:
         raise RuntimeError(f"Required benchmark tools are unavailable: {', '.join(missing)}")
-    return {name: shutil.which(name) or name for name in names}
+    return tools
+
+
+def is_gnu_tar(tar_executable: str) -> bool:
+    result = subprocess.run(
+        [tar_executable, "--version"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    return b"GNU tar" in result.stdout
+
+
+def is_privileged() -> bool:
+    if os.name == "nt":
+        import ctypes
+
+        try:
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())  # type: ignore[attr-defined]
+        except (AttributeError, OSError):
+            return False
+    return os.geteuid() == 0
+
+
+def rammap_eula_accepted() -> bool:
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Sysinternals\RAMMap") as key:
+            return winreg.QueryValueEx(key, "EulaAccepted")[0] == 1
+    except OSError:
+        return False
+
+
+def download_rammap() -> Path:
+    executable = TOOLS_DIR / "RAMMap.exe"
+    if executable.is_file():
+        return executable
+    TOOLS_DIR.mkdir(parents=True, exist_ok=True)
+    archive = TOOLS_DIR / "RAMMap.zip"
+    print(f"Downloading {RAMMAP_URL}")
+    try:
+        urllib.request.urlretrieve(RAMMAP_URL, archive)
+        with zipfile.ZipFile(archive) as bundle:
+            for name in ("RAMMap.exe", "Eula.txt"):
+                with bundle.open(name) as source, (TOOLS_DIR / name).open("wb") as target:
+                    shutil.copyfileobj(source, target)
+    finally:
+        archive.unlink(missing_ok=True)
+    return executable
+
+
+def resolve_cache_modes(mode: str, accept_eula: bool) -> tuple[list[str], Path | None]:
+    """Returns the cache states to benchmark and the RAMMap path on Windows."""
+    modes: list[str] = []
+    rammap: Path | None = None
+    if mode in ("hot", "both"):
+        modes.append("hot")
+    if mode in ("cold", "both"):
+        reason = ""
+        if not is_privileged():
+            reason = (
+                "not running as root" if os.name != "nt" else "not running elevated"
+            )
+        elif os.name == "nt":
+            if not accept_eula and not rammap_eula_accepted():
+                reason = (
+                    "RAMMap's license has not been accepted; rerun with "
+                    "--accept-sysinternals-eula to accept the Sysinternals EULA"
+                )
+            else:
+                rammap = download_rammap()
+        elif not sys.platform.startswith("linux"):
+            reason = "cold cache dropping is only implemented for Linux and Windows"
+        if reason:
+            print(f"warning: skipping cold benchmarks: {reason}", file=sys.stderr)
+        else:
+            modes.append("cold")
+    if not modes:
+        raise RuntimeError("No benchmark cache mode is available")
+    return modes, rammap
+
+
+def drop_caches(rammap: Path | None, accept_eula: bool) -> None:
+    if os.name == "nt":
+        assert rammap is not None
+        command = [str(rammap)]
+        if accept_eula:
+            command.append("-accepteula")
+        run_command([*command, "-Et"])
+    else:
+        run_command(["sync"])
+        Path("/proc/sys/vm/drop_caches").write_text("3\n", encoding="ascii")
+
+
+def read_files(root: Path) -> None:
+    """Reads every regular file below root (or the file itself) once to warm the cache."""
+    if root.is_file():
+        paths = [root]
+    else:
+        paths = [
+            Path(directory) / name
+            for directory, _, names in os.walk(root)
+            for name in names
+        ]
+    for path in paths:
+        if path.is_symlink():
+            continue
+        try:
+            with path.open("rb") as handle:
+                while handle.read(1024 * 1024):
+                    pass
+        except OSError:
+            pass
 
 
 def run_command(
@@ -96,6 +249,8 @@ def run_7z_extract(command: list[str], cwd: Path, expected_link_warnings: int) -
 
 
 def run_with_password(command: list[str], cwd: Path, password: str) -> None:
+    if os.name != "posix":
+        raise RuntimeError("Interactive password entry is only supported on POSIX")
     master_fd, slave_fd = pty.openpty()
 
     def attach_controlling_terminal() -> None:
@@ -246,13 +401,18 @@ def ensure_source(tar_executable: str) -> None:
                 "--directory",
                 str(TESTDATA),
                 "--no-same-owner",
-                "--overwrite",
+                *(["--overwrite"] if is_gnu_tar(tar_executable) else []),
             ]
         )
     if not SOURCE_DIR.is_dir():
         raise RuntimeError(f"Source extraction did not create {SOURCE_DIR}")
     if not source_matches_tarball(SOURCE_ARCHIVE):
         raise RuntimeError(f"Source folder does not match {SOURCE_ARCHIVE.name}")
+
+
+def _make_writable_and_retry(function: Callable[..., object], path: str, _error: object) -> None:
+    os.chmod(path, 0o700)
+    function(path)
 
 
 def clean_testresults() -> None:
@@ -263,7 +423,7 @@ def clean_testresults() -> None:
         if entry.is_symlink() or entry.is_file():
             entry.unlink()
         elif entry.is_dir():
-            shutil.rmtree(entry)
+            shutil.rmtree(entry, onexc=_make_writable_and_retry)
         else:
             entry.unlink()
 
@@ -400,10 +560,11 @@ def archive_path(method: str, encrypted: bool) -> Path:
         "zarlib": ".zar",
         "zip": ".zip",
         "7z": ".7z",
+        "tar": ".tar",
         "tar.gz": ".tar.gz",
     }
     name = f"{SOURCE_NAME}-{method}{'-encrypted' if encrypted else ''}{suffixes[method]}"
-    if method == "tar.gz" and encrypted:
+    if method in ("tar", "tar.gz") and encrypted:
         name += ".cms"
     return ARCHIVE_DIR / name
 
@@ -429,10 +590,13 @@ def compress_zarlib(binary: Path, path: Path, encrypted: bool) -> None:
 
 def compress_zip(zip_executable: str, path: Path, encrypted: bool) -> None:
     command = [zip_executable, "-q", "-r", "-6", "-y"]
-    if encrypted:
+    interactive = encrypted and os.name == "posix"
+    if interactive:
         command.append("-e")
+    elif encrypted:
+        command.extend(["-P", ENCRYPTED_PASSWORD])
     command.extend([str(path), SOURCE_NAME])
-    if encrypted:
+    if interactive:
         run_with_password(command, TESTDATA, ENCRYPTED_PASSWORD)
     else:
         run_command(command, cwd=TESTDATA)
@@ -447,6 +611,7 @@ def compress_7z(seven_zip: str, path: Path, encrypted: bool, password: str) -> N
 
 
 def compress_tar(
+    method: str,
     tar_executable: str,
     openssl: str,
     path: Path,
@@ -455,12 +620,13 @@ def compress_tar(
     private_key: Path | None,
     temporary_directory: Path,
 ) -> None:
+    compression = ["--gzip"] if method == "tar.gz" else []
     if not encrypted:
         run_command(
             [
                 tar_executable,
                 "--create",
-                "--gzip",
+                *compression,
                 "--file",
                 str(path),
                 "--directory",
@@ -472,12 +638,12 @@ def compress_tar(
 
     if certificate is None or private_key is None:
         raise RuntimeError("The temporary OpenSSL certificate was not initialized")
-    compressed = temporary_directory / "encrypted-source.tar.gz"
+    compressed = temporary_directory / f"encrypted-source.{method}"
     run_command(
         [
             tar_executable,
             "--create",
-            "--gzip",
+            *compression,
             "--file",
             str(compressed),
             "--directory",
@@ -526,8 +692,11 @@ def extract_archive(
         else:
             run_command(command, cwd=TESTDATA)
     elif method == "zip":
-        command = [tools["unzip"], "-q", "-o", str(path), "-d", str(TESTRESULTS)]
-        if encrypted:
+        command = [tools["unzip"], "-q", "-o"]
+        if encrypted and os.name != "posix":
+            command.extend(["-P", ENCRYPTED_PASSWORD])
+        command.extend([str(path), "-d", str(TESTRESULTS)])
+        if encrypted and os.name == "posix":
             run_with_password(command, TESTDATA, ENCRYPTED_PASSWORD)
         else:
             run_command(command, cwd=TESTDATA)
@@ -537,12 +706,12 @@ def extract_archive(
             command.append(f"-p{password}")
         command.append(str(path))
         run_7z_extract(command, TESTDATA, expected_link_warnings)
-    elif method == "tar.gz":
+    elif method in ("tar", "tar.gz"):
         compressed = path
         if encrypted:
             if certificate is None or private_key is None:
                 raise RuntimeError("The temporary OpenSSL certificate was not initialized")
-            compressed = temporary_directory / "decrypted-source.tar.gz"
+            compressed = temporary_directory / f"decrypted-source.{method}"
             run_command(
                 [
                     tools["openssl"],
@@ -565,7 +734,7 @@ def extract_archive(
             [
                 tools["tar"],
                 "--extract",
-                "--gzip",
+                *(["--gzip"] if method == "tar.gz" else []),
                 "--file",
                 str(compressed),
                 "--directory",
@@ -582,13 +751,15 @@ def svg_chart(results: list[dict[str, object]], source_bytes: int) -> str:
     label_width = 250
     plot_width = 700
     row_height = 30
-    panel_height = 285
+    panel_height = 80 + row_height * len(results)
     top = 40
     height = top + panel_height * 3 + 30
+    multiple_caches = len({item["cache"] for item in results}) > 1
     colors = {
         "zarlib": "#2563eb",
         "zip": "#16a34a",
         "7z": "#9333ea",
+        "tar": "#0891b2",
         "tar.gz": "#ea580c",
     }
 
@@ -621,6 +792,8 @@ def svg_chart(results: list[dict[str, object]], source_bytes: int) -> str:
             opacity = "0.60" if encrypted else "1.0"
             encryption = "encrypted" if encrypted else "plain"
             label = f"{method} - {encryption}"
+            if multiple_caches:
+                label += f" - {item['cache']}"
             parts.extend(
                 [
                     f'<text x="{label_width - 12}" y="{row_y + 17}" '
@@ -645,7 +818,7 @@ def svg_chart(results: list[dict[str, object]], source_bytes: int) -> str:
         f'viewBox="0 0 {width} {height}" role="img" aria-labelledby="title description">\n'
         f'<title id="title">Linux 4.0.1 archive benchmark charts</title>\n'
         f'<desc id="description">Archive size, compression time, and extraction time '
-        f'for four archive formats with and without encryption. Source size: '
+        f'for archive formats with and without encryption, with hot and cold file caches where available. Source size: '
         f'{source_bytes / (1024 * 1024):.1f} MiB.</desc>\n'
         """<style>
   text { font-family: system-ui, sans-serif; fill: #172033; }
@@ -672,6 +845,7 @@ def write_report(
     source_files: int,
     symlink_count: int,
     tools: dict[str, str],
+    notes: list[str],
 ) -> None:
     CHART_PATH.write_text(svg_chart(results, source_bytes), encoding="utf-8")
     timestamp = dt.datetime.now(dt.timezone.utc).astimezone().isoformat(timespec="seconds")
@@ -682,9 +856,10 @@ def write_report(
         compression_speed = source_bytes / 1024 / 1024 / float(item["compression_seconds"])
         extraction_speed = source_bytes / 1024 / 1024 / float(item["extraction_seconds"])
         table_rows.append(
-            "| {method} | {encrypted} | {size:.1f} MiB | {compress:.2f} s "
+            "| {method} | {encrypted} | {cache} | {size:.1f} MiB | {compress:.2f} s "
             "({compress_speed:.1f} MiB/s) | {extract:.2f} s ({extract_speed:.1f} MiB/s) |".format(
                 method=item["method"],
+                cache=item["cache"],
                 encrypted=encryption,
                 size=size_mib,
                 compress=float(item["compression_seconds"]),
@@ -720,8 +895,8 @@ Uncompressed source size: {source_bytes / (1024 * 1024):.1f} MiB
 Regular files verified: {source_files:,}  
 Symbolic links excluded from path/size verification: {symlink_count}
 
-| Format | Encryption | Archive size | Compression | Extraction |
-|---|---:|---:|---:|---:|
+| Format | Encryption | Cache | Archive size | Compression | Extraction |
+|---|---:|---:|---:|---:|---:|
 {chr(10).join(table_rows)}
 
 Throughput uses the uncompressed regular-file size. Each extraction was run into
@@ -734,6 +909,13 @@ relative links during extraction, as noted above.
 
 ## Method
 
+- **Cache state**: `hot` runs read every file of the source tree (and, before
+  extraction, the archive) once before the measured operation. `cold` runs drop
+  the operating system file cache before every measured operation: `sync` plus
+  writing `3` to `/proc/sys/vm/drop_caches` on Linux (root required), or
+  `RAMMap.exe -Et` on Windows (elevation required). Cold runs are skipped with
+  a warning when the privileges are missing.
+{chr(10).join(notes)}
 - `zarlib`: `zarc` release build, default Zstandard compression level 3;
   encrypted runs use AES-256-GCM and the default header-and-data scope.
 - `zip`: Info-ZIP recursive DEFLATE at level 6, storing symlinks as links.
@@ -746,6 +928,9 @@ relative links during extraction, as noted above.
   relative symlink targets containing parent components; the runner
   accepts only the expected warnings for those source links and still
   verifies every regular file.
+- `tar`: GNU tar without compression (a pure archiving baseline). The
+  encrypted run times tar plus OpenSSL CMS AES-256-GCM encryption and is
+  decrypted before extraction, like `tar.gz`.
 - `tar.gz`: GNU tar with gzip's default compression level. Since tar.gz has no
   built-in encryption, the encrypted run times tar/gzip plus OpenSSL CMS
   AES-256-GCM encryption. It is decrypted before extraction. A temporary
@@ -766,9 +951,10 @@ The source archive and extracted source tree remain in `testdata/`.
     )
 
 
-def run_benchmarks(tools: dict[str, str], cargo: str) -> None:
-    if os.name != "posix":
-        raise RuntimeError("Password prompting automation currently requires a Linux/POSIX terminal")
+def run_benchmarks(
+    tools: dict[str, str], cargo: str, mode: str = "both", accept_eula: bool = False
+) -> None:
+    caches, rammap = resolve_cache_modes(mode, accept_eula)
     TESTRESULTS.mkdir(parents=True, exist_ok=True)
     ensure_source(tools["tar"])
     binary = build_zarc(cargo)
@@ -779,7 +965,24 @@ def run_benchmarks(tools: dict[str, str], cargo: str) -> None:
         f"Benchmarking {len(expected):,} files ({source_bytes / (1024 * 1024):.1f} MiB)"
     )
 
-    methods = ("zarlib", "zip", "7z", "tar.gz")
+    methods = tuple(
+        method
+        for method in ("zarlib", "zip", "7z", "tar", "tar.gz")
+        if method != "zip" or ("zip" in tools and "unzip" in tools)
+    )
+    notes: list[str] = []
+    # zarc only reads passwords from a POSIX terminal.
+    skipped = {("zarlib", True)} if os.name != "posix" else set()
+    if skipped:
+        notes.append(
+            "- `zarlib` encrypted runs are skipped on this platform because `zarc` "
+            "can only prompt for passwords on POSIX terminals."
+        )
+    if os.name != "posix":
+        notes.append(
+            "- On this platform `zip`/`unzip` receive the password with `-P` "
+            "instead of an interactive prompt."
+        )
     results: list[dict[str, object]] = []
     versions = tool_versions(tools)
     if ARCHIVE_DIR.exists():
@@ -811,11 +1014,20 @@ def run_benchmarks(tools: dict[str, str], cargo: str) -> None:
                 ]
             )
 
-            for method in methods:
+            for cache, method in ((c, m) for c in caches for m in methods):
                 for encrypted in (False, True):
+                    if (method, encrypted) in skipped:
+                        continue
                     path = archive_path(method, encrypted)
                     path.unlink(missing_ok=True)
-                    print(f"Compressing {method} (encrypted={encrypted})...")
+                    print(f"Compressing {method} (encrypted={encrypted}, {cache} cache)...")
+
+                    def prepare_cache(*warm: Path) -> None:
+                        if cache == "cold":
+                            drop_caches(rammap, accept_eula)
+                        else:
+                            for target in warm:
+                                read_files(target)
 
                     def compress() -> None:
                         if method == "zarlib":
@@ -828,6 +1040,7 @@ def run_benchmarks(tools: dict[str, str], cargo: str) -> None:
                             )
                         else:
                             compress_tar(
+                                method,
                                 tools["tar"],
                                 tools["openssl"],
                                 path,
@@ -837,6 +1050,7 @@ def run_benchmarks(tools: dict[str, str], cargo: str) -> None:
                                 temporary_directory,
                             )
 
+                    prepare_cache(SOURCE_DIR)
                     compression_seconds = measure(compress)
                     archive_bytes = path.stat().st_size
                     print(
@@ -844,6 +1058,7 @@ def run_benchmarks(tools: dict[str, str], cargo: str) -> None:
                         f"archive is {archive_bytes / (1024 * 1024):.1f} MiB..."
                     )
                     clean_testresults()
+                    prepare_cache(path)
                     try:
                         extraction_seconds = measure(
                             lambda: extract_archive(
@@ -868,6 +1083,7 @@ def run_benchmarks(tools: dict[str, str], cargo: str) -> None:
                     results.append(
                         {
                             "method": method,
+                            "cache": cache,
                             "encrypted": encrypted,
                             "archive_bytes": archive_bytes,
                             "compression_seconds": compression_seconds,
@@ -883,6 +1099,7 @@ def run_benchmarks(tools: dict[str, str], cargo: str) -> None:
             len(expected),
             len(symlinks),
             versions,
+            notes,
         )
         print(f"Report written to {REPORT_PATH}")
         print(f"Chart written to {CHART_PATH}")
@@ -900,10 +1117,21 @@ def run_benchmarks(tools: dict[str, str], cargo: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cargo", default="cargo", help="cargo executable (default: cargo)")
+    parser.add_argument(
+        "--mode",
+        choices=("hot", "cold", "both"),
+        default="both",
+        help="file cache state to benchmark (default: both; cold needs root/elevation)",
+    )
+    parser.add_argument(
+        "--accept-sysinternals-eula",
+        action="store_true",
+        help="Windows: pass -accepteula to RAMMap, accepting the Sysinternals license",
+    )
     args = parser.parse_args()
     try:
         tools = require_tools()
-        run_benchmarks(tools, args.cargo)
+        run_benchmarks(tools, args.cargo, args.mode, args.accept_sysinternals_eula)
     except (OSError, RuntimeError, TimeoutError, tarfile.TarError) as error:
         print(f"benchmark: {error}", file=sys.stderr)
         return 1

@@ -601,8 +601,9 @@ password fallback precedence and encrypted remove/join limitations.
 Provide a Linux benchmark program that downloads `linux-4.0.1.tar.gz` into
 `testdata/` only if absent, validates the tarball before extraction, and
 refreshes an incomplete/mismatched source tree. Benchmark compression and
-extraction with zarlib, ZIP, 7z, and tar.gz both without encryption and with
-encryption. Because tar.gz has no native encryption, wrap its output with
+extraction with zarlib, ZIP, 7z, uncompressed tar, and tar.gz both without
+encryption and with encryption. Because tar and tar.gz have no native
+encryption, wrap their output with
 OpenSSL CMS AES-256-GCM and document that wrapper's measured cost; document
 that ZIP's legacy ZipCrypto is not comparable in strength to AES-256-GCM or
 7z AES. Use ephemeral random credentials/keys and remove benchmark archives
@@ -612,6 +613,14 @@ again even when extraction fails. Account explicitly for symlinks skipped by
 zarlib, case-fold collision renames, and 7z's unsafe-relative-link extraction
 warnings. Generate a Markdown report with tool versions, method and caveats,
 compression/extraction times, archive sizes, throughput, and SVG charts.
+The benchmark must run on Linux and Windows. It measures a hot cache (read the
+whole source tree once beforehand) and, when privileged, a cold cache dropped
+before every measured operation: `sync` plus writing 3 to
+`/proc/sys/vm/drop_caches` as root on Linux, or `RAMMap.exe -Et` (downloaded
+from Sysinternals, EULA acceptance via `--accept-sysinternals-eula`) when
+elevated on Windows. Without privileges, warn and skip cold runs. On Windows,
+skip `zarlib` encrypted runs (no non-POSIX password prompt in `zarc`) and
+skip zip when Info-ZIP is missing; `--mode hot|cold|both` selects the cache state.
 
 For CI and release validation, run formatting, strict Clippy, Rust tests,
 Python wheel/pytest, C integration tests, and generated-document checks as
