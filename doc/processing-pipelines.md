@@ -258,9 +258,19 @@ stop
 
 Extraction first loads the effective TOC and validates the data frames needed
 to build an extraction plan. The plan retains archive offsets and decoded block
-sizes rather than file payloads. For a real extraction, selected blocks are
-decoded again and streamed to destination files; `--dry-run` returns the plan
-without creating the destination or writing entries.
+sizes rather than file payloads. Uncompressed sizes are discovered in $\mathcal{O}(1)$
+directly from frame headers (via `zstd_safe::get_frame_content_size`), avoiding
+redundant full decompression during planning.
+
+For real extraction, targets are sorted by their initial block's archive offset
+to stream data sequentially from storage without random seeks. Workers read each
+frame in a single contiguous `read_exact` buffer (`block.encoded_size`) rather
+than fragmented micro-reads. Directory components are deduplicated and validated
+with cached ancestor symlink checks, pre-creating all unique directories upfront
+to avoid per-file directory lock contention. Concurrency is memory-budgeted via
+`compression_worker_count(block_size)` and clamped on Windows ($\le 8$ workers)
+to prevent NTFS transaction log and filter driver (Windows Defender) lock serialization.
+`--dry-run` returns the plan without creating the destination or writing entries.
 
 ```plantuml
 @startuml
@@ -289,7 +299,8 @@ while (Selected commit remains?) is (yes)
     stop
   endif
   :Read block frames and validate boundaries, local indices, scope, and nonces;
-  :Authenticate/decompress blocks in bounded batches;
+  :Retrieve uncompressed size via O(1) frame header content size inspection;
+  :Decompress only when encrypted or content size is missing from header;
   if (Frame, checksum, authentication, or decompression error?) then (yes)
     :Return error without writing;
     stop
@@ -299,30 +310,39 @@ while (Selected commit remains?) is (yes)
   :Retain block offsets, sizes, commit identity, and keys for selected files;
 endwhile (no)
 
+:Normalize destination path (verbatim prefix on Windows to bypass CWD lock);
 :Build destination paths from canonical archive paths;
 :Resolve case-folded path collisions with configured policy;
 :Skip or reject symlinks/devices unless restoration is enabled;
-:Resolve existing destination entries with configured policy;
-if (Path escapes destination, policy rejects, or target is unsafe?) then (yes)
-  :Return error before extraction writes;
-  stop
+if (Existing policy is Overwrite?) then (yes)
+  :Bypass redundant target exists and metadata checks;
+else (no)
+  :Resolve existing destination entries with configured policy;
+  if (Path escapes destination, policy rejects, or target is unsafe?) then (yes)
+    :Return error before extraction writes;
+    stop
+  endif
 endif
 :Build extraction plan;
 if (Dry run?) then (yes)
   :Return plan, CLI prints planned entries;
   stop
 endif
-:Validate destination paths and create destination root;
-:Create planned directories without following symlinks;
+:Deduplicate directory paths and cache ancestor symlink checks;
+:Validate unique destination paths and create destination root;
+:Pre-create all unique directories and file parents upfront;
 if (Special entries are enabled?) then (yes)
   :Create selected symlinks, pipes, and devices;
   :Apply their available metadata;
 endif
 
+:Sort regular file targets by initial block archive offset for sequential reading;
+:Configure memory-budgeted worker pool (clamped on Windows to avoid NTFS lock thrashing);
+
 while (Regular files remain?) is (yes)
-  :Open/create target using existing-file policy;
-  :Seek to retained archive block offsets;
-  :Decode/authenticate blocks again and stream bytes to target;
+  :Open/create target using existing-file policy (with sequential cache hints);
+  :Stream contiguous block frame bytes in single-pass read_exact;
+  :Decode/authenticate blocks in memory and write to target;
   :Check decoded size and optional file checksum;
   if (Write, decode, size, or checksum error?) then (yes)
     :Return error, already written entries may remain;
@@ -331,6 +351,7 @@ while (Regular files remain?) is (yes)
   if (Metadata restoration enabled?) then (yes)
     :Apply compatible file metadata;
   endif
+  :Close file handle and advance progress;
 endwhile (no)
 :Restore directory metadata in reverse order when requested;
 :Return extraction plan and success;
@@ -498,3 +519,9 @@ stop
 - Password encryption is supported by create for both block data and the
   logical header. Add rejects archives containing encrypted commits and
   appends only an unencrypted commit.
+- The extraction pipeline uses $\mathcal{O}(1)$ frame header content size inspection
+  to avoid double-pass decompression during planning, streams contiguous block
+  frames via single-pass `read_exact` without micro-reads, sorts extraction targets
+  by block archive offset for monotonic sequential reading, pre-creates deduplicated
+  directory trees upfront, and bounds worker concurrency to prevent NTFS volume
+  journal and filter driver (Windows Defender) lock serialization.

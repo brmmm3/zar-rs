@@ -36,6 +36,8 @@ if os.name == "posix":
     import select
     import termios
 
+import psutil
+
 
 ROOT = Path(__file__).resolve().parents[1]
 TESTDATA = ROOT / "testdata"
@@ -55,6 +57,40 @@ PROMPT_RE = re.compile(rb"(?im)^[^\r\n]*(?:password|passphrase)[^\r\n]*:\s*$")
 RAMMAP_URL = "https://download.sysinternals.com/files/RAMMap.zip"
 TOOLS_DIR = TESTDATA / "tools"
 COLLISION_SUFFIX_RE = re.compile(r" \(\d+\)(?=\.[^.]+$|$)")
+
+
+class ResourceMonitor:
+    """Records CPU and RAM usage at 1-second intervals in a background thread."""
+
+    def __init__(self) -> None:
+        self._samples: list[tuple[float, float, float]] = []  # (timestamp_offset, cpu_percent, ram_gib)
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._start_time = 0.0
+
+    def start(self) -> None:
+        self._samples.clear()
+        self._stop_event.clear()
+        self._start_time = time.monotonic()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        if self._thread is not None:
+            self._stop_event.set()
+            self._thread.join(timeout=5)
+            self._thread = None
+
+    @property
+    def samples(self) -> list[tuple[float, float, float]]:
+        return list(self._samples)
+
+    def _run(self) -> None:
+        while not self._stop_event.wait(1.0):
+            elapsed = time.monotonic() - self._start_time
+            cpu = psutil.cpu_percent(interval=0)
+            ram = psutil.virtual_memory().used / (1024 ** 3)
+            self._samples.append((elapsed, cpu, ram))
 
 
 def require_tools() -> dict[str, str]:
@@ -864,9 +900,11 @@ def svg_chart(results: list[dict[str, object]], source_bytes: int) -> str:
     label_width = 250
     plot_width = 700
     row_height = 30
-    panel_height = 80 + row_height * len(results)
+    bar_panel_height = 80 + row_height * len(results)
     top = 40
-    height = top + panel_height * 3 + 30
+    # Time-series panels for CPU and RAM are taller: 200 px each
+    ts_panel_height = 220
+    height = top + bar_panel_height * 3 + ts_panel_height * 2 + 40
     multiple_caches = len({item["cache"] for item in results}) > 1
     colors = {
         "zarlib": "#2563eb",
@@ -919,18 +957,149 @@ def svg_chart(results: list[dict[str, object]], source_bytes: int) -> str:
             )
         return "\n".join(parts)
 
+    def _resource_panel(
+        title: str,
+        resource_key: str,  # "compression_resources" or "extraction_resources"
+        y: int,
+    ) -> str:
+        """Draw a time-series line chart for CPU % and RAM GiB."""
+        parts = [
+            f'<text x="24" y="{y}" class="heading">{html.escape(title)}</text>',
+        ]
+        plot_x = label_width
+        chart_top = y + 34
+        chart_height = 160
+        chart_bottom = chart_top + chart_height
+
+        # Collect all time-series data
+        all_cpu: list[float] = []
+        all_ram: list[float] = []
+        max_time = 0.0
+        for item in results:
+            samples = item.get(resource_key, [])
+            if samples:
+                for t, cpu, ram in samples:
+                    all_cpu.append(cpu)
+                    all_ram.append(ram)
+                    if t > max_time:
+                        max_time = t
+        if not all_cpu:
+            parts.append(
+                f'<text x="{plot_x}" y="{chart_top + chart_height // 2}" '
+                f'class="axis">No resource data recorded</text>'
+            )
+            return "\n".join(parts)
+
+        max_time = max(max_time, 1.0)
+        cpu_max = max(max(all_cpu), 1.0)
+        ram_max = max(max(all_ram), 0.1)
+
+        # Y-axis labels (CPU left, RAM right)
+        for tick in range(5):
+            y_pos = chart_bottom - int(chart_height * tick / 4)
+            parts.append(
+                f'<line x1="{plot_x}" y1="{y_pos}" x2="{plot_x + plot_width}" '
+                f'y2="{y_pos}" class="grid"/>'
+            )
+            # CPU label (left)
+            parts.append(
+                f'<text x="{plot_x - 8}" y="{y_pos + 4}" text-anchor="end" '
+                f'class="axis">{cpu_max * tick / 4:.0f}</text>'
+            )
+            # RAM label (right)
+            parts.append(
+                f'<text x="{plot_x + plot_width + 8}" y="{y_pos + 4}" '
+                f'text-anchor="start" class="axis">{ram_max * tick / 4:.1f}</text>'
+            )
+
+        # Axis labels
+        parts.append(
+            f'<text x="{plot_x - 8}" y="{chart_top - 14}" text-anchor="end" '
+            f'class="axis" fill="#2563eb">CPU %</text>'
+        )
+        parts.append(
+            f'<text x="{plot_x + plot_width + 8}" y="{chart_top - 14}" '
+            f'text-anchor="start" class="axis" fill="#16a34a">RAM GiB</text>'
+        )
+
+        # X-axis time labels
+        for tick in range(5):
+            x = plot_x + int(plot_width * tick / 4)
+            parts.append(
+                f'<text x="{x}" y="{chart_bottom + 16}" text-anchor="middle" '
+                f'class="axis">{max_time * tick / 4:.1f}s</text>'
+            )
+
+        # Draw one line per result
+        cpu_opacity = "0.55"
+        ram_opacity = "0.55"
+        for item in results:
+            samples = item.get(resource_key, [])
+            if not samples:
+                continue
+            method = str(item["method"])
+            color = colors.get(method, "#666")
+            encrypted = bool(item["encrypted"])
+            dash = "6,3" if encrypted else ""
+
+            def _to_px(t: float, val: float, vmax: float) -> tuple[int, int]:
+                x = plot_x + int(plot_width * t / max_time) if max_time > 0 else plot_x
+                y = chart_bottom - int(chart_height * val / vmax)
+                return x, y
+
+            # CPU line
+            cpu_pts = " ".join(
+                f"{_to_px(t, cpu, cpu_max)[0]},{_to_px(t, cpu, cpu_max)[1]}"
+                for t, cpu, _ram in samples
+            )
+            parts.append(
+                f'<polyline points="{cpu_pts}" fill="none" stroke="{color}" '
+                f'stroke-width="1.5" opacity="{cpu_opacity}" stroke-dasharray="{dash}"/>'
+            )
+
+            # RAM line
+            ram_pts = " ".join(
+                f"{_to_px(t, ram, ram_max)[0]},{_to_px(t, ram, ram_max)[1]}"
+                for t, _cpu, ram in samples
+            )
+            parts.append(
+                f'<polyline points="{ram_pts}" fill="none" stroke="{color}" '
+                f'stroke-width="1.5" opacity="{ram_opacity}" '
+                f'stroke-dasharray="{dash}" stroke-dashoffset="4"/>'
+            )
+
+        # Legend
+        legend_x = plot_x
+        legend_y = chart_bottom + 36
+        parts.append(
+            f'<text x="{legend_x}" y="{legend_y}" class="axis" font-weight="600">'
+            f"Line colour = archive format; solid = plain, dashed = encrypted; "
+            f"thick line = CPU %, thin dashed = RAM GiB</text>"
+        )
+
+        return "\n".join(parts)
+
     archive_panel = chart_panel("Archive size", "archive_bytes", "MiB", top, 1024 * 1024)
     compression_panel = chart_panel(
-        "Compression time", "compression_seconds", "s", top + panel_height
+        "Compression time", "compression_seconds", "s", top + bar_panel_height
     )
     extraction_panel = chart_panel(
-        "Extraction time", "extraction_seconds", "s", top + panel_height * 2
+        "Extraction time", "extraction_seconds", "s", top + bar_panel_height * 2
+    )
+    cpu_ram_compress_y = top + bar_panel_height * 3 + 10
+    cpu_ram_extract_y = cpu_ram_compress_y + ts_panel_height
+    cpu_ram_compress = _resource_panel(
+        "CPU & RAM during compression", "compression_resources", cpu_ram_compress_y
+    )
+    cpu_ram_extract = _resource_panel(
+        "CPU & RAM during extraction", "extraction_resources", cpu_ram_extract_y
     )
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
         f'viewBox="0 0 {width} {height}" role="img" aria-labelledby="title description">\n'
         f'<title id="title">Linux 4.0.1 archive benchmark charts</title>\n'
-        f'<desc id="description">Archive size, compression time, and extraction time '
+        f'<desc id="description">Archive size, compression time, extraction time, '
+        f'CPU utilisation, and RAM usage '
         f'for archive formats with and without encryption, with hot and cold file caches where available. Source size: '
         f'{source_bytes / (1024 * 1024):.1f} MiB.</desc>\n'
         """<style>
@@ -948,6 +1117,10 @@ def svg_chart(results: list[dict[str, object]], source_bytes: int) -> str:
         + compression_panel
         + "\n"
         + extraction_panel
+        + "\n"
+        + cpu_ram_compress
+        + "\n"
+        + cpu_ram_extract
         + "\n</svg>\n"
     )
 
@@ -962,15 +1135,26 @@ def write_report(
 ) -> None:
     CHART_PATH.write_text(svg_chart(results, source_bytes), encoding="utf-8")
     timestamp = dt.datetime.now(dt.timezone.utc).astimezone().isoformat(timespec="seconds")
+    def _avg_resource(key: str, item: dict[str, object]) -> tuple[float, float]:
+        samples = item.get(key, [])
+        if not samples:
+            return (0.0, 0.0)
+        cpu_vals = [s[1] for s in samples]
+        ram_vals = [s[2] for s in samples]
+        return (sum(cpu_vals) / len(cpu_vals), sum(ram_vals) / len(ram_vals))
+
     table_rows = []
     for item in results:
         encryption = "Yes" if item["encrypted"] else "No"
         size_mib = int(item["archive_bytes"]) / (1024 * 1024)
         compression_speed = source_bytes / 1024 / 1024 / float(item["compression_seconds"])
         extraction_speed = source_bytes / 1024 / 1024 / float(item["extraction_seconds"])
+        avg_cpu_c, avg_ram_c = _avg_resource("compression_resources", item)
+        avg_cpu_e, avg_ram_e = _avg_resource("extraction_resources", item)
         table_rows.append(
             "| {method} | {encrypted} | {cache} | {size:.1f} MiB | {compress:.2f} s "
-            "({compress_speed:.1f} MiB/s) | {extract:.2f} s ({extract_speed:.1f} MiB/s) |".format(
+            "({compress_speed:.1f} MiB/s) | {extract:.2f} s ({extract_speed:.1f} MiB/s) |"
+            " {cpu_c:.0f} % / {ram_c:.1f} GiB | {cpu_e:.0f} % / {ram_e:.1f} GiB |".format(
                 method=item["method"],
                 cache=item["cache"],
                 encrypted=encryption,
@@ -979,6 +1163,10 @@ def write_report(
                 compress_speed=compression_speed,
                 extract=float(item["extraction_seconds"]),
                 extract_speed=extraction_speed,
+                cpu_c=avg_cpu_c,
+                ram_c=avg_ram_c,
+                cpu_e=avg_cpu_e,
+                ram_e=avg_ram_e,
             )
         )
     tool_lines = "\n".join(f"- `{name}`: `{version}`" for name, version in tools.items())
@@ -1001,7 +1189,7 @@ Run date: {timestamp}
 Operating system: {platform.platform()}  
 CPU: {platform.machine()}, {os.cpu_count()} logical cores
 
-![Archive size, compression time, and extraction time charts](./{CHART_PATH.name})
+![Archive size, compression time, extraction time, CPU, and RAM charts](./{CHART_PATH.name})
 
 ## Results
 
@@ -1010,8 +1198,8 @@ Uncompressed source size: {source_bytes / (1024 * 1024):.1f} MiB
 Regular files verified: {source_files:,}  
 Symbolic links excluded from path/size verification: {symlink_count}
 
-| Format | Encryption | Cache | Archive size | Compression | Extraction |
-|---|---:|---:|---:|---:|---:|
+| Format | Encryption | Cache | Archive size | Compression | Extraction | CPU / RAM (compress) | CPU / RAM (extract) |
+|---|---:|---:|---:|---:|---:|---:|---:|
 {chr(10).join(table_rows)}
 
 Throughput uses the uncompressed regular-file size. Each extraction was run into
@@ -1021,6 +1209,12 @@ directory was emptied again after each check. Symlink entries are excluded
 because `zarlib` currently reports and skips unsupported input symlinks. ZIP
 and tar preserve links; 7z preserves them in its archive but may skip unsafe
 relative links during extraction, as noted above.
+
+CPU utilisation and RAM consumption were sampled at 1-second intervals during
+each compression and extraction operation using `psutil`. The table shows the
+average CPU % and RAM GiB across all samples for each phase. The time-series
+charts below the bar charts plot every sample, with one line per archive format
+(solid = plain, dashed = encrypted; thick line = CPU %, thin dashed line = RAM GiB).
 
 ## Method
 
@@ -1184,6 +1378,10 @@ def run_benchmarks(
                     extraction_times: list[float] = []
                     archive_bytes = 0
                     renamed_paths = 0
+                    compression_resources: list[list[tuple[float, float, float]]] = []
+                    extraction_resources: list[list[tuple[float, float, float]]] = []
+
+                    monitor = ResourceMonitor()
 
                     for run in range(runs_per_test):
                         label = f" (run {run + 1}/{runs_per_test})" if runs_per_test > 1 else ""
@@ -1193,8 +1391,11 @@ def run_benchmarks(
                         )
                         path.unlink(missing_ok=True)
                         prepare_cache(SOURCE_DIR)
+                        monitor.start()
                         compression_seconds = measure(compress)
+                        monitor.stop()
                         compression_times.append(compression_seconds)
+                        compression_resources.append(monitor.samples)
                         archive_bytes = path.stat().st_size
 
                         def _fmt_duration(seconds: float) -> str:
@@ -1215,6 +1416,7 @@ def run_benchmarks(
                         clean_testresults()
                         prepare_cache(path)
                         try:
+                            monitor.start()
                             extraction_seconds = measure(
                                 lambda: extract_archive(
                                     method,
@@ -1229,7 +1431,9 @@ def run_benchmarks(
                                     len(symlinks),
                                 )
                             )
+                            monitor.stop()
                             extraction_times.append(extraction_seconds)
+                            extraction_resources.append(monitor.samples)
                             print(
                                 f"  Extracted in {_fmt_duration(extraction_seconds)}"
                             )
@@ -1251,6 +1455,29 @@ def run_benchmarks(
                             f"({', '.join(f'{t:.2f}s' for t in extraction_times)})"
                         )
 
+                    # Merge resource samples across runs: average CPU and RAM at each
+                    # fractional-second offset (interpolated to a common 1 s grid).
+                    def _merge_resource_samples(
+                        run_samples: list[list[tuple[float, float, float]]],
+                    ) -> list[tuple[float, float, float]]:
+                        if not run_samples:
+                            return []
+                        max_len = max(len(s) for s in run_samples)
+                        merged: list[tuple[float, float, float]] = []
+                        for i in range(max_len):
+                            cpu_sum = 0.0
+                            ram_sum = 0.0
+                            count = 0
+                            for samples in run_samples:
+                                if i < len(samples):
+                                    cpu_sum += samples[i][1]
+                                    ram_sum += samples[i][2]
+                                    count += 1
+                            merged.append(
+                                (float(i), cpu_sum / count, ram_sum / count)
+                            )
+                        return merged
+
                     results.append(
                         {
                             "method": method,
@@ -1260,6 +1487,8 @@ def run_benchmarks(
                             "compression_seconds": avg_compression,
                             "extraction_seconds": avg_extraction,
                             "renamed_paths": renamed_paths,
+                            "compression_resources": _merge_resource_samples(compression_resources),
+                            "extraction_resources": _merge_resource_samples(extraction_resources),
                         }
                     )
                     path.unlink(missing_ok=True)
