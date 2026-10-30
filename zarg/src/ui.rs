@@ -1886,6 +1886,8 @@ mod tests {
             }),
             details: None,
             header_encrypted: false,
+            data_encrypted: false,
+            encryption_algorithm: None,
         };
         assert!(
             format_info(std::slice::from_ref(&commit), false, false)
