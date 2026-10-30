@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use zarlib::EncryptionScope;
 use zarlib::operations::{
-    CreateFilterOptions, CreateInputOptions, EncodingOptions, FilterSet, Progress,
+    CreateFilterOptions, CreateInputOptions, EncodingOptions, FilterSet,
     create_archive_with_password_progress_and_filters_and_encryption,
 };
 
@@ -56,15 +56,6 @@ pub fn ask_continue(others: u32, assume_yes: bool) -> bool {
         && matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes")
 }
 
-struct BarProgress(ProgressBar);
-
-impl Progress for BarProgress {
-    fn message(&self, _message: &str) {}
-    fn advance(&self, amount: u64) {
-        self.0.inc(amount);
-    }
-}
-
 fn make_bar(total: u64, enabled: bool) -> ProgressBar {
     let target = if enabled {
         ProgressDrawTarget::stderr()
@@ -74,7 +65,7 @@ fn make_bar(total: u64, enabled: bool) -> ProgressBar {
     let bar = ProgressBar::with_draw_target(Some(total), target);
     bar.set_style(
         ProgressStyle::with_template(
-            "[{elapsed_precise}] [{bar:40.cyan}] {binary_bytes}/{binary_total_bytes} ({binary_bytes_per_sec}, {eta}) {msg}",
+            "[{elapsed_precise}] [{bar:40.cyan}] {binary_bytes}/{binary_total_bytes} ({eta}) {msg}",
         )
         .expect("static progress template is valid")
         .progress_chars("##>-"),
@@ -84,6 +75,7 @@ fn make_bar(total: u64, enabled: bool) -> ProgressBar {
 
 struct Batch {
     archive: PathBuf,
+    source_bytes: u64,
     items: Vec<(String, i64, bool)>,
     bytes: u64,
 }
@@ -97,7 +89,16 @@ pub fn run(
 ) -> Res<Stats> {
     let _cwd = CWD_LOCK.lock().unwrap();
     let origin = std::env::current_dir()?;
-    std::env::set_current_dir(source)
+    let source = source
+        .canonicalize()
+        .map_err(|error| format!("cannot open source {}: {error}", source.display()))?;
+    // A named folder is sent as that folder (`foo/...`); a filesystem root has
+    // no name, so its contents go directly into the server folder.
+    let (base, prefix) = match (source.parent(), source.file_name()) {
+        (Some(parent), Some(name)) => (parent.to_path_buf(), name.to_string_lossy().into_owned()),
+        _ => (source.clone(), String::new()),
+    };
+    std::env::set_current_dir(&base)
         .map_err(|error| format!("cannot open source {}: {error}", source.display()))?;
     let work = match temp {
         Some(dir) => dir.to_path_buf(),
@@ -112,13 +113,20 @@ pub fn run(
     };
     let result = fs::create_dir_all(&work)
         .map_err(Into::into)
-        .and_then(|()| transfer(host, &work, settings, ui));
+        .and_then(|()| transfer(host, &work, settings, ui, &source, &prefix));
     let _ = fs::remove_dir_all(&work);
     let _ = std::env::set_current_dir(origin);
     result
 }
 
-fn transfer(host: &str, work: &Path, settings: &Settings, ui: &Ui) -> Res<Stats> {
+fn transfer(
+    host: &str,
+    work: &Path,
+    settings: &Settings,
+    ui: &Ui,
+    source: &Path,
+    prefix: &str,
+) -> Res<Stats> {
     let has_port = if host.starts_with('[') {
         host.contains("]:")
     } else {
@@ -167,10 +175,17 @@ fn transfer(host: &str, work: &Path, settings: &Settings, ui: &Ui) -> Res<Stats>
         .collect();
 
     if active_clients > 0 && !(ui.confirm)(active_clients) {
-        let _ = writer.send_msg(&Msg::Proceed { go: false });
+        let _ = writer.send_msg(&Msg::Proceed {
+            go: false,
+            source: String::new(),
+        });
         return Err("cancelled: server has other clients connected".into());
     }
-    writer.send_msg(&Msg::Proceed { go: true })?;
+    let source_dir = source.display().to_string();
+    writer.send_msg(&Msg::Proceed {
+        go: true,
+        source: source_dir,
+    })?;
     let wants_metadata = settings.metadata.unwrap_or(false);
     if wants_metadata && !server_metadata {
         eprintln!("zcopy: warning: server does not accept metadata; sending files only");
@@ -179,7 +194,7 @@ fn transfer(host: &str, work: &Path, settings: &Settings, ui: &Ui) -> Res<Stats>
 
     let aead = parse_aead(settings.aead.as_deref().unwrap_or(&server_aead))?;
     let level = settings.level.unwrap_or(server_level);
-    let local = scan::scan_tree(Path::new("."), &[TEMP_DIR])?;
+    let local = scan::prefixed(scan::scan_tree(source, &[TEMP_DIR])?, prefix);
     let plan = scan::plan_transfer(&local, &remote);
     let mut stats = Stats {
         skipped: plan.skipped,
@@ -188,6 +203,7 @@ fn transfer(host: &str, work: &Path, settings: &Settings, ui: &Ui) -> Res<Stats>
 
     let batch_limit = settings.batch_mib.unwrap_or(512).max(1) << 20;
     let mut batches: Vec<Vec<String>> = Vec::new();
+    let mut batch_sizes: Vec<u64> = Vec::new();
     let (mut current, mut current_bytes) = (Vec::new(), 0u64);
     for path in plan.files.into_iter().chain(plan.dirs) {
         let size = local[&path].size;
@@ -196,15 +212,16 @@ fn transfer(host: &str, work: &Path, settings: &Settings, ui: &Ui) -> Res<Stats>
         current.push(path);
         if current_bytes >= batch_limit || current.len() >= MAX_BATCH_FILES {
             batches.push(std::mem::take(&mut current));
+            batch_sizes.push(current_bytes);
             current_bytes = 0;
         }
     }
     if !current.is_empty() {
         batches.push(current);
+        batch_sizes.push(current_bytes);
     }
 
     let bar = make_bar(stats.source_bytes, ui.progress);
-    let producer_bar = bar.clone();
     let password_owned = password.map(<[u8]>::to_vec);
     let work = work.to_path_buf();
     let items_of = |paths: &[String]| -> Vec<(String, i64, bool)> {
@@ -217,7 +234,12 @@ fn transfer(host: &str, work: &Path, settings: &Settings, ui: &Ui) -> Res<Stats>
 
     let (queue, ready) = sync_channel::<Result<Batch, String>>(1);
     let producer = std::thread::spawn(move || {
-        for (number, (paths, items)) in batches.into_iter().zip(prepared).enumerate() {
+        for (number, ((paths, items), source_bytes)) in batches
+            .into_iter()
+            .zip(prepared)
+            .zip(batch_sizes)
+            .enumerate()
+        {
             let archive = work.join(format!("batch-{number}.zar"));
             let inputs: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
             let created = create_archive_with_password_progress_and_filters_and_encryption(
@@ -231,7 +253,7 @@ fn transfer(host: &str, work: &Path, settings: &Settings, ui: &Ui) -> Res<Stats>
                 password_owned
                     .as_deref()
                     .map(|pw| (pw, aead, EncryptionScope::HeaderAndData)),
-                Some(&BarProgress(producer_bar.clone())),
+                None,
                 CreateFilterOptions {
                     input: CreateInputOptions {
                         save_metadata: metadata,
@@ -246,6 +268,7 @@ fn transfer(host: &str, work: &Path, settings: &Settings, ui: &Ui) -> Res<Stats>
                 Ok(_) => fs::metadata(&archive)
                     .map(|meta| Batch {
                         archive,
+                        source_bytes,
                         items,
                         bytes: meta.len(),
                     })
@@ -280,6 +303,8 @@ fn transfer(host: &str, work: &Path, settings: &Settings, ui: &Ui) -> Res<Stats>
     });
 
     let mut failure: Option<String> = None;
+    let mut wire_sent = 0u64;
+    let started = std::time::Instant::now();
     for batch in ready {
         let batch = match batch {
             Ok(batch) => batch,
@@ -295,9 +320,27 @@ fn transfer(host: &str, work: &Path, settings: &Settings, ui: &Ui) -> Res<Stats>
                 metadata,
             })?;
             writer.send_compressed(&batch.items, 3)?;
+            let mut sent_in_batch = 0u64;
+            let mut credited = 0u64;
             writer.send_raw(
                 &mut BufReader::new(File::open(&batch.archive)?),
                 batch.bytes,
+                &mut |chunk| {
+                    sent_in_batch += chunk;
+                    wire_sent += chunk;
+                    // Progress is shown in source bytes, scaled by the share of
+                    // this batch already on the wire.
+                    let target = (batch.source_bytes as u128 * sent_in_batch as u128
+                        / batch.bytes.max(1) as u128) as u64;
+                    bar.inc(target - credited);
+                    credited = target;
+                    let seconds = started.elapsed().as_secs_f64().max(0.001);
+                    bar.set_message(format!(
+                        "sent {} at {}/s",
+                        indicatif::BinaryBytes(wire_sent),
+                        indicatif::BinaryBytes((wire_sent as f64 / seconds) as u64)
+                    ));
+                },
             )
         })();
         let _ = fs::remove_file(&batch.archive);
@@ -306,7 +349,6 @@ fn transfer(host: &str, work: &Path, settings: &Settings, ui: &Ui) -> Res<Stats>
             break;
         }
         stats.sent_bytes += batch.bytes;
-        bar.set_message(format!("sent {}", indicatif::BinaryBytes(stats.sent_bytes)));
     }
     let _ = producer.join();
     if failure.is_some() {

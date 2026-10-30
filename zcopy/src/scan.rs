@@ -79,6 +79,26 @@ pub fn scan_tree(root: &Path, skip: &[&str]) -> Res<Tree> {
     Ok(tree)
 }
 
+/// Re-roots a tree under `prefix` (including the folder itself as a directory).
+pub fn prefixed(tree: Tree, prefix: &str) -> Tree {
+    if prefix.is_empty() {
+        return tree;
+    }
+    let mut result = Tree::new();
+    result.insert(
+        prefix.to_owned(),
+        Meta {
+            size: 0,
+            mtime: 0,
+            dir: true,
+        },
+    );
+    for (path, meta) in tree {
+        result.insert(format!("{prefix}/{path}"), meta);
+    }
+    result
+}
+
 pub fn to_entries(tree: &Tree) -> Vec<Entry> {
     tree.iter()
         .map(|(path, meta)| (path.clone(), meta.size, meta.mtime, meta.dir))

@@ -12,6 +12,10 @@ zcopy -s /data/backup -p secret --allow laptop,10.0.0.5
 zcopy -c server.example.com ~/projects -p secret
 ```
 
+Sending a folder `foo` creates `foo` inside the server folder and writes its
+contents there (`zcopy -c host ~/projects/foo` gives `/data/backup/foo/...`). Sending
+`.` or a filesystem root, which has no name, writes directly into the server folder.
+
 The client pushes: `-s` names the folder that receives files, `-c` names the
 server and the optional positional `SOURCE` (default `.`) is the tree to send.
 
@@ -32,12 +36,21 @@ the source are not deleted on the destination.
 
 ## Progress and concurrent clients
 
-The client shows a progress bar like `zarc` (elapsed time, bytes, throughput, ETA, and
-bytes sent so far) on stderr. The server accepts several clients at once. When a
+The client shows a progress bar like `zarc` on stderr. It tracks what has actually
+been sent over the network: the bar and ETA are scaled to the source size, and the
+text beside it shows the bytes sent on the wire and the current wire speed. The server accepts several clients at once. When a
 client connects while others are connected, it prints a warning and asks
 `Continue anyway? [y/N]`; without a terminal it cancels unless `--yes` is given.
 Extraction on the server is serialised, so concurrent clients are safe but share
 one extraction pipeline.
+
+## Server log
+
+The server prints one line per event: a client connecting (with the source
+folder it sends and the destination folder), each received batch (file count,
+transferred size, and top-level names copied), and the disconnect with the file count,
+received size, duration and average speed (for example `2 file(s), 190.74 MiB
+received in 1.3s (146.24 MiB/s)`), or the error that ended the connection.
 
 ## Options
 

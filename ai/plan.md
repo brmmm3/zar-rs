@@ -663,6 +663,7 @@ when present; command-line values override it; `ZCOPY_PASSWORD` is accepted.
   restores permissions/ownership only if it enables `metadata` itself.
 - The client draws an `indicatif` bar (same style as `zarc`) over source bytes
   read by the create pipeline and shows the bytes sent so far.
+- The client sends a named source folder under its own name (`foo/...`); a nameless root is sent unprefixed. The progress bar advances as batch bytes are written to the socket, scaled to source bytes, and shows wire speed.
 - Client-supplied paths are validated, and paths through symlinks are refused.
 - Tests cover framing, planning, configuration merge, and an end-to-end sync
   over loopback (first copy, incremental resend, server restart, password,

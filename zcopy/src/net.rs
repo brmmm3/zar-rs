@@ -40,6 +40,9 @@ pub enum Msg {
     /// The client's answer to the manifest: continue or hang up.
     Proceed {
         go: bool,
+        /// Absolute path of the folder the client is sending (for server logs).
+        #[serde(default)]
+        source: String,
     },
     /// Followed by a compressed item-list frame and `bytes` raw archive bytes.
     Batch {
@@ -117,10 +120,24 @@ impl<W: Write> FrameWriter<W> {
         self.send(&zstd::encode_all(&json[..], level)?)
     }
 
-    pub fn send_raw(&mut self, source: &mut impl Read, length: u64) -> Res<()> {
-        let copied = io::copy(&mut source.take(length), &mut self.inner)?;
-        if copied != length {
-            return Err("file shrank while sending".into());
+    /// Streams `length` bytes, reporting each chunk written to the socket.
+    pub fn send_raw(
+        &mut self,
+        source: &mut impl Read,
+        length: u64,
+        on_chunk: &mut dyn FnMut(u64),
+    ) -> Res<()> {
+        let mut buffer = vec![0; 256 * 1024];
+        let mut remaining = length;
+        while remaining > 0 {
+            let want = remaining.min(buffer.len() as u64) as usize;
+            let read = source.read(&mut buffer[..want])?;
+            if read == 0 {
+                return Err("file shrank while sending".into());
+            }
+            self.inner.write_all(&buffer[..read])?;
+            remaining -= read as u64;
+            on_chunk(read as u64);
         }
         self.inner.flush()?;
         Ok(())

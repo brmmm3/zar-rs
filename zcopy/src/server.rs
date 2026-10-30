@@ -163,26 +163,44 @@ impl Server {
         })?;
         writer.send_compressed(&entries, level)?;
         drop(entries);
-        if !matches!(reader.recv_msg()?, Msg::Proceed { go: true }) {
-            println!("zcopy: {peer} declined to continue");
-            return Ok(());
-        }
-        println!("zcopy: {peer} connected");
+        let source = match reader.recv_msg()? {
+            Msg::Proceed { go: true, source } => source,
+            _ => {
+                println!("zcopy: {peer} declined to continue");
+                return Ok(());
+            }
+        };
+        println!(
+            "zcopy: {peer} connected, receiving folder '{source}' into '{}'",
+            self.root.display()
+        );
 
+        let started = std::time::Instant::now();
         let id = CONNECTIONS.fetch_add(1, Ordering::Relaxed);
         let (jobs, queue) = sync_channel::<Job>(2);
         let passwords = password.map(|pw| pw.to_vec());
         let root = self.root.clone();
         let cache = Arc::clone(&self.cache);
-        let worker = std::thread::spawn(move || {
-            extractor(&root, &cache, passwords, queue, writer);
-        });
+        let label = (peer.to_string(), source);
+        let worker =
+            std::thread::spawn(move || extractor(&root, &cache, passwords, queue, writer, &label));
 
         let result = self.receive(&mut reader, &jobs, id);
         let _ = jobs.send(Job::Done);
         drop(jobs);
-        let _ = worker.join();
+        let (files, bytes) = worker.join().unwrap_or((0, 0));
         let _ = stream.shutdown(Shutdown::Both);
+        match &result {
+            Ok(()) => {
+                let seconds = started.elapsed().as_secs_f64().max(0.001);
+                println!(
+                    "zcopy: {peer} disconnected: {files} file(s), {} received in {seconds:.1}s ({}/s)",
+                    human(bytes),
+                    human((bytes as f64 / seconds) as u64)
+                );
+            }
+            Err(error) => println!("zcopy: {peer} disconnected with error: {error}"),
+        }
         result
     }
 
@@ -230,20 +248,38 @@ fn extractor(
     password: Option<Vec<u8>>,
     queue: std::sync::mpsc::Receiver<Job>,
     mut writer: FrameWriter<TcpStream>,
-) {
+    (peer, source): &(String, String),
+) -> (u64, u64) {
+    let (mut total_files, mut total_bytes) = (0u64, 0u64);
     for job in queue {
         match job {
             Job::Done => {
                 let _ = writer.send_msg(&Msg::Done);
-                return;
+                return (total_files, total_bytes);
             }
             Job::Batch {
                 archive,
                 items,
                 metadata,
             } => {
+                let wire_bytes = fs::metadata(&archive).map(|m| m.len()).unwrap_or(0);
                 let outcome = extract_batch(root, cache, &password, &archive, &items, metadata);
                 let _ = fs::remove_file(&archive);
+                match &outcome {
+                    Ok(files) => {
+                        total_files += files;
+                        total_bytes += wire_bytes;
+                        println!(
+                            "zcopy: {peer} copied {files} file(s) ({}) from '{source}' into '{}': {}",
+                            human(wire_bytes),
+                            root.display(),
+                            top_level(&items)
+                        );
+                    }
+                    Err(message) => {
+                        println!("zcopy: {peer} copy from '{source}' failed: {message}")
+                    }
+                }
                 let ack = match outcome {
                     Ok(files) => Msg::Ack {
                         ok: true,
@@ -257,11 +293,31 @@ fn extractor(
                     },
                 };
                 if writer.send_msg(&ack).is_err() {
-                    return;
+                    return (total_files, total_bytes);
                 }
             }
         }
     }
+    (total_files, total_bytes)
+}
+
+/// Names of the first-level entries a batch touches, abbreviated.
+fn top_level(items: &[Item]) -> String {
+    let names: std::collections::BTreeSet<&str> = items
+        .iter()
+        .filter_map(|(path, _, _)| path.split('/').next())
+        .collect();
+    let shown: Vec<&str> = names.iter().copied().take(5).collect();
+    let more = names.len().saturating_sub(shown.len());
+    if more > 0 {
+        format!("{} and {more} more", shown.join(", "))
+    } else {
+        shown.join(", ")
+    }
+}
+
+fn human(bytes: u64) -> String {
+    indicatif::BinaryBytes(bytes).to_string()
 }
 
 fn extract_batch(

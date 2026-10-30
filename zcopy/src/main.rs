@@ -220,12 +220,12 @@ mod tests {
         let stats = run_client(&address, &src, &client_settings(None), &|_| true).unwrap();
         assert_eq!(stats.files, 4); // 3 files + 1 empty dir
         assert_eq!(
-            fs::read_to_string(dst.join("a/b/three.txt")).unwrap(),
+            fs::read_to_string(dst.join("src/a/b/three.txt")).unwrap(),
             "three"
         );
-        assert!(dst.join("empty").is_dir());
+        assert!(dst.join("src/empty").is_dir());
         let mtime = |p: &Path| scan::mtime_secs(fs::metadata(p).unwrap().modified().unwrap());
-        assert_eq!(mtime(&dst.join("one.txt")), mtime(&src.join("one.txt")));
+        assert_eq!(mtime(&dst.join("src/one.txt")), mtime(&src.join("one.txt")));
         assert_eq!(std::env::current_dir().unwrap(), cwd);
 
         let stats = run_client(&address, &src, &client_settings(None), &|_| true).unwrap();
@@ -234,7 +234,7 @@ mod tests {
         fs::write(src.join("one.txt"), "ONE!").unwrap();
         let stats = run_client(&address, &src, &client_settings(None), &|_| true).unwrap();
         assert_eq!((stats.files, stats.skipped), (1, 2));
-        assert_eq!(fs::read_to_string(dst.join("one.txt")).unwrap(), "ONE!");
+        assert_eq!(fs::read_to_string(dst.join("src/one.txt")).unwrap(), "ONE!");
 
         // A restarted server rescans and reaches the same conclusion.
         let address = start(&dst, None, None);
@@ -246,7 +246,7 @@ mod tests {
         let stats = run_client(&address, &src, &client_settings(secret), &|_| true).unwrap();
         assert_eq!(stats.files, 4);
         assert_eq!(
-            fs::read_to_string(secure_dst.join("a/two.txt"))
+            fs::read_to_string(secure_dst.join("src/a/two.txt"))
                 .unwrap()
                 .len(),
             3000
@@ -281,7 +281,7 @@ mod tests {
         });
         assert!(declined.is_err());
         assert_eq!(seen.load(std::sync::atomic::Ordering::SeqCst), 1);
-        assert!(!base.join("busy/one.txt").exists());
+        assert!(!base.join("busy/src/one.txt").exists());
         let stats = run_client(&address, &src, &client_settings(None), &|_| true).unwrap();
         assert_eq!(stats.files, 4);
         drop(hold_writer);
@@ -309,10 +309,10 @@ mod tests {
                 let _ = server.serve();
             });
             run_client(&address, &src, &with, &|_| true).unwrap();
-            assert_eq!(mode(&base.join("meta/one.txt")), 0o640);
+            assert_eq!(mode(&base.join("meta/src/one.txt")), 0o640);
             let address = start(&base.join("nometa"), None, None);
             run_client(&address, &src, &with, &|_| true).unwrap();
-            assert_ne!(mode(&base.join("nometa/one.txt")), 0o640);
+            assert_ne!(mode(&base.join("nometa/src/one.txt")), 0o640);
         }
 
         assert_eq!(std::env::current_dir().unwrap(), cwd);
