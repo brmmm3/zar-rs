@@ -522,6 +522,6 @@ and the `zip`, `unzip`, `7z`, `tar`, and `openssl` command-line tools. Encrypted
 tar.gz uses OpenSSL CMS AES-256-GCM because the tar.gz format itself has no
 encryption. Extracted output is checked against the source tree, and
 `testresults/` is emptied after every extraction. The script writes
-[`benchmark-report.md`](./benchmark-report.md), with charts in
-[`benchmark-charts.svg`](./benchmark-charts.svg). Temporary archives and
+`benchmark-report-<os>.md` (for example [`benchmark-report-linux.md`](./benchmark-report-linux.md)), with charts in
+`benchmark-charts-<os>.svg`. Temporary archives and
 encryption keys are removed when the run finishes.

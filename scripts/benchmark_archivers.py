@@ -13,6 +13,7 @@ import datetime as dt
 from collections import deque
 import html
 import os
+import platform
 import re
 import secrets
 import shutil
@@ -40,8 +41,11 @@ SOURCE_NAME = "linux-4.0.1"
 SOURCE_ARCHIVE = TESTDATA / f"{SOURCE_NAME}.tar.gz"
 SOURCE_DIR = TESTDATA / SOURCE_NAME
 ARCHIVE_DIR = TESTDATA / "benchmark-archives"
-REPORT_PATH = ROOT / "doc" / "benchmark-report.md"
-CHART_PATH = ROOT / "doc" / "benchmark-charts.svg"
+OS_TAG = {"linux": "linux", "win32": "windows", "darwin": "macos"}.get(
+    sys.platform, re.sub(r"\W+", "-", sys.platform)
+)
+REPORT_PATH = ROOT / "doc" / f"benchmark-report-{OS_TAG}.md"
+CHART_PATH = ROOT / "doc" / f"benchmark-charts-{OS_TAG}.svg"
 SOURCE_URL = "https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.0.1.tar.gz"
 ENCRYPTED_PASSWORD = secrets.token_urlsafe(24)
 PROMPT_RE = re.compile(rb"(?im)^[^\r\n]*(?:password|passphrase)[^\r\n]*:\s*$")
@@ -884,9 +888,11 @@ def write_report(
     REPORT_PATH.write_text(
         f"""# Linux 4.0.1 Archive Benchmark
 
-Run date: {timestamp}
+Run date: {timestamp}  
+Operating system: {platform.platform()}  
+CPU: {platform.machine()}, {os.cpu_count()} logical cores
 
-![Archive size, compression time, and extraction time charts](./benchmark-charts.svg)
+![Archive size, compression time, and extraction time charts](./{CHART_PATH.name})
 
 ## Results
 

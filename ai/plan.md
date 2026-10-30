@@ -612,7 +612,9 @@ after extraction, verify regular-file paths and sizes and clean the directory
 again even when extraction fails. Account explicitly for symlinks skipped by
 zarlib, case-fold collision renames, and 7z's unsafe-relative-link extraction
 warnings. Generate a Markdown report with tool versions, method and caveats,
-compression/extraction times, archive sizes, throughput, and SVG charts.
+compression/extraction times, archive sizes, throughput, and SVG charts. Write results to OS-specific files
+(`doc/benchmark-report-<linux|windows|macos>.md` and matching chart) so runs on
+different systems do not overwrite each other.
 The benchmark must run on Linux and Windows. It measures a hot cache (read the
 whole source tree once beforehand) and, when privileged, a cold cache dropped
 before every measured operation: `sync` plus writing 3 to
