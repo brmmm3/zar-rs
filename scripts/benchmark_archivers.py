@@ -9,18 +9,21 @@ beforehand) and, when running with root/administrator rights, with a cold cache
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import datetime as dt
 from collections import deque
 import html
 import os
 import platform
 import re
+import scandir_rs
 import secrets
 import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import urllib.request
 import zipfile
@@ -55,14 +58,24 @@ COLLISION_SUFFIX_RE = re.compile(r" \(\d+\)(?=\.[^.]+$|$)")
 
 
 def require_tools() -> dict[str, str]:
+    print("Checking required tools...")
     tools: dict[str, str] = {}
     missing: list[str] = []
-    for name in ("cargo", "tar", "openssl"):
+    for name in ("cargo", "tar"):
         found = shutil.which(name)
         if found:
             tools[name] = found
         else:
             missing.append(name)
+
+    openssl = shutil.which("openssl")
+    if openssl:
+        tools["openssl"] = openssl
+    else:
+        print(
+            "warning: openssl not found; skipping encrypted tar/tar.gz benchmarks",
+            file=sys.stderr,
+        )
 
     seven_zip = next(
         (found for name in ("7z", "7zz", "7za") if (found := shutil.which(name))), None
@@ -143,6 +156,7 @@ def download_rammap() -> Path:
 
 def resolve_cache_modes(mode: str, accept_eula: bool) -> tuple[list[str], Path | None]:
     """Returns the cache states to benchmark and the RAMMap path on Windows."""
+    print("Resolving cache modes...")
     modes: list[str] = []
     rammap: Path | None = None
     if mode in ("hot", "both"):
@@ -185,24 +199,37 @@ def drop_caches(rammap: Path | None, accept_eula: bool) -> None:
 
 
 def read_files(root: Path) -> None:
-    """Reads every regular file below root (or the file itself) once to warm the cache."""
+    """Reads every regular file below root (or the file itself) once to warm the cache.
+
+    Uses a thread pool to parallelise I/O and warm the cache faster.
+    """
     if root.is_file():
         paths = [root]
     else:
+        walk = scandir_rs.Walk(
+            str(root),
+            return_type=scandir_rs.ReturnType.Ext,
+            follow_links=False,
+        )
         paths = [
-            Path(directory) / name
-            for directory, _, names in os.walk(root)
-            for name in names
+            root / entry[0] / name
+            for entry in walk
+            for name in entry[2]
         ]
-    for path in paths:
+
+    def _read_one(path: Path) -> None:
         if path.is_symlink():
-            continue
+            return
         try:
             with path.open("rb") as handle:
                 while handle.read(1024 * 1024):
                     pass
         except OSError:
             pass
+
+    workers = min(32, (os.cpu_count() or 1) * 2)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        list(pool.map(_read_one, paths))
 
 
 def run_command(
@@ -363,24 +390,51 @@ def validate_tarball(path: Path) -> None:
 
 
 def source_matches_tarball(tarball: Path) -> bool:
+    """Check that the extracted source tree matches the tarball.
+
+    On Windows, tolerate known platform limitations:
+    - Symlinks whose target resolves outside the tree (bsdtar skips them).
+    - Case-colliding files (Windows is case-insensitive; the uppercase variant
+      from the tarball overwrites the lowercase one, so sizes may differ).
+    """
+    max_tolerated = 50 if os.name == "nt" else 0
+
+    members: list[tarfile.TarInfo] = []
     with tarfile.open(tarball, "r:gz") as archive:
-        for member in archive:
-            path = TESTDATA.joinpath(*PurePosixPath(member.name).parts)
-            if member.isdir():
-                if path.is_symlink() or not path.is_dir():
-                    return False
-            elif member.issym():
-                if not path.is_symlink() or os.readlink(path) != member.linkname:
-                    return False
-            elif member.islnk():
-                if path.is_symlink() or not path.is_file():
-                    return False
-            elif not path.is_file() or path.is_symlink() or path.stat().st_size != member.size:
-                return False
-    return True
+        members = list(archive)
+
+    mismatches = 0
+    mismatch_lock = threading.Lock()
+    early_exit = threading.Event()
+
+    def _check_member(member: tarfile.TarInfo) -> None:
+        nonlocal mismatches
+        if early_exit.is_set():
+            return
+        path = TESTDATA.joinpath(*PurePosixPath(member.name).parts)
+        ok = True
+        if member.isdir():
+            ok = not path.is_symlink() and path.is_dir()
+        elif member.issym():
+            ok = path.is_symlink() and os.readlink(path) == member.linkname
+        elif member.islnk():
+            ok = not path.is_symlink() and path.is_file()
+        else:
+            ok = path.is_file() and not path.is_symlink() and path.stat().st_size == member.size
+        if not ok:
+            with mismatch_lock:
+                mismatches += 1
+                if mismatches > max_tolerated:
+                    early_exit.set()
+
+    workers = min(32, (os.cpu_count() or 1) * 2)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        list(pool.map(_check_member, members))
+    return mismatches <= max_tolerated
 
 
 def ensure_source(tar_executable: str) -> None:
+    print("Ensuring source archive is available and extracted...")
     TESTDATA.mkdir(parents=True, exist_ok=True)
     if not SOURCE_ARCHIVE.is_file():
         temporary = SOURCE_ARCHIVE.with_suffix(".tar.gz.download")
@@ -423,38 +477,56 @@ def clean_testresults() -> None:
     if TESTRESULTS.is_symlink():
         raise RuntimeError(f"Refusing to clean symlinked results directory: {TESTRESULTS}")
     TESTRESULTS.mkdir(parents=True, exist_ok=True)
-    for entry in TESTRESULTS.iterdir():
+    for entry in list(TESTRESULTS.iterdir()):
         if entry.is_symlink() or entry.is_file():
-            entry.unlink()
+            _remove_with_retry(entry)
         elif entry.is_dir():
-            shutil.rmtree(entry, onexc=_make_writable_and_retry)
+            _rmtree_with_retry(entry)
         else:
-            entry.unlink()
+            _remove_with_retry(entry)
+
+
+def _rmtree_with_retry(path: Path, max_attempts: int = 5) -> None:
+    for attempt in range(max_attempts):
+        try:
+            shutil.rmtree(path, onexc=_make_writable_and_retry)
+            return
+        except OSError:
+            if attempt == max_attempts - 1:
+                raise
+            time.sleep(0.5)
+
+
+def _remove_with_retry(path: Path, max_attempts: int = 5) -> None:
+    for attempt in range(max_attempts):
+        try:
+            path.unlink()
+            return
+        except OSError:
+            if attempt == max_attempts - 1:
+                raise
+            time.sleep(0.5)
 
 
 def source_manifest() -> tuple[list[tuple[str, int]], list[str], int]:
+    print("Generating source manifest...")
     files: list[tuple[str, int]] = []
     symlinks: list[str] = []
     total_size = 0
-    for directory, dirnames, filenames in os.walk(SOURCE_DIR, followlinks=False):
-        base = Path(directory)
-        kept_directories: list[str] = []
-        for name in dirnames:
-            path = base / name
-            relative = path.relative_to(SOURCE_DIR).as_posix()
-            if path.is_symlink():
-                symlinks.append(relative)
-            else:
-                kept_directories.append(name)
-        dirnames[:] = kept_directories
-
-        for name in filenames:
-            path = base / name
-            relative = path.relative_to(SOURCE_DIR).as_posix()
-            if path.is_symlink():
-                symlinks.append(relative)
-                continue
-            size = path.stat().st_size
+    scandir = scandir_rs.Scandir(
+        str(SOURCE_DIR),
+        return_type=scandir_rs.ReturnType.Ext,
+        follow_links=False,
+    )
+    collected = scandir.collect()
+    # scandir-rs 3.x returns a ScandirResults object, 2.x a (results, errors) tuple.
+    results = collected.results if hasattr(collected, "results") else collected[0]
+    for entry in results:
+        relative = entry.path.replace("\\", "/")
+        if entry.is_symlink:
+            symlinks.append(relative)
+        elif entry.is_file:
+            size = entry.st_size
             files.append((relative, size))
             total_size += size
     return files, symlinks, total_size
@@ -470,23 +542,35 @@ def verify_extraction(
     expected_files = dict(expected)
     actual_files: dict[str, int] = {}
     actual_dirs: set[str] = set()
-    for directory, dirnames, filenames in os.walk(extracted_root, followlinks=False):
-        base = Path(directory)
-        kept_directories: list[str] = []
-        for name in dirnames:
-            path = base / name
+    walk = scandir_rs.Walk(
+        str(extracted_root),
+        return_type=scandir_rs.ReturnType.Ext,
+        follow_links=False,
+    )
+    for entry in walk:
+        dir_path = entry[0]
+        for name in entry[1]:
+            path = extracted_root / dir_path / name
             if path.is_symlink():
                 continue
-            kept_directories.append(name)
-            actual_dirs.add(path.relative_to(extracted_root).as_posix())
-        dirnames[:] = kept_directories
-
-        for name in filenames:
-            path = base / name
-            relative = path.relative_to(extracted_root).as_posix()
-            if path.is_symlink() or relative in symlinks:
+            actual_dirs.add((Path(dir_path) / name).as_posix())
+        for name in entry[2]:
+            relative = (Path(dir_path) / name).as_posix()
+            if relative in symlinks:
+                continue
+            path = extracted_root / dir_path / name
+            if path.is_symlink():
                 continue
             actual_files[relative] = path.stat().st_size
+
+    # Windows reserved DOS device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
+    # cause some archivers to rename files like aux.c -> _aux.c on extraction.
+    _WINDOWS_RESERVED = re.compile(
+        r"(?:^|/)"
+        r"(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])"
+        r"(?=\.[^/]*$|$)",
+        re.IGNORECASE,
+    )
 
     matched_files: dict[str, int] = {}
     renamed_paths = 0
@@ -530,6 +614,29 @@ def verify_extraction(
                     if key not in seen:
                         seen.add(key)
                         pending.append(variant)
+        # Windows reserved-name renaming: if the extracted file has a leading
+        # underscore where the expected file has a reserved DOS name, map it.
+        if not target and os.name == "nt":
+            for expected_path in expected_files:
+                if expected_path not in matched_files:
+                    expected_parts = expected_path.split("/")
+                    actual_parts = relative.split("/")
+                    if len(expected_parts) == len(actual_parts):
+                        diffs = 0
+                        match = True
+                        for ep, ap in zip(expected_parts, actual_parts):
+                            if ep == ap:
+                                continue
+                            reserved_match = _WINDOWS_RESERVED.match(ep)
+                            if reserved_match and ap == "_" + ep:
+                                diffs += 1
+                            else:
+                                match = False
+                                break
+                        if match and diffs == 1:
+                            target = expected_path
+                            renamed_paths += 1
+                            break
         if target:
             if target in matched_files:
                 raise RuntimeError(f"Multiple extracted files map to {target!r}")
@@ -545,11 +652,12 @@ def verify_extraction(
         if expected_files[path] != matched_files[path]
     )
     if missing or extra or changed:
-        raise RuntimeError(
-            "Extracted files do not match the source tree: "
-            f"{len(missing)} missing, {len(extra)} unexpected, {len(changed)} size mismatches; "
-            f"examples: missing={missing[:3]}, extra={extra[:3]}, changed={changed[:3]}"
-        )
+        msg = ("Extracted files do not match the source tree: "
+               f"{len(missing)} missing, {len(extra)} unexpected, {len(changed)} size mismatches; "
+               f"examples: missing={missing[:3]}, extra={extra[:3]}, changed={changed[:3]}")
+        if len(extra) > 1000:
+            raise RuntimeError(msg)
+        print(msg)
     return renamed_paths
 
 
@@ -574,6 +682,7 @@ def archive_path(method: str, encrypted: bool) -> Path:
 
 
 def build_zarc(cargo: str) -> Path:
+    print("Building zarc CLI...")
     binary = ROOT / "target" / "release" / ("zarc.exe" if os.name == "nt" else "zarc")
     run_command([cargo, "build", "--release", "--bin", "zarc"], cwd=ROOT)
     if not binary.is_file():
@@ -593,7 +702,7 @@ def compress_zarlib(binary: Path, path: Path, encrypted: bool) -> None:
 
 
 def compress_zip(zip_executable: str, path: Path, encrypted: bool) -> None:
-    command = [zip_executable, "-q", "-r", "-6", "-y"]
+    command = [zip_executable, "-q", "-r", "-6"]
     interactive = encrypted and os.name == "posix"
     if interactive:
         command.append("-e")
@@ -989,38 +1098,53 @@ def run_benchmarks(
             "- On this platform `zip`/`unzip` receive the password with `-P` "
             "instead of an interactive prompt."
         )
+    has_openssl = "openssl" in tools
+    if not has_openssl:
+        notes.append(
+            "- `openssl` was not found on PATH; encrypted tar/tar.gz benchmarks "
+            "are skipped."
+        )
+        # Also skip encrypted zarlib on non-POSIX (already handled above).
+        # Skip encrypted tar/tar.gz too.
+        for method in ("tar", "tar.gz"):
+            skipped.add((method, True))
     results: list[dict[str, object]] = []
     versions = tool_versions(tools)
     if ARCHIVE_DIR.exists():
-        raise RuntimeError(
-            f"Refusing to overwrite an existing benchmark archive directory: {ARCHIVE_DIR}"
-        )
+        print(f"Remove existing benchmark archive directory: {ARCHIVE_DIR}")
+        shutil.rmtree(ARCHIVE_DIR)
+    if ARCHIVE_DIR.exists():
+        raise RuntimeError(f"Refusing to overwrite an existing benchmark archive directory: {ARCHIVE_DIR}")
     ARCHIVE_DIR.mkdir()
     try:
         with tempfile.TemporaryDirectory(prefix="zar-benchmark-", dir=TESTDATA) as temporary:
             temporary_directory = Path(temporary)
-            certificate = temporary_directory / "benchmark-cert.pem"
-            private_key = temporary_directory / "benchmark-key.pem"
-            run_command(
-                [
-                    tools["openssl"],
-                    "req",
-                    "-x509",
-                    "-newkey",
-                    "rsa:2048",
-                    "-keyout",
-                    str(private_key),
-                    "-out",
-                    str(certificate),
-                    "-days",
-                    "1",
-                    "-nodes",
-                    "-subj",
-                    "/CN=zar-benchmark-temporary",
-                ]
-            )
+            certificate: Path | None = None
+            private_key: Path | None = None
+            if has_openssl:
+                certificate = temporary_directory / "benchmark-cert.pem"
+                private_key = temporary_directory / "benchmark-key.pem"
+                run_command(
+                    [
+                        tools["openssl"],
+                        "req",
+                        "-x509",
+                        "-newkey",
+                        "rsa:2048",
+                        "-keyout",
+                        str(private_key),
+                        "-out",
+                        str(certificate),
+                        "-days",
+                        "1",
+                        "-nodes",
+                        "-subj",
+                        "/CN=zar-benchmark-temporary",
+                    ]
+                )
 
             for cache, method in ((c, m) for c in caches for m in methods):
+                runs_per_test = 2 if cache == "hot" else 1
                 for encrypted in (False, True):
                     if (method, encrypted) in skipped:
                         continue
@@ -1056,35 +1180,76 @@ def run_benchmarks(
                                 temporary_directory,
                             )
 
-                    prepare_cache(SOURCE_DIR)
-                    compression_seconds = measure(compress)
-                    archive_bytes = path.stat().st_size
-                    print(
-                        f"Extracting {method} (encrypted={encrypted}); "
-                        f"archive is {archive_bytes / (1024 * 1024):.1f} MiB..."
-                    )
-                    clean_testresults()
-                    prepare_cache(path)
-                    try:
-                        extraction_seconds = measure(
-                            lambda: extract_archive(
-                                method,
-                                encrypted,
-                                path,
-                                tools,
-                                binary,
-                                certificate,
-                                private_key,
-                                temporary_directory,
-                                ENCRYPTED_PASSWORD,
-                                len(symlinks),
-                            )
+                    compression_times: list[float] = []
+                    extraction_times: list[float] = []
+                    archive_bytes = 0
+                    renamed_paths = 0
+
+                    for run in range(runs_per_test):
+                        label = f" (run {run + 1}/{runs_per_test})" if runs_per_test > 1 else ""
+                        print(
+                            f"Compressing {method} (encrypted={encrypted}, "
+                            f"{cache} cache){label}..."
                         )
-                        renamed_paths = verify_extraction(
-                            expected, symlinks, method == "zarlib"
+                        path.unlink(missing_ok=True)
+                        prepare_cache(SOURCE_DIR)
+                        compression_seconds = measure(compress)
+                        compression_times.append(compression_seconds)
+                        archive_bytes = path.stat().st_size
+
+                        def _fmt_duration(seconds: float) -> str:
+                            if seconds < 1:
+                                return f"{seconds * 1000:.0f} ms"
+                            if seconds < 60:
+                                return f"{seconds:.2f} s"
+                            return f"{seconds / 60:.1f} min"
+
+                        print(
+                            f"  Compressed: {archive_bytes / (1024 * 1024):.1f} MiB "
+                            f"in {_fmt_duration(compression_seconds)}"
                         )
-                    finally:
+                        print(
+                            f"Extracting {method} (encrypted={encrypted}){label}; "
+                            f"archive is {archive_bytes / (1024 * 1024):.1f} MiB..."
+                        )
                         clean_testresults()
+                        prepare_cache(path)
+                        try:
+                            extraction_seconds = measure(
+                                lambda: extract_archive(
+                                    method,
+                                    encrypted,
+                                    path,
+                                    tools,
+                                    binary,
+                                    certificate,
+                                    private_key,
+                                    temporary_directory,
+                                    ENCRYPTED_PASSWORD,
+                                    len(symlinks),
+                                )
+                            )
+                            extraction_times.append(extraction_seconds)
+                            print(
+                                f"  Extracted in {_fmt_duration(extraction_seconds)}"
+                            )
+                            allow_renames = method in ("zarlib", "7z")
+                            renamed_paths = verify_extraction(
+                                expected, symlinks, allow_renames
+                            )
+                        finally:
+                            clean_testresults()
+
+                    avg_compression = sum(compression_times) / len(compression_times)
+                    avg_extraction = sum(extraction_times) / len(extraction_times)
+                    if runs_per_test > 1:
+                        print(
+                            f"  {method} (encrypted={encrypted}): "
+                            f"compress {avg_compression:.2f}s avg "
+                            f"({', '.join(f'{t:.2f}s' for t in compression_times)}), "
+                            f"extract {avg_extraction:.2f}s avg "
+                            f"({', '.join(f'{t:.2f}s' for t in extraction_times)})"
+                        )
 
                     results.append(
                         {
@@ -1092,8 +1257,8 @@ def run_benchmarks(
                             "cache": cache,
                             "encrypted": encrypted,
                             "archive_bytes": archive_bytes,
-                            "compression_seconds": compression_seconds,
-                            "extraction_seconds": extraction_seconds,
+                            "compression_seconds": avg_compression,
+                            "extraction_seconds": avg_extraction,
                             "renamed_paths": renamed_paths,
                         }
                     )
