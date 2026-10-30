@@ -4,7 +4,7 @@ use std::fs::{self, File};
 use std::io::{BufWriter, Read, Write};
 use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::sync_channel;
 use std::sync::{Arc, Mutex};
 
@@ -24,7 +24,11 @@ static CONNECTIONS: AtomicU64 = AtomicU64::new(0);
 type Item = (String, i64, bool);
 
 enum Job {
-    Batch { archive: PathBuf, items: Vec<Item> },
+    Batch {
+        archive: PathBuf,
+        items: Vec<Item>,
+        metadata: bool,
+    },
     Done,
 }
 
@@ -33,6 +37,16 @@ pub struct Server {
     settings: Settings,
     cache: Arc<Mutex<Tree>>,
     listener: TcpListener,
+    active: AtomicUsize,
+}
+
+/// Counts an authenticated connection for as long as it lives.
+struct ActiveClient<'a>(&'a AtomicUsize);
+
+impl Drop for ActiveClient<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 impl Server {
@@ -56,6 +70,7 @@ impl Server {
             settings,
             cache: Arc::new(Mutex::new(tree)),
             listener,
+            active: AtomicUsize::new(0),
         })
     }
 
@@ -131,6 +146,8 @@ impl Server {
         if !matches!(reader.recv_msg(), Ok(Msg::Auth)) {
             return Err("authentication failed".into());
         }
+        let others = self.active.fetch_add(1, Ordering::SeqCst);
+        let _active = ActiveClient(&self.active);
         let level = self.settings.level.unwrap_or(3);
         let entries = scan::to_entries(&self.cache.lock().unwrap());
         writer.send_msg(&Msg::Manifest {
@@ -141,9 +158,15 @@ impl Server {
                 .clone()
                 .unwrap_or_else(|| "aes-256-gcm".into()),
             level,
+            active_clients: others as u32,
+            metadata: self.settings.metadata.unwrap_or(false),
         })?;
         writer.send_compressed(&entries, level)?;
         drop(entries);
+        if !matches!(reader.recv_msg()?, Msg::Proceed { go: true }) {
+            println!("zcopy: {peer} declined to continue");
+            return Ok(());
+        }
         println!("zcopy: {peer} connected");
 
         let id = CONNECTIONS.fetch_add(1, Ordering::Relaxed);
@@ -173,7 +196,10 @@ impl Server {
         for number in 0u64.. {
             match reader.recv_msg()? {
                 Msg::Done => return Ok(()),
-                Msg::Batch { bytes, .. } => {
+                Msg::Batch {
+                    bytes, metadata, ..
+                } => {
+                    let metadata = metadata && self.settings.metadata.unwrap_or(false);
                     let items: Vec<Item> = reader.recv_compressed()?;
                     let archive = temp.join(format!("{id}-{number}.zar"));
                     let mut file = BufWriter::new(File::create(&archive)?);
@@ -184,8 +210,12 @@ impl Server {
                         let _ = fs::remove_file(&archive);
                         return Err(error);
                     }
-                    jobs.send(Job::Batch { archive, items })
-                        .map_err(|_| "extractor stopped")?;
+                    jobs.send(Job::Batch {
+                        archive,
+                        items,
+                        metadata,
+                    })
+                    .map_err(|_| "extractor stopped")?;
                 }
                 _ => return Err("unexpected message".into()),
             }
@@ -207,8 +237,12 @@ fn extractor(
                 let _ = writer.send_msg(&Msg::Done);
                 return;
             }
-            Job::Batch { archive, items } => {
-                let outcome = extract_batch(root, cache, &password, &archive, &items);
+            Job::Batch {
+                archive,
+                items,
+                metadata,
+            } => {
+                let outcome = extract_batch(root, cache, &password, &archive, &items, metadata);
                 let _ = fs::remove_file(&archive);
                 let ack = match outcome {
                     Ok(files) => Msg::Ack {
@@ -236,6 +270,7 @@ fn extract_batch(
     password: &Option<Vec<u8>>,
     archive: &Path,
     items: &[Item],
+    metadata: bool,
 ) -> Result<u64, String> {
     if let Some((bad, _, _)) = items
         .iter()
@@ -253,7 +288,7 @@ fn extract_batch(
             through: None,
             collision_policy: CollisionPolicy::Error,
             existing_policy: ExistingPolicy::Overwrite,
-            restore_metadata: false,
+            restore_metadata: metadata,
             restore_symlinks: false,
             restore_devices: false,
         },
@@ -265,7 +300,7 @@ fn extract_batch(
 
     let mut cache = cache.lock().unwrap();
     for (path, mtime, is_dir) in items {
-        let target = root.join(path);
+        let target = resolve_inside(root, path)?;
         if !is_dir {
             let applied = File::options()
                 .write(true)
@@ -278,7 +313,7 @@ fn extract_batch(
         let size = if *is_dir {
             0
         } else {
-            fs::metadata(&target)
+            fs::symlink_metadata(&target)
                 .map_err(|e| format!("{path}: {e}"))?
                 .len()
         };
@@ -303,6 +338,27 @@ fn extract_batch(
     Ok(items.len() as u64)
 }
 
+/// Joins a client-supplied relative path onto `root`, refusing unsafe paths and
+/// any existing symlink component so nothing outside `root` can be touched.
+fn resolve_inside(root: &Path, path: &str) -> Result<PathBuf, String> {
+    if !scan::is_safe_relative(path) {
+        return Err(format!("unsafe path from client: {path}"));
+    }
+    let mut target = root.to_path_buf();
+    for part in path.split('/') {
+        target.push(part);
+        match fs::symlink_metadata(&target) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                return Err(format!("refusing symlink in path: {path}"));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("{path}: {error}")),
+        }
+    }
+    Ok(target)
+}
+
 /// Reads and checks the 21-byte server greeting.
 pub fn read_hello(stream: &mut impl Read) -> Res<(bool, [u8; 16])> {
     let mut hello = [0; 21];
@@ -311,4 +367,29 @@ pub fn read_hello(stream: &mut impl Read) -> Res<(bool, [u8; 16])> {
         return Err("not a zcopy server".into());
     }
     Ok((hello[4] != 0, hello[5..].try_into().unwrap()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_inside_rejects_escapes_and_symlinks() {
+        let base = std::env::temp_dir().join(format!("zcopy-resolve-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let (root, outside) = (base.join("root"), base.join("outside"));
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        assert!(resolve_inside(&root, "a/b.txt").is_ok());
+        for bad in ["../outside/x", "/etc/passwd", "a/../../x", "a\\b"] {
+            assert!(resolve_inside(&root, bad).is_err(), "{bad}");
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
+            assert!(resolve_inside(&root, "link/x").is_err());
+            assert!(resolve_inside(&root, "link").is_err());
+        }
+        fs::remove_dir_all(&base).unwrap();
+    }
 }

@@ -61,6 +61,18 @@ struct Args {
     #[arg(long)]
     batch_mib: Option<u64>,
 
+    /// Also transfer permissions and ownership (the server must enable it too)
+    #[arg(long)]
+    metadata: bool,
+
+    /// Continue without asking when other clients are connected (client)
+    #[arg(short = 'y', long)]
+    yes: bool,
+
+    /// Do not show a progress bar (client)
+    #[arg(long)]
+    no_progress: bool,
+
     /// Settings file, loaded if present (default zcopy.json)
     #[arg(long, value_name = "FILE")]
     config: Option<PathBuf>,
@@ -86,6 +98,7 @@ fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         port: args.port,
         bind: args.bind,
         batch_mib: args.batch_mib,
+        metadata: args.metadata.then_some(true),
     }
     .or(file);
 
@@ -105,7 +118,11 @@ fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
         (None, Some(host)) => {
             let started = std::time::Instant::now();
-            let stats = client::run(&host, &args.source, &settings, args.temp.as_deref())?;
+            let ui = client::Ui {
+                progress: !args.no_progress,
+                confirm: &|others| client::ask_continue(others, args.yes),
+            };
+            let stats = client::run(&host, &args.source, &settings, args.temp.as_deref(), &ui)?;
             println!(
                 "zcopy: sent {} file(s), {} byte(s) -> {} byte(s) on the wire, {} up to date, {:.1}s",
                 stats.files,
@@ -136,7 +153,7 @@ mod tests {
     use std::path::Path;
     use std::time::{Duration, SystemTime};
 
-    use crate::{client, config::Settings, scan, server::Server};
+    use crate::{client, config::Settings, net::*, scan, server::Server};
 
     fn start(root: &Path, password: Option<&str>, allow: Option<Vec<String>>) -> String {
         let server = Server::bind(
@@ -155,6 +172,19 @@ mod tests {
             let _ = server.serve();
         });
         address
+    }
+
+    fn run_client(
+        address: &str,
+        src: &Path,
+        settings: &Settings,
+        confirm: &dyn Fn(u32) -> bool,
+    ) -> Result<client::Stats, Box<dyn std::error::Error + Send + Sync>> {
+        let ui = client::Ui {
+            progress: false,
+            confirm,
+        };
+        client::run(address, src, settings, None, &ui)
     }
 
     fn client_settings(password: Option<&str>) -> Settings {
@@ -187,7 +217,7 @@ mod tests {
         let cwd = std::env::current_dir().unwrap();
 
         let address = start(&dst, None, None);
-        let stats = client::run(&address, &src, &client_settings(None), None).unwrap();
+        let stats = run_client(&address, &src, &client_settings(None), &|_| true).unwrap();
         assert_eq!(stats.files, 4); // 3 files + 1 empty dir
         assert_eq!(
             fs::read_to_string(dst.join("a/b/three.txt")).unwrap(),
@@ -198,22 +228,22 @@ mod tests {
         assert_eq!(mtime(&dst.join("one.txt")), mtime(&src.join("one.txt")));
         assert_eq!(std::env::current_dir().unwrap(), cwd);
 
-        let stats = client::run(&address, &src, &client_settings(None), None).unwrap();
+        let stats = run_client(&address, &src, &client_settings(None), &|_| true).unwrap();
         assert_eq!((stats.files, stats.skipped), (0, 3));
 
         fs::write(src.join("one.txt"), "ONE!").unwrap();
-        let stats = client::run(&address, &src, &client_settings(None), None).unwrap();
+        let stats = run_client(&address, &src, &client_settings(None), &|_| true).unwrap();
         assert_eq!((stats.files, stats.skipped), (1, 2));
         assert_eq!(fs::read_to_string(dst.join("one.txt")).unwrap(), "ONE!");
 
         // A restarted server rescans and reaches the same conclusion.
         let address = start(&dst, None, None);
-        let stats = client::run(&address, &src, &client_settings(None), None).unwrap();
+        let stats = run_client(&address, &src, &client_settings(None), &|_| true).unwrap();
         assert_eq!(stats.files, 0);
 
         let (secure_dst, secret) = (base.join("secure"), Some("pw"));
         let address = start(&secure_dst, secret, None);
-        let stats = client::run(&address, &src, &client_settings(secret), None).unwrap();
+        let stats = run_client(&address, &src, &client_settings(secret), &|_| true).unwrap();
         assert_eq!(stats.files, 4);
         assert_eq!(
             fs::read_to_string(secure_dst.join("a/two.txt"))
@@ -221,13 +251,69 @@ mod tests {
                 .len(),
             3000
         );
-        assert!(client::run(&address, &src, &client_settings(Some("bad")), None).is_err());
-        assert!(client::run(&address, &src, &client_settings(None), None).is_err());
+        assert!(run_client(&address, &src, &client_settings(Some("bad")), &|_| true).is_err());
+        assert!(run_client(&address, &src, &client_settings(None), &|_| true).is_err());
 
         let address = start(&base.join("closed"), None, Some(vec!["192.0.2.1".into()]));
-        assert!(client::run(&address, &src, &client_settings(None), None).is_err());
+        assert!(run_client(&address, &src, &client_settings(None), &|_| true).is_err());
         let address = start(&base.join("open"), None, Some(vec!["127.0.0.1".into()]));
-        assert!(client::run(&address, &src, &client_settings(None), None).is_ok());
+        assert!(run_client(&address, &src, &client_settings(None), &|_| true).is_ok());
+
+        // A second client while another one is connected is warned and may decline.
+        let address = start(&base.join("busy"), None, None);
+        let mut holder = std::net::TcpStream::connect(&address).unwrap();
+        let (_, _) = crate::server::read_hello(&mut holder).unwrap();
+        let mut hold_writer =
+            FrameWriter::new(holder.try_clone().unwrap(), None, DIR_CLIENT_TO_SERVER);
+        let mut hold_reader = FrameReader::new(holder, None, DIR_SERVER_TO_CLIENT);
+        hold_writer.send_msg(&Msg::Auth).unwrap();
+        assert!(matches!(
+            hold_reader.recv_msg().unwrap(),
+            Msg::Manifest {
+                active_clients: 0,
+                ..
+            }
+        ));
+        let seen = std::sync::atomic::AtomicU32::new(0);
+        let declined = run_client(&address, &src, &client_settings(None), &|others| {
+            seen.store(others, std::sync::atomic::Ordering::SeqCst);
+            false
+        });
+        assert!(declined.is_err());
+        assert_eq!(seen.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(!base.join("busy/one.txt").exists());
+        let stats = run_client(&address, &src, &client_settings(None), &|_| true).unwrap();
+        assert_eq!(stats.files, 4);
+        drop(hold_writer);
+        drop(hold_reader);
+
+        // Metadata is applied only when both sides enable it.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(src.join("one.txt"), fs::Permissions::from_mode(0o640)).unwrap();
+            let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+            let with = Settings {
+                metadata: Some(true),
+                ..client_settings(None)
+            };
+            let server_settings = Settings {
+                port: Some(0),
+                bind: Some("127.0.0.1".into()),
+                metadata: Some(true),
+                ..Settings::default()
+            };
+            let server = Server::bind(&base.join("meta"), server_settings).unwrap();
+            let address = server.local_addr().to_string();
+            std::thread::spawn(move || {
+                let _ = server.serve();
+            });
+            run_client(&address, &src, &with, &|_| true).unwrap();
+            assert_eq!(mode(&base.join("meta/one.txt")), 0o640);
+            let address = start(&base.join("nometa"), None, None);
+            run_client(&address, &src, &with, &|_| true).unwrap();
+            assert_ne!(mode(&base.join("nometa/one.txt")), 0o640);
+        }
 
         assert_eq!(std::env::current_dir().unwrap(), cwd);
         fs::remove_dir_all(&base).unwrap();

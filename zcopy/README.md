@@ -30,6 +30,15 @@ server and the optional positional `SOURCE` (default `.`) is the tree to send.
 A second run therefore sends nothing unless something changed. Files deleted on
 the source are not deleted on the destination.
 
+## Progress and concurrent clients
+
+The client shows a progress bar like `zarc` (elapsed time, bytes, throughput, ETA, and
+bytes sent so far) on stderr. The server accepts several clients at once. When a
+client connects while others are connected, it prints a warning and asks
+`Continue anyway? [y/N]`; without a terminal it cancels unless `--yes` is given.
+Extraction on the server is serialised, so concurrent clients are safe but share
+one extraction pipeline.
+
 ## Options
 
 | Option | Meaning |
@@ -43,12 +52,15 @@ the source are not deleted on the destination.
 | `--allow a,b,c` | Machine names or IPs allowed to connect (server) |
 | `--port`, `--bind` | TCP port (default 7878) and listen address (default `0.0.0.0`) |
 | `--batch-mib` | Approximate batch size, default 512 |
+| `--metadata` | Also transfer permissions and ownership; the server must enable it too (`--metadata` or `"metadata": true`) |
+| `-y, --yes` | Continue without asking when other clients are connected (client) |
+| `--no-progress` | Hide the progress bar (client) |
 | `--temp <DIR>` | Directory for temporary archives (client) |
 | `--config <FILE>` | Settings file, default `zcopy.json` if present |
 
 ## zcopy.json
 
-All of `password`, `aead`, `level`, `allow`, `port`, `bind` and `batch_mib` can be
+All of `password`, `aead`, `level`, `allow`, `port`, `bind` and `batch_mib` and `metadata` can be
 set in a JSON file; command-line arguments take precedence. Unknown keys are an
 error.
 
@@ -61,12 +73,16 @@ The password is stored in plain text, so protect the file's permissions.
 
 ## Security notes
 
+- Metadata transfer is opt-in on the server because a client could otherwise
+  choose permissions (including setuid bits) and ownership of files it writes,
+  which matters when the server runs as root. Only enable it for trusted clients.
+  Without it, only modification times are transferred.
 - With a password, the connection is authenticated and encrypted (Argon2id key,
   AES-256-GCM frames) and file data is encrypted by `zarlib`. Without a password
   nothing is encrypted or authenticated; combine at least an allow list with a
   trusted network. The server warns when neither is configured.
 - The allow list compares the peer IP with the resolved addresses of each entry,
   so it is only as trustworthy as your network and DNS.
-- The server rejects absolute, `..` and backslash paths from clients.
+- The server rejects absolute, `..` and backslash paths from clients, refuses paths that pass through a symlink, and relies on `zarlib`'s canonical-path and no-follow extraction, so nothing outside the server folder is written or modified.
 - The server uses `<folder>/.zcopy-tmp` for incoming archives; that name is
   never synchronised.

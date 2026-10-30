@@ -19,6 +19,8 @@ pub struct Settings {
     pub bind: Option<String>,
     /// Approximate size of one transfer batch in MiB.
     pub batch_mib: Option<u64>,
+    /// Client: also send permissions and ownership. Server: apply them.
+    pub metadata: Option<bool>,
 }
 
 impl Settings {
@@ -43,6 +45,7 @@ impl Settings {
             port: self.port.or(other.port),
             bind: self.bind.or(other.bind),
             batch_mib: self.batch_mib.or(other.batch_mib),
+            metadata: self.metadata.or(other.metadata),
         }
     }
 

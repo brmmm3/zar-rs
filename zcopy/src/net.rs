@@ -32,11 +32,22 @@ pub enum Msg {
         entries: u64,
         aead: String,
         level: i32,
+        /// Authenticated clients already connected (not counting this one).
+        active_clients: u32,
+        /// Whether the server applies permissions/ownership sent by clients.
+        metadata: bool,
+    },
+    /// The client's answer to the manifest: continue or hang up.
+    Proceed {
+        go: bool,
     },
     /// Followed by a compressed item-list frame and `bytes` raw archive bytes.
     Batch {
         bytes: u64,
         files: u64,
+        /// The archive carries permissions/ownership to apply.
+        #[serde(default)]
+        metadata: bool,
     },
     Ack {
         ok: bool,

@@ -1,16 +1,17 @@
 //! Sending side: compares trees and pushes missing or newer files.
 
 use std::fs::{self, File};
-use std::io::BufReader;
+use std::io::{BufRead, BufReader, IsTerminal, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::mpsc::sync_channel;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use zarlib::EncryptionScope;
 use zarlib::operations::{
-    CreateFilterOptions, CreateInputOptions, EncodingOptions, FilterSet,
+    CreateFilterOptions, CreateInputOptions, EncodingOptions, FilterSet, Progress,
     create_archive_with_password_progress_and_filters_and_encryption,
 };
 
@@ -31,13 +32,69 @@ pub struct Stats {
     pub skipped: u64,
 }
 
+/// Front-end hooks for the client.
+pub struct Ui<'a> {
+    pub progress: bool,
+    /// Called with the number of other connected clients; false cancels.
+    pub confirm: &'a dyn Fn(u32) -> bool,
+}
+
+/// Warns about other connected clients and asks whether to continue.
+pub fn ask_continue(others: u32, assume_yes: bool) -> bool {
+    eprintln!("zcopy: warning: {others} other client(s) are already connected to this server");
+    if assume_yes {
+        return true;
+    }
+    if !std::io::stdin().is_terminal() {
+        eprintln!("zcopy: not a terminal; use --yes to continue anyway");
+        return false;
+    }
+    eprint!("Continue anyway? [y/N] ");
+    let _ = std::io::stderr().flush();
+    let mut answer = String::new();
+    std::io::stdin().lock().read_line(&mut answer).is_ok()
+        && matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes")
+}
+
+struct BarProgress(ProgressBar);
+
+impl Progress for BarProgress {
+    fn message(&self, _message: &str) {}
+    fn advance(&self, amount: u64) {
+        self.0.inc(amount);
+    }
+}
+
+fn make_bar(total: u64, enabled: bool) -> ProgressBar {
+    let target = if enabled {
+        ProgressDrawTarget::stderr()
+    } else {
+        ProgressDrawTarget::hidden()
+    };
+    let bar = ProgressBar::with_draw_target(Some(total), target);
+    bar.set_style(
+        ProgressStyle::with_template(
+            "[{elapsed_precise}] [{bar:40.cyan}] {binary_bytes}/{binary_total_bytes} ({binary_bytes_per_sec}, {eta}) {msg}",
+        )
+        .expect("static progress template is valid")
+        .progress_chars("##>-"),
+    );
+    bar
+}
+
 struct Batch {
     archive: PathBuf,
     items: Vec<(String, i64, bool)>,
     bytes: u64,
 }
 
-pub fn run(host: &str, source: &Path, settings: &Settings, temp: Option<&Path>) -> Res<Stats> {
+pub fn run(
+    host: &str,
+    source: &Path,
+    settings: &Settings,
+    temp: Option<&Path>,
+    ui: &Ui,
+) -> Res<Stats> {
     let _cwd = CWD_LOCK.lock().unwrap();
     let origin = std::env::current_dir()?;
     std::env::set_current_dir(source)
@@ -55,13 +112,13 @@ pub fn run(host: &str, source: &Path, settings: &Settings, temp: Option<&Path>) 
     };
     let result = fs::create_dir_all(&work)
         .map_err(Into::into)
-        .and_then(|()| transfer(host, &work, settings));
+        .and_then(|()| transfer(host, &work, settings, ui));
     let _ = fs::remove_dir_all(&work);
     let _ = std::env::set_current_dir(origin);
     result
 }
 
-fn transfer(host: &str, work: &Path, settings: &Settings) -> Res<Stats> {
+fn transfer(host: &str, work: &Path, settings: &Settings, ui: &Ui) -> Res<Stats> {
     let has_port = if host.starts_with('[') {
         host.contains("]:")
     } else {
@@ -96,6 +153,8 @@ fn transfer(host: &str, work: &Path, settings: &Settings) -> Res<Stats> {
     let Msg::Manifest {
         aead: server_aead,
         level: server_level,
+        active_clients,
+        metadata: server_metadata,
         ..
     } = reader.recv_msg()?
     else {
@@ -106,6 +165,17 @@ fn transfer(host: &str, work: &Path, settings: &Settings) -> Res<Stats> {
         .into_iter()
         .map(|(path, size, mtime, dir)| (path, scan::Meta { size, mtime, dir }))
         .collect();
+
+    if active_clients > 0 && !(ui.confirm)(active_clients) {
+        let _ = writer.send_msg(&Msg::Proceed { go: false });
+        return Err("cancelled: server has other clients connected".into());
+    }
+    writer.send_msg(&Msg::Proceed { go: true })?;
+    let wants_metadata = settings.metadata.unwrap_or(false);
+    if wants_metadata && !server_metadata {
+        eprintln!("zcopy: warning: server does not accept metadata; sending files only");
+    }
+    let metadata = wants_metadata && server_metadata;
 
     let aead = parse_aead(settings.aead.as_deref().unwrap_or(&server_aead))?;
     let level = settings.level.unwrap_or(server_level);
@@ -133,6 +203,8 @@ fn transfer(host: &str, work: &Path, settings: &Settings) -> Res<Stats> {
         batches.push(current);
     }
 
+    let bar = make_bar(stats.source_bytes, ui.progress);
+    let producer_bar = bar.clone();
     let password_owned = password.map(<[u8]>::to_vec);
     let work = work.to_path_buf();
     let items_of = |paths: &[String]| -> Vec<(String, i64, bool)> {
@@ -159,10 +231,10 @@ fn transfer(host: &str, work: &Path, settings: &Settings) -> Res<Stats> {
                 password_owned
                     .as_deref()
                     .map(|pw| (pw, aead, EncryptionScope::HeaderAndData)),
-                None,
+                Some(&BarProgress(producer_bar.clone())),
                 CreateFilterOptions {
                     input: CreateInputOptions {
-                        save_metadata: false,
+                        save_metadata: metadata,
                         include_special_files: false,
                         overwrite_existing: true,
                         verbose: false,
@@ -220,6 +292,7 @@ fn transfer(host: &str, work: &Path, settings: &Settings) -> Res<Stats> {
             writer.send_msg(&Msg::Batch {
                 bytes: batch.bytes,
                 files: batch.items.len() as u64,
+                metadata,
             })?;
             writer.send_compressed(&batch.items, 3)?;
             writer.send_raw(
@@ -233,8 +306,14 @@ fn transfer(host: &str, work: &Path, settings: &Settings) -> Res<Stats> {
             break;
         }
         stats.sent_bytes += batch.bytes;
+        bar.set_message(format!("sent {}", indicatif::BinaryBytes(stats.sent_bytes)));
     }
     let _ = producer.join();
+    if failure.is_some() {
+        bar.abandon();
+    } else {
+        bar.finish();
+    }
     let finished = writer.send_msg(&Msg::Done);
     let acked = ack_reader.join().map_err(|_| "ack thread panicked")?;
     if let Some(message) = failure {

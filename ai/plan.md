@@ -655,6 +655,15 @@ when present; command-line values override it; `ZCOPY_PASSWORD` is accepted.
   encryption. The server stores it in `.zcopy-tmp`, validates relative paths,
   extracts with overwrite, sets mtimes, updates its cache, and acknowledges.
   Creation, transfer, and extraction are pipelined.
+- The manifest message reports the number of other authenticated clients and
+  whether the server applies metadata; the client answers with `Proceed`. A busy
+  server is a warning plus a confirmation question (`--yes` to skip); several
+  clients may transfer concurrently while extraction is serialised.
+- `--metadata` makes the client create archives with metadata; the server
+  restores permissions/ownership only if it enables `metadata` itself.
+- The client draws an `indicatif` bar (same style as `zarc`) over source bytes
+  read by the create pipeline and shows the bytes sent so far.
+- Client-supplied paths are validated, and paths through symlinks are refused.
 - Tests cover framing, planning, configuration merge, and an end-to-end sync
   over loopback (first copy, incremental resend, server restart, password,
   wrong password, allow-list rejection).
