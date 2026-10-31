@@ -62,7 +62,7 @@ jobs:
           toolchain: stable
       - name: Set up MSVC environment
         if: matrix.module == 'jzarlib-jni' && runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@0b201ec5df6efea59b4d4739c78ca1c2a2aa42cf # v1.13.0
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
       - name: Build C library
         run: cargo build --manifest-path Cargo.toml -p czarlib
       - name: Build JNI library (Linux)
