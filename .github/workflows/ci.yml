@@ -561,6 +561,12 @@ jobs:
           pattern: pyzarlib-*
           path: dist
           merge-multiple: true
+      - name: Download binary archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # 8.0.1
+        with:
+          pattern: zar-rs-binaries-*
+          path: dist
+          merge-multiple: true
       - name: Download WASI component artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # 8.0.1
         with:
