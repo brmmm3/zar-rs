@@ -249,8 +249,8 @@ pub fn scan_tree(
                         };
                         TreeEntryKind::Device {
                             kind: device_kind,
-                            major: libc::major(md.rdev()) as u32,
-                            minor: libc::minor(md.rdev()) as u32,
+                            major: libc::major(md.rdev().try_into().unwrap()) as u32,
+                            minor: libc::minor(md.rdev().try_into().unwrap()) as u32,
                         }
                     } else {
                         TreeEntryKind::Unsupported
@@ -308,8 +308,8 @@ fn classify_entry(
                 };
                 Ok(TreeEntryKind::Device {
                     kind: device_kind,
-                    major: libc::major(metadata.rdev()) as u32,
-                    minor: libc::minor(metadata.rdev()) as u32,
+                    major: libc::major(metadata.rdev().try_into().unwrap()) as u32,
+                    minor: libc::minor(metadata.rdev().try_into().unwrap()) as u32,
                 })
             } else {
                 Ok(TreeEntryKind::Unsupported)

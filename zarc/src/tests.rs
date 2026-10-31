@@ -1924,8 +1924,13 @@ fn create_and_extract_symlink_named_pipe_and_device_records() {
     let device = source.join("char-device");
     let device_name = std::ffi::CString::new(device.as_os_str().as_encoded_bytes()).unwrap();
     let device_number = libc::makedev(1, 7);
-    let device_result =
-        unsafe { libc::mknod(device_name.as_ptr(), libc::S_IFCHR | 0o600, device_number) };
+    let device_result = unsafe {
+        libc::mknod(
+            device_name.as_ptr(),
+            libc::S_IFCHR | 0o600,
+            device_number.try_into().unwrap(),
+        )
+    };
     if device_result < 0 {
         std::fs::remove_file(&fifo).unwrap();
         std::fs::remove_file(source.join("link")).unwrap();
