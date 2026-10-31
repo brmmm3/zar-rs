@@ -11,6 +11,8 @@ License:        MIT OR Apache-2.0
 URL:            https://github.com/brmmm3/zar-rs
 Recommends:     xdg-desktop-portal
 Recommends:     libxkbcommon
+Recommends:     python3
+Recommends:     shared-mime-info
 
 %description
 ZAR is a block-based, appendable archive format with Zstandard compression and
@@ -27,8 +29,25 @@ cp -a %{stage_dir}/. %{buildroot}/
 %doc /usr/share/doc/zar-rs/ReadMe.md
 /usr/bin/zarc
 /usr/bin/zarg
+/usr/bin/zarg-install-thunar-actions
 /usr/share/applications/zarg.desktop
 /usr/share/icons/hicolor/256x256/apps/zarg.png
+/usr/share/kio/servicemenus/zarg-files.desktop
+/usr/share/kio/servicemenus/zarg-archives.desktop
+/usr/share/mime/packages/zar-rs.xml
+/usr/libexec/zar-rs/nautilus-script
+/usr/share/nautilus/scripts/*
+/usr/share/zar-rs/thunar-uca.xml
+
+%post
+if [ -x /usr/bin/update-mime-database ]; then
+    /usr/bin/update-mime-database /usr/share/mime >/dev/null 2>&1 || :
+fi
+
+%postun
+if [ -x /usr/bin/update-mime-database ]; then
+    /usr/bin/update-mime-database /usr/share/mime >/dev/null 2>&1 || :
+fi
 
 %changelog
 * Sat Oct 31 2026 The ZAR contributors - %{pkg_version}-1

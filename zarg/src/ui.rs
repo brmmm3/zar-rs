@@ -40,6 +40,17 @@ enum OperationKind {
     Extract,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContextAction {
+    Create,
+    Add,
+    CreateNamed,
+    Open,
+    ExtractHere,
+    ExtractTo,
+    Test,
+}
+
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 enum UiIcon {
     OpenArchive,
@@ -413,6 +424,70 @@ enum EntryData {
 }
 
 impl ZargApp {
+    pub fn from_context_action(action: ContextAction, paths: Vec<PathBuf>) -> Result<Self, String> {
+        let mut app = Self::default();
+        match action {
+            ContextAction::Create | ContextAction::Add | ContextAction::CreateNamed => {
+                if paths.is_empty() {
+                    return Err("Select one or more files or folders first.".to_owned());
+                }
+                if let Some(path) = paths.iter().find(|path| !path.exists()) {
+                    return Err(format!("Selected path does not exist: {}", path.display()));
+                }
+                if action == ContextAction::CreateNamed {
+                    let archive = named_archive_path(&paths[0])?;
+                    let mut form =
+                        OperationForm::new(OperationKind::Create, &archive.to_string_lossy());
+                    form.input_paths = paths;
+                    app.start_operation(form);
+                } else {
+                    app.operation = OperationForm::new(OperationKind::Create, "");
+                    app.operation.input_paths = paths;
+                    if action == ContextAction::Add {
+                        app.status = "Choose a new archive destination.".to_owned();
+                    }
+                }
+            }
+            ContextAction::Open
+            | ContextAction::ExtractHere
+            | ContextAction::ExtractTo
+            | ContextAction::Test => {
+                let archive = paths
+                    .first()
+                    .filter(|path| path.is_file())
+                    .ok_or_else(|| "Select a valid archive file first.".to_owned())?;
+                let archive = archive.to_string_lossy().into_owned();
+                match action {
+                    ContextAction::Open => app.open_archive(PathBuf::from(&archive), None),
+                    ContextAction::ExtractHere => {
+                        let mut form = OperationForm::new(OperationKind::Extract, &archive);
+                        form.destination = PathBuf::from(&archive)
+                            .parent()
+                            .unwrap_or_else(|| std::path::Path::new("."))
+                            .to_string_lossy()
+                            .into_owned();
+                        app.start_operation(form);
+                    }
+                    ContextAction::ExtractTo => {
+                        app.operation = OperationForm::new(OperationKind::Extract, &archive);
+                        app.operation.destination = PathBuf::from(&archive)
+                            .parent()
+                            .unwrap_or_else(|| std::path::Path::new("."))
+                            .to_string_lossy()
+                            .into_owned();
+                    }
+                    ContextAction::Test => {
+                        app.start_operation(OperationForm::new(OperationKind::Check, &archive));
+                    }
+                    ContextAction::Create | ContextAction::Add | ContextAction::CreateNamed => {
+                        unreachable!()
+                    }
+                }
+            }
+        }
+        Ok(app)
+    }
+
     fn open_dialog(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
             .add_filter("ZAR archive", &["zar"])
@@ -1707,6 +1782,21 @@ impl ZargApp {
     }
 }
 
+fn named_archive_path(input: &std::path::Path) -> Result<PathBuf, String> {
+    let name = if input.is_dir() {
+        input.file_name()
+    } else {
+        input.file_stem()
+    }
+    .ok_or_else(|| format!("Cannot derive an archive name from {}", input.display()))?;
+    let mut archive = input
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .to_path_buf();
+    archive.push(format!("{}.zar", name.to_string_lossy()));
+    Ok(archive)
+}
+
 fn build_job(
     kind: OperationKind,
     form: OperationForm,
@@ -2221,6 +2311,19 @@ mod tests {
         assert!(!valid_destination_path(file.to_str().unwrap()));
         assert!(!valid_destination_path(""));
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn named_archive_uses_selected_item_stem_and_parent() {
+        let parent = std::env::temp_dir();
+        assert_eq!(
+            named_archive_path(&parent.join("a file.txt")).unwrap(),
+            parent.join("a file.zar")
+        );
+        assert_eq!(
+            named_archive_path(std::path::Path::new("relative-folder")).unwrap(),
+            PathBuf::from("relative-folder.zar")
+        );
     }
 
     #[test]

@@ -12,6 +12,12 @@ From the workspace root:
 cargo run --release -p zarg
 ```
 
+The installer file-manager actions use the same startup interface as
+`zarg --context ACTION -- PATH...`, where `ACTION` is `create`, `add`,
+`create-named`, `open`, `extract-here`, `extract-to`, or `test`. The normal
+no-argument launch still opens the main window. Opening a `.zar` file directly
+also opens it in the manager.
+
 The application is a desktop program built with eframe/egui. On Linux, native
 file selection uses the XDG desktop portal. The PNG app icon and selected
 KDE4 Crystal Diamond icons for buttons and archive entry types are embedded in
@@ -47,6 +53,9 @@ under Wayland.
   symlink/device restoration, dry run, and commit selection.
 - Configure block size, compression, strict input handling, special files,
   overwrite, and the CLI's fnmatch include/exclude filters and filter lists.
+- Use installed file-manager actions to create archives from selected items,
+  open `.zar` files, extract, and test archives. “Add to Archive...” opens the
+  create form and asks for a destination for a new archive.
 - Run long operations in a worker thread, with progress, warnings, results, and
   confirmation dialogs reported in the application.
 

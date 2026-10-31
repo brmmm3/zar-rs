@@ -50,6 +50,33 @@ stage_files() {
     install -Dm644 "$ROOT/zarg/data/zarg.desktop" "$stage/usr/share/applications/zarg.desktop"
     install -Dm644 "$ROOT/zarg/assets/zarg-icon.png" \
         "$stage/usr/share/icons/hicolor/256x256/apps/zarg.png"
+    if [ "${2:-}" != portable ]; then
+        install -Dm644 "$HERE/dolphin-files.desktop" \
+            "$stage/usr/share/kio/servicemenus/zarg-files.desktop"
+        install -Dm644 "$HERE/dolphin-archives.desktop" \
+            "$stage/usr/share/kio/servicemenus/zarg-archives.desktop"
+        install -Dm644 "$HERE/zarg-mime.xml" \
+            "$stage/usr/share/mime/packages/zar-rs.xml"
+        install -Dm755 "$HERE/nautilus-script.sh" \
+            "$stage/usr/libexec/zar-rs/nautilus-script"
+        mkdir -p "$stage/usr/share/nautilus/scripts"
+        local script_name
+        for script_name in \
+            "ZAR - Create Archive..." \
+            "ZAR - Add to Archive..." \
+            "ZAR - Create Archive (named)" \
+            "ZAR - Open Archive" \
+            "ZAR - Extract here" \
+            "ZAR - Extract to..." \
+            "ZAR - Test Archive"; do
+            ln -s /usr/libexec/zar-rs/nautilus-script \
+                "$stage/usr/share/nautilus/scripts/$script_name"
+        done
+        install -Dm644 "$HERE/thunar-uca.xml" \
+            "$stage/usr/share/zar-rs/thunar-uca.xml"
+        install -Dm755 "$HERE/install-thunar-actions.py" \
+            "$stage/usr/bin/zarg-install-thunar-actions"
+    fi
     install -Dm644 "$ROOT/LICENSE-MIT" "$stage/usr/share/doc/zar-rs/LICENSE-MIT"
     install -Dm644 "$ROOT/LICENSE-APACHE" "$stage/usr/share/doc/zar-rs/LICENSE-APACHE"
     install -Dm644 "$ROOT/ReadMe.md" "$stage/usr/share/doc/zar-rs/ReadMe.md"
@@ -70,7 +97,8 @@ Priority: optional
 Architecture: $DEB_ARCH
 Installed-Size: $size
 Depends: libc6, libgcc-s1
-Recommends: xdg-desktop-portal, libgl1, libxkbcommon0, libwayland-client0, libx11-6
+Recommends: xdg-desktop-portal, libgl1, libxkbcommon0, libwayland-client0, libx11-6,
+ python3, shared-mime-info
 Maintainer: Martin Bammer <mrbm74@gmail.com>
 Homepage: https://github.com/brmmm3/zar-rs
 Description: ZAR archive command-line tool and archive manager
@@ -78,6 +106,24 @@ Description: ZAR archive command-line tool and archive manager
  and optional encryption. This package provides the zarc command-line tool
  and the zarg graphical archive manager.
 EOF
+    cat > "$stage/DEBIAN/postinst" << 'EOF'
+#!/bin/sh
+set -e
+if [ "$1" = configure ] && command -v update-mime-database >/dev/null 2>&1; then
+    update-mime-database /usr/share/mime
+fi
+EOF
+    chmod 755 "$stage/DEBIAN/postinst"
+    cat > "$stage/DEBIAN/postrm" << 'EOF'
+#!/bin/sh
+set -e
+if [ "$1" = remove ] || [ "$1" = purge ]; then
+    if command -v update-mime-database >/dev/null 2>&1; then
+        update-mime-database /usr/share/mime
+    fi
+fi
+EOF
+    chmod 755 "$stage/DEBIAN/postrm"
     mkdir -p "$stage/usr/share/doc/zar-rs"
     cat > "$stage/usr/share/doc/zar-rs/copyright" << EOF
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
@@ -114,7 +160,7 @@ build_appimage() {
     local tool="${APPIMAGETOOL:-appimagetool}"
     need "$tool"
     local appdir="$DIST/work/ZAR.AppDir"
-    stage_files "$appdir"
+    stage_files "$appdir" portable
     install -m755 "$HERE/AppRun" "$appdir/AppRun"
     install -m644 "$ROOT/zarg/data/zarg.desktop" "$appdir/zarg.desktop"
     install -m644 "$ROOT/zarg/assets/zarg-icon.png" "$appdir/zarg.png"

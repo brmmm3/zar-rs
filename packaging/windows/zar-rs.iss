@@ -76,6 +76,52 @@ Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environmen
   ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; \
   Tasks: addtopath; Check: NeedsAddPath(ExpandConstant('{app}'))
 
+; These verbs use Explorer's Player selection model so the selected paths
+; arrive together, including paths containing spaces.
+Root: HKLM; Subkey: "Software\Classes\AllFilesystemObjects\shell\ZAR.Create"; \
+  ValueType: string; ValueName: ""; ValueData: "Create Archive..."; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\AllFilesystemObjects\shell\ZAR.Create"; \
+  ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKLM; Subkey: "Software\Classes\AllFilesystemObjects\shell\ZAR.Create\command"; \
+  ValueType: string; ValueName: ""; ValueData: """{app}\zarg.exe"" --context create -- %*"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\AllFilesystemObjects\shell\ZAR.Add"; \
+  ValueType: string; ValueName: ""; ValueData: "Add to Archive..."; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\AllFilesystemObjects\shell\ZAR.Add"; \
+  ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKLM; Subkey: "Software\Classes\AllFilesystemObjects\shell\ZAR.Add\command"; \
+  ValueType: string; ValueName: ""; ValueData: """{app}\zarg.exe"" --context add -- %*"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\AllFilesystemObjects\shell\ZAR.CreateNamed"; \
+  ValueType: string; ValueName: ""; ValueData: "Create Archive (named)"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\AllFilesystemObjects\shell\ZAR.CreateNamed"; \
+  ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKLM; Subkey: "Software\Classes\AllFilesystemObjects\shell\ZAR.CreateNamed\command"; \
+  ValueType: string; ValueName: ""; ValueData: """{app}\zarg.exe"" --context create-named -- %*"; Flags: uninsdeletekey
+
+Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.Open"; \
+  ValueType: string; ValueName: ""; ValueData: "Open Archive"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.Open"; \
+  ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.Open\command"; \
+  ValueType: string; ValueName: ""; ValueData: """{app}\zarg.exe"" --context open -- %*"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.ExtractHere"; \
+  ValueType: string; ValueName: ""; ValueData: "Extract here"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.ExtractHere"; \
+  ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.ExtractHere\command"; \
+  ValueType: string; ValueName: ""; ValueData: """{app}\zarg.exe"" --context extract-here -- %*"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.ExtractTo"; \
+  ValueType: string; ValueName: ""; ValueData: "Extract to..."; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.ExtractTo"; \
+  ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.ExtractTo\command"; \
+  ValueType: string; ValueName: ""; ValueData: """{app}\zarg.exe"" --context extract-to -- %*"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.Test"; \
+  ValueType: string; ValueName: ""; ValueData: "Test Archive"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.Test"; \
+  ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.Test\command"; \
+  ValueType: string; ValueName: ""; ValueData: """{app}\zarg.exe"" --context test -- %*"; Flags: uninsdeletekey
+
 [Run]
 Filename: "{app}\zarg.exe"; Description: "Launch ZAR Archive Manager"; Flags: nowait postinstall skipifsilent unchecked
 

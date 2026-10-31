@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<actions>
+  <action>
+    <icon>zarg</icon>
+    <name>ZAR - Create Archive...</name>
+    <unique-id>2026061001</unique-id>
+    <command>zarg --context create -- %F</command>
+    <description>Create a ZAR archive from the selected files and folders</description>
+    <range/>
+    <patterns>*</patterns>
+    <directories/>
+    <audio-files/>
+    <image-files/>
+    <other-files/>
+    <text-files/>
+    <video-files/>
+  </action>
+  <action>
+    <icon>zarg</icon>
+    <name>ZAR - Add to Archive...</name>
+    <unique-id>2026061002</unique-id>
+    <command>zarg --context add -- %F</command>
+    <description>Choose a new archive for the selected files and folders</description>
+    <range/>
+    <patterns>*</patterns>
+    <directories/>
+    <audio-files/>
+    <image-files/>
+    <other-files/>
+    <text-files/>
+    <video-files/>
+  </action>
+  <action>
+    <icon>zarg</icon>
+    <name>ZAR - Create Archive (named)</name>
+    <unique-id>2026061003</unique-id>
+    <command>zarg --context create-named -- %F</command>
+    <description>Create a ZAR archive next to the first selected item</description>
+    <range/>
+    <patterns>*</patterns>
+    <directories/>
+    <audio-files/>
+    <image-files/>
+    <other-files/>
+    <text-files/>
+    <video-files/>
+  </action>
+  <action>
+    <icon>zarg</icon>
+    <name>ZAR - Open Archive</name>
+    <unique-id>2026061004</unique-id>
+    <command>zarg --context open -- %F</command>
+    <description>Open the selected ZAR archive</description>
+    <range/>
+    <patterns>*.zar</patterns>
+    <other-files/>
+  </action>
+  <action>
+    <icon>zarg</icon>
+    <name>ZAR - Extract here</name>
+    <unique-id>2026061005</unique-id>
+    <command>zarg --context extract-here -- %F</command>
+    <description>Extract the selected ZAR archive beside the archive</description>
+    <range/>
+    <patterns>*.zar</patterns>
+    <other-files/>
+  </action>
+  <action>
+    <icon>zarg</icon>
+    <name>ZAR - Extract to...</name>
+    <unique-id>2026061006</unique-id>
+    <command>zarg --context extract-to -- %F</command>
+    <description>Choose a destination for extracting the selected ZAR archive</description>
+    <range/>
+    <patterns>*.zar</patterns>
+    <other-files/>
+  </action>
+  <action>
+    <icon>zarg</icon>
+    <name>ZAR - Test Archive</name>
+    <unique-id>2026061007</unique-id>
+    <command>zarg --context test -- %F</command>
+    <description>Test the selected ZAR archive</description>
+    <range/>
+    <patterns>*.zar</patterns>
+    <other-files/>
+  </action>
+</actions>
