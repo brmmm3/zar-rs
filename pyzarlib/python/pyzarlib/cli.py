@@ -405,9 +405,12 @@ def _run(args: argparse.Namespace) -> int:
         return 0
 
     if command in {"extract", "e"}:
+        destination = Path(args.to)
+        display_root = destination.resolve(strict=False)
+
         plan = extract_archive(
             args.archive,
-            args.to,
+            destination,
             dry_run=args.dry_run,
             through=args.through,
             passwords=_passwords(False, args.password_for)[1],
@@ -421,15 +424,18 @@ def _run(args: argparse.Namespace) -> int:
         )
         if args.dry_run:
             for path in plan["directories"]:
-                print(f"create directory {path}")
+                relative_path = Path(path).relative_to(display_root)
+                print(f"create directory {destination / relative_path}")
             for item in plan["files"]:
+                relative_path = Path(item["path"]).relative_to(display_root)
+                display_path = destination / relative_path
                 kind = item["type"]
                 if kind == "file":
-                    print(f"write {item['path']} ({item['size']} bytes)")
+                    print(f"write {display_path} ({item['size']} bytes)")
                 elif kind == "symlink":
-                    print(f"create symlink {item['path']} -> {item['target']}")
+                    print(f"create symlink {display_path} -> {item['target']}")
                 else:
-                    print(f"create {kind} {item['path']}")
+                    print(f"create {kind} {display_path}")
         return 0
 
     raise ValueError(f"unsupported command {command}")
