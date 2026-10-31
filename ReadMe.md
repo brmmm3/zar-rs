@@ -36,6 +36,9 @@ Highlights:
   for 7z, and extracted in 4.9 s versus 10.9 s for zip. Encryption costs only
   about 30% extra time. 7z produces smaller archives, at 20 times the compression time.
   See the [full report](./doc/benchmark-report-linux.md) (single runs, not averages).
+  The [archive benchmark workflow](./.github/workflows/benchmark-archives.yml)
+  runs on Windows, Linux, and macOS; each run uploads its generated report and
+  chart from the `doc/` folder as workflow artifacts.
 - **Commit-based history.** `add`, `remove`, and `join` append or compact
   commits instead of rewriting the archive; the archive is published atomically,
   and the original survives any failure.
@@ -162,3 +165,8 @@ to call the Rust API directly.
 
 This workspace is licensed under either of the licenses listed in the
 workspace manifests: [MIT](./LICENSE-MIT) or [Apache-2.0](./LICENSE-APACHE).
+
+## Notes to AI use
+
+This project is a refactoring of another, fully hand written project. The whole refactoring
+with several improvments in code and documentation were done with AI.
