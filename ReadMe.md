@@ -127,6 +127,8 @@ The [packaging](./packaging) directory contains installer definitions for the
   (`packaging/windows/zar-rs.iss`) that can also add `zarc` to the `PATH`.
 - **Linux:** `packaging/linux/build-packages.sh [deb|rpm|appimage|flatpak|all]`
   builds `.deb`, `.rpm`, AppImage and Flatpak packages into `dist/`.
+- **macOS:** `packaging/macos/build-packages.sh [dmg|pkg|all]` builds a `.dmg`
+  with `Zarg.app` and a `.pkg` that also installs `zarc`.
 
 ```sh
 iscc /DAppVersion=0.6.0 packaging\windows\zar-rs.iss   # Windows
