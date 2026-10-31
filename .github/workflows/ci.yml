@@ -286,6 +286,7 @@ jobs:
           $importLibrary = Join-Path $PWD 'target/debug/czarlib.dll.lib'
           cl.exe /nologo /O2 /W4 /WX /LD "/I$jdkInclude" "/I$jniHeader" "/I$cHeaders" $cSources $importLibrary /link "/OUT:$native/zarlib_jni.dll"
           Copy-Item (Join-Path $PWD 'target/debug/czarlib.dll') $native
+          Add-Content -Path $env:GITHUB_PATH -Value $native
       - name: Test and package Java JAR
         working-directory: ${{ matrix.module }}
         run: mvn --batch-mode --no-transfer-progress verify
