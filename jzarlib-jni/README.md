@@ -8,7 +8,7 @@ fields, filters, encryption options, and limitations.
 
 ## Requirements, build, and tests
 
-Install a JDK, a C compiler, Cargo, and Maven. Build the JNI shared library and
+Install JDK 25 or newer, a C compiler, Cargo, and Maven. Build the JNI shared library and
 run the integration tests from the repository root:
 
 ```sh

@@ -64,7 +64,7 @@ in-memory extract) and include tests and examples.
 | **[`czarlib`](./czarlib/README.md)** | C | JSON C ABI (shared/static library and header) |
 | **[`cxxzarlib`](./cxxzarlib/README.md)** | C++ | CXX bridge |
 | **[`gozarlib`](./gozarlib/README.md)** | Go | cgo over `czarlib` |
-| **[`jzarlib-ffm`](./jzarlib-ffm/README.md)** | Java 22+ | Foreign Function & Memory API over `czarlib` |
+| **[`jzarlib-ffm`](./jzarlib-ffm/README.md)** | Java 25+ | Foreign Function & Memory API over `czarlib` |
 | **[`jzarlib-jni`](./jzarlib-jni/README.md)** | Java | JNI shim over `czarlib` |
 | **[`csharpzarlib`](./csharpzarlib/README.md)** | C# (.NET 10) | P/Invoke over `czarlib` |
 
