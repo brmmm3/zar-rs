@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark zarlib, zip, 7z, tar, and tar.gz using the Linux 4.0.1 source tree.
+"""Benchmark zarlib, zip, 7z (LZMA2 and zstd), tar, and tar.gz using the Linux 4.0.1 source tree.
 
 Every format is measured with a hot file cache (the source tree is read once
 beforehand) and, when running with root/administrator rights, with a cold cache
@@ -1214,6 +1214,7 @@ def archive_path(method: str, encrypted: bool) -> Path:
         "zarlib": ".zar",
         "zip": ".zip",
         "7z": ".7z",
+        "7z-zstd": ".7z",
         "tar": ".tar",
         "tar.gz": ".tar.gz",
     }
@@ -1257,8 +1258,28 @@ def compress_zip(zip_executable: str, path: Path, encrypted: bool) -> None:
         run_command(command, cwd=TESTDATA)
 
 
-def compress_7z(seven_zip: str, path: Path, encrypted: bool, password: str) -> None:
-    command = [seven_zip, "a", "-t7z", "-mx=5", "-bd", "-snl"]
+def seven_zip_supports_zstd(seven_zip: str) -> bool:
+    """Only 7-Zip forks such as 7-Zip-zstd accept zstd as a 7z codec."""
+    with tempfile.TemporaryDirectory() as directory:
+        sample = Path(directory) / "sample.txt"
+        sample.write_text("zstd probe\n" * 64, encoding="utf-8")
+        result = subprocess.run(
+            [seven_zip, "a", "-t7z", "-m0=zstd", "-bd", str(Path(directory) / "p.7z"), str(sample)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    return result.returncode == 0
+
+
+def compress_7z(
+    seven_zip: str, path: Path, encrypted: bool, password: str, codec: str = "lzma2"
+) -> None:
+    if codec == "zstd":
+        # Level 3 matches the default Zstandard level used for zarlib.
+        command = [seven_zip, "a", "-t7z", "-m0=zstd", "-mx=3", "-bd", "-snl"]
+    else:
+        command = [seven_zip, "a", "-t7z", "-mx=5", "-bd", "-snl"]
     if encrypted:
         command.extend(["-mhe=on", f"-p{password}"])
     command.extend([str(path), SOURCE_NAME])
@@ -1362,7 +1383,7 @@ def extract_archive(
             run_with_password(command, TESTDATA, ENCRYPTED_PASSWORD)
         else:
             run_command(command, cwd=TESTDATA)
-    elif method == "7z":
+    elif method in ("7z", "7z-zstd"):
         command = [tools["7z"], "x", "-bd", "-y", f"-o{TESTRESULTS}"]
         if encrypted:
             command.append(f"-p{password}")
@@ -1429,6 +1450,7 @@ def svg_chart(
         "zarlib": "#2563eb",
         "zip": "#16a34a",
         "7z": "#9333ea",
+        "7z-zstd": "#db2777",
         "tar": "#0891b2",
         "tar.gz": "#ea580c",
     }
@@ -1852,6 +1874,8 @@ storage; such cases are identified as unknown or non-rotational/possibly virtual
 - `zip`: Info-ZIP recursive DEFLATE at level 6, storing symlinks as links.
   Encrypted runs use the implementation's standard ZipCrypto mode
   (legacy/weak encryption).
+- `7z-zstd`: 7z format with the Zstandard codec at level 3 (only run when the
+  installed 7-Zip supports it, e.g. 7-Zip-zstd); otherwise like `7z`.
 - `7z`: 7z format with LZMA2 at level 5. Encrypted runs use AES-256 and
   encrypted headers; symlinks are stored as links. The 7-Zip CLI accepts
   passwords only as a command-line switch; this runner generates a temporary
@@ -1899,10 +1923,16 @@ def run_benchmarks(
 
     methods = tuple(
         method
-        for method in ("zarlib", "zip", "7z", "tar", "tar.gz")
+        for method in ("zarlib", "zip", "7z", "7z-zstd", "tar", "tar.gz")
         if method != "zip" or ("zip" in tools and "unzip" in tools)
+        if method != "7z-zstd" or seven_zip_supports_zstd(tools["7z"])
     )
     notes: list[str] = []
+    if "7z-zstd" not in methods:
+        notes.append(
+            "- The installed 7-Zip does not support the zstd codec (only forks such as "
+            "7-Zip-zstd do); the `7z-zstd` benchmark is skipped."
+        )
     # zarc only reads passwords from a POSIX terminal.
     skipped = {("zarlib", True)} if os.name != "posix" else set()
     if skipped:
@@ -1981,9 +2011,13 @@ def run_benchmarks(
                             compress_zarlib(binary, path, encrypted)
                         elif method == "zip":
                             compress_zip(tools["zip"], path, encrypted)
-                        elif method == "7z":
+                        elif method in ("7z", "7z-zstd"):
                             compress_7z(
-                                tools["7z"], path, encrypted, ENCRYPTED_PASSWORD
+                                tools["7z"],
+                                path,
+                                encrypted,
+                                ENCRYPTED_PASSWORD,
+                                "zstd" if method == "7z-zstd" else "lzma2",
                             )
                         else:
                             compress_tar(
@@ -2062,7 +2096,7 @@ def run_benchmarks(
                             print(
                                 f"  Extracted in {_fmt_duration(extraction_seconds)}"
                             )
-                            allow_renames = method in ("zarlib", "7z")
+                            allow_renames = method in ("zarlib", "7z", "7z-zstd")
                             renamed_paths = verify_extraction(
                                 expected, symlinks, allow_renames
                             )
