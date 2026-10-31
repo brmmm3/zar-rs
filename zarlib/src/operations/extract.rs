@@ -413,45 +413,34 @@ pub fn extract_archive_with_passwords_progress_and_filters(
     let progress = ProgressReporter::new(progress);
     let archive_size = File::open(archive)?.metadata()?.len().saturating_sub(4);
     progress.start_phase("Reading archive headers", archive_size.max(1));
-    let toc = filters.filter_toc(&load_toc_through_with_passwords_and_progress(
-        archive,
-        through,
-        passwords,
-        Some(&progress),
-    )?)?;
+    let full_toc =
+        load_toc_through_with_passwords_and_progress(archive, through, passwords, Some(&progress))?;
+    let toc = filters.filter_toc(&full_toc)?;
     progress.reset_phase("Planning extraction", archive_size.max(1));
     let summary = summarize_toc(&toc, restore_symlinks, restore_devices)?;
-    let planned_work = summary
-        .files
-        .checked_add(summary.symlinks)
-        .and_then(|count| count.checked_add(summary.named_pipes))
-        .and_then(|count| count.checked_add(summary.devices))
-        .ok_or("extraction progress size overflow")?;
-    let _planned_total = summary
-        .total_bytes
-        .checked_add(planned_work)
-        .ok_or("extraction progress size overflow")?;
     progress.extraction_summary(&summary);
-    let (toc, extraction_sources, entry_metadata) = if dry_run {
-        load_extraction_state_with_passwords_progress_and_filters(
+    // The loader reuses the TOC built above instead of rebuilding it.
+    let (_, extraction_sources, entry_metadata) = if dry_run {
+        load_extraction_state_impl(
             archive,
             through,
             passwords,
             None,
             Some(filters),
+            Some(full_toc),
         )?
     } else {
         progress.reset_phase("Preparing extraction", archive_size.max(1));
         progress.set_message("Validating data frames");
-        load_extraction_state_with_passwords_progress_and_filters(
+        load_extraction_state_impl(
             archive,
             through,
             passwords,
             Some(&progress),
             Some(filters),
+            Some(full_toc),
         )?
     };
-    let toc = filters.filter_toc(&toc)?;
     validate_interactive_policies(
         progress.0.is_some_and(Progress::is_interactive),
         collision_policy,
@@ -1072,23 +1061,23 @@ pub fn load_extraction_state_with_passwords_progress(
     passwords: &PasswordSet,
     progress: Option<&ProgressReporter<'_>>,
 ) -> Result<LoadedExtractionState, Box<dyn std::error::Error>> {
-    load_extraction_state_with_passwords_progress_and_filters(
-        archive, through, passwords, progress, None,
-    )
+    load_extraction_state_impl(archive, through, passwords, progress, None, None)
 }
 
-/// Like [`load_extraction_state_with_passwords_progress`], but blocks that only
-/// belong to files rejected by `filters` are not read or validated.
-pub fn load_extraction_state_with_passwords_progress_and_filters(
+/// Blocks that only belong to files rejected by `filters` are not read or validated.
+/// A `known_toc` for the same archive and `through` is returned as is instead of being rebuilt.
+fn load_extraction_state_impl(
     archive: &str,
     through: Option<&str>,
     passwords: &PasswordSet,
     progress: Option<&ProgressReporter<'_>>,
     filters: Option<&FilterSet>,
+    known_toc: Option<Toc>,
 ) -> Result<LoadedExtractionState, Box<dyn std::error::Error>> {
     let mut file = File::open(archive)?;
     let requested_id = through.map(parse_commit_id).transpose()?;
-    let mut toc = Toc::default();
+    let rebuild_toc = known_toc.is_none();
+    let mut toc = known_toc.unwrap_or_default();
     let mut file_contents = BTreeMap::<ArchivePath, ExtractedSource>::new();
     let mut archived_special_entries = BTreeMap::<ArchivePath, ExtractedSource>::new();
     let mut archived_metadata = BTreeMap::<ArchivePath, EntryMetadata>::new();
@@ -1266,7 +1255,11 @@ pub fn load_extraction_state_with_passwords_progress_and_filters(
             return Err("archive exceeds the extraction block limit".into());
         }
 
-        toc.apply_commit_with_available_blocks(&header.changes, &block_indices)?;
+        if rebuild_toc {
+            toc.apply_commit_with_available_blocks(&header.changes, &block_indices)?;
+        } else {
+            Toc::check_available_blocks(&header.changes, &block_indices)?;
+        }
         {
             for change in &header.changes {
                 if let TocChange::PutFile { path, entry } = change {

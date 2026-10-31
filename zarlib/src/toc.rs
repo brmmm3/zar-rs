@@ -169,6 +169,15 @@ impl Toc {
         changes: &[TocChange],
         available_blocks: &HashSet<u32>,
     ) -> Result<(), TocError> {
+        Self::check_available_blocks(changes, available_blocks)?;
+        self.apply_commit(changes)
+    }
+
+    /// Verify that every file in `changes` only references blocks in `available_blocks`.
+    pub fn check_available_blocks(
+        changes: &[TocChange],
+        available_blocks: &HashSet<u32>,
+    ) -> Result<(), TocError> {
         for change in changes {
             if let TocChange::PutFile { path, entry } = change
                 && let Some(&block_index) = entry
@@ -182,7 +191,7 @@ impl Toc {
                 });
             }
         }
-        self.apply_commit(changes)
+        Ok(())
     }
 
     /// Apply one commit's ordered changes atomically; on error the TOC is unchanged.
