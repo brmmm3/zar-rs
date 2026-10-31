@@ -241,6 +241,7 @@ struct OperationForm {
     archive: String,
     input_paths: Vec<PathBuf>,
     selected_input_paths: BTreeSet<PathBuf>,
+    input_selection_anchor: Option<PathBuf>,
     destination: String,
     from_id: String,
     through_id: String,
@@ -383,6 +384,7 @@ pub struct ZargApp {
     entry_details: std::collections::BTreeMap<String, ArchiveEntryDetails>,
     visible_entry_indices: Vec<usize>,
     selected: BTreeSet<String>,
+    selection_anchor: Option<String>,
     status: String,
     operation: OperationForm,
     worker: Option<WorkerChannels>,
@@ -427,6 +429,7 @@ impl ZargApp {
         self.archive.clone_from(&archive);
         self.location.clone_from(&archive);
         self.selected.clear();
+        self.selection_anchor = None;
         self.report = None;
         let (events_tx, events_rx) = mpsc::channel();
         let (answer_tx, answer_rx) = mpsc::channel();
@@ -732,6 +735,7 @@ impl ZargApp {
                     {
                         self.selected
                             .extend(self.entries.iter().map(|(path, _)| path.clone()));
+                        self.selection_anchor = self.entries.first().map(|(path, _)| path.clone());
                         ui.close();
                     }
                     if icon_button(
@@ -744,6 +748,7 @@ impl ZargApp {
                     .clicked()
                     {
                         self.selected.clear();
+                        self.selection_anchor = None;
                         ui.close();
                     }
                 },
@@ -858,6 +863,9 @@ impl ZargApp {
 
     fn render_toolbar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
+            if icon_button(ui, &self.icons, UiIcon::CreateArchive, "Create", !self.busy).clicked() {
+                self.show_operation(OperationKind::Create);
+            }
             for (label, icon, kind) in [
                 ("Add", UiIcon::Add, OperationKind::Add),
                 ("Extract", UiIcon::Extract, OperationKind::Extract),
@@ -888,9 +896,6 @@ impl ZargApp {
                 let mut form = OperationForm::new(OperationKind::Remove, &self.archive);
                 form.remove_text = self.selected.iter().cloned().collect::<Vec<_>>().join("\n");
                 self.operation = form;
-            }
-            if icon_button(ui, &self.icons, UiIcon::CreateArchive, "Create", !self.busy).clicked() {
-                self.show_operation(OperationKind::Create);
             }
         });
     }
@@ -949,6 +954,7 @@ impl ZargApp {
                             .input_paths
                             .retain(|path| !self.operation.selected_input_paths.contains(path));
                         self.operation.selected_input_paths.clear();
+                        self.operation.input_selection_anchor = None;
                     }
                     if icon_button(
                         ui,
@@ -961,6 +967,7 @@ impl ZargApp {
                     {
                         self.operation.input_paths.clear();
                         self.operation.selected_input_paths.clear();
+                        self.operation.input_selection_anchor = None;
                     }
                 });
                 egui::ScrollArea::vertical()
@@ -985,11 +992,16 @@ impl ZargApp {
                                 let response =
                                     response.union(ui.selectable_label(selected, path_text));
                                 if response.clicked() {
-                                    if selected {
-                                        self.operation.selected_input_paths.remove(path);
-                                    } else {
-                                        self.operation.selected_input_paths.insert(path.clone());
-                                    }
+                                    let modifiers = ui.input(|input| input.modifiers);
+                                    let selection = extended_selection(
+                                        &self.operation.input_paths,
+                                        &self.operation.selected_input_paths,
+                                        &self.operation.input_selection_anchor,
+                                        path,
+                                        modifiers,
+                                    );
+                                    self.operation.selected_input_paths = selection.selected;
+                                    self.operation.input_selection_anchor = selection.anchor;
                                 }
                             });
                         }
@@ -1480,9 +1492,20 @@ impl eframe::App for ZargApp {
                         ui.set_min_width(content_width);
                         for row in row_range {
                             let (path, data) = &self.entries[self.visible_entry_indices[row]];
+                            let selected = self.selected.contains(path);
+                            let row_rect = egui::Rect::from_min_size(
+                                ui.cursor().min,
+                                egui::vec2(content_width, row_height),
+                            );
+                            if selected {
+                                ui.painter().rect_filled(
+                                    row_rect,
+                                    0.0,
+                                    ui.visuals().selection.bg_fill,
+                                );
+                            }
                             ui.horizontal(|ui| {
                                 ui.set_min_width(content_width);
-                                let selected = self.selected.contains(path);
                                 let icon = match data {
                                     EntryData::Directory => UiIcon::Folder,
                                     EntryData::File(_) => file_icon(path),
@@ -1522,11 +1545,21 @@ impl eframe::App for ZargApp {
                                 )
                                 .on_hover_text(hover_text);
                                 if name_response.clicked() {
-                                    if selected {
-                                        self.selected.remove(path);
-                                    } else {
-                                        self.selected.insert(path.clone());
-                                    }
+                                    let modifiers = ui.input(|input| input.modifiers);
+                                    let visible_paths = self
+                                        .visible_entry_indices
+                                        .iter()
+                                        .map(|index| self.entries[*index].0.clone())
+                                        .collect::<Vec<_>>();
+                                    let selection = extended_selection(
+                                        &visible_paths,
+                                        &self.selected,
+                                        &self.selection_anchor,
+                                        path,
+                                        modifiers,
+                                    );
+                                    self.selected = selection.selected;
+                                    self.selection_anchor = selection.anchor;
                                 }
                                 let details = self.entry_details.get(path);
                                 let (compressed, uncompressed, ratio, kind) = match data {
@@ -1919,6 +1952,58 @@ fn filtered_entry_indices(entries: &[(String, EntryData)], filter: &str) -> Vec<
         .collect()
 }
 
+struct ExtendedSelection<T> {
+    selected: BTreeSet<T>,
+    anchor: Option<T>,
+}
+
+fn extended_selection<T: Clone + Ord>(
+    visible: &[T],
+    current: &BTreeSet<T>,
+    anchor: &Option<T>,
+    clicked: &T,
+    modifiers: egui::Modifiers,
+) -> ExtendedSelection<T> {
+    let additive = modifiers.command || modifiers.ctrl;
+    let mut selected = current.clone();
+
+    let next_anchor = if modifiers.shift {
+        let anchor = anchor
+            .as_ref()
+            .filter(|anchor| visible.contains(anchor))
+            .unwrap_or(clicked);
+        if let (Some(start), Some(end)) = (
+            visible.iter().position(|item| item == anchor),
+            visible.iter().position(|item| item == clicked),
+        ) {
+            if !additive {
+                selected.clear();
+            }
+            for item in &visible[start.min(end)..=start.max(end)] {
+                selected.insert(item.clone());
+            }
+        } else {
+            selected.clear();
+            selected.insert(clicked.clone());
+        }
+        Some(anchor.clone())
+    } else if additive {
+        if !selected.remove(clicked) {
+            selected.insert(clicked.clone());
+        }
+        Some(clicked.clone())
+    } else {
+        selected.clear();
+        selected.insert(clicked.clone());
+        Some(clicked.clone())
+    };
+
+    ExtendedSelection {
+        selected,
+        anchor: next_anchor,
+    }
+}
+
 fn valid_destination_path(value: &str) -> bool {
     let path = PathBuf::from(value.trim());
     if path.as_os_str().is_empty() {
@@ -2188,6 +2273,48 @@ mod tests {
         ];
         assert_eq!(filtered_entry_indices(&entries, ""), [0, 1, 2]);
         assert_eq!(filtered_entry_indices(&entries, "DOCS/"), [0, 2]);
+    }
+
+    #[test]
+    fn extended_selection_supports_replace_toggle_and_ranges() {
+        let visible = [1, 2, 3, 4, 5];
+        let empty = BTreeSet::new();
+        let plain = extended_selection(&visible, &empty, &None, &2, egui::Modifiers::NONE);
+        assert_eq!(plain.selected, BTreeSet::from([2]));
+        let toggled = extended_selection(
+            &visible,
+            &plain.selected,
+            &plain.anchor,
+            &4,
+            egui::Modifiers {
+                ctrl: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(toggled.selected, BTreeSet::from([2, 4]));
+        let ranged = extended_selection(
+            &visible,
+            &toggled.selected,
+            &Some(2),
+            &5,
+            egui::Modifiers {
+                shift: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(ranged.selected, BTreeSet::from([2, 3, 4, 5]));
+        let additive_range = extended_selection(
+            &visible,
+            &plain.selected,
+            &Some(2),
+            &4,
+            egui::Modifiers {
+                shift: true,
+                ctrl: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(additive_range.selected, BTreeSet::from([2, 3, 4]));
     }
 
     #[test]
