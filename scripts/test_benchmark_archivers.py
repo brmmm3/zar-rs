@@ -75,3 +75,44 @@ def test_source_matches_tarball_rejects_non_collision_mismatches_on_macos(
     )
 
     assert not benchmark_archivers.source_matches_tarball(tarball)
+
+
+def test_write_report_shows_runtime_minimum_and_maximum(tmp_path, monkeypatch) -> None:
+    report_path = tmp_path / "report.md"
+    chart_path = tmp_path / "chart.svg"
+    monkeypatch.setattr(benchmark_archivers, "REPORT_PATH", report_path)
+    monkeypatch.setattr(benchmark_archivers, "CHART_PATH", chart_path)
+    monkeypatch.setattr(
+        benchmark_archivers,
+        "collect_benchmark_hardware",
+        lambda: benchmark_archivers.BenchmarkHardware("Linux", "CPU", ()),
+    )
+    results = [
+        {
+            "method": "tar",
+            "cache": "hot",
+            "encrypted": False,
+            "archive_bytes": 1024 * 1024,
+            "compression_min_seconds": 2.0,
+            "compression_max_seconds": 3.0,
+            "extraction_min_seconds": 4.0,
+            "extraction_max_seconds": 5.0,
+            "partial_extraction_min_seconds": 0.2,
+            "partial_extraction_max_seconds": 0.3,
+            "partial_temp_bytes": 0,
+            "compression_resources": [],
+            "extraction_resources": [],
+        }
+    ]
+
+    benchmark_archivers.write_report(
+        results, 1024 * 1024, 1, 0, {}, []
+    )
+
+    report = report_path.read_text(encoding="utf-8")
+    chart = chart_path.read_text(encoding="utf-8")
+    assert "2.00-3.00 s" in report
+    assert "4.00-5.00 s" in report
+    assert "0.200-0.300 s" in report
+    assert "2.00-3.00 s" in chart
+    assert "4.00-5.00 s" in chart

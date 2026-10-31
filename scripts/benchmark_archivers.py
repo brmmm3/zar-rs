@@ -1438,8 +1438,18 @@ def svg_chart(
         for item in hardware.storage
     ]
 
-    def chart_panel(title: str, key: str, unit: str, y: int, divisor: float = 1.0) -> str:
-        values = [float(item[key]) / divisor for item in results]
+    def chart_panel(
+        title: str,
+        key: str,
+        unit: str,
+        y: int,
+        divisor: float = 1.0,
+        minimum_key: str | None = None,
+        maximum_key: str | None = None,
+    ) -> str:
+        values = [
+            float(item[maximum_key or key]) / divisor for item in results
+        ]
         maximum = max(values) if values else 1.0
         maximum = max(maximum, 1.0)
         parts = [
@@ -1461,22 +1471,31 @@ def svg_chart(
             row_y = grid_top + index * row_height
             method = str(item["method"])
             encrypted = bool(item["encrypted"])
-            value = float(item[key]) / divisor
-            bar_width = max(1, int(plot_width * value / maximum))
+            minimum = (
+                float(item[minimum_key]) / divisor if minimum_key else 0.0
+            )
+            value = float(item[maximum_key or key]) / divisor
+            bar_x = plot_x + int(plot_width * minimum / maximum)
+            bar_width = max(1, int(plot_width * (value - minimum) / maximum))
             color = colors[method]
             opacity = "0.60" if encrypted else "1.0"
             encryption = "encrypted" if encrypted else "plain"
             label = f"{method} - {encryption}"
             if multiple_caches:
                 label += f" - {item['cache']}"
+            value_label = (
+                f"{minimum:.2f}-{value:.2f} {unit}"
+                if minimum_key is not None
+                else f"{value:.2f} {unit}"
+            )
             parts.extend(
                 [
                     f'<text x="{label_width - 12}" y="{row_y + 17}" '
                     f'text-anchor="end" class="label">{html.escape(label)}</text>',
-                    f'<rect x="{plot_x}" y="{row_y + 3}" width="{bar_width}" '
+                    f'<rect x="{bar_x}" y="{row_y + 3}" width="{bar_width}" '
                     f'height="18" rx="4" fill="{color}" opacity="{opacity}"/>',
-                    f'<text x="{plot_x + bar_width + 8}" y="{row_y + 17}" '
-                    f'class="value">{value:.2f} {unit}</text>',
+                    f'<text x="{bar_x + bar_width + 8}" y="{row_y + 17}" '
+                    f'class="value">{value_label}</text>',
                 ]
             )
         return "\n".join(parts)
@@ -1605,10 +1624,20 @@ def svg_chart(
 
     archive_panel = chart_panel("Archive size", "archive_bytes", "MiB", top, 1024 * 1024)
     compression_panel = chart_panel(
-        "Compression time", "compression_seconds", "s", top + bar_panel_height
+        "Compression time",
+        "compression_max_seconds",
+        "s",
+        top + bar_panel_height,
+        minimum_key="compression_min_seconds",
+        maximum_key="compression_max_seconds",
     )
     extraction_panel = chart_panel(
-        "Extraction time", "extraction_seconds", "s", top + bar_panel_height * 2
+        "Extraction time",
+        "extraction_max_seconds",
+        "s",
+        top + bar_panel_height * 2,
+        minimum_key="extraction_min_seconds",
+        maximum_key="extraction_max_seconds",
     )
     cpu_ram_compress_y = top + bar_panel_height * 3 + 10
     cpu_ram_extract_y = cpu_ram_compress_y + ts_panel_height
@@ -1704,23 +1733,39 @@ def write_report(
     for item in results:
         encryption = "Yes" if item["encrypted"] else "No"
         size_mib = int(item["archive_bytes"]) / (1024 * 1024)
-        compression_speed = source_bytes / 1024 / 1024 / float(item["compression_seconds"])
-        extraction_speed = source_bytes / 1024 / 1024 / float(item["extraction_seconds"])
+        compression_min = float(item["compression_min_seconds"])
+        compression_max = float(item["compression_max_seconds"])
+        extraction_min = float(item["extraction_min_seconds"])
+        extraction_max = float(item["extraction_max_seconds"])
+        compression_speed_min = source_bytes / 1024 / 1024 / compression_max
+        compression_speed_max = source_bytes / 1024 / 1024 / compression_min
+        extraction_speed_min = source_bytes / 1024 / 1024 / extraction_max
+        extraction_speed_max = source_bytes / 1024 / 1024 / extraction_min
         avg_cpu_c, avg_ram_c = _avg_resource("compression_resources", item)
         avg_cpu_e, avg_ram_e = _avg_resource("extraction_resources", item)
         table_rows.append(
-            "| {method} | {encrypted} | {cache} | {size:.1f} MiB | {compress:.2f} s "
-            "({compress_speed:.1f} MiB/s) | {extract:.2f} s ({extract_speed:.1f} MiB/s) |"
-            " {partial:.3f} s | {partial_temp} | {cpu_c:.0f} % / {ram_c:.1f} GiB | {cpu_e:.0f} % / {ram_e:.1f} GiB |".format(
+            "| {method} | {encrypted} | {cache} | {size:.1f} MiB | "
+            "{compress_min:.2f}-{compress_max:.2f} s "
+            "({compress_speed_min:.1f}-{compress_speed_max:.1f} MiB/s) | "
+            "{extract_min:.2f}-{extract_max:.2f} s "
+            "({extract_speed_min:.1f}-{extract_speed_max:.1f} MiB/s) | "
+            "{partial_min:.3f}-{partial_max:.3f} s | {partial_temp} | "
+            "{cpu_c:.0f} % / {ram_c:.1f} GiB | "
+            "{cpu_e:.0f} % / {ram_e:.1f} GiB |".format(
                 method=item["method"],
                 cache=item["cache"],
                 encrypted=encryption,
                 size=size_mib,
-                compress=float(item["compression_seconds"]),
-                compress_speed=compression_speed,
-                extract=float(item["extraction_seconds"]),
-                extract_speed=extraction_speed,
-                partial=float(item["partial_extraction_seconds"]),
+                compress_min=compression_min,
+                compress_max=compression_max,
+                compress_speed_min=compression_speed_min,
+                compress_speed_max=compression_speed_max,
+                extract_min=extraction_min,
+                extract_max=extraction_max,
+                extract_speed_min=extraction_speed_min,
+                extract_speed_max=extraction_speed_max,
+                partial_min=float(item["partial_extraction_min_seconds"]),
+                partial_max=float(item["partial_extraction_max_seconds"]),
                 partial_temp=_fmt_bytes(int(item["partial_temp_bytes"])),
                 cpu_c=avg_cpu_c,
                 ram_c=avg_ram_c,
@@ -1758,7 +1803,7 @@ Uncompressed source size: {source_bytes / (1024 * 1024):.1f} MiB
 Regular files verified: {source_files:,}  
 Symbolic links excluded from path/size verification: {symlink_count}
 
-| Format | Encryption | Cache | Archive size | Compression | Extraction | Extract 3 files | Temp space (3 files) | CPU / RAM (compress) | CPU / RAM (extract) |
+| Format | Encryption | Cache | Archive size | Compression (min-max) | Extraction (min-max) | Extract 3 files (min-max) | Temp space (3 files) | CPU / RAM (compress) | CPU / RAM (extract) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 {chr(10).join(table_rows)}
 
@@ -1779,7 +1824,8 @@ relative links during extraction, as noted above.
 
 CPU utilisation and RAM consumption were sampled at 1-second intervals during
 each compression and extraction operation using `psutil`. The table shows the
-average CPU % and RAM GiB across all samples for each phase. The time-series
+average CPU % and RAM GiB across all samples for each phase. Runtime values show
+the minimum and maximum measured time for each phase. The time-series
 charts below the bar charts plot every sample, with one line per archive format
 (solid = plain, dashed = encrypted; thick line = CPU %, thin dashed line = RAM GiB).
 The CPU model and operating system are collected from the host. Storage details
@@ -1816,9 +1862,10 @@ storage; such cases are identified as unknown or non-rotational/possibly virtual
   AES-256-GCM encryption. It is decrypted before extraction. A temporary
   self-signed RSA certificate is used to wrap the CMS content key; the
   temporary private key is deleted when the benchmark exits.
-- Compression and extraction are each measured once per format/configuration.
-  Build time, source download/extraction, and post-extraction verification are
-  excluded from the measured operation times.
+- Compression and extraction are measured twice per hot-cache configuration
+  and once per cold-cache configuration. The report shows the minimum and
+  maximum runtime across those runs. Build time, source download/extraction, and
+  post-extraction verification are excluded from the measured operation times.
 
 ## Tool versions
 
@@ -2042,16 +2089,18 @@ def run_benchmarks(
                         finally:
                             clean_testresults()
 
-                    avg_compression = sum(compression_times) / len(compression_times)
-                    avg_extraction = sum(extraction_times) / len(extraction_times)
-                    if runs_per_test > 1:
-                        print(
-                            f"  {method} (encrypted={encrypted}): "
-                            f"compress {avg_compression:.2f}s avg "
-                            f"({', '.join(f'{t:.2f}s' for t in compression_times)}), "
-                            f"extract {avg_extraction:.2f}s avg "
-                            f"({', '.join(f'{t:.2f}s' for t in extraction_times)})"
-                        )
+                    compression_min = min(compression_times)
+                    compression_max = max(compression_times)
+                    extraction_min = min(extraction_times)
+                    extraction_max = max(extraction_times)
+                    partial_min = min(partial_times)
+                    partial_max = max(partial_times)
+                    print(
+                        f"  {method} (encrypted={encrypted}, {cache} cache): "
+                        f"compress {compression_min:.2f}-{compression_max:.2f}s, "
+                        f"extract {extraction_min:.2f}-{extraction_max:.2f}s, "
+                        f"partial extract {partial_min:.3f}-{partial_max:.3f}s"
+                    )
 
                     # Merge resource samples across runs: average CPU and RAM at each
                     # fractional-second offset (interpolated to a common 1 s grid).
@@ -2082,11 +2131,13 @@ def run_benchmarks(
                             "cache": cache,
                             "encrypted": encrypted,
                             "archive_bytes": archive_bytes,
-                            "compression_seconds": avg_compression,
-                            "extraction_seconds": avg_extraction,
+                            "compression_min_seconds": compression_min,
+                            "compression_max_seconds": compression_max,
+                            "extraction_min_seconds": extraction_min,
+                            "extraction_max_seconds": extraction_max,
                             "partial_temp_bytes": max(partial_temp_bytes),
-                            "partial_extraction_seconds": sum(partial_times)
-                            / len(partial_times),
+                            "partial_extraction_min_seconds": partial_min,
+                            "partial_extraction_max_seconds": partial_max,
                             "renamed_paths": renamed_paths,
                             "compression_resources": _merge_resource_samples(compression_resources),
                             "extraction_resources": _merge_resource_samples(extraction_resources),
