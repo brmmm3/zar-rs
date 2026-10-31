@@ -589,7 +589,13 @@ fn extract_progress_reports_summary_before_nonzero_work_and_counts_bytes() {
         .is_err()
     );
 
-    assert!(progress.total.lock().unwrap().is_some_and(|total| total > 0));
+    assert!(
+        progress
+            .total
+            .lock()
+            .unwrap()
+            .is_some_and(|total| total > 0)
+    );
     let summary = progress.extraction_summary.lock().unwrap().clone().unwrap();
     assert_eq!(summary.files, 1);
     assert_eq!(summary.small_files, 1);
@@ -667,7 +673,13 @@ fn extract_summary_precedes_data_frame_validation() {
     let summary = progress.extraction_summary.lock().unwrap().clone().unwrap();
     assert_eq!(summary.files, 1);
     assert_eq!(summary.total_bytes, 3);
-    assert!(progress.total.lock().unwrap().is_some_and(|total| total > 0));
+    assert!(
+        progress
+            .total
+            .lock()
+            .unwrap()
+            .is_some_and(|total| total > 0)
+    );
     let events = progress.events.lock().unwrap();
     assert_eq!(events[0], "start:Reading archive headers");
     assert!(events.iter().any(|event| event == "summary"));
@@ -3252,7 +3264,13 @@ fn explicit_error_collision_policy_rejects_case_folded_paths() {
     let summary = progress.extraction_summary.lock().unwrap().clone().unwrap();
     assert_eq!(summary.files, 2);
     assert_eq!(summary.total_bytes, 6);
-    assert!(progress.total.lock().unwrap().is_some_and(|total| total > 0));
+    assert!(
+        progress
+            .total
+            .lock()
+            .unwrap()
+            .is_some_and(|total| total > 0)
+    );
     let events = progress.events.lock().unwrap();
     assert_eq!(events[0], "start:Reading archive headers");
     assert!(events.iter().any(|event| event == "summary"));
