@@ -65,8 +65,16 @@ jobs:
         run: cargo test --workspace
 
   pyzarlib:
-    name: pyzarlib tests (Python 3.11)
+    name: pyzarlib tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python-version: "3.11"
+          - python-version: "3.15"
+          - python-version: "3.15t"
+            free_threaded: true
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -93,7 +101,12 @@ jobs:
         run: maturin develop --release
       - name: Run Python tests
         working-directory: pyzarlib
-        run: python -Wd -m pytest
+        run: |
+          if [[ "${{ matrix.free_threaded }}" == "true" ]]; then
+            PYTHON_GIL=0 python -Wd -m pytest
+          else
+            python -Wd -m pytest
+          fi
 
   build-binaries:
     name: Build binaries (${{ matrix.platform.name }})
@@ -105,10 +118,31 @@ jobs:
         platform:
           - name: linux-x86_64
             runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - name: linux-aarch64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - name: linux-x86_64-static
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            linker: musl-gcc
+            linker-env: CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER
+            static: true
+          - name: linux-aarch64-static
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            linker: musl-gcc
+            linker-env: CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER
+            static: true
           - name: macos-aarch64
             runner: macos-latest
+            target: aarch64-apple-darwin
           - name: windows-x86_64
             runner: windows-latest
+            target: x86_64-pc-windows-msvc
+          - name: windows-aarch64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -119,29 +153,41 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes libgl1-mesa-dev libwayland-dev libx11-dev libxcursor-dev libxi-dev libxkbcommon-dev libxrandr-dev pkg-config
+      - name: Install musl toolchain
+        if: matrix.platform.static == true
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes musl-tools
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
         with:
           toolchain: stable
+          targets: ${{ matrix.platform.target }}
       - name: Build zarc and zarg
-        run: cargo build --release --bins --locked
+        env:
+          RUSTFLAGS: ${{ matrix.platform.static && '-C target-feature=+crt-static' || '' }}
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: ${{ matrix.platform.linker-env == 'CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER' && matrix.platform.linker || '' }}
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: ${{ matrix.platform.linker-env == 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER' && matrix.platform.linker || '' }}
+        run: cargo build --release --bins --locked --target ${{ matrix.platform.target }}
       - name: Package binaries (Unix)
         if: runner.os != 'Windows'
         shell: bash
         env:
           PLATFORM: ${{ matrix.platform.name }}
+          TARGET: ${{ matrix.platform.target }}
         run: |
           mkdir -p dist/zar-rs-$PLATFORM
-          cp target/release/zarc target/release/zarg dist/zar-rs-$PLATFORM/
+          cp target/$TARGET/release/zarc target/$TARGET/release/zarg dist/zar-rs-$PLATFORM/
           tar -C dist -czf dist/zar-rs-$PLATFORM.tar.gz zar-rs-$PLATFORM
       - name: Package binaries (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         env:
           PLATFORM: ${{ matrix.platform.name }}
+          TARGET: ${{ matrix.platform.target }}
         run: |
           New-Item -ItemType Directory -Force -Path "dist/zar-rs-$env:PLATFORM" | Out-Null
-          Copy-Item target/release/zarc.exe, target/release/zarg.exe "dist/zar-rs-$env:PLATFORM/"
+          Copy-Item "target/$env:TARGET/release/zarc.exe", "target/$env:TARGET/release/zarg.exe" "dist/zar-rs-$env:PLATFORM/"
           Compress-Archive -Path "dist/zar-rs-$env:PLATFORM" -DestinationPath "dist/zar-rs-$env:PLATFORM.zip"
       - name: Upload binary archive
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
