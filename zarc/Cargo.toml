@@ -1,0 +1,12 @@
+[package]
+name = "zarc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+clap.workspace = true
+indicatif.workspace = true
+libc = "0.2"
+zarlib = { path = "../zarlib" }

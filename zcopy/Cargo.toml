@@ -1,0 +1,16 @@
+[package]
+name = "zcopy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+clap.workspace = true
+getrandom.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+zarlib = { path = "../zarlib" }
+indicatif.workspace = true
+zstd = "0.14.3"
+scandir = "3.0"

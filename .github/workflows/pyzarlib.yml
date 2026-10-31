@@ -1,0 +1,58 @@
+name: pyzarlib
+
+on:
+  push:
+    paths:
+      - "pyzarlib/**"
+      - "zarlib/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/pyzarlib.yml"
+  pull_request:
+    paths:
+      - "pyzarlib/**"
+      - "zarlib/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/pyzarlib.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python-version: "3.11"
+          - python-version: "3.12"
+          - python-version: "3.13"
+          - python-version: "3.14"
+          - python-version: "3.15"
+          - python-version: "3.14t"
+            free_threaded: true
+          - python-version: "3.15t"
+            free_threaded: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install build and test dependencies
+        working-directory: pyzarlib
+        run: |
+          python -m pip install --upgrade pip maturin
+          python -m pip install -e ".[test]"
+      - name: Build and install extension
+        working-directory: pyzarlib
+        run: maturin develop --release
+      - name: Run tests
+        working-directory: pyzarlib
+        run: |
+          if [[ "${{ matrix.free_threaded }}" == "true" ]]; then
+            PYTHON_GIL=0 python -Wd -m pytest
+          else
+            python -Wd -m pytest
+          fi

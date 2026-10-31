@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=ZAR Archive Manager
+Comment=Manage ZAR archives
+Exec=zarg
+TryExec=zarg
+Icon=zarg
+Terminal=false
+Categories=Utility;Archiving;
