@@ -1,0 +1,9 @@
+#!/bin/sh
+# AppImage entry point: starts the GUI by default, or the CLI when the
+# AppImage is invoked through a symlink named "zarc" (or with ZAR_CLI=1).
+HERE="$(dirname "$(readlink -f "$0")")"
+NAME="$(basename "${ARGV0:-$0}")"
+if [ "$NAME" = "zarc" ] || [ -n "$ZAR_CLI" ]; then
+    exec "$HERE/usr/bin/zarc" "$@"
+fi
+exec "$HERE/usr/bin/zarg" "$@"

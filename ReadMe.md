@@ -118,6 +118,23 @@ Or install the executable into Cargo's binary directory:
 cargo install --path zarc
 ```
 
+## Installers and packages
+
+The [packaging](./packaging) directory contains installer definitions for the
+`zarc` CLI and the `zarg` GUI:
+
+- **Windows:** an [Inno Setup](https://jrsoftware.org/isinfo.php) script
+  (`packaging/windows/zar-rs.iss`) that can also add `zarc` to the `PATH`.
+- **Linux:** `packaging/linux/build-packages.sh [deb|rpm|appimage|flatpak|all]`
+  builds `.deb`, `.rpm`, AppImage and Flatpak packages into `dist/`.
+
+```sh
+iscc /DAppVersion=0.6.0 packaging\windows\zar-rs.iss   # Windows
+packaging/linux/build-packages.sh deb                  # Linux
+```
+
+See [packaging/README.md](./packaging/README.md) for prerequisites and options.
+
 ## Quick start
 
 ```sh
