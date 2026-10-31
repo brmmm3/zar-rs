@@ -5,7 +5,7 @@
 # vendored sources generated with flatpak-cargo-generator.
 app-id: io.github.brmmm3.Zarg
 runtime: org.freedesktop.Platform
-runtime-version: "24.08"
+runtime-version: "26.08"
 sdk: org.freedesktop.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
