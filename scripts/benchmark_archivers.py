@@ -12,9 +12,12 @@ import argparse
 import concurrent.futures
 import datetime as dt
 from collections import deque
+from dataclasses import dataclass
 import html
+import json
 import os
 import platform
+import plistlib
 import re
 import scandir_rs
 import secrets
@@ -57,6 +60,287 @@ PROMPT_RE = re.compile(rb"(?im)^[^\r\n]*(?:password|passphrase)[^\r\n]*:\s*$")
 RAMMAP_URL = "https://download.sysinternals.com/files/RAMMap.zip"
 TOOLS_DIR = TESTDATA / "tools"
 COLLISION_SUFFIX_RE = re.compile(r" \(\d+\)(?=\.[^.]+$|$)")
+
+
+@dataclass(frozen=True)
+class StorageInfo:
+    location: str
+    media_type: str
+    model: str
+    device: str
+
+
+@dataclass(frozen=True)
+class BenchmarkHardware:
+    operating_system: str
+    cpu_model: str
+    storage: tuple[StorageInfo, ...]
+
+
+def _hardware_command_output(
+    command: list[str], timeout: float = 10.0
+) -> bytes | None:
+    try:
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return result.stdout
+
+
+def _cpu_model() -> str:
+    if sys.platform.startswith("linux"):
+        try:
+            lines = Path("/proc/cpuinfo").read_text(
+                encoding="utf-8", errors="replace"
+            ).splitlines()
+        except OSError:
+            lines = []
+        for key in ("model name", "hardware", "processor"):
+            for line in lines:
+                field, separator, value = line.partition(":")
+                if separator and field.strip().casefold() == key:
+                    value = value.strip()
+                    if value and not value.isdecimal():
+                        return value
+
+    elif sys.platform == "win32":
+        powershell = shutil.which("powershell.exe") or shutil.which("pwsh")
+        if powershell:
+            output = _hardware_command_output(
+                [
+                    powershell,
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "(Get-CimInstance Win32_Processor | "
+                    "Select-Object -First 1 -ExpandProperty Name)",
+                ]
+            )
+            if output:
+                return output.decode("utf-8", errors="replace").strip()
+
+    elif sys.platform == "darwin":
+        sysctl = shutil.which("sysctl")
+        if sysctl:
+            output = _hardware_command_output(
+                [sysctl, "-n", "machdep.cpu.brand_string"]
+            )
+            if output:
+                return output.decode("utf-8", errors="replace").strip()
+        system_profiler = shutil.which("system_profiler")
+        if system_profiler:
+            output = _hardware_command_output(
+                [system_profiler, "SPHardwareDataType", "-json"], timeout=20.0
+            )
+            if output:
+                try:
+                    hardware = json.loads(output)
+                except json.JSONDecodeError:
+                    hardware = {}
+                for item in hardware.get("SPHardwareDataType", []):
+                    for key in ("chip_type", "cpu_type", "processor_name"):
+                        value = item.get(key)
+                        if isinstance(value, str) and value.strip():
+                            return value.strip()
+
+    processor = platform.processor().strip()
+    if processor and processor.casefold() not in {
+        "unknown",
+        platform.machine().casefold(),
+    }:
+        return processor
+    return "Not reported by operating system"
+
+
+def _linux_storage_info(location: str, path: Path) -> StorageInfo:
+    try:
+        device_number = path.stat().st_dev
+    except OSError as error:
+        return StorageInfo(
+            location,
+            "Unknown (could not inspect benchmark path)",
+            "Not reported",
+            error.strerror or "device unavailable",
+        )
+
+    major = os.major(device_number)
+    minor = os.minor(device_number)
+    block_path = Path("/sys/dev/block") / f"{major}:{minor}"
+    try:
+        block = block_path.resolve(strict=True)
+    except OSError:
+        return StorageInfo(
+            location,
+            "Unknown (backing device not exposed)",
+            "Not reported",
+            f"filesystem device {major}:{minor}",
+        )
+
+    if (block / "partition").is_file():
+        block = block.parent
+    device = block.name
+    try:
+        rotational = (block / "queue" / "rotational").read_text(
+            encoding="ascii"
+        ).strip()
+    except OSError:
+        rotational = ""
+    media_type = {
+        "0": "SSD / non-rotational (may be virtual)",
+        "1": "HDD / rotational",
+    }.get(rotational, "Unknown (rotation status not exposed)")
+
+    model = "Not reported"
+    for candidate in (
+        block / "device" / "model",
+        block / "device" / "name",
+        block / "model",
+    ):
+        try:
+            value = candidate.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError:
+            continue
+        if value:
+            model = " ".join(value.split())
+            break
+    return StorageInfo(location, media_type, model, device)
+
+
+def _windows_storage_info(location: str, path: Path) -> StorageInfo:
+    drive = path.resolve().drive.rstrip("\\/")
+    drive_letter = drive.rstrip(":")
+    if len(drive_letter) != 1:
+        return StorageInfo(
+            location,
+            "Unknown (drive mapping not exposed)",
+            "Not reported",
+            drive or "device unavailable",
+        )
+    powershell = shutil.which("powershell.exe") or shutil.which("pwsh")
+    if not powershell:
+        return StorageInfo(
+            location,
+            "Unknown (PowerShell unavailable)",
+            "Not reported",
+            f"{drive_letter}:",
+        )
+    script = (
+        "$ErrorActionPreference = 'Stop'; "
+        f"$partition = Get-Partition -DriveLetter '{drive_letter}' | "
+        "Select-Object -First 1; "
+        "if ($null -eq $partition) { exit 1 }; "
+        "$disk = Get-Disk -Number $partition.DiskNumber; "
+        "[pscustomobject]@{ Number = $disk.Number; "
+        "MediaType = [string]$disk.MediaType; "
+        "BusType = [string]$disk.BusType; "
+        "Model = [string]$disk.FriendlyName } | ConvertTo-Json -Compress"
+    )
+    output = _hardware_command_output(
+        [powershell, "-NoProfile", "-NonInteractive", "-Command", script]
+    )
+    if not output:
+        return StorageInfo(
+            location,
+            "Unknown (Windows did not expose disk details)",
+            "Not reported",
+            f"{drive_letter}:",
+        )
+    try:
+        disk = json.loads(output)
+    except json.JSONDecodeError:
+        disk = {}
+    media = str(disk.get("MediaType", "")).strip()
+    bus = str(disk.get("BusType", "")).strip()
+    if media.casefold() == "ssd" or bus.casefold() == "nvme":
+        media_type = "SSD" if media.casefold() == "ssd" else "SSD (NVMe)"
+    elif media.casefold() == "hdd":
+        media_type = "HDD"
+    else:
+        media_type = f"Unknown (Windows reported {media or 'no media type'})"
+    model = str(disk.get("Model", "")).strip() or "Not reported"
+    number = disk.get("Number")
+    device = f"disk {number}" if number is not None else f"{drive_letter}:"
+    if bus:
+        device += f" ({bus})"
+    return StorageInfo(location, media_type, model, device)
+
+
+def _macos_storage_info(location: str, path: Path) -> StorageInfo:
+    diskutil = shutil.which("diskutil")
+    if not diskutil:
+        return StorageInfo(
+            location,
+            "Unknown (diskutil unavailable)",
+            "Not reported",
+            "device unavailable",
+        )
+    output = _hardware_command_output(
+        [diskutil, "info", "-plist", str(path.resolve())]
+    )
+    if not output:
+        return StorageInfo(
+            location,
+            "Unknown (diskutil did not expose disk details)",
+            "Not reported",
+            "device unavailable",
+        )
+    try:
+        disk = plistlib.loads(output)
+    except plistlib.InvalidFileException:
+        disk = {}
+    solid_state = disk.get("SolidState")
+    if solid_state is True or str(solid_state).casefold() in {"yes", "true", "1"}:
+        media_type = "SSD"
+    elif solid_state is False or str(solid_state).casefold() in {"no", "false", "0"}:
+        media_type = "HDD"
+    elif str(disk.get("BusProtocol", "")).casefold() == "nvme":
+        media_type = "SSD (NVMe)"
+    else:
+        media_type = "Unknown (diskutil did not report media type)"
+    model = next(
+        (
+            str(disk[key]).strip()
+            for key in ("MediaName", "DeviceModel", "IOKitMediaName")
+            if disk.get(key)
+        ),
+        "Not reported",
+    )
+    device = str(disk.get("DeviceIdentifier", "device unavailable"))
+    return StorageInfo(location, media_type, model, device)
+
+
+def _storage_info(location: str, path: Path) -> StorageInfo:
+    if sys.platform.startswith("linux"):
+        return _linux_storage_info(location, path)
+    if sys.platform == "win32":
+        return _windows_storage_info(location, path)
+    if sys.platform == "darwin":
+        return _macos_storage_info(location, path)
+    return StorageInfo(
+        location,
+        "Unknown (unsupported operating system)",
+        "Not reported",
+        "device unavailable",
+    )
+
+
+def collect_benchmark_hardware() -> BenchmarkHardware:
+    return BenchmarkHardware(
+        operating_system=platform.platform(),
+        cpu_model=_cpu_model(),
+        storage=(
+            _storage_info("Source and archives", TESTDATA),
+            _storage_info("Extraction output", TESTRESULTS),
+        ),
+    )
 
 
 class ResourceMonitor:
@@ -895,13 +1179,17 @@ def extract_archive(
         raise RuntimeError(f"Unknown archive format: {method}")
 
 
-def svg_chart(results: list[dict[str, object]], source_bytes: int) -> str:
+def svg_chart(
+    results: list[dict[str, object]],
+    source_bytes: int,
+    hardware: BenchmarkHardware,
+) -> str:
     width = 1120
     label_width = 250
     plot_width = 700
     row_height = 30
     bar_panel_height = 80 + row_height * len(results)
-    top = 40
+    top = 120
     # Time-series panels for CPU and RAM are taller: 200 px each
     ts_panel_height = 220
     height = top + bar_panel_height * 3 + ts_panel_height * 2 + 40
@@ -913,6 +1201,16 @@ def svg_chart(results: list[dict[str, object]], source_bytes: int) -> str:
         "tar": "#0891b2",
         "tar.gz": "#ea580c",
     }
+    logical_cores = os.cpu_count() or "unknown"
+    cpu_summary = (
+        f"CPU: {hardware.cpu_model} ({platform.machine()}, "
+        f"{logical_cores} logical cores)"
+    )
+    storage_summaries = [
+        f"Storage ({item.location}): {item.media_type}; model: {item.model}; "
+        f"device: {item.device}"
+        for item in hardware.storage
+    ]
 
     def chart_panel(title: str, key: str, unit: str, y: int, divisor: float = 1.0) -> str:
         values = [float(item[key]) / divisor for item in results]
@@ -1094,24 +1392,40 @@ def svg_chart(results: list[dict[str, object]], source_bytes: int) -> str:
     cpu_ram_extract = _resource_panel(
         "CPU & RAM during extraction", "extraction_resources", cpu_ram_extract_y
     )
+    metadata = [
+        '<text x="24" y="24" class="heading">Benchmark system</text>',
+        f'<text x="24" y="46" class="metadata">'
+        f'Operating system: {html.escape(hardware.operating_system)}</text>',
+        f'<text x="24" y="64" class="metadata">{html.escape(cpu_summary)}</text>',
+    ]
+    metadata.extend(
+        f'<text x="24" y="{82 + index * 18}" class="metadata">'
+        f"{html.escape(summary)}</text>"
+        for index, summary in enumerate(storage_summaries)
+    )
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
         f'viewBox="0 0 {width} {height}" role="img" aria-labelledby="title description">\n'
-        f'<title id="title">Linux 4.0.1 archive benchmark charts</title>\n'
+        f'<title id="title">{html.escape(OS_TAG)} archive benchmark charts</title>\n'
         f'<desc id="description">Archive size, compression time, extraction time, '
         f'CPU utilisation, and RAM usage '
         f'for archive formats with and without encryption, with hot and cold file caches where available. Source size: '
-        f'{source_bytes / (1024 * 1024):.1f} MiB.</desc>\n'
+        f'{source_bytes / (1024 * 1024):.1f} MiB. Operating system: '
+        f'{html.escape(hardware.operating_system)}. {html.escape(cpu_summary)}. '
+        f'{html.escape("; ".join(storage_summaries))}</desc>\n'
         """<style>
   text { font-family: system-ui, sans-serif; fill: #172033; }
   .heading { font-size: 19px; font-weight: 700; }
   .label { font-size: 13px; }
+  .metadata { font-size: 12px; fill: #475569; }
   .axis { font-size: 11px; fill: #64748b; }
   .value { font-size: 12px; font-weight: 600; }
   .grid { stroke: #dbe3ee; stroke-width: 1; }
 </style>
 <rect width="100%" height="100%" fill="#ffffff"/>
 """
+        + "\n".join(metadata)
+        + "\n"
         + archive_panel
         + "\n"
         + compression_panel
@@ -1133,8 +1447,18 @@ def write_report(
     tools: dict[str, str],
     notes: list[str],
 ) -> None:
-    CHART_PATH.write_text(svg_chart(results, source_bytes), encoding="utf-8")
+    hardware = collect_benchmark_hardware()
+    CHART_PATH.write_text(
+        svg_chart(results, source_bytes, hardware), encoding="utf-8"
+    )
     timestamp = dt.datetime.now(dt.timezone.utc).astimezone().isoformat(timespec="seconds")
+    logical_cores = os.cpu_count() or "unknown"
+    storage_lines = "\n".join(
+        f"- Benchmark storage ({storage.location}): {storage.media_type}; "
+        f"model: {storage.model}; device: {storage.device}"
+        for storage in hardware.storage
+    )
+
     def _avg_resource(key: str, item: dict[str, object]) -> tuple[float, float]:
         samples = item.get(key, [])
         if not samples:
@@ -1186,10 +1510,11 @@ def write_report(
         f"""# Linux 4.0.1 Archive Benchmark
 
 Run date: {timestamp}  
-Operating system: {platform.platform()}  
-CPU: {platform.machine()}, {os.cpu_count()} logical cores
+- Operating system: {hardware.operating_system}
+- CPU: {hardware.cpu_model} ({platform.machine()}, {logical_cores} logical cores)
+{storage_lines}
 
-![Archive size, compression time, extraction time, CPU, and RAM charts](./{CHART_PATH.name})
+![Host OS, CPU and storage information, archive size, compression time, extraction time, CPU, and RAM charts](./{CHART_PATH.name})
 
 ## Results
 
@@ -1215,6 +1540,10 @@ each compression and extraction operation using `psutil`. The table shows the
 average CPU % and RAM GiB across all samples for each phase. The time-series
 charts below the bar charts plot every sample, with one line per archive format
 (solid = plain, dashed = encrypted; thick line = CPU %, thin dashed line = RAM GiB).
+The CPU model and operating system are collected from the host. Storage details
+describe the volumes holding the source/archive files and extraction output.
+The operating system may not expose physical media behind virtual or layered
+storage; such cases are identified as unknown or non-rotational/possibly virtual.
 
 ## Method
 

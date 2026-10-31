@@ -523,5 +523,9 @@ tar.gz uses OpenSSL CMS AES-256-GCM because the tar.gz format itself has no
 encryption. Extracted output is checked against the source tree, and
 `testresults/` is emptied after every extraction. The script writes
 `benchmark-report-<os>.md` (for example [`benchmark-report-linux.md`](./benchmark-report-linux.md)), with charts in
-`benchmark-charts-<os>.svg`. Temporary archives and
-encryption keys are removed when the run finishes.
+`benchmark-charts-<os>.svg`. Both outputs record the host operating system, CPU
+model and logical-core count, and OS-reported media type, model, and device for
+the source/archive and extraction volumes. Virtual or layered storage may not
+expose its physical backing device and is reported as unknown or possibly
+virtual. Temporary archives and encryption keys are removed when the run
+finishes.
