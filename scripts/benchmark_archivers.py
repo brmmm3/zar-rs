@@ -42,7 +42,16 @@ if os.name == "posix":
 import psutil
 
 
-ROOT = Path(__file__).resolve().parents[1]
+def find_repository_root(script_path: Path) -> Path:
+    for candidate in script_path.resolve().parents:
+        if (candidate / "Cargo.toml").is_file():
+            return candidate
+    raise RuntimeError(
+        f"Could not find Cargo.toml above benchmark script: {script_path}"
+    )
+
+
+ROOT = find_repository_root(Path(__file__))
 TESTDATA = ROOT / "testdata"
 TESTRESULTS = ROOT / "testresults"
 SOURCE_NAME = "linux-4.0.1"
