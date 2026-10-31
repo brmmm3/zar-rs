@@ -533,6 +533,11 @@ def require_tools() -> dict[str, str]:
     else:
         missing.append("7z")
 
+    # GNU tar runs the external gzip program for tar.gz archives.
+    gzip = shutil.which("gzip")
+    if gzip:
+        tools["gzip"] = gzip
+
     # Info-ZIP is rarely installed on Windows; the zip format is skipped there.
     for name in ("zip", "unzip"):
         found = shutil.which(name)
@@ -1921,7 +1926,7 @@ def run_benchmarks(
         for method in ("tar", "tar.gz"):
             skipped.add((method, True))
     results: list[dict[str, object]] = []
-    versions = tool_versions(tools)
+    versions = tool_versions({**tools, "zarc": str(binary)})
     if ARCHIVE_DIR.exists():
         print(f"Remove existing benchmark archive directory: {ARCHIVE_DIR}")
         shutil.rmtree(ARCHIVE_DIR)
@@ -2205,6 +2210,8 @@ def tool_versions(tools: dict[str, str]) -> dict[str, str]:
         "7z": [],
         "tar": ["--version"],
         "openssl": ["version"],
+        "gzip": ["--version"],
+        "zarc": ["--version"],
     }
     versions: dict[str, str] = {}
     for name, executable in tools.items():
