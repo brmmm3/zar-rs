@@ -543,7 +543,7 @@ jobs:
   publish-github-release:
     name: Publish GitHub release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [build-binaries, release-wheels, release-sdist, wasizarlib]
+    needs: [build-binaries, release-wheels, release-sdist, wasizarlib, csharp-pack-windows, java-bindings]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -559,6 +559,30 @@ jobs:
         with:
           name: wasizarlib-wasip2
           path: dist
+      - name: Download NuGet packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # 8.0.1
+        with:
+          pattern: ZarLib-*-nuget
+          path: dist
+          merge-multiple: true
+      - name: Download Java distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # 8.0.1
+        with:
+          pattern: jzarlib-*
+          path: dist/java
+      - name: Package Java release assets
+        shell: bash
+        run: |
+          shopt -s nullglob
+          distributions=(dist/java/jzarlib-*)
+          test "${#distributions[@]}" -eq 6
+          for distribution in "${distributions[@]}"; do
+            name=${distribution##*/}
+            jars=("$distribution"/*.jar)
+            test "${#jars[@]}" -eq 1
+            cp "${jars[0]}" "dist/$name.jar"
+            tar -czf "dist/$name.tar.gz" -C dist/java "$name"
+          done
       - name: Publish GitHub release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
