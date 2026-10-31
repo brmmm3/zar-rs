@@ -704,7 +704,7 @@ def run_7z_extract(command: list[str], cwd: Path, expected_link_warnings: int) -
     )
     output = result.stdout.decode("utf-8", errors="replace")
     link_errors = re.findall(
-        r"(?m)^ERROR: Dangerous link path was ignored :", output
+        r"(?m)^ERROR: Dangerous (?:symbolic )?link path was ignored :", output
     )
     all_errors = re.findall(r"(?m)^ERROR: (.*)$", output)
     if result.returncode == 0:
