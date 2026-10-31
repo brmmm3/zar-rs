@@ -125,7 +125,12 @@ jobs:
       matrix:
         include:
           - python-version: "3.11"
+          - python-version: "3.12"
+          - python-version: "3.13"
+          - python-version: "3.14"
           - python-version: "3.15"
+          - python-version: "3.14t"
+            free_threaded: true
           - python-version: "3.15t"
             free_threaded: true
     steps:
@@ -140,7 +145,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # 7.0.0
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
       - name: Install Python test tools
         working-directory: pyzarlib
         run: |
@@ -160,6 +165,176 @@ jobs:
           else
             python -Wd -m pytest
           fi
+
+  csharp-test:
+    name: Test ZarLib
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
+        with:
+          toolchain: stable
+      - name: Build native C library
+        run: cargo build --locked -p czarlib
+      - name: Test C# wrapper
+        run: dotnet test csharpzarlib/ZarLib.Tests/ZarLib.Tests.csproj --configuration Release
+
+  csharp-pack-windows:
+    name: Pack ZarLib (${{ matrix.arch.name }})
+    needs: csharp-test
+    runs-on: ${{ matrix.arch.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - name: x64
+            runner: windows-latest
+            rust-target: x86_64-pc-windows-msvc
+            rid: win-x64
+          - name: arm64
+            runner: windows-11-vs2026-arm
+            rust-target: aarch64-pc-windows-msvc
+            rid: win-arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
+        with:
+          toolchain: stable
+          targets: ${{ matrix.arch.rust-target }}
+      - name: Build native C library
+        run: cargo build --locked --release -p czarlib --target ${{ matrix.arch.rust-target }}
+      - name: Pack architecture-specific NuGet package
+        shell: pwsh
+        run: |
+          $nativeLibrary = Join-Path $PWD "target/${{ matrix.arch.rust-target }}/release/czarlib.dll"
+          dotnet pack csharpzarlib/ZarLib/ZarLib.csproj --configuration Release --output artifacts `
+            -p:PackageId=ZarLib.${{ matrix.arch.name }} `
+            -p:RuntimeIdentifier=${{ matrix.arch.rid }} `
+            -p:NativeLibraryPath="$nativeLibrary"
+      - name: Upload NuGet package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
+        with:
+          name: ZarLib-${{ matrix.arch.name }}-nuget
+          path: artifacts/*.nupkg
+          if-no-files-found: error
+
+  java-bindings:
+    name: Java bindings (${{ matrix.module }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - jzarlib-ffm
+          - jzarlib-jni
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Java
+        uses: actions/setup-java@0f481fcb613427c0f801b606911222b5b6f3083a # v5.5.0
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
+        with:
+          toolchain: stable
+      - name: Set up MSVC environment
+        if: matrix.module == 'jzarlib-jni' && runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+      - name: Build C library
+        run: cargo build --manifest-path Cargo.toml -p czarlib
+      - name: Build JNI library (Linux)
+        if: matrix.module == 'jzarlib-jni' && runner.os == 'Linux'
+        run: ./jzarlib-jni/build-native.sh
+      - name: Build JNI library (macOS)
+        if: matrix.module == 'jzarlib-jni' && runner.os == 'macOS'
+        run: ./jzarlib-jni/build-native.sh
+      - name: Build JNI library (Windows)
+        if: matrix.module == 'jzarlib-jni' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $project = Join-Path $PWD 'jzarlib-jni'
+          $native = Join-Path $project 'target/native'
+          New-Item -ItemType Directory -Force -Path $native | Out-Null
+          $jdkInclude = Join-Path $env:JAVA_HOME 'include'
+          $jniHeader = Join-Path $jdkInclude 'win32'
+          $cSources = Join-Path $project 'src/main/c/jzarlib_jni.c'
+          $cHeaders = Join-Path $PWD 'czarlib/include'
+          $importLibrary = Join-Path $PWD 'target/debug/czarlib.dll.lib'
+          cl.exe /nologo /O2 /W4 /WX /LD "/I$jdkInclude" "/I$jniHeader" "/I$cHeaders" $cSources $importLibrary /link "/OUT:$native/zarlib_jni.dll"
+          Copy-Item (Join-Path $PWD 'target/debug/czarlib.dll') $native
+      - name: Test and package Java JAR
+        working-directory: ${{ matrix.module }}
+        run: mvn --batch-mode --no-transfer-progress verify
+      - name: Stage Linux distribution
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          MODULE: ${{ matrix.module }}
+        run: |
+          mkdir -p "dist/$MODULE"
+          cp "$MODULE/target/$MODULE-"*.jar "dist/$MODULE/"
+          if [ "$MODULE" = jzarlib-ffm ]; then
+            cp target/debug/libczarlib.so "dist/$MODULE/"
+          else
+            cp jzarlib-jni/target/native/libzarlib_jni.so target/debug/libczarlib.so "dist/$MODULE/"
+          fi
+      - name: Stage macOS distribution
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          MODULE: ${{ matrix.module }}
+        run: |
+          mkdir -p "dist/$MODULE"
+          cp "$MODULE/target/$MODULE-"*.jar "dist/$MODULE/"
+          if [ "$MODULE" = jzarlib-ffm ]; then
+            cp target/debug/libczarlib.dylib "dist/$MODULE/"
+          else
+            cp jzarlib-jni/target/native/libzarlib_jni.dylib target/debug/libczarlib.dylib "dist/$MODULE/"
+          fi
+      - name: Stage Windows distribution
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          MODULE: ${{ matrix.module }}
+        run: |
+          $dist = Join-Path $PWD "dist/$env:MODULE"
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+          Copy-Item "$env:MODULE/target/$env:MODULE-*.jar" $dist
+          if ($env:MODULE -eq 'jzarlib-ffm') {
+            Copy-Item 'target/debug/czarlib.dll' $dist
+          } else {
+            Copy-Item 'jzarlib-jni/target/native/zarlib_jni.dll', 'target/debug/czarlib.dll' $dist
+          }
+      - name: Upload Java distribution
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
+        with:
+          name: ${{ matrix.module }}-${{ matrix.os }}
+          path: dist/${{ matrix.module }}/
+          if-no-files-found: error
 
   build-binaries:
     name: Build binaries (${{ matrix.platform.name }})
