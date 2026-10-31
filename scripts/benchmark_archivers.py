@@ -1789,7 +1789,7 @@ def write_report(
     REPORT_PATH.write_text(
         f"""# Linux 4.0.1 Archive Benchmark
 
-Run date: {timestamp}  
+Run date: {timestamp}
 - Operating system: {hardware.operating_system}
 - CPU: {hardware.cpu_model} ({platform.machine()}, {logical_cores} logical cores)
 {storage_lines}
@@ -1798,9 +1798,9 @@ Run date: {timestamp}
 
 ## Results
 
-Source: [`linux-4.0.1.tar.gz`](https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.0.1.tar.gz)  
-Uncompressed source size: {source_bytes / (1024 * 1024):.1f} MiB  
-Regular files verified: {source_files:,}  
+Source: [`linux-4.0.1.tar.gz`](https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.0.1.tar.gz)
+Uncompressed source size: {source_bytes / (1024 * 1024):.1f} MiB
+Regular files verified: {source_files:,}
 Symbolic links excluded from path/size verification: {symlink_count}
 
 | Format | Encryption | Cache | Archive size | Compression (min-max) | Extraction (min-max) | Extract 3 files (min-max) | Temp space (3 files) | CPU / RAM (compress) | CPU / RAM (extract) |
@@ -2004,7 +2004,7 @@ def run_benchmarks(
                     monitor = ResourceMonitor()
 
                     for run in range(runs_per_test):
-                        label = f" (run {run + 1}/{runs_per_test})" if runs_per_test > 1 else ""
+                        label = f" (run {run + 1}/{runs_per_test})"
                         print(
                             f"Compressing {method} (encrypted={encrypted}, "
                             f"{cache} cache){label}..."
