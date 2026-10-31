@@ -101,13 +101,13 @@ pub(crate) enum Command {
             help = "Include named pipes and Unix device nodes found in input paths"
         )]
         special_files: bool,
-        #[arg(long = "include-file", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Include matching file fnmatch patterns; may be repeated")]
+        #[arg(long = "include-file", alias = "if", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Include matching file fnmatch patterns; may be repeated")]
         include_files: Vec<String>,
-        #[arg(long = "exclude-file", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Exclude matching file fnmatch patterns (overrides includes)")]
+        #[arg(long = "exclude-file", alias = "ef", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Exclude matching file fnmatch patterns (overrides includes)")]
         exclude_files: Vec<String>,
-        #[arg(long = "include-folder", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Include matching folders and their contents")]
+        #[arg(long = "include-folder", alias = "id", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Include matching folders and their contents")]
         include_folders: Vec<String>,
-        #[arg(long = "exclude-folder", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Exclude matching folders and their contents")]
+        #[arg(long = "exclude-folder", alias = "ed", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Exclude matching folders and their contents")]
         exclude_folders: Vec<String>,
         #[arg(long, value_name = "PATH", action = clap::ArgAction::Append, help = "Read include/exclude fnmatch patterns from a text file; prefix excluded patterns with '-'")]
         filelist: Vec<PathBuf>,
@@ -228,13 +228,13 @@ pub(crate) enum Command {
             help = "Prompt for a password to unlock this commit; may be repeated"
         )]
         password_for: Vec<String>,
-        #[arg(long = "include-file", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Include matching file fnmatch patterns; may be repeated")]
+        #[arg(long = "include-file", alias = "if", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Include matching file fnmatch patterns; may be repeated")]
         include_files: Vec<String>,
-        #[arg(long = "exclude-file", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Exclude matching file fnmatch patterns (overrides includes)")]
+        #[arg(long = "exclude-file", alias = "ef", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Exclude matching file fnmatch patterns (overrides includes)")]
         exclude_files: Vec<String>,
-        #[arg(long = "include-folder", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Include matching folders and their contents")]
+        #[arg(long = "include-folder", alias = "id", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Include matching folders and their contents")]
         include_folders: Vec<String>,
-        #[arg(long = "exclude-folder", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Exclude matching folders and their contents")]
+        #[arg(long = "exclude-folder", alias = "ed", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Exclude matching folders and their contents")]
         exclude_folders: Vec<String>,
         #[arg(long, value_name = "PATH", action = clap::ArgAction::Append, help = "Read include/exclude fnmatch patterns from a text file; prefix excluded patterns with '-'")]
         filelist: Vec<PathBuf>,
@@ -511,13 +511,13 @@ pub(crate) enum Command {
             help = "Prompt for a password for this commit; may be repeated"
         )]
         password_for: Vec<String>,
-        #[arg(long = "include-file", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Include matching file fnmatch patterns; may be repeated")]
+        #[arg(long = "include-file", alias = "if", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Include matching file fnmatch patterns; may be repeated")]
         include_files: Vec<String>,
-        #[arg(long = "exclude-file", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Exclude matching file fnmatch patterns (overrides includes)")]
+        #[arg(long = "exclude-file", alias = "ef", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Exclude matching file fnmatch patterns (overrides includes)")]
         exclude_files: Vec<String>,
-        #[arg(long = "include-folder", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Include matching folders and their contents")]
+        #[arg(long = "include-folder", alias = "id", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Include matching folders and their contents")]
         include_folders: Vec<String>,
-        #[arg(long = "exclude-folder", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Exclude matching folders and their contents")]
+        #[arg(long = "exclude-folder", alias = "ed", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Exclude matching folders and their contents")]
         exclude_folders: Vec<String>,
         #[arg(long, value_name = "PATH", action = clap::ArgAction::Append, help = "Read include/exclude fnmatch patterns from a text file; prefix excluded patterns with '-'")]
         filelist: Vec<PathBuf>,

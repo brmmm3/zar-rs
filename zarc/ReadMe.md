@@ -63,9 +63,9 @@ Options:
   strict mode, symlinks are recorded in the archive and require
   `extract --symlinks` to restore; unreadable files are skipped with a warning;
   named pipes and device nodes are skipped unless `--special-files` is set.
-- `--include-file PATTERN` / `--exclude-file PATTERN`: filter files using
+- `--include-file PATTERN` / `--exclude-file PATTERN` (aliases `--if` / `--ef`): filter files using
   fnmatch patterns. Repeat either option to provide multiple patterns.
-- `--include-folder PATTERN` / `--exclude-folder PATTERN`: filter matching
+- `--include-folder PATTERN` / `--exclude-folder PATTERN` (aliases `--id` / `--ed`): filter matching
   folders; matching a folder includes or excludes its entire subtree.
 - `--filelist PATH`: read patterns from a text file, one per line. Lines
   beginning with `-` exclude the pattern; other lines include it. File-list
