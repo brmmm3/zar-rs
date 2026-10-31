@@ -18,7 +18,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DIST="$ROOT/dist"
 BIN_DIR="${BIN_DIR:-$ROOT/target/release}"
-VERSION="$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p}' "$ROOT/Cargo.toml")"
+VERSION="$(awk '
+    /^\[workspace\.package\]$/ { in_workspace=1; next }
+    /^\[/ { in_workspace=0 }
+    in_workspace && /^version = / {
+        sub(/^version = "/, "")
+        sub(/"$/, "")
+        print
+        exit
+    }
+' "$ROOT/Cargo.toml")"
 BUNDLE_ID="io.github.brmmm3.Zarg"
 
 case "$(uname -m)" in
