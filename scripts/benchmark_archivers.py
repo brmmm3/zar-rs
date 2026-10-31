@@ -65,6 +65,11 @@ _ARCH_ALIASES = {"amd64": "x86_64", "x64": "x86_64", "aarch64": "arm64", "i686":
 ARCH_TAG = _ARCH_ALIASES.get(platform.machine().casefold(), re.sub(r"\W+", "-", platform.machine().casefold()) or "unknown")
 REPORT_PATH = ROOT / "doc" / f"benchmark-report-{OS_TAG}-{ARCH_TAG}.md"
 CHART_PATH = ROOT / "doc" / f"benchmark-charts-{OS_TAG}-{ARCH_TAG}.svg"
+PARTIAL_FILES = (
+    "fs/btrfs/check-integrity.c",
+    "lib/xz/xz_dec_test.c",
+    "tools/perf/util/build-id.h",
+)
 SOURCE_URL = "https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.0.1.tar.gz"
 ENCRYPTED_PASSWORD = secrets.token_urlsafe(24)
 PROMPT_RE = re.compile(rb"(?im)^[^\r\n]*(?:password|passphrase)[^\r\n]*:\s*$")
@@ -958,6 +963,58 @@ def _make_writable_and_retry(function: Callable[..., object], path: str, _error:
     function(path)
 
 
+def _tree_bytes(roots: list[Path]) -> int:
+    total = 0
+    for root in roots:
+        for directory, _dirs, files in os.walk(root):
+            for name in files:
+                try:
+                    total += os.lstat(os.path.join(directory, name)).st_size
+                except OSError:
+                    pass
+    return total
+
+
+def measure_with_disk_peak(action: Callable[[], None], roots: list[Path]) -> tuple[float, int, int]:
+    """Run `action`; return (seconds, peak bytes above baseline, final bytes above baseline).
+
+    The peak minus the final size is the temporary space used by the action.
+    """
+    baseline = _tree_bytes(roots)
+    peak = 0
+    stop = threading.Event()
+
+    def sample() -> None:
+        nonlocal peak
+        while not stop.is_set():
+            peak = max(peak, _tree_bytes(roots) - baseline)
+            stop.wait(0.005)
+
+    thread = threading.Thread(target=sample, daemon=True)
+    thread.start()
+    try:
+        seconds = measure(action)
+    finally:
+        stop.set()
+        thread.join()
+    final = _tree_bytes(roots) - baseline
+    return seconds, max(peak, final), final
+
+
+def verify_partial_extraction() -> None:
+    found = sorted(
+        p.relative_to(TESTRESULTS).as_posix() for p in TESTRESULTS.rglob("*") if p.is_file()
+    )
+    wanted = sorted(f"{SOURCE_NAME}/{m}" for m in PARTIAL_FILES)
+    if found != wanted:
+        raise RuntimeError(f"Partial extraction produced {found}, expected {wanted}")
+    for member in PARTIAL_FILES:
+        if (TESTRESULTS / SOURCE_NAME / member).stat().st_size != (
+            SOURCE_DIR / member
+        ).stat().st_size:
+            raise RuntimeError(f"Partial extraction size mismatch for {member}")
+
+
 def clean_testresults() -> None:
     if TESTRESULTS.is_symlink():
         raise RuntimeError(f"Refusing to clean symlinked results directory: {TESTRESULTS}")
@@ -1273,12 +1330,17 @@ def extract_archive(
     temporary_directory: Path,
     password: str,
     expected_link_warnings: int,
+    members: list[str] | None = None,
 ) -> None:
+    """Extract the whole archive, or only `members` (paths below the source root)."""
+    names = [f"{SOURCE_NAME}/{m}" for m in members] if members else []
     if method == "zarlib":
         command = [str(binary), "extract"]
         if encrypted:
             command.append("--password")
         command.extend(["--collision", "rename"])
+        for name in names:
+            command.extend(["--include-file", name])
         command.extend([str(path), "--to", str(TESTRESULTS)])
         if encrypted:
             run_with_password(command, TESTDATA, ENCRYPTED_PASSWORD)
@@ -1288,7 +1350,9 @@ def extract_archive(
         command = [tools["unzip"], "-q", "-o"]
         if encrypted and os.name != "posix":
             command.extend(["-P", ENCRYPTED_PASSWORD])
-        command.extend([str(path), "-d", str(TESTRESULTS)])
+        command.append(str(path))
+        command.extend(names)
+        command.extend(["-d", str(TESTRESULTS)])
         if encrypted and os.name == "posix":
             run_with_password(command, TESTDATA, ENCRYPTED_PASSWORD)
         else:
@@ -1298,7 +1362,8 @@ def extract_archive(
         if encrypted:
             command.append(f"-p{password}")
         command.append(str(path))
-        run_7z_extract(command, TESTDATA, expected_link_warnings)
+        command.extend(names)
+        run_7z_extract(command, TESTDATA, 0 if names else expected_link_warnings)
     elif method in ("tar", "tar.gz"):
         compressed = path
         if encrypted:
@@ -1333,6 +1398,7 @@ def extract_archive(
                 "--directory",
                 str(TESTRESULTS),
                 "--no-same-owner",
+                *names,
             ]
         )
     else:
@@ -1627,6 +1693,13 @@ def write_report(
         ram_vals = [s[2] for s in samples]
         return (sum(cpu_vals) / len(cpu_vals), sum(ram_vals) / len(ram_vals))
 
+    def _fmt_bytes(n: int) -> str:
+        if n < 1024:
+            return f"{n} B"
+        if n < 1024 * 1024:
+            return f"{n / 1024:.1f} KiB"
+        return f"{n / (1024 * 1024):.1f} MiB"
+
     table_rows = []
     for item in results:
         encryption = "Yes" if item["encrypted"] else "No"
@@ -1638,7 +1711,7 @@ def write_report(
         table_rows.append(
             "| {method} | {encrypted} | {cache} | {size:.1f} MiB | {compress:.2f} s "
             "({compress_speed:.1f} MiB/s) | {extract:.2f} s ({extract_speed:.1f} MiB/s) |"
-            " {cpu_c:.0f} % / {ram_c:.1f} GiB | {cpu_e:.0f} % / {ram_e:.1f} GiB |".format(
+            " {partial:.3f} s | {partial_temp} | {cpu_c:.0f} % / {ram_c:.1f} GiB | {cpu_e:.0f} % / {ram_e:.1f} GiB |".format(
                 method=item["method"],
                 cache=item["cache"],
                 encrypted=encryption,
@@ -1647,6 +1720,8 @@ def write_report(
                 compress_speed=compression_speed,
                 extract=float(item["extraction_seconds"]),
                 extract_speed=extraction_speed,
+                partial=float(item["partial_extraction_seconds"]),
+                partial_temp=_fmt_bytes(int(item["partial_temp_bytes"])),
                 cpu_c=avg_cpu_c,
                 ram_c=avg_ram_c,
                 cpu_e=avg_cpu_e,
@@ -1683,9 +1758,16 @@ Uncompressed source size: {source_bytes / (1024 * 1024):.1f} MiB
 Regular files verified: {source_files:,}  
 Symbolic links excluded from path/size verification: {symlink_count}
 
-| Format | Encryption | Cache | Archive size | Compression | Extraction | CPU / RAM (compress) | CPU / RAM (extract) |
-|---|---:|---:|---:|---:|---:|---:|---:|
+| Format | Encryption | Cache | Archive size | Compression | Extraction | Extract 3 files | Temp space (3 files) | CPU / RAM (compress) | CPU / RAM (extract) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 {chr(10).join(table_rows)}
+
+"Extract 3 files" is the time to extract only {", ".join(f"`{m}`" for m in PARTIAL_FILES)}
+from the archive (for encrypted tar/tar.gz this includes decrypting the archive). "Temp space"
+is the peak disk usage of the results directory and the runner's temporary
+directory during that extraction minus the size of the extracted files, sampled
+every 5 ms (the maximum over all runs). Temporary files outside these
+directories (e.g. in the system temp directory) are not captured.
 
 Throughput uses the uncompressed regular-file size. Each extraction was run into
 a freshly emptied `testresults/` directory, then checked against the source tree
@@ -1867,6 +1949,8 @@ def run_benchmarks(
                     extraction_times: list[float] = []
                     archive_bytes = 0
                     renamed_paths = 0
+                    partial_times: list[float] = []
+                    partial_temp_bytes: list[int] = []
                     compression_resources: list[list[tuple[float, float, float]]] = []
                     extraction_resources: list[list[tuple[float, float, float]]] = []
 
@@ -1930,6 +2014,31 @@ def run_benchmarks(
                             renamed_paths = verify_extraction(
                                 expected, symlinks, allow_renames
                             )
+                            clean_testresults()
+                            prepare_cache(path)
+                            partial_seconds, peak_bytes, final_bytes = measure_with_disk_peak(
+                                lambda: extract_archive(
+                                    method,
+                                    encrypted,
+                                    path,
+                                    tools,
+                                    binary,
+                                    certificate,
+                                    private_key,
+                                    temporary_directory,
+                                    ENCRYPTED_PASSWORD,
+                                    0,
+                                    list(PARTIAL_FILES),
+                                ),
+                                [TESTRESULTS, temporary_directory],
+                            )
+                            partial_temp_bytes.append(peak_bytes - final_bytes)
+                            verify_partial_extraction()
+                            partial_times.append(partial_seconds)
+                            print(
+                                f"  Extracted {len(PARTIAL_FILES)} files in "
+                                f"{_fmt_duration(partial_seconds)}"
+                            )
                         finally:
                             clean_testresults()
 
@@ -1975,6 +2084,9 @@ def run_benchmarks(
                             "archive_bytes": archive_bytes,
                             "compression_seconds": avg_compression,
                             "extraction_seconds": avg_extraction,
+                            "partial_temp_bytes": max(partial_temp_bytes),
+                            "partial_extraction_seconds": sum(partial_times)
+                            / len(partial_times),
                             "renamed_paths": renamed_paths,
                             "compression_resources": _merge_resource_samples(compression_resources),
                             "extraction_resources": _merge_resource_samples(extraction_resources),
