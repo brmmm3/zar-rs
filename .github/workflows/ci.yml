@@ -64,6 +64,55 @@ jobs:
       - name: Run workspace tests
         run: cargo test --workspace
 
+  czarlib:
+    name: C library and CLI tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
+        with:
+          toolchain: stable
+      - name: Build C library
+        run: cargo build --locked -p czarlib
+      - name: Run native zarlib tests
+        run: cargo test --locked -p zarlib
+      - name: Run C API integration tests
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -I czarlib/include \
+            czarlib/tests/test_c_api.c -L target/debug -lczarlib \
+            -Wl,-rpath,"$PWD/target/debug" -pthread -o /tmp/czarlib-test
+          /tmp/czarlib-test
+      - name: Build and exercise C zarc example
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -I czarlib/include \
+            czarlib/examples/zarc.c -L target/debug -lczarlib \
+            -Wl,-rpath,"$PWD/target/debug" -o /tmp/zarc-c
+          /tmp/zarc-c --help
+          temp_dir="$(mktemp -d)"
+          trap 'rm -rf "$temp_dir"' EXIT
+          printf 'initial' > "$temp_dir/input.txt"
+          printf 'added' > "$temp_dir/added.txt"
+          (
+            cd "$temp_dir"
+            /tmp/zarc-c c sample.zar input.txt
+            /tmp/zarc-c a sample.zar added.txt
+            /tmp/zarc-c k sample.zar
+            info_json=$(/tmp/zarc-c i sample.zar)
+            printf '%s\n' "$info_json"
+            from_id=$(printf '%s' "$info_json" | jq -r '.[0].id')
+            through_id=$(printf '%s' "$info_json" | jq -r '.[1].id')
+            test "$from_id" != null
+            test "$through_id" != null
+            /tmp/zarc-c l sample.zar
+            /tmp/zarc-c e sample.zar restored --dry-run
+            /tmp/zarc-c r sample.zar added.txt
+            /tmp/zarc-c j sample.zar --from "$from_id" --through "$through_id"
+          )
+
   wasizarlib:
     name: Build wasizarlib (WASI Preview 2)
     needs: [cargo-fmt, cargo-clippy, cargo-test]
