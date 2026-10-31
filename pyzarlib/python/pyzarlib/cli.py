@@ -227,6 +227,14 @@ def _display_size(size: int | None) -> str:
     return f"{size} B" if unit == 0 else f"{value:.2f} {units[unit]}"
 
 
+def _display_path(path: str) -> str:
+    path = Path(path)
+    try:
+        return str(path.relative_to(Path.cwd()))
+    except ValueError:
+        return str(path)
+
+
 def _format_commit(commit: dict[str, Any]) -> str:
     ratio = commit["ratio_percent"]
     ratio_text = "n/a" if ratio is None else f"{ratio:.2f}%"
@@ -421,15 +429,20 @@ def _run(args: argparse.Namespace) -> int:
         )
         if args.dry_run:
             for path in plan["directories"]:
-                print(f"create directory {path}")
+                print(f"create directory {_display_path(path)}")
             for item in plan["files"]:
                 kind = item["type"]
                 if kind == "file":
-                    print(f"write {item['path']} ({item['size']} bytes)")
+                    print(
+                        f"write {_display_path(item['path'])} ({item['size']} bytes)"
+                    )
                 elif kind == "symlink":
-                    print(f"create symlink {item['path']} -> {item['target']}")
+                    print(
+                        f"create symlink {_display_path(item['path'])} -> "
+                        f"{item['target']}"
+                    )
                 else:
-                    print(f"create {kind} {item['path']}")
+                    print(f"create {kind} {_display_path(item['path'])}")
         return 0
 
     raise ValueError(f"unsupported command {command}")

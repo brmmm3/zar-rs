@@ -387,7 +387,6 @@ pub fn extract_archive_with_passwords_progress_and_filters(
     progress: Option<&dyn Progress>,
     filters: &FilterSet,
 ) -> Result<ExtractionPlan, Box<dyn std::error::Error>> {
-    create_destination_directory(destination)?;
     let mut dest_buf = destination.canonicalize().unwrap_or_else(|_| {
         if destination.is_relative() {
             std::env::current_dir()
