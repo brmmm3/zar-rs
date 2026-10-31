@@ -1,8 +1,8 @@
 # ZAR
 
-ZAR is a modern, append-friendly archive format with a fast, memory-safe Rust
-implementation: a command-line tool, a desktop GUI, a reusable library, bindings
-for many languages, and a network copy tool.
+ZAR is a lightning fast archive with good compression, deduplication, history/multiple commits.
+It is written in memory-safe Rust and comes with a command-line tool, a desktop GUI, a reusable library,
+bindings for many languages, and a lightning fast network copy tool.
 
 See the [changelog](./CHANGELOG.md) for recent project updates.
 
