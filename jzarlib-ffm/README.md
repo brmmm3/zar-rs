@@ -1,7 +1,7 @@
 # jzarlib-ffm
 
 `jzarlib-ffm` is the Java Foreign Function & Memory API binding to `czarlib`.
-It requires Java 22 or newer and exposes the same nine JSON operations:
+It requires Java 25 or newer and exposes the same nine JSON operations:
 create, add, remove, join, check, info, list, filesystem extract, and
 in-memory extract. See [`czarlib/README.md`](../czarlib/README.md) for all
 request fields, filters, encryption settings, and support boundaries.

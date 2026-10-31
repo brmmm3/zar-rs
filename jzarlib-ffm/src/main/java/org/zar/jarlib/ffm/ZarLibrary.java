@@ -11,7 +11,7 @@ import java.lang.invoke.MethodHandle;
 import java.nio.file.Path;
 import java.util.Objects;
 
-/** Java 22+ FFM binding to the czarlib JSON operation API. */
+/** Java 25+ FFM binding to the czarlib JSON operation API. */
 public final class ZarLibrary {
     private static final AddressLayout ADDRESS = ValueLayout.ADDRESS;
     private static final Linker LINKER = Linker.nativeLinker();
