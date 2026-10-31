@@ -181,11 +181,12 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
     }
     let cwd = std::env::current_dir()?;
     let id = TEMP_FILE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let unique_id = unique_temp_file_id()?;
     let stem = archive_path
         .file_name()
         .ok_or("archive path has no filename")?
         .to_string_lossy();
-    let temp_archive = parent.join(format!(".{stem}.zarc-{}-{id}.tmp", std::process::id()));
+    let temp_archive = parent.join(format!(".{stem}.zarc-{unique_id}-{id}.tmp"));
     let mut cleanup = TemporaryFiles(Vec::new());
     let mut changes = Vec::new();
     let mut next_block_index = 0_u32;

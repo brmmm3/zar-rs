@@ -59,18 +59,13 @@ pub fn remove_archive_with_progress(
     }
 
     let id = TEMP_FILE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let unique_id = unique_temp_file_id()?;
     let stem = archive_path
         .file_name()
         .ok_or("archive path has no filename")?
         .to_string_lossy();
-    let _staged_commit = parent.join(format!(
-        ".{stem}.zarc-remove-{}-{id}.tmp",
-        std::process::id()
-    ));
-    let staged_archive = parent.join(format!(
-        ".{stem}.zarc-remove-full-{}-{id}.tmp",
-        std::process::id()
-    ));
+    let _staged_commit = parent.join(format!(".{stem}.zarc-remove-{unique_id}-{id}.tmp"));
+    let staged_archive = parent.join(format!(".{stem}.zarc-remove-full-{unique_id}-{id}.tmp"));
     let mut cleanup = TemporaryFiles(Vec::new());
     let header_bytes = LogicalHeader::new(changes).encode()?;
     let limits = CommitValidationLimits::default();

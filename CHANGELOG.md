@@ -9,6 +9,7 @@ until a version is released.
 
 - Added `wasizarlib`, a server-side WASI Preview 2 component with a WIT
   interface backed by the existing JSON operation API.
+- Added Node.js support for `wasizarlib` using Jco and the WASI Preview 2 shim.
 - Added CI and release artifacts for `wasizarlib`.
 - Added cross-platform CI builds for `zarc` and `zarg`, including Linux ARM,
   Linux static, and Windows ARM targets.

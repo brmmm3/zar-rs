@@ -21,6 +21,50 @@ cargo build --release --locked -p wasizarlib --target wasm32-wasip2
 The component is written to
 `target/wasm32-wasip2/release/wasizarlib.wasm`.
 
+## Node.js
+
+Node.js does not run this Preview 2 component through its built-in
+`node:wasi` API, which implements Preview 1. The [`nodejs`](./nodejs/)
+integration uses Bytecode Alliance Jco to transpile the component and the
+Preview 2 shim to run it. It requires Node.js 22.20 or later, Rust with the
+`wasm32-wasip2` target, and `clang`.
+
+From `wasizarlib/nodejs`:
+
+```sh
+npm ci --include=optional
+npm run build
+npm test
+```
+
+To create an installable npm tarball after building:
+
+```sh
+npm pack
+npm install ./zar-rs-wasizarlib-node-0.6.0.tgz
+```
+
+The Node API creates an independent WASI instance for each caller. Grant file
+access only through explicit preopens:
+
+```js
+import { createWasizarlib } from "@zar-rs/wasizarlib-node";
+
+const { execute } = await createWasizarlib({
+  preopens: { "/data": "/srv/zar-data" },
+});
+const response = execute(
+  "check_archive",
+  JSON.stringify({ archive: "/data/backup.zar" }),
+);
+console.log(JSON.parse(response));
+```
+
+The exported function returns the response JSON string and throws on operation
+errors. Archive paths must refer to preopened directories. The shim's
+filesystem capabilities are enforced per instance; do not preopen directories
+the component does not need.
+
 ## Runtime capabilities
 
 The component performs filesystem operations through Rust's standard library.

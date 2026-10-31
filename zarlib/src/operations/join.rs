@@ -252,15 +252,13 @@ pub fn join_archive_with_encoding_progress(
     }
 
     let id = TEMP_FILE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let unique_id = unique_temp_file_id()?;
     let stem = archive_path
         .file_name()
         .ok_or("archive path has no filename")?
         .to_string_lossy();
-    let _staged_commit = parent.join(format!(".{stem}.zarc-join-{}-{id}.tmp", std::process::id()));
-    let staged_archive = parent.join(format!(
-        ".{stem}.zarc-join-full-{}-{id}.tmp",
-        std::process::id()
-    ));
+    let _staged_commit = parent.join(format!(".{stem}.zarc-join-{unique_id}-{id}.tmp"));
+    let staged_archive = parent.join(format!(".{stem}.zarc-join-full-{unique_id}-{id}.tmp"));
     let mut cleanup = TemporaryFiles(Vec::new());
     let mut data = Vec::new();
     let mut next_block_index = 0_u32;

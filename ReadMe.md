@@ -70,13 +70,15 @@ interfaces.
 | **[`jzarlib-ffm`](./jzarlib-ffm/README.md)** | Java 25+ | Foreign Function & Memory API over `czarlib` |
 | **[`jzarlib-jni`](./jzarlib-jni/README.md)** | Java | JNI shim over `czarlib` |
 | **[`csharpzarlib`](./csharpzarlib/README.md)** | C# (.NET 10) | P/Invoke over `czarlib` |
-| **[`wasizarlib`](./wasizarlib/README.md)** | WebAssembly | WASI Preview 2 component with a WIT interface |
+| **[`wasizarlib`](./wasizarlib/README.md)** | WebAssembly / Node.js | WASI Preview 2 component with a WIT interface; Node support via Jco and the Preview 2 shim |
 
 The Go, Java, and C# wrappers load the `czarlib` shared library, which is built
 with `cargo build -p czarlib`.
 
 The WASI component is built for `wasm32-wasip2`; its filesystem access is
-limited to directories preopened by the server-side WASI runtime.
+limited to directories preopened by the server-side WASI runtime. Node.js
+applications can run it through Jco and the Preview 2 shim; Node's built-in
+`node:wasi` API is Preview 1 and does not directly run this component.
 
 The archive format stores data in commits. Commits support compressed and
 deduplicated data blocks, an ordered logical table of contents (TOC), integrity

@@ -147,19 +147,14 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
     let limits = CommitValidationLimits::default();
     let new_commit_id = next_commit_id(archive_path)?;
     let id = TEMP_FILE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let unique_id = unique_temp_file_id()?;
     let stem = archive_path
         .file_name()
         .ok_or("archive path has no filename")?
         .to_string_lossy();
-    let _staged_commit = parent.join(format!(".{stem}.zarc-add-{}-{id}.tmp", std::process::id()));
-    let staged_data = parent.join(format!(
-        ".{stem}.zarc-add-data-{}-{id}.tmp",
-        std::process::id()
-    ));
-    let staged_archive = parent.join(format!(
-        ".{stem}.zarc-add-full-{}-{id}.tmp",
-        std::process::id()
-    ));
+    let _staged_commit = parent.join(format!(".{stem}.zarc-add-{unique_id}-{id}.tmp"));
+    let staged_data = parent.join(format!(".{stem}.zarc-add-data-{unique_id}-{id}.tmp"));
+    let staged_archive = parent.join(format!(".{stem}.zarc-add-full-{unique_id}-{id}.tmp"));
     let mut cleanup = TemporaryFiles(Vec::new());
 
     let mut data = OpenOptions::new()

@@ -297,6 +297,12 @@ pub fn parse_compression_level(value: &str) -> Result<i32, Box<dyn std::error::E
 
 pub static TEMP_FILE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+pub fn unique_temp_file_id() -> Result<u64, getrandom::Error> {
+    let mut id = [0; 8];
+    getrandom::fill(&mut id)?;
+    Ok(u64::from_ne_bytes(id))
+}
+
 pub struct TemporaryFiles(pub Vec<PathBuf>);
 
 impl Drop for TemporaryFiles {

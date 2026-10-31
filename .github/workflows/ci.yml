@@ -82,6 +82,23 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes clang
       - name: Build component
         run: cargo build --release --locked -p wasizarlib --target wasm32-wasip2
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - name: Install Node.js package dependencies
+        working-directory: wasizarlib/nodejs
+        run: npm ci --include=optional
+      - name: Transpile component and run Node.js tests
+        working-directory: wasizarlib/nodejs
+        run: |
+          npm run build:js
+          npm test
+      - name: Package Node.js module
+        working-directory: wasizarlib/nodejs
+        run: |
+          mkdir -p ../../target/wasizarlib-node
+          npm pack --pack-destination ../../target/wasizarlib-node
       - name: Package component
         run: |
           mkdir -p dist/wasizarlib
@@ -89,6 +106,7 @@ jobs:
           cp target/wasm32-wasip2/release/wasizarlib.wasm dist/wasizarlib/
           cp wasizarlib/README.md dist/wasizarlib/
           cp wasizarlib/wit/world.wit dist/wasizarlib/wit/
+          cp target/wasizarlib-node/*.tgz dist/wasizarlib/
           tar -C dist -czf dist/wasizarlib-wasip2.tar.gz wasizarlib
       - name: Upload component
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
