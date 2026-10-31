@@ -10,4 +10,11 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
+  <ItemGroup Condition="'$(NativeLibraryPath)' != ''">
+    <None Include="$(NativeLibraryPath)"
+          Pack="true"
+          PackagePath="runtimes/$(RuntimeIdentifier)/native/"
+          Visible="false" />
+  </ItemGroup>
+
 </Project>

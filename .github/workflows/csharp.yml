@@ -1,0 +1,100 @@
+name: C# NuGet package
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - "*.*.*"
+    paths:
+      - "csharpzarlib/**"
+      - "czarlib/**"
+      - "zarlib/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/csharp.yml"
+  pull_request:
+    paths:
+      - "csharpzarlib/**"
+      - "czarlib/**"
+      - "zarlib/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/csharp.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  test-pack:
+    name: Test ZarLib
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
+        with:
+          toolchain: stable
+      - name: Build native C library
+        run: cargo build --locked -p czarlib
+      - name: Test C# wrapper
+        run: dotnet test csharpzarlib/ZarLib.Tests/ZarLib.Tests.csproj --configuration Release
+
+  pack-windows:
+    name: Pack ZarLib (${{ matrix.arch.name }})
+    needs: test-pack
+    runs-on: ${{ matrix.arch.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - name: x64
+            runner: windows-latest
+            rust-target: x86_64-pc-windows-msvc
+            rid: win-x64
+          - name: arm64
+            runner: windows-11-vs2026-arm
+            rust-target: aarch64-pc-windows-msvc
+            rid: win-arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
+        with:
+          toolchain: stable
+          targets: ${{ matrix.arch.rust-target }}
+      - name: Build native C library
+        run: cargo build --locked --release -p czarlib --target ${{ matrix.arch.rust-target }}
+      - name: Pack architecture-specific NuGet package
+        shell: pwsh
+        run: |
+          $nativeLibrary = Join-Path $PWD "target/${{ matrix.arch.rust-target }}/release/czarlib.dll"
+          dotnet pack csharpzarlib/ZarLib/ZarLib.csproj --configuration Release --output artifacts `
+            -p:PackageId=ZarLib.${{ matrix.arch.name }} `
+            -p:RuntimeIdentifier=${{ matrix.arch.rid }} `
+            -p:NativeLibraryPath="$nativeLibrary"
+      - name: Upload NuGet package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
+        with:
+          name: ZarLib-${{ matrix.arch.name }}-nuget
+          path: artifacts/*.nupkg
+          if-no-files-found: error
