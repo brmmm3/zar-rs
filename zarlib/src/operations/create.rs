@@ -1,5 +1,6 @@
 use super::common::*;
 use super::filters::FilterSet;
+use super::info::group_size_metadata;
 use super::pipeline::*;
 use crate::{
     CommitHeader, CommitValidationLimits, ContentAead, EncryptionDescriptor, EncryptionScope,
@@ -190,6 +191,7 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
     let mut cleanup = TemporaryFiles(Vec::new());
     let mut changes = Vec::new();
     let mut next_block_index = 0_u32;
+    let mut block_sizes = std::collections::HashMap::<u32, u64>::new();
     let mut seen_paths = std::collections::BTreeSet::new();
     let mut entry_metadata = Vec::new();
     let mut scan_policy = ScanPolicy {
@@ -244,6 +246,7 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
         changes: &mut changes,
         data: &mut archive,
         next_block_index: &mut next_block_index,
+        block_sizes: &mut block_sizes,
         seen_paths: &mut seen_paths,
         entry_metadata: &mut entry_metadata,
         policy: &mut scan_policy,
@@ -279,9 +282,10 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
     archive.flush()?;
     let data_section_size = archive.stream_position()? - commit_data_start - HEADER_OFFSET_SIZE;
 
-    let header_bytes = LogicalHeader::with_block_size(changes, options.block_size as u32)
-        .with_entry_metadata(entry_metadata)
-        .encode()?;
+    let logical_header = LogicalHeader::with_block_size(changes, options.block_size as u32)
+        .with_entry_metadata(entry_metadata);
+    let group_sizes = group_size_metadata(&logical_header, &block_sizes)?;
+    let header_bytes = logical_header.with_metadata(group_sizes).encode()?;
 
     let (header, commit_header, dek) = if let (Some(dek), Some(descriptor_bytes), Some(scope)) =
         (dek, descriptor_bytes, encryption_scope)

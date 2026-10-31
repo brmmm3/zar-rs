@@ -443,6 +443,7 @@ pub struct ScanContext<'a> {
     pub changes: &'a mut Vec<TocChange>,
     pub data: &'a mut dyn WriteSeek,
     pub next_block_index: &'a mut u32,
+    pub block_sizes: &'a mut HashMap<u32, u64>,
     pub seen_paths: &'a mut std::collections::BTreeSet<ArchivePath>,
     pub entry_metadata: &'a mut Vec<EntryMetadata>,
     pub save_metadata: bool,
@@ -1362,6 +1363,9 @@ pub fn process_file_entries_parallel(
             }
             pending_blocks.insert(block.block_index, block);
             while let Some(block) = pending_blocks.remove(&next_expected_index) {
+                context
+                    .block_sizes
+                    .insert(block.block_index, block.payload.len() as u64);
                 if let Err(error) = block.write_to(context.data) {
                     writer_error = Some(io::Error::other(error));
                     break;
@@ -1389,6 +1393,9 @@ pub fn process_file_entries_parallel(
         }
 
         while let Some(block) = pending_blocks.remove(&next_expected_index) {
+            context
+                .block_sizes
+                .insert(block.block_index, block.payload.len() as u64);
             block.write_to(context.data)?;
             next_expected_index += 1;
         }
@@ -1640,14 +1647,19 @@ pub fn process_file_entries_parallel(
                     })?;
                     verification_hasher.update(&chunk);
                     remaining -= chunk_size as u64;
-                    encode_block(
-                        index,
-                        &chunk,
-                        compression_level,
-                        skip_compression,
-                        context.encryption.as_ref(),
-                    )?
-                    .write_to(context.data)?;
+                    {
+                        let block = encode_block(
+                            index,
+                            &chunk,
+                            compression_level,
+                            skip_compression,
+                            context.encryption.as_ref(),
+                        )?;
+                        context
+                            .block_sizes
+                            .insert(index, block.payload.len() as u64);
+                        block.write_to(context.data)?;
+                    }
                 }
                 let mut extra = [0; 1];
                 if remaining != 0
@@ -1668,14 +1680,19 @@ pub fn process_file_entries_parallel(
         };
 
         for (index, contents) in new_blocks {
-            encode_block(
-                index,
-                &contents,
-                compression_level,
-                skip_compression,
-                context.encryption.as_ref(),
-            )?
-            .write_to(context.data)?;
+            {
+                let block = encode_block(
+                    index,
+                    &contents,
+                    compression_level,
+                    skip_compression,
+                    context.encryption.as_ref(),
+                )?;
+                context
+                    .block_sizes
+                    .insert(index, block.payload.len() as u64);
+                block.write_to(context.data)?;
+            }
         }
 
         entry_by_path.insert(path.clone(), file_entry.clone());

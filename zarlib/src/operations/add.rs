@@ -1,5 +1,6 @@
 use super::common::*;
 use super::filters::FilterSet;
+use super::info::group_size_metadata;
 use super::list::load_toc_through_with_passwords;
 use super::pipeline::*;
 use crate::{
@@ -164,6 +165,7 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
     cleanup.0.push(staged_data.clone());
     let mut changes = Vec::new();
     let mut next_block_index = 0_u32;
+    let mut block_sizes = std::collections::HashMap::<u32, u64>::new();
     let mut seen_paths = std::collections::BTreeSet::new();
     let mut scan_policy = ScanPolicy {
         strict,
@@ -197,6 +199,7 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
         changes: &mut changes,
         data: &mut data,
         next_block_index: &mut next_block_index,
+        block_sizes: &mut block_sizes,
         seen_paths: &mut seen_paths,
         entry_metadata: &mut entry_metadata,
         policy: &mut scan_policy,
@@ -234,9 +237,10 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
         return Err("no supported files or directories were found to add".into());
     }
 
-    let header_bytes = LogicalHeader::with_block_size(changes.clone(), options.block_size as u32)
-        .with_entry_metadata(entry_metadata)
-        .encode()?;
+    let logical_header = LogicalHeader::with_block_size(changes.clone(), options.block_size as u32)
+        .with_entry_metadata(entry_metadata);
+    let group_sizes = group_size_metadata(&logical_header, &block_sizes)?;
+    let header_bytes = logical_header.with_metadata(group_sizes).encode()?;
     let data_size = data.stream_position()?;
     data.flush()?;
     drop(data);

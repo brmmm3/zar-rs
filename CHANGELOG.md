@@ -7,6 +7,10 @@ until a version is released.
 
 ### Added
 
+- Commit headers now store the compressed size of each file group (as
+  `zar.group.compressed_size.<group>` header metadata), so `zarc info -v` reads
+  only the headers. Archives without these entries fall back to scanning the
+  data section.
 - Added `wasizarlib`, a server-side WASI Preview 2 component with a WIT
   interface backed by the existing JSON operation API.
 - Added Node.js support for `wasizarlib` using Jco and the WASI Preview 2 shim.

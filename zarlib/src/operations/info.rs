@@ -1,7 +1,7 @@
 use super::common::*;
 use crate::{
     BlockFrame, CommitValidationLimits, ContainerHeader, ContentAead, FileEntry, FileGroupKind,
-    HEADER_OFFSET_SIZE, LogicalHeader, TocChange, ValidatedHeader,
+    HEADER_OFFSET_SIZE, LogicalHeader, MetadataType, TocChange, ValidatedHeader,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
@@ -97,34 +97,18 @@ pub fn info_archive(
                 }),
             });
             if let Some(header) = validated.logical_header.as_ref() {
-                let mut block_sizes = HashMap::new();
-                let mut remaining = commit_header.data_section_size;
-                let mut blocks_seen = 0_u64;
-                file.seek(SeekFrom::Start(data_start))?;
-                while remaining > 0 {
-                    if blocks_seen >= limits.max_blocks {
-                        return Err(crate::FramingError::InvalidSize.into());
-                    }
-                    let before = file.stream_position()?;
-                    let metadata =
-                        BlockFrame::read_metadata_from(&mut file, limits.max_frame_payload_size)?;
-                    let consumed = file
-                        .stream_position()?
-                        .checked_sub(before)
-                        .ok_or("block offset underflow")?;
-                    if consumed == 0 || consumed > remaining || consumed != metadata.encoded_size {
-                        return Err(crate::FramingError::InvalidSize.into());
-                    }
-                    if block_sizes
-                        .insert(metadata.block_index, u64::from(metadata.payload_size))
-                        .is_some()
-                    {
-                        return Err(crate::FramingError::InvalidSize.into());
-                    }
-                    remaining -= consumed;
-                    blocks_seen += 1;
-                }
-                details = Some(summarize_commit_header_only(header, &block_sizes)?);
+                details = Some(if has_stored_group_sizes(header) {
+                    summarize_commit_header_only(header, None)?
+                } else {
+                    // Archives written before group sizes were stored in the header.
+                    let block_sizes = scan_block_sizes(
+                        &mut file,
+                        data_start,
+                        commit_header.data_section_size,
+                        limits,
+                    )?;
+                    summarize_commit_header_only(header, Some(&block_sizes))?
+                });
             }
         }
         commits.push(CommitInfo {
@@ -157,9 +141,79 @@ fn uncompressed_commit_size(header: &LogicalHeader) -> Result<u64, Box<dyn std::
     })
 }
 
+const GROUP_SIZE_KEY_PREFIX: &str = "zar.group.compressed_size.";
+
+fn has_stored_group_sizes(header: &LogicalHeader) -> bool {
+    header
+        .metadata
+        .keys()
+        .any(|key| key.starts_with(GROUP_SIZE_KEY_PREFIX))
+}
+
+fn stored_group_size(header: &LogicalHeader, group: &str) -> Option<u64> {
+    match header
+        .metadata
+        .get(&format!("{GROUP_SIZE_KEY_PREFIX}{group}"))
+    {
+        Some(MetadataType::I64(size)) => u64::try_from(*size).ok(),
+        _ => None,
+    }
+}
+
+/// Builds the header metadata holding the compressed size of every file group,
+/// so that `info -v` does not have to scan the data section.
+pub fn group_size_metadata(
+    header: &LogicalHeader,
+    block_sizes: &HashMap<u32, u64>,
+) -> Result<HashMap<String, MetadataType>, Box<dyn std::error::Error>> {
+    let stats = summarize_commit_header_only(header, Some(block_sizes))?;
+    stats
+        .groups
+        .iter()
+        .map(|(name, group)| {
+            let size = i64::try_from(group.compressed_size)
+                .map_err(|_| Box::<dyn std::error::Error>::from("group size overflow"))?;
+            Ok((
+                format!("{GROUP_SIZE_KEY_PREFIX}{name}"),
+                MetadataType::I64(size),
+            ))
+        })
+        .collect()
+}
+
+fn scan_block_sizes(
+    file: &mut File,
+    data_start: u64,
+    data_section_size: u64,
+    limits: CommitValidationLimits,
+) -> Result<HashMap<u32, u64>, Box<dyn std::error::Error>> {
+    let mut block_sizes = HashMap::new();
+    let mut remaining = data_section_size;
+    file.seek(SeekFrom::Start(data_start))?;
+    while remaining > 0 {
+        if block_sizes.len() as u64 >= limits.max_blocks {
+            return Err(crate::FramingError::InvalidSize.into());
+        }
+        let metadata = BlockFrame::read_metadata_from(file, limits.max_frame_payload_size)?;
+        if metadata.encoded_size == 0 || metadata.encoded_size > remaining {
+            return Err(crate::FramingError::InvalidSize.into());
+        }
+        if block_sizes
+            .insert(metadata.block_index, u64::from(metadata.payload_size))
+            .is_some()
+        {
+            return Err(crate::FramingError::InvalidSize.into());
+        }
+        remaining -= metadata.encoded_size;
+    }
+    Ok(block_sizes)
+}
+
+/// Summarizes a commit from its header. Compressed group sizes come from
+/// `block_sizes` when given, otherwise from the sizes stored in the header.
 pub fn summarize_commit_header_only(
     header: &LogicalHeader,
-    block_frame_sizes: &HashMap<u32, u64>,
+    block_sizes: Option<&HashMap<u32, u64>>,
 ) -> Result<CommitFileStats, Box<dyn std::error::Error>> {
     let mut stats = CommitFileStats::default();
     let mut seen_files = std::collections::HashSet::new();
@@ -183,8 +237,8 @@ pub fn summarize_commit_header_only(
         let name = file_group_name(header, entry);
         let group = stats.groups.entry(name).or_default();
         group.files += 1;
-        let refs = entry.block_indices.clone();
-        let is_duplicate = entry.size > 0 && !seen_files.insert((entry.size, refs.clone()));
+        let is_duplicate =
+            entry.size > 0 && !seen_files.insert((entry.size, entry.block_indices.as_slice()));
         if is_duplicate {
             stats.deduplicated_files += 1;
             stats.deduplicated_uncompressed_size = stats
@@ -196,16 +250,19 @@ pub fn summarize_commit_header_only(
                 .uncompressed_size
                 .checked_add(entry.size)
                 .ok_or("uncompressed group size overflow")?;
-            for index in refs {
-                group.compressed_size = group
-                    .compressed_size
-                    .checked_add(
-                        *block_frame_sizes
-                            .get(&index)
-                            .ok_or("missing block frame size")?,
-                    )
-                    .ok_or("compressed group size overflow")?;
+            if let Some(block_sizes) = block_sizes {
+                for index in &entry.block_indices {
+                    group.compressed_size = group
+                        .compressed_size
+                        .checked_add(*block_sizes.get(index).ok_or("missing block frame size")?)
+                        .ok_or("compressed group size overflow")?;
+                }
             }
+        }
+    }
+    if block_sizes.is_none() {
+        for (name, group) in &mut stats.groups {
+            group.compressed_size = stored_group_size(header, name).unwrap_or(0);
         }
     }
     Ok(stats)

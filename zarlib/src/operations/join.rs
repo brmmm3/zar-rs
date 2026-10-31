@@ -1,4 +1,5 @@
 use super::common::*;
+use super::info::group_size_metadata;
 use super::list::load_toc;
 use crate::{
     ArchivePath, BlockFrame, CommitHeader, CommitValidationLimits, FileEntry, HEADER_OFFSET_SIZE,
@@ -262,6 +263,7 @@ pub fn join_archive_with_encoding_progress(
     let mut cleanup = TemporaryFiles(Vec::new());
     let mut data = Vec::new();
     let mut next_block_index = 0_u32;
+    let mut block_sizes = std::collections::HashMap::<u32, u64>::new();
     for change in &mut changes {
         if let TocChange::PutFile { path, entry } = change {
             let contents = written_files
@@ -273,15 +275,17 @@ pub fn join_archive_with_encoding_progress(
                 next_block_index = next_block_index
                     .checked_add(1)
                     .ok_or("too many joined blocks")?;
-                BlockFrame::from_uncompressed(index, chunk, options.compression_level)?
-                    .write_to(&mut data)?;
+                let block = BlockFrame::from_uncompressed(index, chunk, options.compression_level)?;
+                block_sizes.insert(index, block.payload.len() as u64);
+                block.write_to(&mut data)?;
                 indices.push(index);
             }
             *entry = FileEntry::new(entry.size, indices)?;
         }
     }
-    let header_bytes =
-        LogicalHeader::with_block_size(changes.clone(), options.block_size as u32).encode()?;
+    let logical_header = LogicalHeader::with_block_size(changes.clone(), options.block_size as u32);
+    let group_sizes = group_size_metadata(&logical_header, &block_sizes)?;
+    let header_bytes = logical_header.with_metadata(group_sizes).encode()?;
     let data_section_size = data.len() as u64;
     let new_commit_id = next_commit_id(archive_path)?;
     let temp_ch = CommitHeader::new(0, new_commit_id, data_section_size, 0)?;
