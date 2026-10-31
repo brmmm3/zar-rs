@@ -1925,6 +1925,7 @@ fn create_and_extract_symlink_named_pipe_and_device_records() {
     let device_name = std::ffi::CString::new(device.as_os_str().as_encoded_bytes()).unwrap();
     let device_number = libc::makedev(1, 7);
     let device_result = unsafe {
+        #[allow(clippy::useless_conversion)]
         libc::mknod(
             device_name.as_ptr(),
             libc::S_IFCHR | 0o600,

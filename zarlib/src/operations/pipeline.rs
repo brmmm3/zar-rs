@@ -249,8 +249,16 @@ pub fn scan_tree(
                         };
                         TreeEntryKind::Device {
                             kind: device_kind,
-                            major: libc::major(md.rdev().try_into().unwrap()) as u32,
-                            minor: libc::minor(md.rdev().try_into().unwrap()) as u32,
+                            major: {
+                                #[allow(clippy::useless_conversion)]
+                                let rdev = md.rdev().try_into().unwrap();
+                                libc::major(rdev) as u32
+                            },
+                            minor: {
+                                #[allow(clippy::useless_conversion)]
+                                let rdev = md.rdev().try_into().unwrap();
+                                libc::minor(rdev) as u32
+                            },
                         }
                     } else {
                         TreeEntryKind::Unsupported
@@ -308,8 +316,16 @@ fn classify_entry(
                 };
                 Ok(TreeEntryKind::Device {
                     kind: device_kind,
-                    major: libc::major(metadata.rdev().try_into().unwrap()) as u32,
-                    minor: libc::minor(metadata.rdev().try_into().unwrap()) as u32,
+                    major: {
+                        #[allow(clippy::useless_conversion)]
+                        let rdev = metadata.rdev().try_into().unwrap();
+                        libc::major(rdev) as u32
+                    },
+                    minor: {
+                        #[allow(clippy::useless_conversion)]
+                        let rdev = metadata.rdev().try_into().unwrap();
+                        libc::minor(rdev) as u32
+                    },
                 })
             } else {
                 Ok(TreeEntryKind::Unsupported)

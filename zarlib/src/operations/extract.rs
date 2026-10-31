@@ -1686,7 +1686,10 @@ fn create_special_entry(
                 DeviceKind::Character => libc::S_IFCHR,
                 DeviceKind::Block => libc::S_IFBLK,
             } | 0o600;
-            let device = libc::makedev((*major).try_into().unwrap(), (*minor).try_into().unwrap());
+            let device = {
+                #[allow(clippy::useless_conversion)]
+                libc::makedev((*major).try_into().unwrap(), (*minor).try_into().unwrap())
+            };
             if unsafe { libc::mknodat(parent.as_raw_fd(), name.as_ptr(), mode, device) } < 0 {
                 return Err(io::Error::last_os_error().into());
             }
