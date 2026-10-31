@@ -16,5 +16,8 @@ rayon.workspace = true
 sysinfo = "0.40"
 libc = "0.2"
 zstd = "0.14.3"
-scandir = "3.0"
+
+[target.'cfg(not(target_os = "wasi"))'.dependencies]
 crossbeam-channel = "0.5"
+rayon.workspace = true
+scandir = "3.0"

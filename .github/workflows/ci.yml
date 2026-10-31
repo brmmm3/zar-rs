@@ -64,6 +64,39 @@ jobs:
       - name: Run workspace tests
         run: cargo test --workspace
 
+  wasizarlib:
+    name: Build wasizarlib (WASI Preview 2)
+    needs: [cargo-fmt, cargo-clippy, cargo-test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install WASI Preview 2 target
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
+        with:
+          toolchain: stable
+          targets: wasm32-wasip2
+      - name: Install WASI C compiler
+        run: sudo apt-get update && sudo apt-get install --yes clang
+      - name: Build component
+        run: cargo build --release --locked -p wasizarlib --target wasm32-wasip2
+      - name: Package component
+        run: |
+          mkdir -p dist/wasizarlib
+          mkdir -p dist/wasizarlib/wit
+          cp target/wasm32-wasip2/release/wasizarlib.wasm dist/wasizarlib/
+          cp wasizarlib/README.md dist/wasizarlib/
+          cp wasizarlib/wit/world.wit dist/wasizarlib/wit/
+          tar -C dist -czf dist/wasizarlib-wasip2.tar.gz wasizarlib
+      - name: Upload component
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
+        with:
+          name: wasizarlib-wasip2
+          path: dist/wasizarlib-wasip2.tar.gz
+          if-no-files-found: error
+
   pyzarlib:
     name: pyzarlib tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -265,7 +298,7 @@ jobs:
   publish-github-release:
     name: Publish GitHub release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [build-binaries, release-wheels, release-sdist]
+    needs: [build-binaries, release-wheels, release-sdist, wasizarlib]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -276,6 +309,11 @@ jobs:
           pattern: pyzarlib-*
           path: dist
           merge-multiple: true
+      - name: Download WASI component artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # 8.0.1
+        with:
+          name: wasizarlib-wasip2
+          path: dist
       - name: Publish GitHub release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:

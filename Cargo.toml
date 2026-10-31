@@ -1,10 +1,19 @@
 [workspace]
-members = ["zarlib", "zarc", "zarg", "pyzarlib", "czarlib", "cxxzarlib", "zcopy"]
+members = [
+    "zarlib",
+    "zarc",
+    "zarg",
+    "pyzarlib",
+    "czarlib",
+    "cxxzarlib",
+    "zcopy",
+    "wasizarlib",
+]
 resolver = "3"
 
 [workspace.package]
 edition = "2024"
-version = "0.5.0"
+version = "0.6.0"
 license = "MIT OR Apache-2.0"
 authors = ["Martin Bammer <mrbm74@gmail.com>"]
 

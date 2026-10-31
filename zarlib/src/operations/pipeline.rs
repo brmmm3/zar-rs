@@ -4,10 +4,13 @@ use crate::{
     ArchivePath, BlockFrame, CommitHeader, ContentAead, DeviceKind, EntryMetadata, FileEntry,
     TocChange,
 };
-use std::collections::{BTreeMap, HashMap};
+#[cfg(not(target_os = "wasi"))]
+use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Seek, Write};
 use std::path::{Path, PathBuf};
+#[cfg(not(target_os = "wasi"))]
 use std::sync::atomic::{AtomicU32, Ordering};
 use xxhash_rust::xxh64::Xxh64;
 use zeroize::Zeroizing;
@@ -131,12 +134,12 @@ pub fn summarize_tree_entries(
     Ok(summary)
 }
 
-/// Walks the file tree rooted at `source` using the `scandir` crate and
-/// returns a flat, sorted list of [`TreeEntry`] items. The `prefix` is the
-/// archive-relative path for the root (empty string for the working directory).
+/// Walks the file tree rooted at `source` and returns a flat, sorted list of
+/// [`TreeEntry`] items. The `prefix` is the archive-relative path for the root
+/// (empty string for the working directory).
 ///
-/// For a single file (non-directory), a single entry is returned directly
-/// without invoking the directory walker.
+/// For a single file (non-directory), a single entry is returned directly.
+#[cfg(not(target_os = "wasi"))]
 pub fn scan_tree(
     source: &Path,
     prefix: &str,
@@ -281,6 +284,80 @@ pub fn scan_tree(
     Ok(entries)
 }
 
+#[cfg(target_os = "wasi")]
+pub fn scan_tree(
+    source: &Path,
+    prefix: &str,
+) -> Result<Vec<TreeEntry>, Box<dyn std::error::Error>> {
+    let metadata = std::fs::symlink_metadata(source)?;
+    if !metadata.is_dir() {
+        let archive_path = if prefix.is_empty() {
+            source
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or("input path has no filename")?
+                .to_owned()
+        } else {
+            prefix.to_owned()
+        };
+        return Ok(vec![TreeEntry {
+            archive_path,
+            source_path: source.to_owned(),
+            kind: classify_entry(source, &metadata)?,
+            size: metadata.len(),
+        }]);
+    }
+
+    let mut entries = Vec::new();
+    if !prefix.is_empty() {
+        entries.push(TreeEntry {
+            archive_path: prefix.to_owned(),
+            source_path: source.to_owned(),
+            kind: TreeEntryKind::Directory,
+            size: 0,
+        });
+    }
+    scan_wasi_directory(source, prefix, &mut entries)?;
+    entries.sort_by(|left, right| left.archive_path.cmp(&right.archive_path));
+    Ok(entries)
+}
+
+#[cfg(target_os = "wasi")]
+fn scan_wasi_directory(
+    directory: &Path,
+    prefix: &str,
+    entries: &mut Vec<TreeEntry>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut children = std::fs::read_dir(directory)?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<Result<Vec<_>, _>>()?;
+    children.sort();
+
+    for path in children {
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("file name is not valid UTF-8")?;
+        let relative = if prefix.is_empty() {
+            name.to_owned()
+        } else {
+            format!("{prefix}/{name}")
+        };
+        let metadata = std::fs::symlink_metadata(&path)?;
+        let kind = classify_entry(&path, &metadata)?;
+        entries.push(TreeEntry {
+            archive_path: relative.clone(),
+            source_path: path.clone(),
+            kind: kind.clone(),
+            size: metadata.len(),
+        });
+        if matches!(kind, TreeEntryKind::Directory) {
+            scan_wasi_directory(&path, &relative, entries)?;
+        }
+    }
+    Ok(())
+}
+
 fn classify_entry(
     source: &Path,
     metadata: &std::fs::Metadata,
@@ -377,6 +454,7 @@ pub struct ScanContext<'a> {
     pub encryption: Option<EncryptionContext>,
 }
 
+#[cfg(not(target_os = "wasi"))]
 fn skip_permission_denied_file(
     entry: &TreeEntry,
     error: &io::Error,
@@ -691,18 +769,21 @@ pub fn process_device_entry(
     Ok(())
 }
 
+#[cfg(not(target_os = "wasi"))]
 pub struct BlockWorkItem {
     pub block_index: u32,
     pub data: Vec<u8>,
     pub skip_compression: bool,
 }
 
+#[cfg(not(target_os = "wasi"))]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum WorkerPreference {
     SmallTinyFirst,
     BigFileFirst,
 }
 
+#[cfg(not(target_os = "wasi"))]
 pub fn worker_loop(
     preference: WorkerPreference,
     small_rx: &crossbeam_channel::Receiver<BlockWorkItem>,
@@ -830,6 +911,7 @@ pub fn encode_block(
     }
 }
 
+#[cfg(not(target_os = "wasi"))]
 pub fn process_file_entries_parallel(
     entries: &[&TreeEntry],
     context: &mut ScanContext<'_>,
@@ -1334,6 +1416,305 @@ pub fn process_file_entries_parallel(
 
         Ok(())
     })
+}
+
+#[cfg(target_os = "wasi")]
+pub fn process_file_entries_parallel(
+    entries: &[&TreeEntry],
+    context: &mut ScanContext<'_>,
+    entry_by_path: &mut HashMap<ArchivePath, FileEntry>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let buffer_size = context.options.block_size;
+    let compression_level = context.options.compression_level;
+    let mut next_block_index = *context.next_block_index;
+    let mut candidates = HashMap::<u64, Vec<DedupCandidate>>::new();
+    let mut warnings = Vec::new();
+
+    for entry in entries {
+        let path = ArchivePath::new(entry.archive_path.clone())?;
+        context
+            .progress
+            .set_message(format!("{} {}", context.action, entry.archive_path));
+
+        let metadata = if context.save_metadata {
+            match std::fs::symlink_metadata(&entry.source_path) {
+                Ok(metadata) => Some(capture_entry_metadata(&path, &metadata)?),
+                Err(error)
+                    if error.kind() == io::ErrorKind::PermissionDenied
+                        && !context.policy.strict =>
+                {
+                    warnings.push(format!(
+                        "warning: cannot read metadata for {}: {error}",
+                        entry.source_path.display()
+                    ));
+                    continue;
+                }
+                Err(error) => {
+                    return Err(format!(
+                        "cannot read metadata for {}: {error}",
+                        entry.source_path.display()
+                    )
+                    .into());
+                }
+            }
+        } else {
+            None
+        };
+
+        let skip_compression = should_skip_compression(&entry.source_path);
+        let (file_entry, new_blocks) = if entry.size <= 8 {
+            let mut file = match File::open(&entry.source_path) {
+                Ok(file) => file,
+                Err(error)
+                    if error.kind() == io::ErrorKind::PermissionDenied
+                        && !context.policy.strict =>
+                {
+                    warnings.push(format!(
+                        "warning: cannot read input file {}: {error}",
+                        entry.source_path.display()
+                    ));
+                    continue;
+                }
+                Err(error) => {
+                    return Err(format!(
+                        "cannot read input file {}: {error}",
+                        entry.source_path.display()
+                    )
+                    .into());
+                }
+            };
+            let mut contents = vec![0; entry.size as usize];
+            if let Err(error) = file.read_exact(&mut contents) {
+                if error.kind() == io::ErrorKind::PermissionDenied && !context.policy.strict {
+                    warnings.push(format!(
+                        "warning: cannot read input file {}: {error}",
+                        entry.source_path.display()
+                    ));
+                    continue;
+                }
+                return Err(format!(
+                    "cannot read input file {}: {error}",
+                    entry.source_path.display()
+                )
+                .into());
+            }
+            context.progress.inc(entry.size);
+
+            if let Some(indices) = duplicate_blocks(&candidates, entry.size, None, &contents) {
+                (FileEntry::new(entry.size, indices)?, Vec::new())
+            } else {
+                let index = next_block_index;
+                next_block_index = next_block_index
+                    .checked_add(1)
+                    .ok_or("archive has too many blocks")?;
+                candidates
+                    .entry(entry.size)
+                    .or_default()
+                    .push(DedupCandidate {
+                        checksum: None,
+                        tiny_contents: contents.clone(),
+                        block_indices: vec![index],
+                    });
+                (
+                    FileEntry::new(entry.size, vec![index])?,
+                    vec![(index, contents)],
+                )
+            }
+        } else if entry.size < buffer_size as u64 {
+            let Some(mut file) = open_input_file(entry, context.policy.strict, &mut warnings)?
+            else {
+                continue;
+            };
+            let size = usize::try_from(entry.size).map_err(|_| "input file is too large")?;
+            let mut contents = vec![0; size];
+            if let Err(error) = file.read_exact(&mut contents) {
+                if error.kind() == io::ErrorKind::PermissionDenied && !context.policy.strict {
+                    warnings.push(format!(
+                        "warning: cannot read input file {}: {error}",
+                        entry.source_path.display()
+                    ));
+                    continue;
+                }
+                return Err(format!(
+                    "cannot read input file {}: {error}",
+                    entry.source_path.display()
+                )
+                .into());
+            }
+            context.progress.inc(entry.size);
+            let mut hasher = Xxh64::new(0);
+            hasher.update(&contents);
+            let checksum = hasher.digest();
+
+            if let Some(indices) =
+                duplicate_blocks(&candidates, entry.size, Some(checksum), &contents)
+            {
+                (
+                    FileEntry::new(entry.size, indices)?.with_checksum(checksum),
+                    Vec::new(),
+                )
+            } else {
+                let index = next_block_index;
+                next_block_index = next_block_index
+                    .checked_add(1)
+                    .ok_or("archive has too many blocks")?;
+                candidates
+                    .entry(entry.size)
+                    .or_default()
+                    .push(DedupCandidate {
+                        checksum: Some(checksum),
+                        tiny_contents: Vec::new(),
+                        block_indices: vec![index],
+                    });
+                (
+                    FileEntry::new(entry.size, vec![index])?.with_checksum(checksum),
+                    vec![(index, contents)],
+                )
+            }
+        } else {
+            let Some(mut file) = open_input_file(entry, context.policy.strict, &mut warnings)?
+            else {
+                continue;
+            };
+            let (total_read, checksum) = match checksum_file(&mut file, &context.progress) {
+                Ok(result) => result,
+                Err(error)
+                    if error.kind() == io::ErrorKind::PermissionDenied
+                        && !context.policy.strict =>
+                {
+                    warnings.push(format!(
+                        "warning: cannot read input file {}: {error}",
+                        entry.source_path.display()
+                    ));
+                    continue;
+                }
+                Err(error) => {
+                    return Err(format!(
+                        "cannot read input file {}: {error}",
+                        entry.source_path.display()
+                    )
+                    .into());
+                }
+            };
+            if total_read != entry.size {
+                return Err(format!(
+                    "input file changed while being archived: {}",
+                    entry.source_path.display()
+                )
+                .into());
+            }
+
+            if let Some(indices) = duplicate_blocks(&candidates, total_read, Some(checksum), &[]) {
+                (
+                    FileEntry::new(total_read, indices)?.with_checksum(checksum),
+                    Vec::new(),
+                )
+            } else {
+                let block_count = u32::try_from(total_read.div_ceil(buffer_size as u64))
+                    .map_err(|_| "input file has too many blocks")?;
+                let start_index = next_block_index;
+                next_block_index = next_block_index
+                    .checked_add(block_count)
+                    .ok_or("archive has too many blocks")?;
+                let indices: Vec<u32> = (start_index..next_block_index).collect();
+                candidates
+                    .entry(total_read)
+                    .or_default()
+                    .push(DedupCandidate {
+                        checksum: Some(checksum),
+                        tiny_contents: Vec::new(),
+                        block_indices: indices.clone(),
+                    });
+
+                let mut file = File::open(&entry.source_path)?;
+                let mut verification_hasher = Xxh64::new(0);
+                let mut remaining = total_read;
+                for index in indices.iter().copied() {
+                    let chunk_size = remaining.min(buffer_size as u64) as usize;
+                    let mut chunk = vec![0; chunk_size];
+                    file.read_exact(&mut chunk).map_err(|error| {
+                        format!(
+                            "input file changed while being archived: {} ({error})",
+                            entry.source_path.display()
+                        )
+                    })?;
+                    verification_hasher.update(&chunk);
+                    remaining -= chunk_size as u64;
+                    encode_block(
+                        index,
+                        &chunk,
+                        compression_level,
+                        skip_compression,
+                        context.encryption.as_ref(),
+                    )?
+                    .write_to(context.data)?;
+                }
+                let mut extra = [0; 1];
+                if remaining != 0
+                    || file.read(&mut extra)? != 0
+                    || verification_hasher.digest() != checksum
+                {
+                    return Err(format!(
+                        "input file changed while being archived: {}",
+                        entry.source_path.display()
+                    )
+                    .into());
+                }
+                (
+                    FileEntry::new(total_read, indices)?.with_checksum(checksum),
+                    Vec::new(),
+                )
+            }
+        };
+
+        for (index, contents) in new_blocks {
+            encode_block(
+                index,
+                &contents,
+                compression_level,
+                skip_compression,
+                context.encryption.as_ref(),
+            )?
+            .write_to(context.data)?;
+        }
+
+        entry_by_path.insert(path.clone(), file_entry.clone());
+        context.changes.push(TocChange::PutFile {
+            path,
+            entry: file_entry,
+        });
+        if let Some(metadata) = metadata {
+            context.entry_metadata.push(metadata);
+        }
+    }
+
+    *context.next_block_index = next_block_index;
+    context.policy.warnings |= !warnings.is_empty();
+    context.policy.warning_messages.extend(warnings);
+    Ok(())
+}
+
+#[cfg(target_os = "wasi")]
+fn open_input_file(
+    entry: &TreeEntry,
+    strict: bool,
+    warnings: &mut Vec<String>,
+) -> Result<Option<File>, Box<dyn std::error::Error>> {
+    match File::open(&entry.source_path) {
+        Ok(file) => Ok(Some(file)),
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied && !strict => {
+            warnings.push(format!(
+                "warning: cannot read input file {}: {error}",
+                entry.source_path.display()
+            ));
+            Ok(None)
+        }
+        Err(error) => Err(format!(
+            "cannot read input file {}: {error}",
+            entry.source_path.display()
+        )
+        .into()),
+    }
 }
 
 #[cfg(test)]

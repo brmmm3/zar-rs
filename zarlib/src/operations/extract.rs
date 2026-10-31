@@ -5,6 +5,7 @@ use crate::{
     ArchivePath, BlockFrame, CommitHeader, CommitValidationLimits, ContentAead, DEK_SIZE,
     DeviceKind, EntryMetadata, FileEntry, HEADER_OFFSET_SIZE, Toc, TocChange, TocEntry,
 };
+#[cfg(not(target_os = "wasi"))]
 use rayon::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 #[cfg(unix)]
@@ -660,39 +661,57 @@ pub fn extract_archive_with_passwords_progress_and_filters(
     }
     regular_files.sort_by_key(|(_, source)| source.blocks.first().map(|b| b.offset).unwrap_or(0));
 
-    let workers = compression_worker_count(CREATE_BLOCK_SIZE);
-    let parallel_files = rayon::ThreadPoolBuilder::new()
-        .num_threads(workers)
-        .thread_name(|index| format!("zarc-extract-{index}"))
-        .build()?;
-    parallel_files
-        .install(|| {
-            regular_files.into_par_iter().try_for_each_init(
-                || File::open(archive),
-                |archive_file, (target, source)| {
-                    let archive_file = match archive_file {
-                        Ok(archive_file) => archive_file,
-                        Err(error) => {
-                            return Err(Box::new(ExtractionFailure::wrap(io::Error::new(
-                                error.kind(),
-                                error.to_string(),
-                            )))
-                                as Box<dyn std::error::Error + Send + Sync>);
-                        }
-                    };
-                    extract_regular_file(
-                        archive_file,
-                        destination,
-                        &target,
-                        &source,
-                        existing_policy,
-                        restore_metadata,
-                        progress.0,
-                    )
-                },
-            )
-        })
+    #[cfg(target_os = "wasi")]
+    for (target, source) in regular_files {
+        let mut archive_file = File::open(archive)?;
+        extract_regular_file(
+            &mut archive_file,
+            destination,
+            &target,
+            &source,
+            existing_policy,
+            restore_metadata,
+            progress.0,
+        )
         .map_err(extraction_worker_error)?;
+    }
+
+    #[cfg(not(target_os = "wasi"))]
+    {
+        let workers = compression_worker_count(CREATE_BLOCK_SIZE);
+        let parallel_files = rayon::ThreadPoolBuilder::new()
+            .num_threads(workers)
+            .thread_name(|index| format!("zarc-extract-{index}"))
+            .build()?;
+        parallel_files
+            .install(|| {
+                regular_files.into_par_iter().try_for_each_init(
+                    || File::open(archive),
+                    |archive_file, (target, source)| {
+                        let archive_file = match archive_file {
+                            Ok(archive_file) => archive_file,
+                            Err(error) => {
+                                return Err(Box::new(ExtractionFailure::wrap(io::Error::new(
+                                    error.kind(),
+                                    error.to_string(),
+                                )))
+                                    as Box<dyn std::error::Error + Send + Sync>);
+                            }
+                        };
+                        extract_regular_file(
+                            archive_file,
+                            destination,
+                            &target,
+                            &source,
+                            existing_policy,
+                            restore_metadata,
+                            progress.0,
+                        )
+                    },
+                )
+            })
+            .map_err(extraction_worker_error)?;
+    }
     if restore_metadata {
         restore_directory_metadata(destination, &accepted_directories, progress.0)?;
     }
@@ -894,62 +913,73 @@ fn validate_extraction_block_batch(
     dek: Option<&Zeroizing<[u8; DEK_SIZE]>>,
     limits: CommitValidationLimits,
 ) -> Result<HashMap<u32, ExtractedBlock>, Box<dyn std::error::Error>> {
-    batch
-        .into_par_iter()
-        .map(|(offset, frame)| {
-            let uncompressed_size = if frame.flags & crate::BLOCK_FLAG_ENCRYPTED != 0 {
-                let (Some(key), Some(algorithm)) = (dek, algorithm) else {
-                    return Err(ExtractionFailure::new(
-                        "cannot extract data-encrypted blocks without a password",
-                    ));
-                };
-                frame
-                    .uncompressed_encrypted(
-                        commit_header,
-                        key,
-                        algorithm,
-                        limits.max_uncompressed_block_size,
-                    )
-                    .map_err(ExtractionFailure::wrap)?
-                    .len()
-            } else if frame.flags & crate::BLOCK_FLAG_UNCOMPRESSED != 0 {
-                if frame.payload.len() > limits.max_uncompressed_block_size {
-                    return Err(ExtractionFailure::wrap(crate::FramingError::InvalidSize));
-                }
-                frame.payload.len()
-            } else if let Ok(Some(content_size)) =
-                zstd::zstd_safe::get_frame_content_size(&frame.payload)
-            {
-                let content_size = usize::try_from(content_size)
-                    .map_err(|_| ExtractionFailure::wrap(crate::FramingError::InvalidSize))?;
-                if content_size > limits.max_uncompressed_block_size {
-                    return Err(ExtractionFailure::wrap(crate::FramingError::InvalidSize));
-                }
-                content_size
-            } else {
-                frame
-                    .uncompressed_at_most(limits.max_uncompressed_block_size)
-                    .map_err(ExtractionFailure::wrap)?
-                    .len()
-            };
-            Ok((
-                frame.block_index,
-                ExtractedBlock {
-                    offset,
-                    block_index: frame.block_index,
-                    encoded_size: u64::try_from(
-                        frame.encoded_size().map_err(ExtractionFailure::wrap)?,
-                    )
-                    .map_err(ExtractionFailure::wrap)?,
-                    uncompressed_size,
-                    commit_header: commit_header.clone(),
-                    algorithm,
-                    dek: dek.map(|key| Zeroizing::new(**key)),
-                },
-            ))
-        })
+    #[cfg(target_os = "wasi")]
+    let validated = batch.into_iter().map(|(offset, frame)| {
+        validate_extraction_frame(offset, frame, commit_header, algorithm, dek, limits)
+    });
+    #[cfg(not(target_os = "wasi"))]
+    let validated = batch.into_par_iter().map(|(offset, frame)| {
+        validate_extraction_frame(offset, frame, commit_header, algorithm, dek, limits)
+    });
+    validated
         .collect::<Result<HashMap<_, _>, ExtractionFailure>>()
         .map_err(|error| Box::new(error) as Box<dyn std::error::Error>)
+}
+
+fn validate_extraction_frame(
+    offset: u64,
+    frame: BlockFrame,
+    commit_header: &CommitHeader,
+    algorithm: Option<ContentAead>,
+    dek: Option<&Zeroizing<[u8; DEK_SIZE]>>,
+    limits: CommitValidationLimits,
+) -> Result<(u32, ExtractedBlock), ExtractionFailure> {
+    let uncompressed_size = if frame.flags & crate::BLOCK_FLAG_ENCRYPTED != 0 {
+        let (Some(key), Some(algorithm)) = (dek, algorithm) else {
+            return Err(ExtractionFailure::new(
+                "cannot extract data-encrypted blocks without a password",
+            ));
+        };
+        frame
+            .uncompressed_encrypted(
+                commit_header,
+                key,
+                algorithm,
+                limits.max_uncompressed_block_size,
+            )
+            .map_err(ExtractionFailure::wrap)?
+            .len()
+    } else if frame.flags & crate::BLOCK_FLAG_UNCOMPRESSED != 0 {
+        if frame.payload.len() > limits.max_uncompressed_block_size {
+            return Err(ExtractionFailure::wrap(crate::FramingError::InvalidSize));
+        }
+        frame.payload.len()
+    } else if let Ok(Some(content_size)) = zstd::zstd_safe::get_frame_content_size(&frame.payload) {
+        let content_size = usize::try_from(content_size)
+            .map_err(|_| ExtractionFailure::wrap(crate::FramingError::InvalidSize))?;
+        if content_size > limits.max_uncompressed_block_size {
+            return Err(ExtractionFailure::wrap(crate::FramingError::InvalidSize));
+        }
+        content_size
+    } else {
+        frame
+            .uncompressed_at_most(limits.max_uncompressed_block_size)
+            .map_err(ExtractionFailure::wrap)?
+            .len()
+    };
+    Ok((
+        frame.block_index,
+        ExtractedBlock {
+            offset,
+            block_index: frame.block_index,
+            encoded_size: u64::try_from(frame.encoded_size().map_err(ExtractionFailure::wrap)?)
+                .map_err(ExtractionFailure::wrap)?,
+            uncompressed_size,
+            commit_header: commit_header.clone(),
+            algorithm,
+            dek: dek.map(|key| Zeroizing::new(**key)),
+        },
+    ))
 }
 
 pub fn load_extraction_state(
@@ -1425,13 +1455,13 @@ fn apply_metadata(
     target: &Path,
     progress: Option<&dyn Progress>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if metadata.is_some() {
-        if let Some(progress) = progress {
-            progress.warning(&format!(
-                "warning: metadata restoration unsupported for {}",
-                target.display()
-            ));
-        }
+    if metadata.is_some()
+        && let Some(progress) = progress
+    {
+        progress.warning(&format!(
+            "warning: metadata restoration unsupported for {}",
+            target.display()
+        ));
     }
     Ok(())
 }

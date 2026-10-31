@@ -4,6 +4,8 @@ ZAR is a modern, append-friendly archive format with a fast, memory-safe Rust
 implementation: a command-line tool, a desktop GUI, a reusable library, bindings
 for many languages, and a network copy tool.
 
+See the [changelog](./CHANGELOG.md) for recent project updates.
+
 - **[`zarc`](./zarc/ReadMe.md)** is the command-line application.
 - **[`zarg`](./zarg/ReadMe.md)** is the egui desktop archive manager.
 - **[`zarlib`](./doc/zarlib-developer-guide.md)** is the reusable archive
@@ -24,7 +26,7 @@ for many languages, and a network copy tool.
 | Encrypt data only, header only, or both; per-commit passwords | ✅ | ❌ | ❌ | ⚠️ |
 | Per-block checksums and damage recovery (`check --recover`) | ✅ | ⚠️ CRC | ❌ | ⚠️ |
 | Safe extraction (no path traversal, no-follow on Unix) | ✅ | varies | varies | varies |
-| Library bindings: Python, C, C++, Go, Java, C# | ✅ | varies | ❌ | varies |
+| Library integrations: Python, C, C++, Go, Java, C#, WASI | ✅ | varies | ❌ | varies |
 
 Highlights:
 
@@ -42,8 +44,8 @@ Highlights:
   archive paths, and extraction that cannot escape the destination.
 - **Integrity.** Every frame is checksummed, `check` verifies the entire
   archive, and recovery scans past damaged regions.
-- **One core, many front ends.** CLI, GUI, and seven language bindings share the
-  same Rust implementation and behavior.
+- **One core, many front ends.** CLI, GUI, seven language bindings, and a
+  server-side WASI component share the same Rust implementation and behavior.
 - **Network copy.** `zcopy` reuses the pipelines to send only new or changed
   files, compressed and encrypted, between machines.
 
@@ -52,13 +54,14 @@ asked, archive metadata has no modification times (`zcopy` transfers them
 separately), and `remove`/`join` do not yet support encrypted headers. 7z still
 wins on compression ratio.
 
-## Language wrappers
+## Language bindings and runtime packages
 
-`zarlib` is also available from other languages. All wrappers expose the same
-operations (create, add, remove, join, check, info, list, extract, and
-in-memory extract) and include tests and examples.
+`zarlib` is available through language bindings and a WASI component. They
+expose the same operations (create, add, remove, join, check, info, list,
+extract, and in-memory extract) through their respective language or runtime
+interfaces.
 
-| Wrapper | Language | Mechanism |
+| Package | Language/runtime | Mechanism |
 |---------|----------|-----------|
 | **[`pyzarlib`](./pyzarlib/README.md)** | Python | PyO3 extension module |
 | **[`czarlib`](./czarlib/README.md)** | C | JSON C ABI (shared/static library and header) |
@@ -67,9 +70,13 @@ in-memory extract) and include tests and examples.
 | **[`jzarlib-ffm`](./jzarlib-ffm/README.md)** | Java 25+ | Foreign Function & Memory API over `czarlib` |
 | **[`jzarlib-jni`](./jzarlib-jni/README.md)** | Java | JNI shim over `czarlib` |
 | **[`csharpzarlib`](./csharpzarlib/README.md)** | C# (.NET 10) | P/Invoke over `czarlib` |
+| **[`wasizarlib`](./wasizarlib/README.md)** | WebAssembly | WASI Preview 2 component with a WIT interface |
 
 The Go, Java, and C# wrappers load the `czarlib` shared library, which is built
 with `cargo build -p czarlib`.
+
+The WASI component is built for `wasm32-wasip2`; its filesystem access is
+limited to directories preopened by the server-side WASI runtime.
 
 The archive format stores data in commits. Commits support compressed and
 deduplicated data blocks, an ordered logical table of contents (TOC), integrity
@@ -91,6 +98,13 @@ Run the CLI directly from the workspace:
 ```sh
 cargo run --release -p zarc -- --help
 cargo run --release -p zarg
+```
+
+Build the server-side WASI component separately:
+
+```sh
+rustup target add wasm32-wasip2
+cargo build --release -p wasizarlib --target wasm32-wasip2
 ```
 
 Or install the executable into Cargo's binary directory:
