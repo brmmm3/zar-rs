@@ -1,0 +1,232 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - "*.*.*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  cargo-fmt:
+    name: cargo fmt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
+        with:
+          toolchain: stable
+          components: rustfmt
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+  cargo-clippy:
+    name: cargo clippy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
+        with:
+          toolchain: stable
+          components: clippy
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  cargo-test:
+    name: Rust workspace tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
+        with:
+          toolchain: stable
+      - name: Run workspace tests
+        run: cargo test --workspace
+
+  pyzarlib:
+    name: pyzarlib tests (Python 3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
+        with:
+          toolchain: stable
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # 7.0.0
+        with:
+          python-version: "3.11"
+      - name: Install Python test tools
+        run: python -m pip install --upgrade pip maturin pytest
+      - name: Build and install extension
+        working-directory: pyzarlib
+        run: maturin develop --release
+      - name: Run Python tests
+        working-directory: pyzarlib
+        run: python -Wd -m pytest
+
+  build-binaries:
+    name: Build binaries (${{ matrix.platform.name }})
+    needs: [cargo-fmt, cargo-clippy, cargo-test]
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: linux-x86_64
+            runner: ubuntu-latest
+          - name: macos-aarch64
+            runner: macos-latest
+          - name: windows-x86_64
+            runner: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Linux GUI build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libgl1-mesa-dev libwayland-dev libx11-dev libxcursor-dev libxi-dev libxkbcommon-dev libxrandr-dev pkg-config
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
+        with:
+          toolchain: stable
+      - name: Build zarc and zarg
+        run: cargo build --release --bins --locked
+      - name: Package binaries (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform.name }}
+        run: |
+          mkdir -p dist/zar-rs-$PLATFORM
+          cp target/release/zarc target/release/zarg dist/zar-rs-$PLATFORM/
+          tar -C dist -czf dist/zar-rs-$PLATFORM.tar.gz zar-rs-$PLATFORM
+      - name: Package binaries (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          PLATFORM: ${{ matrix.platform.name }}
+        run: |
+          New-Item -ItemType Directory -Force -Path "dist/zar-rs-$env:PLATFORM" | Out-Null
+          Copy-Item target/release/zarc.exe, target/release/zarg.exe "dist/zar-rs-$env:PLATFORM/"
+          Compress-Archive -Path "dist/zar-rs-$env:PLATFORM" -DestinationPath "dist/zar-rs-$env:PLATFORM.zip"
+      - name: Upload binary archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
+        with:
+          name: zar-rs-binaries-${{ matrix.platform.name }}
+          path: dist/zar-rs-${{ matrix.platform.name }}.*
+          if-no-files-found: error
+
+  release-wheels:
+    name: Build wheels (${{ matrix.platform.name }})
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [cargo-fmt, cargo-clippy, cargo-test, pyzarlib, build-binaries]
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: linux-x86_64
+            runner: ubuntu-latest
+            target: x86_64
+            manylinux: auto
+          - name: macos-x86_64
+            runner: macos-13
+            target: x86_64
+          - name: macos-aarch64
+            runner: macos-latest
+            target: aarch64
+          - name: windows-x64
+            runner: windows-latest
+            target: x64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build wheels
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          rust-toolchain: stable
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist --interpreter 3.11 3.12 3.13 3.14 3.15
+          manylinux: ${{ matrix.platform.manylinux || 'auto' }}
+          working-directory: pyzarlib
+      - name: Upload wheel artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
+        with:
+          name: pyzarlib-wheels-${{ matrix.platform.name }}
+          path: pyzarlib/dist/*.whl
+          if-no-files-found: error
+
+  release-sdist:
+    name: Build source distribution
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [cargo-fmt, cargo-clippy, cargo-test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build source distribution
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        with:
+          command: sdist
+          args: --out dist
+          rust-toolchain: stable
+          working-directory: pyzarlib
+      - name: Upload source distribution
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
+        with:
+          name: pyzarlib-sdist
+          path: pyzarlib/dist/*.tar.gz
+          if-no-files-found: error
+
+  publish-github-release:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build-binaries, release-wheels, release-sdist]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download wheel artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # 8.0.1
+        with:
+          pattern: pyzarlib-*
+          path: dist
+          merge-multiple: true
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
