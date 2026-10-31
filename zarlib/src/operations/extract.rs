@@ -13,7 +13,7 @@ use std::ffi::CString;
 use std::fs::File;
 #[cfg(not(unix))]
 use std::fs::OpenOptions;
-use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::io::{self, BufReader, Read, Seek, SeekFrom, Write};
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd};
 #[cfg(unix)]
@@ -433,11 +433,23 @@ pub fn extract_archive_with_passwords_progress_and_filters(
         .ok_or("extraction progress size overflow")?;
     progress.extraction_summary(&summary);
     let (toc, extraction_sources, entry_metadata) = if dry_run {
-        load_extraction_state_with_passwords_progress(archive, through, passwords, None)?
+        load_extraction_state_with_passwords_progress_and_filters(
+            archive,
+            through,
+            passwords,
+            None,
+            Some(filters),
+        )?
     } else {
         progress.reset_phase("Preparing extraction", archive_size.max(1));
         progress.set_message("Validating data frames");
-        load_extraction_state_with_passwords_progress(archive, through, passwords, Some(&progress))?
+        load_extraction_state_with_passwords_progress_and_filters(
+            archive,
+            through,
+            passwords,
+            Some(&progress),
+            Some(filters),
+        )?
     };
     let toc = filters.filter_toc(&toc)?;
     validate_interactive_policies(
@@ -982,6 +994,52 @@ fn validate_extraction_frame(
     ))
 }
 
+/// Buffered reader whose relative seeks keep the buffer, so skipping small
+/// block payloads does not cost a syscall per block. It tracks the logical
+/// position itself because querying it would require a syscall.
+struct RelativeSeekReader<R> {
+    inner: BufReader<R>,
+    position: u64,
+}
+
+impl<R: Read + Seek> RelativeSeekReader<R> {
+    fn new(mut reader: R) -> io::Result<Self> {
+        let position = reader.stream_position()?;
+        Ok(Self {
+            inner: BufReader::with_capacity(128 * 1024, reader),
+            position,
+        })
+    }
+}
+
+impl<R: Read> Read for RelativeSeekReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let read = self.inner.read(buf)?;
+        self.position += read as u64;
+        Ok(read)
+    }
+}
+
+impl<R: Read + Seek> Seek for RelativeSeekReader<R> {
+    fn seek(&mut self, target: SeekFrom) -> io::Result<u64> {
+        match target {
+            SeekFrom::Current(offset) => {
+                self.inner.seek_relative(offset)?;
+                self.position = self
+                    .position
+                    .checked_add_signed(offset)
+                    .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+            }
+            other => self.position = self.inner.seek(other)?,
+        }
+        Ok(self.position)
+    }
+
+    fn stream_position(&mut self) -> io::Result<u64> {
+        Ok(self.position)
+    }
+}
+
 pub fn load_extraction_state(
     archive: &str,
     through: Option<&str>,
@@ -1014,7 +1072,20 @@ pub fn load_extraction_state_with_passwords_progress(
     passwords: &PasswordSet,
     progress: Option<&ProgressReporter<'_>>,
 ) -> Result<LoadedExtractionState, Box<dyn std::error::Error>> {
-    let retain_blocks = true;
+    load_extraction_state_with_passwords_progress_and_filters(
+        archive, through, passwords, progress, None,
+    )
+}
+
+/// Like [`load_extraction_state_with_passwords_progress`], but blocks that only
+/// belong to files rejected by `filters` are not read or validated.
+pub fn load_extraction_state_with_passwords_progress_and_filters(
+    archive: &str,
+    through: Option<&str>,
+    passwords: &PasswordSet,
+    progress: Option<&ProgressReporter<'_>>,
+    filters: Option<&FilterSet>,
+) -> Result<LoadedExtractionState, Box<dyn std::error::Error>> {
     let mut file = File::open(archive)?;
     let requested_id = through.map(parse_commit_id).transpose()?;
     let mut toc = Toc::default();
@@ -1076,29 +1147,57 @@ pub fn load_extraction_state_with_passwords_progress(
         let workers = std::thread::available_parallelism()
             .map_or(1, usize::from)
             .max(1);
+        let wanted_blocks: Option<std::collections::HashSet<u32>> = filters.map(|filters| {
+            header
+                .changes
+                .iter()
+                .filter_map(|change| match change {
+                    TocChange::PutFile { path, entry }
+                        if filters.includes(path.as_str(), false) =>
+                    {
+                        Some(entry.block_indices.iter().copied())
+                    }
+                    _ => None,
+                })
+                .flatten()
+                .collect()
+        });
+        let mut data = RelativeSeekReader::new(&mut file)?;
         while remaining > 0 {
             let remaining_before = remaining;
             let offset = block_offset;
-            let (block_index, flags, nonce, encoded_size, frame) = if retain_blocks {
-                let frame = BlockFrame::read_from(&mut file, limits.max_frame_payload_size)?;
-                let encoded_size = u64::try_from(frame.encoded_size()?)?;
-                (
-                    frame.block_index,
-                    frame.flags,
-                    frame.nonce,
-                    encoded_size,
-                    Some(frame),
-                )
-            } else {
-                let metadata =
-                    BlockFrame::read_metadata_from(&mut file, limits.max_frame_payload_size)?;
-                (
-                    metadata.block_index,
-                    metadata.flags,
-                    metadata.nonce,
-                    metadata.encoded_size,
-                    None,
-                )
+            let (block_index, flags, nonce, encoded_size, frame) = match &wanted_blocks {
+                None => {
+                    let frame = BlockFrame::read_from(&mut data, limits.max_frame_payload_size)?;
+                    let encoded_size = u64::try_from(frame.encoded_size()?)?;
+                    (
+                        frame.block_index,
+                        frame.flags,
+                        frame.nonce,
+                        encoded_size,
+                        Some(frame),
+                    )
+                }
+                Some(wanted) => {
+                    let metadata =
+                        BlockFrame::read_metadata_from(&mut data, limits.max_frame_payload_size)?;
+                    let frame = if wanted.contains(&metadata.block_index) {
+                        data.seek(SeekFrom::Start(offset))?;
+                        Some(BlockFrame::read_from(
+                            &mut data,
+                            limits.max_frame_payload_size,
+                        )?)
+                    } else {
+                        None
+                    };
+                    (
+                        metadata.block_index,
+                        metadata.flags,
+                        metadata.nonce,
+                        metadata.encoded_size,
+                        frame,
+                    )
+                }
             };
             if encoded_size == 0
                 || encoded_size > remaining_before
@@ -1117,6 +1216,20 @@ pub fn load_extraction_state_with_passwords_progress(
                 .checked_add(encoded_size)
                 .ok_or("archive offset overflow")?;
             remaining -= encoded_size;
+            if frame.is_none() {
+                blocks.insert(
+                    block_index,
+                    ExtractedBlock {
+                        offset,
+                        block_index,
+                        encoded_size,
+                        uncompressed_size: 0,
+                        commit_header: commit_header.clone(),
+                        algorithm,
+                        dek: dek.as_ref().map(|key| Zeroizing::new(**key)),
+                    },
+                );
+            }
             if let Some(frame) = frame {
                 pending_blocks.push((offset, frame));
                 if pending_blocks.len() >= workers {
@@ -1154,9 +1267,12 @@ pub fn load_extraction_state_with_passwords_progress(
         }
 
         toc.apply_commit_with_available_blocks(&header.changes, &block_indices)?;
-        if retain_blocks {
+        {
             for change in &header.changes {
                 if let TocChange::PutFile { path, entry } = change {
+                    if filters.is_some_and(|filters| !filters.includes(path.as_str(), false)) {
+                        continue;
+                    }
                     let decoded_size =
                         entry.block_indices.iter().try_fold(0_u64, |size, index| {
                             size.checked_add(
