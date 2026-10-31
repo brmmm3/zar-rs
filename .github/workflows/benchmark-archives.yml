@@ -37,12 +37,12 @@ jobs:
           - name: windows-x64
             os: windows
             runner: windows-latest
-          - name: windows-arm64
-            os: windows
-            runner: windows-11-vs2026-arm
-          - name: macos
-            os: macos
-            runner: macos-latest
+          #- name: windows-arm64
+          #  os: windows
+          #  runner: windows-11-vs2026-arm
+          #- name: macos
+          #  os: macos
+          #  runner: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

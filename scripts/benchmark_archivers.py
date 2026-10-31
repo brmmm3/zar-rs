@@ -61,8 +61,10 @@ ARCHIVE_DIR = TESTDATA / "benchmark-archives"
 OS_TAG = {"linux": "linux", "win32": "windows", "darwin": "macos"}.get(
     sys.platform, re.sub(r"\W+", "-", sys.platform)
 )
-REPORT_PATH = ROOT / "doc" / f"benchmark-report-{OS_TAG}.md"
-CHART_PATH = ROOT / "doc" / f"benchmark-charts-{OS_TAG}.svg"
+_ARCH_ALIASES = {"amd64": "x86_64", "x64": "x86_64", "aarch64": "arm64", "i686": "x86", "i386": "x86"}
+ARCH_TAG = _ARCH_ALIASES.get(platform.machine().casefold(), re.sub(r"\W+", "-", platform.machine().casefold()) or "unknown")
+REPORT_PATH = ROOT / "doc" / f"benchmark-report-{OS_TAG}-{ARCH_TAG}.md"
+CHART_PATH = ROOT / "doc" / f"benchmark-charts-{OS_TAG}-{ARCH_TAG}.svg"
 SOURCE_URL = "https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.0.1.tar.gz"
 ENCRYPTED_PASSWORD = secrets.token_urlsafe(24)
 PROMPT_RE = re.compile(rb"(?im)^[^\r\n]*(?:password|passphrase)[^\r\n]*:\s*$")
@@ -1564,7 +1566,7 @@ def svg_chart(
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
         f'viewBox="0 0 {width} {height}" role="img" aria-labelledby="title description">\n'
-        f'<title id="title">{html.escape(OS_TAG)} archive benchmark charts</title>\n'
+        f'<title id="title">{html.escape(OS_TAG)} {html.escape(ARCH_TAG)} archive benchmark charts</title>\n'
         f'<desc id="description">Archive size, compression time, extraction time, '
         f'CPU utilisation, and RAM usage '
         f'for archive formats with and without encryption, with hot and cold file caches where available. Source size: '
