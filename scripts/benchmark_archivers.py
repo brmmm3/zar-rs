@@ -31,7 +31,7 @@ import time
 import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
-from typing import Callable
+from typing import Callable, Iterator
 
 if os.name == "posix":
     import fcntl
@@ -386,6 +386,112 @@ class ResourceMonitor:
             self._samples.append((elapsed, cpu, ram))
 
 
+def _find_7z() -> str | None:
+    found = next((f for n in ("7z", "7zz", "7za") if (f := shutil.which(n))), None)
+    if found is None and os.name == "nt":
+        for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
+            candidate = Path(base) / "7-Zip" / "7z.exe" if base else None
+            if candidate and candidate.is_file():
+                return str(candidate)
+    return found
+
+
+# package manager -> (install command prefix, {tool: packages})
+_PACKAGE_MANAGERS: dict[str, tuple[list[str], dict[str, list[str]]]] = {
+    "apt-get": (
+        ["apt-get", "install", "-y"],
+        {"openssl": ["openssl"], "zip": ["zip"], "unzip": ["unzip"],
+         "7z": ["p7zip-full"], "tar": ["tar"]},
+    ),
+    "dnf": (
+        ["dnf", "install", "-y"],
+        {"openssl": ["openssl"], "zip": ["zip"], "unzip": ["unzip"],
+         "7z": ["p7zip", "p7zip-plugins"], "tar": ["tar"]},
+    ),
+    "yum": (
+        ["yum", "install", "-y"],
+        {"openssl": ["openssl"], "zip": ["zip"], "unzip": ["unzip"],
+         "7z": ["p7zip", "p7zip-plugins"], "tar": ["tar"]},
+    ),
+    "pacman": (
+        ["pacman", "-S", "--noconfirm", "--needed"],
+        {"openssl": ["openssl"], "zip": ["zip"], "unzip": ["unzip"],
+         "7z": ["p7zip"], "tar": ["tar"]},
+    ),
+    "zypper": (
+        ["zypper", "--non-interactive", "install"],
+        {"openssl": ["openssl"], "zip": ["zip"], "unzip": ["unzip"],
+         "7z": ["p7zip-full"], "tar": ["tar"]},
+    ),
+    "apk": (
+        ["apk", "add"],
+        {"openssl": ["openssl"], "zip": ["zip"], "unzip": ["unzip"],
+         "7z": ["7zip"], "tar": ["tar"]},
+    ),
+    "brew": (
+        ["brew", "install"],
+        {"openssl": ["openssl"], "zip": ["zip"], "unzip": ["unzip"],
+         "7z": ["sevenzip"], "tar": ["gnu-tar"]},
+    ),
+    "winget": (
+        ["winget", "install", "--silent", "--accept-package-agreements",
+         "--accept-source-agreements", "--id"],
+        {"openssl": ["ShiningLight.OpenSSL.Light"], "7z": ["7zip.7zip"]},
+    ),
+    "choco": (
+        ["choco", "install", "-y"],
+        {"openssl": ["openssl"], "7z": ["7zip"]},
+    ),
+}
+
+
+def install_missing_tools() -> None:
+    """Best-effort installation of missing openssl, zip, unzip, 7z and tar."""
+    present = {
+        "openssl": shutil.which("openssl"),
+        "zip": shutil.which("zip"),
+        "unzip": shutil.which("unzip"),
+        "7z": _find_7z(),
+        "tar": shutil.which("tar"),
+    }
+    missing = [name for name, path in present.items() if not path]
+    if not missing:
+        return
+    print(f"Missing tools: {', '.join(missing)}; trying to install them...")
+    manager = next((m for m in _PACKAGE_MANAGERS if shutil.which(m)), None)
+    if manager is None:
+        print("warning: no supported package manager found; cannot install tools",
+              file=sys.stderr)
+        return
+    prefix, packages = _PACKAGE_MANAGERS[manager]
+    prefix = list(prefix)
+    elevate: list[str] = []
+    # winget takes one --id per invocation.
+    batches: list[list[str]] = []
+    wanted = [p for name in missing for p in packages.get(name, [])]
+    if manager == "winget":
+        batches = [[p] for p in wanted]
+    elif wanted:
+        batches = [wanted]
+    if os.name != "nt" and manager != "brew" and hasattr(os, "geteuid") and os.geteuid() != 0:
+        sudo = shutil.which("sudo")
+        if sudo is None:
+            print("warning: not root and sudo is unavailable; cannot install tools",
+                  file=sys.stderr)
+            return
+        elevate = [sudo]
+    env = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
+    if manager == "apt-get":
+        subprocess.run([*elevate, "apt-get", "update"], env=env, check=False)
+    for batch in batches:
+        result = subprocess.run([*elevate, *prefix, *batch], env=env, check=False)
+        if result.returncode != 0:
+            print(f"warning: installing {' '.join(batch)} failed "
+                  f"(exit code {result.returncode})", file=sys.stderr)
+    # Newly installed tools on Windows may not be on this process's PATH yet;
+    # require_tools() reports whatever is still missing.
+
+
 def require_tools() -> dict[str, str]:
     print("Checking required tools...")
     tools: dict[str, str] = {}
@@ -530,20 +636,15 @@ def drop_caches(rammap: Path | None, accept_eula: bool) -> None:
 def read_files(root: Path) -> None:
     """Reads every regular file below root (or the file itself) once to warm the cache.
 
-    Uses a thread pool to parallelise I/O and warm the cache faster.
+    Uses the standard-library walker for consistent cross-platform traversal.
     """
     if root.is_file():
         paths = [root]
     else:
-        walk = scandir_rs.Walk(
-            str(root),
-            return_type=scandir_rs.ReturnType.Ext,
-            follow_links=False,
-        )
         paths = [
-            root / entry[0] / name
-            for entry in walk
-            for name in entry[2]
+            directory / name
+            for directory, _subdirectories, filenames in walk_tree(root)
+            for name in filenames
         ]
 
     def _read_one(path: Path) -> None:
@@ -559,6 +660,19 @@ def read_files(root: Path) -> None:
     workers = min(32, (os.cpu_count() or 1) * 2)
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         list(pool.map(_read_one, paths))
+
+
+def walk_tree(root: Path) -> Iterator[tuple[Path, list[str], list[str]]]:
+    def on_error(error: OSError) -> None:
+        location = error.filename or root
+        raise RuntimeError(
+            f"Unable to scan benchmark tree at {location}: {error}"
+        ) from error
+
+    for current, directories, filenames in os.walk(
+        root, onerror=on_error, followlinks=False
+    ):
+        yield Path(current), directories, filenames
 
 
 def run_command(
@@ -896,23 +1010,18 @@ def verify_extraction(
     expected_files = dict(expected)
     actual_files: dict[str, int] = {}
     actual_dirs: set[str] = set()
-    walk = scandir_rs.Walk(
-        str(extracted_root),
-        return_type=scandir_rs.ReturnType.Ext,
-        follow_links=False,
-    )
-    for entry in walk:
-        dir_path = entry[0]
-        for name in entry[1]:
-            path = extracted_root / dir_path / name
+    for directory, subdirectories, filenames in walk_tree(extracted_root):
+        relative_directory = directory.relative_to(extracted_root)
+        for name in subdirectories:
+            path = directory / name
             if path.is_symlink():
                 continue
-            actual_dirs.add((Path(dir_path) / name).as_posix())
-        for name in entry[2]:
-            relative = (Path(dir_path) / name).as_posix()
+            actual_dirs.add((relative_directory / name).as_posix())
+        for name in filenames:
+            relative = (relative_directory / name).as_posix()
             if relative in symlinks:
                 continue
-            path = extracted_root / dir_path / name
+            path = directory / name
             if path.is_symlink():
                 continue
             actual_files[relative] = path.stat().st_size
@@ -1891,8 +2000,15 @@ def main() -> int:
         action="store_true",
         help="Windows: pass -accepteula to RAMMap, accepting the Sysinternals license",
     )
+    parser.add_argument(
+        "--no-install",
+        action="store_true",
+        help="do not try to install missing openssl, zip, unzip, 7z and tar",
+    )
     args = parser.parse_args()
     try:
+        if not args.no_install:
+            install_missing_tools()
         tools = require_tools()
         run_benchmarks(tools, args.cargo, args.mode, args.accept_sysinternals_eula)
     except (OSError, RuntimeError, TimeoutError, tarfile.TarError) as error:
