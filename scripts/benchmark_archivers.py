@@ -846,6 +846,16 @@ def source_matches_tarball(tarball: Path) -> bool:
     with tarfile.open(tarball, "r:gz") as archive:
         members = list(archive)
 
+    case_collisions: set[str] = set()
+    if sys.platform == "darwin":
+        paths_by_casefold: dict[str, str] = {}
+        for member in members:
+            path = PurePosixPath(member.name).as_posix()
+            folded_path = path.casefold()
+            previous = paths_by_casefold.setdefault(folded_path, path)
+            if previous != path:
+                case_collisions.add(folded_path)
+
     mismatches = 0
     mismatch_lock = threading.Lock()
     early_exit = threading.Event()
@@ -871,6 +881,11 @@ def source_matches_tarball(tarball: Path) -> bool:
         else:
             ok = path.is_file() and not path.is_symlink() and path.stat().st_size == member.size
         if not ok:
+            if (
+                sys.platform == "darwin"
+                and PurePosixPath(member.name).as_posix().casefold() in case_collisions
+            ):
+                return
             with mismatch_lock:
                 mismatches += 1
                 if mismatches > max_tolerated:
