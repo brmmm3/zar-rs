@@ -48,9 +48,14 @@ jobs:
             /tmp/zarc-c c sample.zar input.txt
             /tmp/zarc-c a sample.zar added.txt
             /tmp/zarc-c k sample.zar
-            /tmp/zarc-c i sample.zar
+            info_json=$(/tmp/zarc-c i sample.zar)
+            printf '%s\n' "$info_json"
+            from_id=$(printf '%s' "$info_json" | jq -r '.[0].id')
+            through_id=$(printf '%s' "$info_json" | jq -r '.[1].id')
+            test "$from_id" != null
+            test "$through_id" != null
             /tmp/zarc-c l sample.zar
             /tmp/zarc-c e sample.zar restored --dry-run
             /tmp/zarc-c r sample.zar added.txt
-            /tmp/zarc-c j sample.zar --from 01000000 --through 02000000
+            /tmp/zarc-c j sample.zar --from "$from_id" --through "$through_id"
           )
