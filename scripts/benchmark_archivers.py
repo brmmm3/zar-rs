@@ -713,7 +713,7 @@ def source_matches_tarball(tarball: Path) -> bool:
     """Check that the extracted source tree matches the tarball.
 
     On Windows, tolerate known platform limitations:
-    - Symlinks whose target resolves outside the tree (bsdtar skips them).
+    - Missing symlinks and hard links, which the Windows extractor skips.
     - Case-colliding files (Windows is case-insensitive; the uppercase variant
       from the tarball overwrites the lowercase one, so sizes may differ).
     """
@@ -736,9 +736,15 @@ def source_matches_tarball(tarball: Path) -> bool:
         if member.isdir():
             ok = not path.is_symlink() and path.is_dir()
         elif member.issym():
-            ok = path.is_symlink() and os.readlink(path) == member.linkname
+            matches_link = path.is_symlink() and os.readlink(path) == member.linkname
+            ok = matches_link or (
+                os.name == "nt" and not path.exists() and not path.is_symlink()
+            )
         elif member.islnk():
-            ok = not path.is_symlink() and path.is_file()
+            matches_file = not path.is_symlink() and path.is_file()
+            ok = matches_file or (
+                os.name == "nt" and not path.exists() and not path.is_symlink()
+            )
         else:
             ok = path.is_file() and not path.is_symlink() and path.stat().st_size == member.size
         if not ok:
@@ -751,6 +757,37 @@ def source_matches_tarball(tarball: Path) -> bool:
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         list(pool.map(_check_member, members))
     return mismatches <= max_tolerated
+
+
+def extract_source_tarball(tar_executable: str) -> None:
+    if os.name == "nt":
+        with tarfile.open(SOURCE_ARCHIVE, "r:gz") as archive:
+            members = [
+                member
+                for member in archive
+                if member.isfile() or member.isdir()
+            ]
+            skipped_links = len(archive.getmembers()) - len(members)
+            archive.extractall(path=TESTDATA, members=members)
+        print(
+            f"Extracted {len(members):,} source entries; skipped "
+            f"{skipped_links:,} symbolic/hard links unsupported on Windows."
+        )
+        return
+
+    run_command(
+        [
+            tar_executable,
+            "--extract",
+            "--gzip",
+            "--file",
+            str(SOURCE_ARCHIVE),
+            "--directory",
+            str(TESTDATA),
+            "--no-same-owner",
+            *(["--overwrite"] if is_gnu_tar(tar_executable) else []),
+        ]
+    )
 
 
 def ensure_source(tar_executable: str) -> None:
@@ -769,19 +806,7 @@ def ensure_source(tar_executable: str) -> None:
     if not SOURCE_DIR.is_dir() or not source_matches_tarball(SOURCE_ARCHIVE):
         action = "Extracting" if not SOURCE_DIR.exists() else "Refreshing"
         print(f"{action} {SOURCE_ARCHIVE.name} in {TESTDATA}")
-        run_command(
-            [
-                tar_executable,
-                "--extract",
-                "--gzip",
-                "--file",
-                str(SOURCE_ARCHIVE),
-                "--directory",
-                str(TESTDATA),
-                "--no-same-owner",
-                *(["--overwrite"] if is_gnu_tar(tar_executable) else []),
-            ]
-        )
+        extract_source_tarball(tar_executable)
     if not SOURCE_DIR.is_dir():
         raise RuntimeError(f"Source extraction did not create {SOURCE_DIR}")
     if not source_matches_tarball(SOURCE_ARCHIVE):
