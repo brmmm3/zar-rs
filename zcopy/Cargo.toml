@@ -13,4 +13,4 @@ serde_json.workspace = true
 zarlib = { path = "../zarlib" }
 indicatif.workspace = true
 zstd = "0.14.3"
-scandir = "3.0"
+scandir = "3.1"
