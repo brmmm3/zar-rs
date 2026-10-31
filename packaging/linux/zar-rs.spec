@@ -32,6 +32,7 @@ cp -a %{stage_dir}/. %{buildroot}/
 /usr/bin/zarg-install-thunar-actions
 /usr/share/applications/zarg.desktop
 /usr/share/icons/hicolor/256x256/apps/zarg.png
+/usr/share/icons/hicolor/64x64/mimetypes/application-x-zar.png
 /usr/share/kio/servicemenus/zarg-files.desktop
 /usr/share/kio/servicemenus/zarg-archives.desktop
 /usr/share/mime/packages/zar-rs.xml
@@ -43,10 +44,16 @@ cp -a %{stage_dir}/. %{buildroot}/
 if [ -x /usr/bin/update-mime-database ]; then
     /usr/bin/update-mime-database /usr/share/mime >/dev/null 2>&1 || :
 fi
+if [ -x /usr/bin/gtk-update-icon-cache ]; then
+    /usr/bin/gtk-update-icon-cache -q -t /usr/share/icons/hicolor >/dev/null 2>&1 || :
+fi
 
 %postun
 if [ -x /usr/bin/update-mime-database ]; then
     /usr/bin/update-mime-database /usr/share/mime >/dev/null 2>&1 || :
+fi
+if [ -x /usr/bin/gtk-update-icon-cache ]; then
+    /usr/bin/gtk-update-icon-cache -q -t /usr/share/icons/hicolor >/dev/null 2>&1 || :
 fi
 
 %changelog

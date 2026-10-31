@@ -62,6 +62,19 @@ make_icns() {
     iconutil -c icns "$set" -o "$APP/Contents/Resources/zarg.icns"
 }
 
+make_zar_icns() {
+    local set="$WORK/zar.iconset" src="$ROOT/zarg/assets/application-x-zar.png"
+    mkdir -p "$set"
+    for s in 16 32 64 128 256; do
+        sips -z "$s" "$s" "$src" --out "$set/icon_${s}x${s}.png" >/dev/null
+    done
+    cp "$set/icon_32x32.png" "$set/icon_16x16@2x.png"
+    cp "$set/icon_64x64.png" "$set/icon_32x32@2x.png"
+    cp "$set/icon_256x256.png" "$set/icon_128x128@2x.png"
+    rm "$set/icon_64x64.png"
+    iconutil -c icns "$set" -o "$APP/Contents/Resources/application-x-zar.icns"
+}
+
 make_app() {
     rm -rf "$APP"
     mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -70,6 +83,7 @@ make_app() {
     sed "s/@VERSION@/$VERSION/g" "$ROOT/packaging/macos/Info.plist" > "$APP/Contents/Info.plist"
     plutil -lint "$APP/Contents/Info.plist" >/dev/null
     make_icns
+    make_zar_icns
     if [ -n "${CODESIGN_IDENTITY:-}" ]; then
         codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" \
             "$APP/Contents/Resources/zarc" "$APP"

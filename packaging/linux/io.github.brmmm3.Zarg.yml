@@ -32,6 +32,8 @@ modules:
       - install -Dm644 zarg/data/zarg.desktop /app/share/applications/io.github.brmmm3.Zarg.desktop
       - sed -i 's/^Icon=.*/Icon=io.github.brmmm3.Zarg/' /app/share/applications/io.github.brmmm3.Zarg.desktop
       - install -Dm644 zarg/assets/zarg-icon.png /app/share/icons/hicolor/256x256/apps/io.github.brmmm3.Zarg.png
+      - install -Dm644 zarg/assets/application-x-zar.png /app/share/icons/hicolor/64x64/mimetypes/application-x-zar.png
+      - install -Dm644 packaging/linux/zarg-mime.xml /app/share/mime/packages/zar-rs.xml
       - install -Dm644 packaging/linux/io.github.brmmm3.Zarg.metainfo.xml /app/share/metainfo/io.github.brmmm3.Zarg.metainfo.xml
       - install -Dm644 LICENSE-MIT /app/share/licenses/io.github.brmmm3.Zarg/LICENSE-MIT
       - install -Dm644 LICENSE-APACHE /app/share/licenses/io.github.brmmm3.Zarg/LICENSE-APACHE

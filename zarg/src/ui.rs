@@ -79,6 +79,7 @@ enum UiIcon {
     Audio,
     Video,
     Archive,
+    ZarArchive,
     Pdf,
     Code,
     Python,
@@ -126,6 +127,7 @@ fn icon_bytes(icon: UiIcon) -> &'static [u8] {
         UiIcon::Audio => include_bytes!("../assets/icons/mimetypes/audio-x-generic.png"),
         UiIcon::Video => include_bytes!("../assets/icons/mimetypes/video-x-generic.png"),
         UiIcon::Archive => include_bytes!("../assets/icons/mimetypes/application-x-archive.png"),
+        UiIcon::ZarArchive => include_bytes!("../assets/application-x-zar.png"),
         UiIcon::Pdf => include_bytes!("../assets/icons/mimetypes/application-pdf.png"),
         UiIcon::Code => include_bytes!("../assets/icons/mimetypes/text-x-csrc.png"),
         UiIcon::Python => include_bytes!("../assets/icons/mimetypes/text-x-python.png"),
@@ -209,7 +211,8 @@ fn file_icon(path: &str) -> UiIcon {
         }
         Some("mp3" | "wav" | "flac" | "ogg" | "m4a" | "aac") => UiIcon::Audio,
         Some("mp4" | "mkv" | "mov" | "avi" | "webm" | "mpeg" | "mpg") => UiIcon::Video,
-        Some("zip" | "7z" | "rar" | "tar" | "gz" | "bz2" | "xz" | "zar") => UiIcon::Archive,
+        Some("zar") => UiIcon::ZarArchive,
+        Some("zip" | "7z" | "rar" | "tar" | "gz" | "bz2" | "xz") => UiIcon::Archive,
         Some("pdf") => UiIcon::Pdf,
         Some("py") => UiIcon::Python,
         Some("java" | "kt") => UiIcon::Java,
@@ -2425,6 +2428,8 @@ mod tests {
         assert_eq!(file_icon("images/photo.JPEG"), UiIcon::Image);
         assert_eq!(file_icon("music/song.flac"), UiIcon::Audio);
         assert_eq!(file_icon("src/main.rs"), UiIcon::Code);
+        assert_eq!(file_icon("archives/backup.ZAR"), UiIcon::ZarArchive);
+        assert_eq!(file_icon("archives/backup.zip"), UiIcon::Archive);
         assert_eq!(file_icon("unknown.data"), UiIcon::Generic);
     }
 
@@ -2457,6 +2462,7 @@ mod tests {
             UiIcon::Audio,
             UiIcon::Video,
             UiIcon::Archive,
+            UiIcon::ZarArchive,
             UiIcon::Pdf,
             UiIcon::Code,
             UiIcon::Python,

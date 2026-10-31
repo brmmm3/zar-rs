@@ -61,6 +61,7 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut for the archive ma
 [Files]
 Source: "{#SourceDir}\zarc.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\zarg.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\zarg\assets\application-x-zar.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE-MIT"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE-APACHE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\ReadMe.md"; DestDir: "{app}"; Flags: ignoreversion
@@ -121,6 +122,8 @@ Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.Test
   ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
 Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.Test\command"; \
   ValueType: string; ValueName: ""; ValueData: """{app}\zarg.exe"" --context test -- %*"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\.zar\DefaultIcon"; \
+  ValueType: string; ValueName: ""; ValueData: "{app}\application-x-zar.ico"; Flags: uninsdeletekey
 
 [Run]
 Filename: "{app}\zarg.exe"; Description: "Launch ZAR Archive Manager"; Flags: nowait postinstall skipifsilent unchecked

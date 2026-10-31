@@ -50,13 +50,15 @@ stage_files() {
     install -Dm644 "$ROOT/zarg/data/zarg.desktop" "$stage/usr/share/applications/zarg.desktop"
     install -Dm644 "$ROOT/zarg/assets/zarg-icon.png" \
         "$stage/usr/share/icons/hicolor/256x256/apps/zarg.png"
+    install -Dm644 "$ROOT/zarg/assets/application-x-zar.png" \
+        "$stage/usr/share/icons/hicolor/64x64/mimetypes/application-x-zar.png"
+    install -Dm644 "$HERE/zarg-mime.xml" \
+        "$stage/usr/share/mime/packages/zar-rs.xml"
     if [ "${2:-}" != portable ]; then
         install -Dm644 "$HERE/dolphin-files.desktop" \
             "$stage/usr/share/kio/servicemenus/zarg-files.desktop"
         install -Dm644 "$HERE/dolphin-archives.desktop" \
             "$stage/usr/share/kio/servicemenus/zarg-archives.desktop"
-        install -Dm644 "$HERE/zarg-mime.xml" \
-            "$stage/usr/share/mime/packages/zar-rs.xml"
         install -Dm755 "$HERE/nautilus-script.sh" \
             "$stage/usr/libexec/zar-rs/nautilus-script"
         mkdir -p "$stage/usr/share/nautilus/scripts"
@@ -112,6 +114,9 @@ set -e
 if [ "$1" = configure ] && command -v update-mime-database >/dev/null 2>&1; then
     update-mime-database /usr/share/mime
 fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -q -t /usr/share/icons/hicolor
+fi
 EOF
     chmod 755 "$stage/DEBIAN/postinst"
     cat > "$stage/DEBIAN/postrm" << 'EOF'
@@ -121,6 +126,9 @@ if [ "$1" = remove ] || [ "$1" = purge ]; then
     if command -v update-mime-database >/dev/null 2>&1; then
         update-mime-database /usr/share/mime
     fi
+fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -q -t /usr/share/icons/hicolor
 fi
 EOF
     chmod 755 "$stage/DEBIAN/postrm"
