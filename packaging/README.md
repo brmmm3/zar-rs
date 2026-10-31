@@ -35,3 +35,16 @@ The Flatpak is built from source inside the Freedesktop SDK and downloads
 crates during the build, so it is suitable for local bundles but not Flathub.
 Its desktop file is named after the app ID, while `zarg` sets the window app ID
 `zarg`, so some Wayland shells may not show the icon for the Flatpak window.
+
+## macOS
+
+```sh
+packaging/macos/build-packages.sh [dmg|pkg|all]
+```
+
+Must run on macOS. Builds `Zarg.app` (with `zarc` bundled in
+`Contents/Resources`) and produces `zar-rs-<version>-macos-<arch>.dmg` and
+`.pkg`; the pkg also installs `zarc` to `/usr/local/bin`. Packages are ad-hoc
+signed unless `CODESIGN_IDENTITY` (Developer ID Application) and
+`INSTALLER_IDENTITY` (Developer ID Installer) are set. Notarization is not
+included.
