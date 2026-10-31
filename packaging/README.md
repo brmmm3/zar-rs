@@ -6,7 +6,7 @@ Installers for `zarc` (CLI) and `zarg` (GUI). Output goes to `dist/`.
 
 ```powershell
 cargo build --release --bins
-iscc /DAppVersion=0.6.0 packaging\windows\zar-rs.iss
+iscc /DAppVersion=0.7.0 packaging\windows\zar-rs.iss
 ```
 
 Use `/DSourceDir=target\<triple>\release` when building with `--target`, and

@@ -394,6 +394,11 @@ Extraction implements a high-throughput, memory-bounded pipeline designed to avo
    - In `create_extraction_file`, Windows files are opened with `FILE_FLAG_SEQUENTIAL_SCAN` (`0x0800_0000`) and `GENERIC_WRITE` access to optimize Cache Manager write-back behavior.
    - Profiling with simulated file writes demonstrated that `zarlib`'s entire internal pipeline (reading the 152 MiB archive, parallel Zstandard decompression of 48,933 blocks, and xxhash64 checksum verification) takes **only 0.86 seconds** (3.96s total process time). The remaining ~25 seconds on real disk extraction is consumed by the Windows operating system: specifically, Windows Defender's filesystem filter driver (`WdFilter.sys`) and NTFS transaction journal serialization on every `CreateFileW` and `CloseHandle` call across 50,000 individual files.
 
+8. **Filtered extraction and a single file table:**
+   - With include/exclude filters, the state loader fully reads and validates only blocks of included files; other blocks are read as metadata only (`uncompressed_size: 0`). Reads go through a buffered reader that tracks its position and uses `seek_relative`, avoiding a seek syscall per frame.
+   - The TOC is built once. Progress order must stay "Reading archive headers" -> summary -> "Preparing extraction", so the TOC is built first and handed to the state loader (`known_toc`), which only runs `Toc::check_available_blocks`.
+   - Blocks of unselected files are therefore not validated when filters are used. Example: one file from the Linux kernel archive dropped from 1.04s to 0.37s.
+
 ## 9. CLI interface
 
 Use a consistent command structure, for example:
@@ -653,6 +658,22 @@ from Sysinternals, EULA acceptance via `--accept-sysinternals-eula`) when
 elevated on Windows. Without privileges, warn and skip cold runs. On Windows,
 skip `zarlib` encrypted runs (no non-POSIX password prompt in `zarc`) and
 skip zip when Info-ZIP is missing; `--mode hot|cold|both` selects the cache state.
+
+`info -v` must not scan block frames. Each commit header stores the compressed
+size per file group (empty, tiny, small, big) as `I64` metadata keys
+`zar.group.compressed_size.<group>`, written by create, add and join; `info -v`
+sums them from headers only. Archives without these keys fall back to a block
+scan. `zarc` accepts the aliases `--if`, `--ef`, `--id`, `--ed` for the
+include/exclude file/folder options. The benchmark report lists the versions of
+all tools (including zarc and gzip) and has a `7z-zstd` method
+(`-m0=zstd -mx=3`) that is skipped when the installed 7z lacks the codec.
+
+Packaging lives in `packaging/`: an Inno Setup installer for Windows
+(x64/arm64), `build-packages.sh` for Linux (deb, rpm, AppImage, Flatpak) and
+for macOS (dmg, pkg), all writing to `dist/`. The `Packaging` GitHub workflow
+(`.github/workflows/packaging.yml`) builds every package on version tags or
+manual dispatch and attaches them to the release. Notarization, Flathub
+submission and a Windows `.ico` are not done.
 
 For CI and release validation, run formatting, strict Clippy, Rust tests,
 Python wheel/pytest, C integration tests, and generated-document checks as
