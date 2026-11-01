@@ -39,7 +39,7 @@ Highlights:
   zarlib compressed in 4.6 s versus 19.6 s for zip, 17.5 s for tar.gz and 93 s
   for 7z, and extracted in 4.9 s versus 10.9 s for zip. Encryption costs only
   about 30% extra time. 7z produces smaller archives, at 20 times the compression time.
-  See the [full report](./doc/benchmarks/benchmark-report-linux.md) (single runs, not averages).
+  See the [benchmark overview](./doc/benchmarks/README.md) for all reports and charts.
   The [archive benchmark workflow](./.github/workflows/benchmark-archives.yml)
   runs on Windows, Linux, and macOS; each run uploads its generated report and
   chart from the `doc/benchmarks/` folder as workflow artifacts.
