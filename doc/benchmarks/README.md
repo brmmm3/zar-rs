@@ -15,11 +15,13 @@ visualizes the measurements available for that run.
 | Linux | GitHub-hosted, `linux-x86_64-gh` tag | 2026-10-30 | [Report](./benchmark-report-linux-x86_64-gh.md) | [Charts](./benchmark-charts-linux-x86_64-gh.svg) |
 | Linux | Intel Core i7-10700 | 2026-11-01 | [Report](./benchmark-report-linux-x86_64-core-i7.md) | [Charts](./benchmark-charts-linux-x86_64-core-i7.svg) |
 | Linux | AMD Ryzen 5 2400G | 2026-11-01 | [Report](./benchmark-report-linux-x86_64-ryzen5.md) | [Charts](./benchmark-charts-linux-x86_64-ryzen5.svg) |
-| Windows | GitHub-hosted, `windows-amd64-gh` tag | 2026-10-30 | [Report](./benchmark-report-windows-amd64-gh.md) | [Charts](./benchmark-charts-windows-amd64-gh.svg) |
-| Windows | Intel Core Ultra 7 265HX | 2026-11-01 | [Report](./benchmark-report-windows-x86_64-core-u7.md) | [Charts](./benchmark-charts-windows-x86_64-core-u7.svg) |
+| Windows | GitHub-hosted, `windows-amd64-gh` tag *1 | 2026-10-30 | [Report](./benchmark-report-windows-amd64-gh.md) | [Charts](./benchmark-charts-windows-amd64-gh.svg) |
+| Windows | Intel Core Ultra 7 265HX *1 | 2026-11-01 | [Report](./benchmark-report-windows-x86_64-core-u7.md) | [Charts](./benchmark-charts-windows-x86_64-core-u7.svg) |
 
 The `linux-arm64-gh` filename tag does not match the report's detected CPU
 architecture (`x86_64`); check the report metadata when interpreting that run.
+
+***1:** On Windows the Defender is slowing down the extraction process a lot for zarc.
 
 ## How to read the results
 
