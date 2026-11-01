@@ -14,6 +14,7 @@ pub mod list;
 pub mod meta;
 pub mod pipeline;
 pub mod remove;
+mod zip;
 
 pub use add::*;
 pub use check::*;

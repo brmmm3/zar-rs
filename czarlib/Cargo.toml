@@ -10,3 +10,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 [dependencies]
 serde_json.workspace = true
 zarlib = { path = "../zarlib" }
+
+[dev-dependencies]
+tempfile = "3"
+zip = { version = "9", default-features = false, features = ["deflate"] }

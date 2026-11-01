@@ -1602,7 +1602,7 @@ fn create_deduplicates_equal_files_but_never_compares_different_sizes() {
 #[test]
 fn create_and_add_skip_compression_for_known_extensions_case_insensitively() {
     let directory = TestDirectory::new();
-    let compressed = directory.path().join("archive.zip");
+    let compressed = directory.path().join("archive.rar");
     let ordinary = directory.path().join("archive.txt");
     std::fs::write(&compressed, vec![b'x'; 4096]).unwrap();
     std::fs::write(&ordinary, vec![b'y'; 4096]).unwrap();
@@ -1649,7 +1649,7 @@ fn create_and_add_skip_compression_for_known_extensions_case_insensitively() {
         flags_by_index.insert(frame.block_index, frame.flags);
     }
 
-    let compressed_entry = entries.get("archive.zip").unwrap();
+    let compressed_entry = entries.get("archive.rar").unwrap();
     let ordinary_entry = entries.get("archive.txt").unwrap();
     assert_eq!(compressed_entry.block_indices.len(), 1);
     assert_eq!(ordinary_entry.block_indices.len(), 1);

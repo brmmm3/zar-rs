@@ -1,5 +1,17 @@
 use super::*;
-use std::io::Cursor;
+use std::io::{Cursor, Write};
+
+fn write_zip(path: &std::path::Path, entries: &[(&str, &[u8])]) {
+    let file = std::fs::File::create(path).unwrap();
+    let mut archive = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    for (name, contents) in entries {
+        archive.start_file(name, options).unwrap();
+        archive.write_all(contents).unwrap();
+    }
+    archive.finish().unwrap();
+}
 
 fn sample_commit_header() -> CommitHeader {
     CommitHeader::new(0, [7; 4], 32, 128).unwrap()
@@ -209,6 +221,83 @@ fn extract_single_file_writes_only_the_requested_file() {
         .is_err()
     );
     let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn create_archive_imports_zip_entries_and_preserves_their_paths() {
+    let directory = tempfile::tempdir().unwrap();
+    let zip_path = directory.path().join("source.zip");
+    let archive_path = directory.path().join("converted.zar");
+    write_zip(
+        &zip_path,
+        &[("nested/hello.txt", b"hello from zip"), ("empty.txt", b"")],
+    );
+
+    crate::operations::create_archive(
+        archive_path.to_str().unwrap(),
+        std::slice::from_ref(&zip_path),
+    )
+    .unwrap();
+
+    let contents = crate::operations::extract_archive_to_memory(
+        archive_path.to_str().unwrap(),
+        None,
+        None,
+        None,
+        0,
+    )
+    .unwrap();
+    assert_eq!(contents.get("nested/hello.txt").unwrap(), b"hello from zip");
+    assert_eq!(contents.get("empty.txt").unwrap(), b"");
+}
+
+#[test]
+fn add_archive_imports_zip_entries() {
+    let directory = tempfile::tempdir().unwrap();
+    let source_path = directory.path().join("original.txt");
+    let archive_path = directory.path().join("archive.zar");
+    let zip_path = directory.path().join("additional.zip");
+    std::fs::write(&source_path, b"existing").unwrap();
+    write_zip(&zip_path, &[("added/file.txt", b"new contents")]);
+
+    crate::operations::create_archive(
+        archive_path.to_str().unwrap(),
+        std::slice::from_ref(&source_path),
+    )
+    .unwrap();
+    crate::operations::add_archive(
+        archive_path.to_str().unwrap(),
+        std::slice::from_ref(&zip_path),
+    )
+    .unwrap();
+
+    let contents = crate::operations::extract_archive_to_memory(
+        archive_path.to_str().unwrap(),
+        None,
+        None,
+        None,
+        0,
+    )
+    .unwrap();
+    assert_eq!(contents.get("original.txt").unwrap(), b"existing");
+    assert_eq!(contents.get("added/file.txt").unwrap(), b"new contents");
+}
+
+#[test]
+fn create_archive_rejects_zip_paths_that_escape_the_import_directory() {
+    let directory = tempfile::tempdir().unwrap();
+    let zip_path = directory.path().join("unsafe.zip");
+    let archive_path = directory.path().join("unsafe.zar");
+    write_zip(&zip_path, &[("../escaped.txt", b"outside")]);
+
+    let error = crate::operations::create_archive(
+        archive_path.to_str().unwrap(),
+        std::slice::from_ref(&zip_path),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("invalid ZIP entry path"));
+    assert!(!directory.path().join("escaped.txt").exists());
+    assert!(!archive_path.exists());
 }
 
 #[test]

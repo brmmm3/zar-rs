@@ -1,0 +1,109 @@
+use super::pipeline::{TreeEntry, archive_prefix, scan_tree};
+use crate::ArchivePath;
+use std::fs::{File, OpenOptions};
+use std::io;
+use std::path::{Path, PathBuf};
+use tempfile::TempDir;
+use zip::ZipArchive;
+
+pub(super) struct ScannedInputs {
+    pub entries: Vec<TreeEntry>,
+    _temporary_dirs: Vec<TempDir>,
+}
+
+pub(super) fn scan_input_paths(
+    paths: &[PathBuf],
+    cwd: &Path,
+    temporary_parent: &Path,
+) -> Result<ScannedInputs, Box<dyn std::error::Error>> {
+    let mut entries = Vec::new();
+    let mut temporary_dirs = Vec::new();
+    let mut temporary_roots = Vec::new();
+
+    for input in paths {
+        let source = if input.is_absolute() {
+            input.clone()
+        } else {
+            cwd.join(input)
+        };
+        if is_zip_path(input) && source.is_file() {
+            let temporary_dir = tempfile::Builder::new()
+                .prefix(".zarlib-zip-import-")
+                .tempdir_in(temporary_parent)?;
+            let temporary_root = temporary_dir.path().canonicalize()?;
+            extract_zip(&source, &temporary_root)?;
+            entries.extend(scan_tree(&temporary_root, "")?);
+            temporary_roots.push(temporary_root);
+            temporary_dirs.push(temporary_dir);
+        } else {
+            let prefix = archive_prefix(input, cwd)?;
+            entries.extend(scan_tree(&source, &prefix)?.into_iter().filter(|entry| {
+                !temporary_roots
+                    .iter()
+                    .any(|root: &PathBuf| entry.source_path.starts_with(root))
+            }));
+        }
+    }
+
+    Ok(ScannedInputs {
+        entries,
+        _temporary_dirs: temporary_dirs,
+    })
+}
+
+fn is_zip_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
+}
+
+fn extract_zip(source: &Path, destination: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let mut archive = ZipArchive::new(File::open(source)?)?;
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index)?;
+        let entry_name = entry.name()?.into_owned();
+        let path = if entry.is_dir() {
+            entry_name.strip_suffix('/').unwrap_or(&entry_name)
+        } else {
+            &entry_name
+        };
+        let archive_path = ArchivePath::new(path.to_owned())
+            .map_err(|error| format!("invalid ZIP entry path {entry_name:?}: {error}"))?;
+        let destination_path = destination.join(archive_path.as_str());
+
+        if entry
+            .unix_mode()
+            .is_some_and(|mode| mode & 0o170000 == 0o120000)
+        {
+            return Err(format!("ZIP symbolic links are not supported: {entry_name:?}").into());
+        }
+
+        if entry.is_dir() {
+            std::fs::create_dir_all(&destination_path)?;
+            continue;
+        }
+
+        let parent = destination_path
+            .parent()
+            .ok_or("ZIP entry has no parent directory")?;
+        std::fs::create_dir_all(parent)?;
+        let mut output = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&destination_path)
+            .map_err(|error| {
+                format!(
+                    "cannot create ZIP entry {entry_name:?} without overwriting another entry: {error}"
+                )
+            })?;
+        let copied = io::copy(&mut entry, &mut output)?;
+        if copied != entry.size() {
+            return Err(format!(
+                "ZIP entry {entry_name:?} contained {copied} bytes, expected {}",
+                entry.size()
+            )
+            .into());
+        }
+    }
+    Ok(())
+}

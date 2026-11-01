@@ -649,3 +649,44 @@ pub unsafe extern "C" fn czarlib_string_free(value: *mut c_char) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::execute_json;
+    use std::io::Write;
+
+    #[test]
+    fn create_archive_json_imports_zip_paths() {
+        let directory = tempfile::tempdir().unwrap();
+        let zip_path = directory.path().join("source.zip");
+        let archive_path = directory.path().join("converted.zar");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&zip_path).unwrap());
+        zip.start_file(
+            "inside/file.txt",
+            zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated),
+        )
+        .unwrap();
+        zip.write_all(b"from JSON").unwrap();
+        zip.finish().unwrap();
+
+        let response = execute_json(
+            "create_archive",
+            &serde_json::json!({
+                "archive": archive_path,
+                "paths": [zip_path],
+            })
+            .to_string(),
+        )
+        .unwrap();
+        assert!(response.contains("\"block_size\""));
+
+        let contents = execute_json(
+            "extract_archive_to_memory",
+            &serde_json::json!({ "archive": archive_path }).to_string(),
+        )
+        .unwrap();
+        let contents: serde_json::Value = serde_json::from_str(&contents).unwrap();
+        assert_eq!(contents["inside/file.txt"], serde_json::json!(b"from JSON"));
+    }
+}

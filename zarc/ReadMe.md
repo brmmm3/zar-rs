@@ -34,6 +34,7 @@ For example, `zarc a backup.zar new-file.txt` is equivalent to
 
 ```sh
 zarc create backup.zar docs/ src/ report.txt
+zarc create converted.zar downloaded.zip
 zarc create --block-size 4M --compression-level 7 backup.zar dataset/
 zarc create --password secrets.zar private/
 ```
@@ -45,6 +46,11 @@ Directories are scanned recursively. Paths inside the current working
 directory are stored relative to it; an absolute input outside it is stored
 using its basename (for example, `/var/log` is stored as `log`). Empty files
 are supported.
+ZIP files passed as input are imported by their internal paths rather than
+stored as a single `.zip` file. This also applies to paths passed to `zarc add`.
+Encrypted ZIP entries and ZIP symbolic links are not supported. ZIP entry
+timestamps are not retained; `--dates` records the import-time filesystem
+timestamps instead.
 
 Options:
 

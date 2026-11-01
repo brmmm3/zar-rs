@@ -260,18 +260,8 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
         action: "Creating",
         encryption,
     };
-    let mut all_tree_entries = Vec::new();
-    for input in paths {
-        let source = if input.is_absolute() {
-            input.clone()
-        } else {
-            cwd.join(input)
-        };
-        let prefix = archive_prefix(input, &cwd)?;
-        let tree_entries = scan_tree(&source, &prefix)?;
-        all_tree_entries.extend(tree_entries);
-    }
-    let all_tree_entries = filter_tree_entries(all_tree_entries, filters);
+    let scanned_inputs = super::zip::scan_input_paths(paths, &cwd, parent)?;
+    let all_tree_entries = filter_tree_entries(scanned_inputs.entries, filters);
     if let Some(progress) = progress {
         let summary = summarize_tree_entries(&all_tree_entries)?;
         ProgressReporter::new(Some(progress)).input_summary(&summary);

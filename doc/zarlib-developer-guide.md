@@ -84,6 +84,12 @@ create_archive(
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+`create_archive` and `add_archive` also accept `.zip` paths in their input
+lists. The ZIP entries are imported using their internal paths, then processed
+like other inputs. Encrypted ZIP entries and ZIP symbolic links are rejected.
+ZIP entry timestamps are not retained; when `save_dates` is enabled, the
+import-time filesystem timestamps are recorded instead.
+
 ### Add or replace files
 
 Equivalent CLI: `zarc add backup.zar config.toml`

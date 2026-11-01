@@ -5,6 +5,8 @@ provides the same nine archive operations and JSON contract as the C wrapper:
 create, add, remove, join, check, info, list, filesystem extract, and in-memory
 extract. See [`czarlib/README.md`](../czarlib/README.md) for operation request
 fields, filters, encryption options, and limitations.
+Create and Add requests may include `.zip` source paths; their contents are
+imported into the resulting ZAR using the ZIP's internal paths.
 
 ## Requirements, build, and tests
 

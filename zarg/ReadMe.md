@@ -65,6 +65,7 @@ under Wayland.
 - Show `.zar` files with the dedicated bundled ZAR archive icon.
 - Virtualize large archive listings so only visible rows are rendered.
 - Create or append archives from selected files and folders with a dedicated options panel for ZAR's Zstandard compression level, block size, metadata/special-file handling, strict input checks, filters and overwrite behavior. Create and Add support AES-256-GCM or ChaCha20-Poly1305 encryption with header/data scope selection; Add can also unlock existing commits.
+- Include a `.zip` file among Create or Add inputs to import its contents using the paths stored inside the ZIP.
 - Remove selected archive entries or paths.
 - Join a contiguous range of commits.
 - Test archives, optionally recovering past damaged framing.

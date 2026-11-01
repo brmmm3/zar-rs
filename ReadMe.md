@@ -43,6 +43,11 @@ Highlights:
   The [archive benchmark workflow](./.github/workflows/benchmark-archives.yml)
   runs on Windows, Linux, and macOS; each run uploads its generated report and
   chart from the `doc/benchmarks/` folder as workflow artifacts.
+- **ZIP import.** Pass a `.zip` file as an input to create or add, and its
+  contents are imported under their paths in the new ZAR commit. This works
+  through `zarlib`, `zarc`, `zarg`, and the language bindings; encrypted ZIPs
+  and ZIP symbolic links are not supported. ZIP entry timestamps are not
+  retained; `--dates` records the import-time filesystem timestamps instead.
 - **Commit-based history.** `add`, `remove`, and `join` append or compact
   commits instead of rewriting the archive; the archive is published atomically,
   and the original survives any failure.
@@ -146,6 +151,9 @@ See [packaging/README.md](./packaging/README.md) for prerequisites and options.
 ```sh
 # Create an archive from files and directories
 zarc create backup.zar documents/ src/ notes.txt
+
+# Convert a ZIP's contents into a ZAR archive
+zarc create backup.zar downloaded.zip
 
 # Replace backup.zar atomically with a newly created archive
 zarc create --overwrite backup.zar documents/ src/ notes.txt
