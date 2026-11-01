@@ -45,7 +45,7 @@ To create an installable npm tarball after building:
 
 ```sh
 npm pack
-npm install ./zar-rs-wasizarlib-node-0.8.0.tgz
+npm install ./zar-rs-wasizarlib-node-0.9.0.tgz
 ```
 
 The Node API creates an independent WASI instance for each caller. Grant file

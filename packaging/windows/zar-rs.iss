@@ -1,7 +1,7 @@
 ; Inno Setup script for the ZAR command-line tool (zarc) and archive manager (zarg).
 ;
 ; Build (from the repository root, after `cargo build --release --bins`):
-;   iscc /DAppVersion=0.8.0 packaging\windows\zar-rs.iss
+;   iscc /DAppVersion=0.9.0 packaging\windows\zar-rs.iss
 ; Options:
 ;   /DSourceDir=<dir>   directory containing zarc.exe and zarg.exe
 ;                       (default: target\release; use target\<triple>\release
@@ -9,7 +9,7 @@
 ;   /DArch=arm64        build the installer for Windows on ARM (default: x64)
 
 #ifndef AppVersion
-  #define AppVersion "0.8.0"
+  #define AppVersion "0.9.0"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\..\target\release"

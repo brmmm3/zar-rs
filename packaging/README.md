@@ -11,7 +11,7 @@ source. Flatpak continues to build inside its Freedesktop SDK.
 
 ```powershell
 cargo build --release --bins
-iscc /DAppVersion=0.8.0 packaging\windows\zar-rs.iss
+iscc /DAppVersion=0.9.0 packaging\windows\zar-rs.iss
 ```
 
 Use `/DSourceDir=target\<triple>\release` when building with `--target`, and

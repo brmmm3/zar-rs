@@ -5,12 +5,18 @@ until a version is released.
 
 ## Unreleased
 
+## 0.9.0 - 2026-??-??
+
 ### Added
 
 - Added `.zip`, `.7z`, `.tar` and `.tar.gz` input support for create and add
   operations across the CLI, GUI, and language bindings. Entries retain their
   internal paths; safe `.` components are normalized, while traversal, links,
   and special entries are rejected.
+
+### Changed
+
+- Bumped the project version to 0.9.0.
 
 ## 0.8.0 - 2026-11-01
 

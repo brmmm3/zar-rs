@@ -144,7 +144,7 @@ The [packaging](./packaging) directory contains installer definitions for the
   with `Zarg.app` and a `.pkg` that also installs `zarc`.
 
 ```sh
-iscc /DAppVersion=0.8.0 packaging\windows\zar-rs.iss   # Windows
+iscc /DAppVersion=0.9.0 packaging\windows\zar-rs.iss   # Windows
 packaging/linux/build-packages.sh deb                  # Linux
 ```
 
