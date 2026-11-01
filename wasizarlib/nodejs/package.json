@@ -1,0 +1,31 @@
+{
+  "name": "@zar-rs/wasizarlib-node",
+  "version": "0.7.0",
+  "description": "Node.js bindings for the ZAR WASI Preview 2 component",
+  "type": "module",
+  "exports": "./index.js",
+  "files": [
+    "README.md",
+    "index.js",
+    "dist/"
+  ],
+  "engines": {
+    "node": ">=22.20.0"
+  },
+  "scripts": {
+    "build": "cargo build --manifest-path ../../Cargo.toml --release --locked -p wasizarlib --target wasm32-wasip2 && npm run build:js",
+    "build:js": "jco transpile ../../target/wasm32-wasip2/release/wasizarlib.wasm --instantiation async --out-dir dist/component",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@bytecodealliance/preview2-shim": "0.31.0"
+  },
+  "devDependencies": {
+    "@bytecodealliance/jco": "1.40.0"
+  },
+  "overrides": {
+    "@bytecodealliance/jco-std": {
+      "minimatch": "11.0.1"
+    }
+  }
+}

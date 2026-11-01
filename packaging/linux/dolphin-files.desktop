@@ -1,0 +1,19 @@
+[Desktop Entry]
+Type=Service
+MimeType=all/all;
+Actions=createArchive;addToArchive;createNamedArchive
+
+[Desktop Action createArchive]
+Name=Create Archive...
+Icon=zarg
+Exec=zarg --context create -- %F
+
+[Desktop Action addToArchive]
+Name=Add to Archive...
+Icon=zarg
+Exec=zarg --context add -- %F
+
+[Desktop Action createNamedArchive]
+Name=Create Archive (named)
+Icon=zarg
+Exec=zarg --context create-named -- %F

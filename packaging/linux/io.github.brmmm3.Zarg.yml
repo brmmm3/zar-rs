@@ -1,0 +1,50 @@
+# Flatpak manifest. Build with packaging/linux/build-packages.sh flatpak.
+#
+# The Rust crates are downloaded during the build (build-args: --share=network),
+# which is fine for local bundles but not accepted by Flathub; Flathub needs
+# vendored sources generated with flatpak-cargo-generator.
+app-id: io.github.brmmm3.Zarg
+runtime: org.freedesktop.Platform
+runtime-version: "26.08"
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: zarg
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --filesystem=home
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  build-args:
+    - --share=network
+  env:
+    CARGO_HOME: /run/build/zar-rs/cargo
+modules:
+  - name: zar-rs
+    buildsystem: simple
+    build-commands:
+      - cargo build --release --locked -p zarc -p zarg
+      - install -Dm755 target/release/zarg /app/bin/zarg
+      - install -Dm755 target/release/zarc /app/bin/zarc
+      - install -Dm644 zarg/data/zarg.desktop /app/share/applications/io.github.brmmm3.Zarg.desktop
+      - sed -i 's/^Icon=.*/Icon=io.github.brmmm3.Zarg/' /app/share/applications/io.github.brmmm3.Zarg.desktop
+      - install -Dm644 zarg/assets/zarg-icon.png /app/share/icons/hicolor/256x256/apps/io.github.brmmm3.Zarg.png
+      - install -Dm644 zarg/assets/application-x-zar.png /app/share/icons/hicolor/64x64/mimetypes/application-x-zar.png
+      - install -Dm644 packaging/linux/zarg-mime.xml /app/share/mime/packages/zar-rs.xml
+      - install -Dm644 packaging/linux/io.github.brmmm3.Zarg.metainfo.xml /app/share/metainfo/io.github.brmmm3.Zarg.metainfo.xml
+      - install -Dm644 LICENSE-MIT /app/share/licenses/io.github.brmmm3.Zarg/LICENSE-MIT
+      - install -Dm644 LICENSE-APACHE /app/share/licenses/io.github.brmmm3.Zarg/LICENSE-APACHE
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - target
+          - testdata
+          - testresults
+          - dist
+          - jzarlib-ffm/target
+          - jzarlib-jni/target

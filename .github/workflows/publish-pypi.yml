@@ -1,0 +1,40 @@
+name: Publish pyzarlib to PyPI
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "GitHub release tag containing pyzarlib distributions"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish release to PyPI
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/pyzarlib
+    steps:
+      - name: Download distributions from GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          mkdir dist
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern '*.whl' --pattern '*.tar.gz' --dir dist
+          test -n "$(find dist -maxdepth 1 -type f -print -quit)"
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1 # zizmor: ignore[unpinned-uses]
+        with:
+          packages-dir: dist/
+          skip-existing: true

@@ -1,0 +1,23 @@
+[package]
+name = "zarlib"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+aes-gcm.workspace = true
+argon2.workspace = true
+chacha20poly1305.workspace = true
+getrandom.workspace = true
+globset.workspace = true
+xxhash-rust.workspace = true
+zeroize.workspace = true
+rayon.workspace = true
+sysinfo = "0.40"
+libc = "0.2"
+zstd = "0.14.3"
+
+[target.'cfg(not(target_os = "wasi"))'.dependencies]
+crossbeam-channel = "0.5"
+rayon.workspace = true
+scandir = "3.0"

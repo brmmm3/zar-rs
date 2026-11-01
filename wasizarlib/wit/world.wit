@@ -1,0 +1,14 @@
+package zar:wasizarlib@0.5.0;
+
+interface operations {
+    /// Execute any operation supported by the czarlib JSON API.
+    ///
+    /// The request is a JSON object and the response is a JSON value.
+    /// Archive paths are resolved against the WASI runtime's preopened
+    /// directories.
+    execute: func(operation: string, request-json: string) -> result<string, string>;
+}
+
+world wasizarlib {
+    export operations;
+}

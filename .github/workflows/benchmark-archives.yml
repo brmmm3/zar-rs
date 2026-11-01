@@ -1,0 +1,87 @@
+name: Archive benchmarks
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - ".github/workflows/benchmark-archives.yml"
+      - "scripts/benchmark_archivers.py"
+      - "zarc/**"
+      - "zarlib/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: Benchmark (${{ matrix.platform.name }})
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: linux-x64
+            os: linux
+            runner: ubuntu-latest
+          - name: linux-arm64
+            os: linux
+            runner: ubuntu-24.04-arm
+          - name: windows-x64
+            os: windows
+            runner: windows-latest
+          #- name: windows-arm64
+          #  os: windows
+          #  runner: windows-11-vs2026-arm
+          #- name: macos
+          #  os: macos
+          #  runner: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
+        with:
+          toolchain: stable
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # 7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install benchmark tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes 7zip zip unzip openssl
+      - name: Install benchmark tools (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install sevenzip zip openssl@3
+          echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
+      - name: Install benchmark tools (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install 7zip openssl.light --yes --no-progress
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install psutil scandir-rs
+      - name: Run archive benchmark
+        run: python scripts/benchmark_archivers.py --mode hot
+      - name: Upload benchmark reports and charts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
+        with:
+          name: archive-benchmark-${{ matrix.platform.name }}
+          path: |
+            doc/benchmark-report-${{ matrix.platform.os }}.md
+            doc/benchmark-charts-${{ matrix.platform.os }}.svg
+          if-no-files-found: warn
