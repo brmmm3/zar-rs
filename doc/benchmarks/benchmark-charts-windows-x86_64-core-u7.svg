@@ -1,0 +1,423 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="3640" viewBox="0 0 1120 3640" role="img" aria-labelledby="title description">
+<title id="title">windows x86_64 archive benchmark charts</title>
+<desc id="description">Archive size, compression time, full and three-file extraction time, CPU utilisation, and RAM usage for archive formats with and without encryption, with hot and cold file caches where available. Source size: 525.0 MiB. Operating system: Windows-11-10.0.26200-SP0. CPU: Intel(R) Core(TM) Ultra 7 265HX (AMD64, 20 logical cores). Storage (Source and archives): SSD (NVMe); model: Samsung SSD 990 EVO Plus 1TB; device: disk 1 (NVMe); Storage (Extraction output): SSD (NVMe); model: Samsung SSD 990 EVO Plus 1TB; device: disk 1 (NVMe)</desc>
+<style>
+  text { font-family: system-ui, sans-serif; fill: #172033; }
+  .heading { font-size: 19px; font-weight: 700; }
+  .label { font-size: 13px; }
+  .metadata { font-size: 12px; fill: #475569; }
+  .axis { font-size: 11px; fill: #64748b; }
+  .value { font-size: 12px; font-weight: 600; }
+  .grid { stroke: #dbe3ee; stroke-width: 1; }
+</style>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="24" y="24" class="heading">Benchmark system</text>
+<text x="24" y="46" class="metadata">Operating system: Windows-11-10.0.26200-SP0</text>
+<text x="24" y="64" class="metadata">CPU: Intel(R) Core(TM) Ultra 7 265HX (AMD64, 20 logical cores)</text>
+<text x="24" y="82" class="metadata">Storage (Source and archives): SSD (NVMe); model: Samsung SSD 990 EVO Plus 1TB; device: disk 1 (NVMe)</text>
+<text x="24" y="100" class="metadata">Storage (Extraction output): SSD (NVMe); model: Samsung SSD 990 EVO Plus 1TB; device: disk 1 (NVMe)</text>
+<text x="24" y="120" class="heading">Archive size</text>
+<line x1="250" y1="154" x2="250" y2="694" class="grid"/>
+<text x="250" y="146" text-anchor="middle" class="axis">0.0</text>
+<line x1="425" y1="154" x2="425" y2="694" class="grid"/>
+<text x="425" y="146" text-anchor="middle" class="axis">140.7</text>
+<line x1="600" y1="154" x2="600" y2="694" class="grid"/>
+<text x="600" y="146" text-anchor="middle" class="axis">281.3</text>
+<line x1="775" y1="154" x2="775" y2="694" class="grid"/>
+<text x="775" y="146" text-anchor="middle" class="axis">422.0</text>
+<line x1="950" y1="154" x2="950" y2="694" class="grid"/>
+<text x="950" y="146" text-anchor="middle" class="axis">562.6</text>
+<text x="238" y="171" text-anchor="end" class="label">zarlib - plain - hot</text>
+<rect x="250" y="157" width="188" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="446" y="171" class="value">151.28 MiB</text>
+<text x="238" y="201" text-anchor="end" class="label">zip - plain - hot</text>
+<rect x="250" y="187" width="192" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="450" y="201" class="value">154.62 MiB</text>
+<text x="238" y="231" text-anchor="end" class="label">zip - encrypted - hot</text>
+<rect x="250" y="217" width="193" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="451" y="231" class="value">155.93 MiB</text>
+<text x="238" y="261" text-anchor="end" class="label">7z - plain - hot</text>
+<rect x="250" y="247" width="99" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="357" y="261" class="value">80.23 MiB</text>
+<text x="238" y="291" text-anchor="end" class="label">7z - encrypted - hot</text>
+<rect x="250" y="277" width="99" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="357" y="291" class="value">80.23 MiB</text>
+<text x="238" y="321" text-anchor="end" class="label">tar - plain - hot</text>
+<rect x="250" y="307" width="699" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="957" y="321" class="value">562.63 MiB</text>
+<text x="238" y="351" text-anchor="end" class="label">tar - encrypted - hot</text>
+<rect x="250" y="337" width="700" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="958" y="351" class="value">562.63 MiB</text>
+<text x="238" y="381" text-anchor="end" class="label">tar.gz - plain - hot</text>
+<rect x="250" y="367" width="148" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="406" y="381" class="value">119.40 MiB</text>
+<text x="238" y="411" text-anchor="end" class="label">tar.gz - encrypted - hot</text>
+<rect x="250" y="397" width="148" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="406" y="411" class="value">119.40 MiB</text>
+<text x="238" y="441" text-anchor="end" class="label">zarlib - plain - cold</text>
+<rect x="250" y="427" width="188" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="446" y="441" class="value">151.28 MiB</text>
+<text x="238" y="471" text-anchor="end" class="label">zip - plain - cold</text>
+<rect x="250" y="457" width="192" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="450" y="471" class="value">154.62 MiB</text>
+<text x="238" y="501" text-anchor="end" class="label">zip - encrypted - cold</text>
+<rect x="250" y="487" width="193" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="451" y="501" class="value">155.93 MiB</text>
+<text x="238" y="531" text-anchor="end" class="label">7z - plain - cold</text>
+<rect x="250" y="517" width="99" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="357" y="531" class="value">80.23 MiB</text>
+<text x="238" y="561" text-anchor="end" class="label">7z - encrypted - cold</text>
+<rect x="250" y="547" width="99" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="357" y="561" class="value">80.23 MiB</text>
+<text x="238" y="591" text-anchor="end" class="label">tar - plain - cold</text>
+<rect x="250" y="577" width="699" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="957" y="591" class="value">562.63 MiB</text>
+<text x="238" y="621" text-anchor="end" class="label">tar - encrypted - cold</text>
+<rect x="250" y="607" width="700" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="958" y="621" class="value">562.63 MiB</text>
+<text x="238" y="651" text-anchor="end" class="label">tar.gz - plain - cold</text>
+<rect x="250" y="637" width="148" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="406" y="651" class="value">119.40 MiB</text>
+<text x="238" y="681" text-anchor="end" class="label">tar.gz - encrypted - cold</text>
+<rect x="250" y="667" width="148" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="406" y="681" class="value">119.40 MiB</text>
+<text x="24" y="740" class="heading">Compression time</text>
+<line x1="250" y1="774" x2="250" y2="1314" class="grid"/>
+<text x="250" y="766" text-anchor="middle" class="axis">0.0</text>
+<line x1="425" y1="774" x2="425" y2="1314" class="grid"/>
+<text x="425" y="766" text-anchor="middle" class="axis">18.1</text>
+<line x1="600" y1="774" x2="600" y2="1314" class="grid"/>
+<text x="600" y="766" text-anchor="middle" class="axis">36.2</text>
+<line x1="775" y1="774" x2="775" y2="1314" class="grid"/>
+<text x="775" y="766" text-anchor="middle" class="axis">54.2</text>
+<line x1="950" y1="774" x2="950" y2="1314" class="grid"/>
+<text x="950" y="766" text-anchor="middle" class="axis">72.3</text>
+<text x="238" y="791" text-anchor="end" class="label">zarlib - plain - hot</text>
+<rect x="275" y="777" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="284" y="791" class="value">2.67-2.68 s</text>
+<text x="238" y="821" text-anchor="end" class="label">zip - plain - hot</text>
+<rect x="404" y="807" width="22" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="434" y="821" class="value">15.96-18.29 s</text>
+<text x="238" y="851" text-anchor="end" class="label">zip - encrypted - hot</text>
+<rect x="421" y="837" width="4" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="433" y="851" class="value">17.70-18.13 s</text>
+<text x="238" y="881" text-anchor="end" class="label">7z - plain - hot</text>
+<rect x="724" y="867" width="5" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="737" y="881" class="value">49.08-49.66 s</text>
+<text x="238" y="911" text-anchor="end" class="label">7z - encrypted - hot</text>
+<rect x="676" y="897" width="1" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="685" y="911" class="value">44.02-44.04 s</text>
+<text x="238" y="941" text-anchor="end" class="label">tar - plain - hot</text>
+<rect x="270" y="927" width="2" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="280" y="941" class="value">2.16-2.42 s</text>
+<text x="238" y="971" text-anchor="end" class="label">tar - encrypted - hot</text>
+<rect x="326" y="957" width="187" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="521" y="971" class="value">7.87-27.20 s</text>
+<text x="238" y="1001" text-anchor="end" class="label">tar.gz - plain - hot</text>
+<rect x="359" y="987" width="15" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="382" y="1001" class="value">11.28-12.89 s</text>
+<text x="238" y="1031" text-anchor="end" class="label">tar.gz - encrypted - hot</text>
+<rect x="420" y="1017" width="3" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="431" y="1031" class="value">17.64-17.95 s</text>
+<text x="238" y="1061" text-anchor="end" class="label">zarlib - plain - cold</text>
+<rect x="577" y="1047" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="586" y="1061" class="value">33.88-33.88 s</text>
+<text x="238" y="1091" text-anchor="end" class="label">zip - plain - cold</text>
+<rect x="920" y="1077" width="1" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="929" y="1091" class="value">69.24-69.24 s</text>
+<text x="238" y="1121" text-anchor="end" class="label">zip - encrypted - cold</text>
+<rect x="688" y="1107" width="1" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="697" y="1121" class="value">45.35-45.35 s</text>
+<text x="238" y="1151" text-anchor="end" class="label">7z - plain - cold</text>
+<rect x="902" y="1137" width="1" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="911" y="1151" class="value">67.41-67.41 s</text>
+<text x="238" y="1181" text-anchor="end" class="label">7z - encrypted - cold</text>
+<rect x="950" y="1167" width="1" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="959" y="1181" class="value">72.33-72.33 s</text>
+<text x="238" y="1211" text-anchor="end" class="label">tar - plain - cold</text>
+<rect x="685" y="1197" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="694" y="1211" class="value">44.97-44.97 s</text>
+<text x="238" y="1241" text-anchor="end" class="label">tar - encrypted - cold</text>
+<rect x="653" y="1227" width="1" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="662" y="1241" class="value">41.67-41.67 s</text>
+<text x="238" y="1271" text-anchor="end" class="label">tar.gz - plain - cold</text>
+<rect x="661" y="1257" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="670" y="1271" class="value">42.57-42.57 s</text>
+<text x="238" y="1301" text-anchor="end" class="label">tar.gz - encrypted - cold</text>
+<rect x="659" y="1287" width="1" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="668" y="1301" class="value">42.27-42.27 s</text>
+<text x="24" y="1360" class="heading">Extraction time</text>
+<line x1="250" y1="1394" x2="250" y2="1934" class="grid"/>
+<text x="250" y="1386" text-anchor="middle" class="axis">0.0</text>
+<line x1="425" y1="1394" x2="425" y2="1934" class="grid"/>
+<text x="425" y="1386" text-anchor="middle" class="axis">11.2</text>
+<line x1="600" y1="1394" x2="600" y2="1934" class="grid"/>
+<text x="600" y="1386" text-anchor="middle" class="axis">22.4</text>
+<line x1="775" y1="1394" x2="775" y2="1934" class="grid"/>
+<text x="775" y="1386" text-anchor="middle" class="axis">33.6</text>
+<line x1="950" y1="1394" x2="950" y2="1934" class="grid"/>
+<text x="950" y="1386" text-anchor="middle" class="axis">44.8</text>
+<text x="238" y="1411" text-anchor="end" class="label">zarlib - plain - hot</text>
+<rect x="745" y="1397" width="204" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="957" y="1411" class="value">31.70-44.82 s</text>
+<text x="238" y="1441" text-anchor="end" class="label">zip - plain - hot</text>
+<rect x="744" y="1427" width="101" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="853" y="1441" class="value">31.65-38.13 s</text>
+<text x="238" y="1471" text-anchor="end" class="label">zip - encrypted - hot</text>
+<rect x="677" y="1457" width="2" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="687" y="1471" class="value">27.39-27.56 s</text>
+<text x="238" y="1501" text-anchor="end" class="label">7z - plain - hot</text>
+<rect x="762" y="1487" width="1" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="771" y="1501" class="value">32.81-32.88 s</text>
+<text x="238" y="1531" text-anchor="end" class="label">7z - encrypted - hot</text>
+<rect x="783" y="1517" width="41" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="832" y="1531" class="value">34.17-36.85 s</text>
+<text x="238" y="1561" text-anchor="end" class="label">tar - plain - hot</text>
+<rect x="516" y="1547" width="28" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="552" y="1561" class="value">17.08-18.88 s</text>
+<text x="238" y="1591" text-anchor="end" class="label">tar - encrypted - hot</text>
+<rect x="465" y="1577" width="30" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="503" y="1591" class="value">13.81-15.80 s</text>
+<text x="238" y="1621" text-anchor="end" class="label">tar.gz - plain - hot</text>
+<rect x="483" y="1607" width="41" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="532" y="1621" class="value">14.92-17.54 s</text>
+<text x="238" y="1651" text-anchor="end" class="label">tar.gz - encrypted - hot</text>
+<rect x="426" y="1637" width="4" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="438" y="1651" class="value">11.33-11.59 s</text>
+<text x="238" y="1681" text-anchor="end" class="label">zarlib - plain - cold</text>
+<rect x="723" y="1667" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="732" y="1681" class="value">30.29-30.29 s</text>
+<text x="238" y="1711" text-anchor="end" class="label">zip - plain - cold</text>
+<rect x="632" y="1697" width="1" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="641" y="1711" class="value">24.46-24.46 s</text>
+<text x="238" y="1741" text-anchor="end" class="label">zip - encrypted - cold</text>
+<rect x="647" y="1727" width="1" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="656" y="1741" class="value">25.48-25.48 s</text>
+<text x="238" y="1771" text-anchor="end" class="label">7z - plain - cold</text>
+<rect x="742" y="1757" width="1" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="751" y="1771" class="value">31.53-31.53 s</text>
+<text x="238" y="1801" text-anchor="end" class="label">7z - encrypted - cold</text>
+<rect x="758" y="1787" width="1" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="767" y="1801" class="value">32.57-32.57 s</text>
+<text x="238" y="1831" text-anchor="end" class="label">tar - plain - cold</text>
+<rect x="410" y="1817" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="419" y="1831" class="value">10.30-10.30 s</text>
+<text x="238" y="1861" text-anchor="end" class="label">tar - encrypted - cold</text>
+<rect x="453" y="1847" width="1" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="462" y="1861" class="value">13.00-13.00 s</text>
+<text x="238" y="1891" text-anchor="end" class="label">tar.gz - plain - cold</text>
+<rect x="428" y="1877" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="437" y="1891" class="value">11.42-11.42 s</text>
+<text x="238" y="1921" text-anchor="end" class="label">tar.gz - encrypted - cold</text>
+<rect x="435" y="1907" width="1" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="444" y="1921" class="value">11.86-11.86 s</text>
+<text x="24" y="1980" class="heading">Extraction time (3 files)</text>
+<line x1="250" y1="2014" x2="250" y2="2554" class="grid"/>
+<text x="250" y="2006" text-anchor="middle" class="axis">0.0</text>
+<line x1="425" y1="2014" x2="425" y2="2554" class="grid"/>
+<text x="425" y="2006" text-anchor="middle" class="axis">0.8</text>
+<line x1="600" y1="2014" x2="600" y2="2554" class="grid"/>
+<text x="600" y="2006" text-anchor="middle" class="axis">1.5</text>
+<line x1="775" y1="2014" x2="775" y2="2554" class="grid"/>
+<text x="775" y="2006" text-anchor="middle" class="axis">2.3</text>
+<line x1="950" y1="2014" x2="950" y2="2554" class="grid"/>
+<text x="950" y="2006" text-anchor="middle" class="axis">3.0</text>
+<text x="238" y="2031" text-anchor="end" class="label">zarlib - plain - hot</text>
+<rect x="317" y="2017" width="5" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="330" y="2031" class="value">0.29-0.31 s</text>
+<text x="238" y="2061" text-anchor="end" class="label">zip - plain - hot</text>
+<rect x="265" y="2047" width="1" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="274" y="2061" class="value">0.07-0.07 s</text>
+<text x="238" y="2091" text-anchor="end" class="label">zip - encrypted - hot</text>
+<rect x="266" y="2077" width="1" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="275" y="2091" class="value">0.07-0.07 s</text>
+<text x="238" y="2121" text-anchor="end" class="label">7z - plain - hot</text>
+<rect x="427" y="2107" width="6" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="441" y="2121" class="value">0.76-0.79 s</text>
+<text x="238" y="2151" text-anchor="end" class="label">7z - encrypted - hot</text>
+<rect x="437" y="2137" width="11" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="456" y="2151" class="value">0.80-0.85 s</text>
+<text x="238" y="2181" text-anchor="end" class="label">tar - plain - hot</text>
+<rect x="288" y="2167" width="3" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="299" y="2181" class="value">0.17-0.18 s</text>
+<text x="238" y="2211" text-anchor="end" class="label">tar - encrypted - hot</text>
+<rect x="907" y="2197" width="17" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="932" y="2211" class="value">2.82-2.90 s</text>
+<text x="238" y="2241" text-anchor="end" class="label">tar.gz - plain - hot</text>
+<rect x="417" y="2227" width="7" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="432" y="2241" class="value">0.72-0.75 s</text>
+<text x="238" y="2271" text-anchor="end" class="label">tar.gz - encrypted - hot</text>
+<rect x="551" y="2257" width="6" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="565" y="2271" class="value">1.29-1.32 s</text>
+<text x="238" y="2301" text-anchor="end" class="label">zarlib - plain - cold</text>
+<rect x="354" y="2287" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="363" y="2301" class="value">0.45-0.45 s</text>
+<text x="238" y="2331" text-anchor="end" class="label">zip - plain - cold</text>
+<rect x="271" y="2317" width="1" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="280" y="2331" class="value">0.09-0.09 s</text>
+<text x="238" y="2361" text-anchor="end" class="label">zip - encrypted - cold</text>
+<rect x="289" y="2347" width="1" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="298" y="2361" class="value">0.17-0.17 s</text>
+<text x="238" y="2391" text-anchor="end" class="label">7z - plain - cold</text>
+<rect x="436" y="2377" width="1" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="445" y="2391" class="value">0.80-0.80 s</text>
+<text x="238" y="2421" text-anchor="end" class="label">7z - encrypted - cold</text>
+<rect x="443" y="2407" width="1" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="452" y="2421" class="value">0.83-0.83 s</text>
+<text x="238" y="2451" text-anchor="end" class="label">tar - plain - cold</text>
+<rect x="443" y="2437" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="452" y="2451" class="value">0.83-0.83 s</text>
+<text x="238" y="2481" text-anchor="end" class="label">tar - encrypted - cold</text>
+<rect x="950" y="2467" width="1" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="959" y="2481" class="value">3.00-3.00 s</text>
+<text x="238" y="2511" text-anchor="end" class="label">tar.gz - plain - cold</text>
+<rect x="426" y="2497" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="435" y="2511" class="value">0.76-0.76 s</text>
+<text x="238" y="2541" text-anchor="end" class="label">tar.gz - encrypted - cold</text>
+<rect x="568" y="2527" width="1" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="577" y="2541" class="value">1.37-1.37 s</text>
+<text x="24" y="2610" class="heading">CPU during compression</text>
+<line x1="250" y1="2804" x2="950" y2="2804" class="grid"/>
+<text x="242" y="2808" text-anchor="end" class="axis">0</text>
+<line x1="250" y1="2764" x2="950" y2="2764" class="grid"/>
+<text x="242" y="2768" text-anchor="end" class="axis">25</text>
+<line x1="250" y1="2724" x2="950" y2="2724" class="grid"/>
+<text x="242" y="2728" text-anchor="end" class="axis">50</text>
+<line x1="250" y1="2684" x2="950" y2="2684" class="grid"/>
+<text x="242" y="2688" text-anchor="end" class="axis">75</text>
+<line x1="250" y1="2644" x2="950" y2="2644" class="grid"/>
+<text x="242" y="2648" text-anchor="end" class="axis">100</text>
+<text x="242" y="2630" text-anchor="end" class="axis">CPU (%)</text>
+<text x="250" y="2820" text-anchor="middle" class="axis">0.0s</text>
+<text x="425" y="2820" text-anchor="middle" class="axis">17.5s</text>
+<text x="600" y="2820" text-anchor="middle" class="axis">35.0s</text>
+<text x="775" y="2820" text-anchor="middle" class="axis">52.5s</text>
+<text x="950" y="2820" text-anchor="middle" class="axis">70.0s</text>
+<polyline points="250,2804 260,2762" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2740 260,2783 270,2782 280,2775 290,2773 300,2775 310,2781 320,2783 330,2781 340,2782 350,2784 360,2787 370,2781 380,2774 390,2779 400,2769 410,2780 420,2779" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2804 260,2778 270,2780 280,2780 290,2780 300,2782 310,2784 320,2783 330,2782 340,2784 350,2784 360,2780 370,2782 380,2787 390,2779 400,2780 410,2786 420,2768" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2804 260,2726 270,2732 280,2738 290,2743 300,2739 310,2743 320,2752 330,2752 340,2750 350,2752 360,2752 370,2752 380,2750 390,2753 400,2751 410,2751 420,2752 430,2751 440,2750 450,2746 460,2739 470,2744 480,2748 490,2752 500,2751 510,2753 520,2747 530,2749 540,2747 550,2750 560,2750 570,2751 580,2752 590,2752 600,2753 610,2752 620,2745 630,2746 640,2744 650,2750 660,2764 670,2770 680,2780 690,2782 700,2783 710,2782 720,2782 730,2785" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2804 260,2732 270,2731 280,2738 290,2748 300,2750 310,2742 320,2746 330,2750 340,2748 350,2753 360,2750 370,2749 380,2751 390,2754 400,2753 410,2753 420,2752 430,2754 440,2753 450,2752 460,2755 470,2752 480,2754 490,2755 500,2747 510,2748 520,2750 530,2745 540,2749 550,2752 560,2753 570,2754 580,2754 590,2754 600,2751 610,2749 620,2752 630,2766 640,2777 650,2780 660,2783 670,2777" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2804 260,2781" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2804 260,2772 270,2780 280,2784 290,2789 300,2787 310,2788 320,2793 330,2789 340,2792 350,2792 360,2792 370,2794 380,2791 390,2792 400,2794 410,2793 420,2787 430,2782 440,2792 450,2794 460,2793 470,2792 480,2792 490,2793 500,2793 510,2794" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2804 260,2782 270,2784 280,2782 290,2783 300,2782 310,2783 320,2783 330,2784 340,2783 350,2779 360,2790" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2771 260,2769 270,2777 280,2785 290,2784 300,2784 310,2783 320,2784 330,2784 340,2779 350,2782 360,2784 370,2793 380,2794 390,2793 400,2791 410,2789" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2804 260,2783 270,2787 280,2790 290,2790 300,2789 310,2791 320,2789 330,2778 340,2766 350,2774 360,2783 370,2780 380,2792 390,2665 400,2688 410,2755 420,2705 430,2644 440,2644 450,2644 460,2644 470,2644 480,2644 490,2644 500,2644 510,2644 520,2644 530,2644 540,2644 550,2644 560,2644 570,2644" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2804 260,2786 270,2742 280,2644 290,2645 300,2644 310,2644 320,2644 330,2644 340,2779 350,2772 360,2777 370,2789 380,2791 390,2790 400,2789 410,2785 420,2789 430,2788 440,2791 450,2785 460,2791 470,2789 480,2792 490,2793 500,2787 510,2786 520,2777 530,2778 540,2783 550,2781 560,2788 570,2787 580,2791 590,2793 600,2785 610,2788 620,2787 630,2788 640,2785 650,2786 660,2792 670,2788 680,2787 690,2777 700,2780 710,2787 720,2783 730,2786 740,2784 750,2772 760,2727 770,2644 780,2671 790,2648 800,2658 810,2655 820,2708 830,2707 840,2698 850,2676 860,2652 870,2672 880,2709 890,2704 900,2644 910,2644 920,2644" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2804 260,2783 270,2784 280,2787 290,2786 300,2786 310,2678 320,2644 330,2644 340,2647 350,2774 360,2780 370,2782 380,2785 390,2787 400,2785 410,2785 420,2781 430,2789 440,2783 450,2772 460,2767 470,2764 480,2759 490,2644 500,2644 510,2644 520,2644 530,2644 540,2644 550,2644 560,2648 570,2705 580,2767 590,2719 600,2693 610,2718 620,2686 630,2704 640,2710 650,2732 660,2745 670,2753 680,2763" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2804 260,2776 270,2791 280,2788 290,2781 300,2790 310,2794 320,2790 330,2794 340,2791 350,2793 360,2791 370,2793 380,2789 390,2793 400,2784 410,2783 420,2790 430,2791 440,2793 450,2793 460,2792 470,2765 480,2761 490,2756 500,2759 510,2746 520,2739 530,2746 540,2739 550,2744 560,2752 570,2743 580,2747 590,2749 600,2753 610,2755 620,2752 630,2753 640,2752 650,2754 660,2755 670,2755 680,2756 690,2754 700,2755 710,2754 720,2751 730,2755 740,2740 750,2742 760,2753 770,2755 780,2756 790,2756 800,2756 810,2753 820,2759 830,2765 840,2767 850,2775 860,2771 870,2776 880,2773 890,2779 900,2785 910,2767" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2804 260,2794 270,2793 280,2794 290,2794 300,2794 310,2794 320,2786 330,2785 340,2779 350,2786 360,2793 370,2794 380,2793 390,2793 400,2793 410,2792 420,2786 430,2792 440,2794 450,2794 460,2792 470,2793 480,2794 490,2772 500,2760 510,2752 520,2752 530,2758 540,2751 550,2738 560,2738 570,2736 580,2741 590,2745 600,2751 610,2757 620,2747 630,2754 640,2756 650,2755 660,2755 670,2747 680,2745 690,2746 700,2756 710,2755 720,2753 730,2752 740,2755 750,2757 760,2755 770,2754 780,2755 790,2757 800,2752 810,2755 820,2752 830,2758 840,2746 850,2743 860,2752 870,2762 880,2763 890,2771 900,2773 910,2779 920,2781 930,2784 940,2781 950,2784" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2804 260,2645 270,2644 280,2644 290,2644 300,2644 310,2644 320,2644 330,2683 340,2788 350,2790 360,2783 370,2788 380,2787 390,2774 400,2775 410,2786 420,2787 430,2783 440,2786 450,2788 460,2787 470,2789 480,2785 490,2786 500,2786 510,2786 520,2780 530,2784 540,2779 550,2783 560,2770 570,2656 580,2644 590,2644 600,2644 610,2644 620,2644 630,2644 640,2644 650,2645 660,2644 670,2644 680,2644" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2804 260,2656 270,2779 280,2779 290,2775 300,2785 310,2789 320,2788 330,2789 340,2785 350,2785 360,2779 370,2783 380,2786 390,2787 400,2788 410,2783 420,2775 430,2782 440,2783 450,2784 460,2784 470,2723 480,2644 490,2644 500,2644 510,2644 520,2644 530,2644 540,2644 550,2644 560,2644 570,2644 580,2644 590,2644 600,2644 610,2644 620,2644 630,2658 640,2749 650,2784" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2804 260,2645 270,2644 280,2644 290,2644 300,2734 310,2776 320,2719 330,2704 340,2684 350,2694 360,2707 370,2702 380,2728 390,2720 400,2666 410,2689 420,2788 430,2777 440,2778 450,2790 460,2789 470,2790 480,2788 490,2787 500,2788 510,2789 520,2790 530,2787 540,2790 550,2788 560,2787 570,2787 580,2678 590,2658 600,2653 610,2644 620,2644 630,2644 640,2644 650,2737 660,2751" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2804 260,2644 270,2644 280,2644 290,2734 300,2773 310,2767 320,2781 330,2785 340,2784 350,2781 360,2781 370,2786 380,2788 390,2782 400,2786 410,2788 420,2786 430,2788 440,2786 450,2782 460,2733 470,2705 480,2676 490,2664 500,2725 510,2688 520,2733 530,2720 540,2706 550,2669 560,2692 570,2692 580,2647 590,2691 600,2646 610,2644 620,2644 630,2644 640,2671 650,2732" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="250" y="2840" class="axis" font-weight="600">Line colour = archive format; solid = plain, dashed = encrypted</text>
+<text x="24" y="2860" class="heading">RAM during compression</text>
+<line x1="250" y1="3054" x2="950" y2="3054" class="grid"/>
+<text x="242" y="3058" text-anchor="end" class="axis">0.0</text>
+<line x1="250" y1="3014" x2="950" y2="3014" class="grid"/>
+<text x="242" y="3018" text-anchor="end" class="axis">6.7</text>
+<line x1="250" y1="2974" x2="950" y2="2974" class="grid"/>
+<text x="242" y="2978" text-anchor="end" class="axis">13.4</text>
+<line x1="250" y1="2934" x2="950" y2="2934" class="grid"/>
+<text x="242" y="2938" text-anchor="end" class="axis">20.1</text>
+<line x1="250" y1="2894" x2="950" y2="2894" class="grid"/>
+<text x="242" y="2898" text-anchor="end" class="axis">26.8</text>
+<text x="242" y="2880" text-anchor="end" class="axis">RAM (GiB)</text>
+<text x="250" y="3070" text-anchor="middle" class="axis">0.0s</text>
+<text x="425" y="3070" text-anchor="middle" class="axis">17.5s</text>
+<text x="600" y="3070" text-anchor="middle" class="axis">35.0s</text>
+<text x="775" y="3070" text-anchor="middle" class="axis">52.5s</text>
+<text x="950" y="3070" text-anchor="middle" class="axis">70.0s</text>
+<polyline points="250,2910 260,2909" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2908 260,2908 270,2908 280,2907 290,2908 300,2908 310,2908 320,2908 330,2908 340,2908 350,2908 360,2908 370,2908 380,2908 390,2907 400,2907 410,2907 420,2908" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2909 260,2909 270,2909 280,2909 290,2909 300,2909 310,2909 320,2909 330,2909 340,2909 350,2909 360,2909 370,2909 380,2909 390,2909 400,2909 410,2909 420,2908" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2900 260,2902 270,2901 280,2900 290,2900 300,2899 310,2898 320,2898 330,2898 340,2897 350,2898 360,2898 370,2897 380,2897 390,2898 400,2897 410,2897 420,2897 430,2897 440,2898 450,2898 460,2897 470,2897 480,2898 490,2897 500,2897 510,2897 520,2898 530,2898 540,2898 550,2898 560,2898 570,2898 580,2898 590,2898 600,2898 610,2898 620,2898 630,2898 640,2898 650,2897 660,2897 670,2897 680,2897 690,2897 700,2897 710,2903 720,2909 730,2909" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2900 260,2896 270,2896 280,2897 290,2896 300,2895 310,2899 320,2898 330,2898 340,2898 350,2898 360,2898 370,2898 380,2898 390,2898 400,2898 410,2898 420,2898 430,2898 440,2898 450,2898 460,2898 470,2898 480,2898 490,2898 500,2898 510,2898 520,2898 530,2898 540,2898 550,2898 560,2898 570,2898 580,2898 590,2898 600,2898 610,2898 620,2898 630,2897 640,2897 650,2897 660,2897 670,2909" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2906 260,2904" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2901 260,2899 270,2899 280,2895 290,2895 300,2895 310,2895 320,2894 330,2895 340,2895 350,2895 360,2896 370,2896 380,2896 390,2896 400,2896 410,2896 420,2896 430,2896 440,2896 450,2896 460,2896 470,2896 480,2896 490,2896 500,2897 510,2897" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2901 260,2901 270,2902 280,2901 290,2901 300,2902 310,2901 320,2901 330,2901 340,2901 350,2901 360,2899" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2906 260,2906 270,2907 280,2906 290,2907 300,2906 310,2907 320,2906 330,2906 340,2906 350,2907 360,2905 370,2905 380,2905 390,2905 400,2905 410,2906" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2916 260,2917 270,2917 280,2917 290,2917 300,2917 310,2917 320,2917 330,2917 340,2917 350,2917 360,2917 370,2917 380,2917 390,2917 400,2916 410,2916 420,2916 430,2916 440,2916 450,2916 460,2916 470,2915 480,2915 490,2915 500,2915 510,2915 520,2915 530,2914 540,2915 550,2915 560,2915 570,2915" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2916 260,2916 270,2916 280,2915 290,2915 300,2915 310,2916 320,2916 330,2916 340,2916 350,2916 360,2916 370,2916 380,2916 390,2916 400,2916 410,2916 420,2916 430,2916 440,2916 450,2916 460,2916 470,2917 480,2917 490,2916 500,2916 510,2917 520,2917 530,2917 540,2916 550,2916 560,2916 570,2916 580,2916 590,2916 600,2916 610,2916 620,2917 630,2916 640,2916 650,2916 660,2916 670,2916 680,2916 690,2916 700,2921 710,2921 720,2921 730,2921 740,2921 750,2921 760,2921 770,2921 780,2920 790,2920 800,2920 810,2920 820,2920 830,2920 840,2920 850,2920 860,2919 870,2919 880,2920 890,2920 900,2920 910,2920 920,2920" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2912 260,2912 270,2912 280,2912 290,2916 300,2916 310,2916 320,2916 330,2916 340,2916 350,2916 360,2916 370,2917 380,2917 390,2917 400,2916 410,2916 420,2916 430,2917 440,2916 450,2916 460,2916 470,2916 480,2916 490,2916 500,2916 510,2916 520,2916 530,2916 540,2916 550,2916 560,2915 570,2915 580,2916 590,2916 600,2915 610,2915 620,2915 630,2915 640,2915 650,2915 660,2915 670,2915 680,2915" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2919 260,2918 270,2919 280,2919 290,2919 300,2919 310,2919 320,2919 330,2919 340,2919 350,2919 360,2919 370,2919 380,2919 390,2919 400,2919 410,2919 420,2919 430,2919 440,2919 450,2919 460,2919 470,2918 480,2916 490,2915 500,2915 510,2913 520,2911 530,2910 540,2909 550,2908 560,2908 570,2907 580,2907 590,2907 600,2907 610,2907 620,2907 630,2907 640,2907 650,2907 660,2907 670,2907 680,2907 690,2907 700,2907 710,2907 720,2907 730,2907 740,2906 750,2906 760,2906 770,2907 780,2907 790,2907 800,2906 810,2906 820,2906 830,2906 840,2906 850,2906 860,2906 870,2906 880,2906 890,2906 900,2918 910,2918" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2920 260,2920 270,2920 280,2920 290,2920 300,2920 310,2920 320,2920 330,2920 340,2920 350,2920 360,2920 370,2920 380,2920 390,2920 400,2920 410,2920 420,2920 430,2920 440,2920 450,2920 460,2920 470,2920 480,2920 490,2920 500,2919 510,2919 520,2917 530,2916 540,2915 550,2913 560,2912 570,2910 580,2910 590,2909 600,2909 610,2908 620,2908 630,2908 640,2908 650,2908 660,2908 670,2908 680,2908 690,2908 700,2908 710,2907 720,2907 730,2907 740,2907 750,2907 760,2908 770,2908 780,2907 790,2907 800,2907 810,2907 820,2907 830,2907 840,2907 850,2907 860,2907 870,2907 880,2907 890,2907 900,2907 910,2907 920,2907 930,2907 940,2907 950,2919" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2916 260,2916 270,2916 280,2916 290,2915 300,2915 310,2915 320,2915 330,2915 340,2915 350,2916 360,2916 370,2916 380,2916 390,2916 400,2916 410,2916 420,2916 430,2916 440,2916 450,2916 460,2916 470,2916 480,2916 490,2916 500,2916 510,2917 520,2916 530,2916 540,2916 550,2916 560,2916 570,2915 580,2915 590,2915 600,2915 610,2915 620,2915 630,2915 640,2914 650,2914 660,2914 670,2914 680,2914" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2910 260,2910 270,2911 280,2917 290,2917 300,2918 310,2918 320,2918 330,2918 340,2918 350,2918 360,2919 370,2919 380,2919 390,2919 400,2919 410,2919 420,2919 430,2919 440,2919 450,2919 460,2919 470,2919 480,2918 490,2918 500,2918 510,2918 520,2917 530,2917 540,2917 550,2917 560,2916 570,2916 580,2916 590,2916 600,2916 610,2916 620,2916 630,2916 640,2914 650,2909" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2909 260,2915 270,2916 280,2915 290,2916 300,2916 310,2916 320,2916 330,2916 340,2916 350,2916 360,2916 370,2916 380,2916 390,2916 400,2916 410,2917 420,2917 430,2917 440,2917 450,2917 460,2918 470,2918 480,2918 490,2918 500,2918 510,2918 520,2918 530,2918 540,2918 550,2918 560,2918 570,2918 580,2918 590,2918 600,2917 610,2917 620,2917 630,2917 640,2917 650,2917 660,2917" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2912 260,2911 270,2918 280,2918 290,2918 300,2918 310,2918 320,2918 330,2919 340,2918 350,2919 360,2919 370,2919 380,2919 390,2919 400,2919 410,2919 420,2919 430,2919 440,2919 450,2919 460,2918 470,2918 480,2918 490,2918 500,2918 510,2918 520,2918 530,2918 540,2918 550,2918 560,2918 570,2918 580,2918 590,2918 600,2918 610,2918 620,2918 630,2918 640,2917 650,2917" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="250" y="3090" class="axis" font-weight="600">Line colour = archive format; solid = plain, dashed = encrypted</text>
+<text x="24" y="3110" class="heading">CPU during extraction</text>
+<line x1="250" y1="3304" x2="950" y2="3304" class="grid"/>
+<text x="242" y="3308" text-anchor="end" class="axis">0</text>
+<line x1="250" y1="3264" x2="950" y2="3264" class="grid"/>
+<text x="242" y="3268" text-anchor="end" class="axis">25</text>
+<line x1="250" y1="3224" x2="950" y2="3224" class="grid"/>
+<text x="242" y="3228" text-anchor="end" class="axis">50</text>
+<line x1="250" y1="3184" x2="950" y2="3184" class="grid"/>
+<text x="242" y="3188" text-anchor="end" class="axis">75</text>
+<line x1="250" y1="3144" x2="950" y2="3144" class="grid"/>
+<text x="242" y="3148" text-anchor="end" class="axis">100</text>
+<text x="242" y="3130" text-anchor="end" class="axis">CPU (%)</text>
+<text x="250" y="3320" text-anchor="middle" class="axis">0.0s</text>
+<text x="425" y="3320" text-anchor="middle" class="axis">10.5s</text>
+<text x="600" y="3320" text-anchor="middle" class="axis">21.0s</text>
+<text x="775" y="3320" text-anchor="middle" class="axis">31.5s</text>
+<text x="950" y="3320" text-anchor="middle" class="axis">42.0s</text>
+<polyline points="250,3304 266,3259 283,3209 300,3201 316,3217 333,3215 350,3217 366,3219 383,3218 400,3218 416,3219 433,3216 450,3217 466,3213 483,3215 500,3219 516,3185 533,3144 550,3145 566,3144 583,3144 600,3144 616,3144 633,3144 650,3145 666,3144 683,3145 700,3144 716,3144 733,3144 750,3180 766,3183 783,3144 800,3144 816,3144 833,3145 850,3144 866,3144 883,3144 900,3144 916,3144 933,3144 950,3144" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3304 266,3259 283,3282 300,3287 316,3289 333,3287 350,3287 366,3272 383,3274 400,3271 416,3260 433,3257 450,3249 466,3252 483,3252 500,3261 516,3274 533,3263 550,3254 566,3254 583,3261 600,3264 616,3258 633,3257 650,3254 666,3256 683,3254 700,3261 716,3257 733,3250 750,3243 766,3261 783,3248 800,3250 816,3257 833,3249 850,3249" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3304 266,3251 283,3266 300,3260 316,3262 333,3254 350,3253 366,3259 383,3263 400,3255 416,3262 433,3262 450,3259 466,3257 483,3256 500,3259 516,3250 533,3254 550,3256 566,3258 583,3263 600,3260 616,3259 633,3254 650,3248 666,3254 683,3255" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3304 266,3157 283,3145 300,3144 316,3144 333,3144 350,3144 366,3145 383,3145 400,3144 416,3145 433,3145 450,3145 466,3145 483,3145 500,3144 516,3145 533,3144 550,3144 566,3145 583,3144 600,3144 616,3144 633,3144 650,3144 666,3144 683,3144 700,3144 716,3144 733,3145 750,3146 766,3144" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3304 266,3168 283,3145 300,3144 316,3144 333,3144 350,3144 366,3144 383,3144 400,3145 416,3145 433,3144 450,3144 466,3144 483,3145 500,3144 516,3144 533,3144 550,3144 566,3144 583,3145 600,3144 616,3144 633,3144 650,3144 666,3145 683,3144 700,3144 716,3144 733,3145 750,3145 766,3144 783,3145 800,3144 816,3144 833,3144" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3304 266,3276 283,3266 300,3272 316,3270 333,3254 350,3256 366,3255 383,3262 400,3260 416,3256 433,3240 450,3255 466,3249 483,3252 500,3248 516,3247 533,3235" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3304 266,3284 283,3268 300,3249 316,3249 333,3254 350,3253 366,3258 383,3254 400,3255 416,3256 433,3256 450,3246 466,3251 483,3227" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3304 266,3270 283,3280 300,3282 316,3281 333,3267 350,3253 366,3249 383,3249 400,3256 416,3259 433,3254 450,3252 466,3246 483,3245 500,3249 516,3234" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3304 266,3238 283,3252 300,3252 316,3254 333,3255 350,3251 366,3247 383,3249 400,3242 416,3249" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3304 266,3269 283,3144 300,3144 316,3144 333,3144 350,3144 366,3144 383,3144 400,3144 416,3144 433,3144 450,3145 466,3144 483,3144 500,3144 516,3144 533,3144 550,3144 566,3144 583,3144 600,3144 616,3145 633,3144 650,3144 666,3144 683,3144 700,3144 716,3144" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3304 266,3237 283,3263 300,3264 316,3265 333,3263 350,3255 366,3255 383,3252 400,3248 416,3251 433,3264 450,3258 466,3259 483,3264 500,3260 516,3260 533,3263 550,3257 566,3262 583,3247 600,3252 616,3252 633,3257" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3304 266,3231 283,3265 300,3262 316,3266 333,3264 350,3260 366,3252 383,3260 400,3261 416,3259 433,3262 450,3264 466,3259 483,3264 500,3254 516,3253 533,3261 550,3262 566,3258 583,3263 600,3256 616,3259 633,3256 650,3258" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3304 266,3158 283,3144 300,3145 316,3145 333,3144 350,3144 366,3145 383,3144 400,3144 416,3144 433,3144 450,3146 466,3145 483,3144 500,3144 516,3144 533,3145 550,3145 566,3144 583,3144 600,3145 616,3144 633,3144 650,3144 666,3144 683,3144 700,3144 716,3144 733,3146 750,3144" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3304 266,3165 283,3145 300,3145 316,3144 333,3144 350,3144 366,3144 383,3144 400,3144 416,3144 433,3145 450,3144 466,3144 483,3144 500,3144 516,3144 533,3144 550,3144 566,3144 583,3144 600,3144 616,3144 633,3145 650,3144 666,3144 683,3144 700,3144 716,3145 733,3144 750,3144 766,3144" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3304 266,3237 283,3241 300,3236 316,3246 333,3250 350,3241 366,3247 383,3247 400,3244" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3304 266,3282 283,3276 300,3241 316,3246 333,3251 350,3254 366,3250 383,3256 400,3234 416,3241 433,3248" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3304 266,3246 283,3253 300,3252 316,3255 333,3260 350,3246 366,3241 383,3245 400,3245 416,3229" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3304 266,3237 283,3258 300,3253 316,3259 333,3259 350,3253 366,3245 383,3248 400,3251 416,3249" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="250" y="3340" class="axis" font-weight="600">Line colour = archive format; solid = plain, dashed = encrypted</text>
+<text x="24" y="3360" class="heading">RAM during extraction</text>
+<line x1="250" y1="3554" x2="950" y2="3554" class="grid"/>
+<text x="242" y="3558" text-anchor="end" class="axis">0.0</text>
+<line x1="250" y1="3514" x2="950" y2="3514" class="grid"/>
+<text x="242" y="3518" text-anchor="end" class="axis">6.9</text>
+<line x1="250" y1="3474" x2="950" y2="3474" class="grid"/>
+<text x="242" y="3478" text-anchor="end" class="axis">13.7</text>
+<line x1="250" y1="3434" x2="950" y2="3434" class="grid"/>
+<text x="242" y="3438" text-anchor="end" class="axis">20.6</text>
+<line x1="250" y1="3394" x2="950" y2="3394" class="grid"/>
+<text x="242" y="3398" text-anchor="end" class="axis">27.4</text>
+<text x="242" y="3380" text-anchor="end" class="axis">RAM (GiB)</text>
+<text x="250" y="3570" text-anchor="middle" class="axis">0.0s</text>
+<text x="425" y="3570" text-anchor="middle" class="axis">10.5s</text>
+<text x="600" y="3570" text-anchor="middle" class="axis">21.0s</text>
+<text x="775" y="3570" text-anchor="middle" class="axis">31.5s</text>
+<text x="950" y="3570" text-anchor="middle" class="axis">42.0s</text>
+<polyline points="250,3412 266,3412 283,3412 300,3411 316,3410 333,3410 350,3410 366,3410 383,3410 400,3410 416,3410 433,3410 450,3410 466,3411 483,3410 500,3411 516,3410 533,3409 550,3408 566,3408 583,3408 600,3407 616,3407 633,3406 650,3406 666,3405 683,3405 700,3404 716,3404 733,3404 750,3407 766,3406 783,3407 800,3407 816,3405 833,3407 850,3406 866,3406 883,3405 900,3405 916,3404 933,3404 950,3403" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3410 266,3409 283,3409 300,3409 316,3409 333,3409 350,3409 366,3409 383,3409 400,3410 416,3410 433,3409 450,3409 466,3409 483,3409 500,3408 516,3408 533,3408 550,3408 566,3407 583,3407 600,3407 616,3406 633,3405 650,3405 666,3404 683,3404 700,3403 716,3403 733,3402 750,3401 766,3402 783,3402 800,3401 816,3400 833,3400 850,3399" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3411 266,3409 283,3407 300,3410 316,3408 333,3406 350,3406 366,3408 383,3408 400,3408 416,3408 433,3407 450,3407 466,3406 483,3406 500,3405 516,3404 533,3404 550,3403 566,3403 583,3402 600,3402 616,3401 633,3400 650,3400 666,3399 683,3399" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3409 266,3406 283,3404 300,3402 316,3405 333,3404 350,3405 366,3405 383,3405 400,3405 416,3405 433,3404 450,3404 466,3404 483,3403 500,3402 516,3402 533,3402 550,3401 566,3401 583,3400 600,3399 616,3399 633,3399 650,3398 666,3397 683,3397 700,3397 716,3397 733,3396 750,3395 766,3395" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3410 266,3406 283,3404 300,3402 316,3405 333,3404 350,3403 366,3403 383,3404 400,3404 416,3404 433,3404 450,3404 466,3403 483,3403 500,3403 516,3402 533,3401 550,3401 566,3400 583,3400 600,3400 616,3399 633,3399 650,3398 666,3398 683,3397 700,3397 716,3397 733,3396 750,3396 766,3395 783,3395 800,3395 816,3395 833,3394" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3409 266,3408 283,3408 300,3407 316,3406 333,3407 350,3407 366,3406 383,3406 400,3406 416,3406 433,3407 450,3405 466,3405 483,3405 500,3404 516,3405 533,3405" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3403 266,3399 283,3403 300,3402 316,3401 333,3401 350,3400 366,3399 383,3401 400,3400 416,3401 433,3400 450,3400 466,3399 483,3399" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3408 266,3407 283,3407 300,3406 316,3405 333,3407 350,3407 366,3406 383,3405 400,3404 416,3404 433,3404 450,3404 466,3403 483,3404 500,3402 516,3402" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3409 266,3409 283,3407 300,3406 316,3406 333,3404 350,3405 366,3404 383,3403 400,3403 416,3402" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3423 266,3423 283,3422 300,3420 316,3417 333,3420 350,3419 366,3419 383,3419 400,3418 416,3416 433,3417 450,3416 466,3417 483,3416 500,3414 516,3414 533,3412 550,3410 566,3413 583,3412 600,3412 616,3412 633,3411 650,3411 666,3411 683,3410 700,3409 716,3409" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3423 266,3422 283,3420 300,3417 316,3420 333,3418 350,3420 366,3420 383,3419 400,3418 416,3418 433,3417 450,3417 466,3416 483,3415 500,3415 516,3415 533,3414 550,3413 566,3412 583,3412 600,3411 616,3411 633,3410" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3418 266,3417 283,3415 300,3413 316,3417 333,3415 350,3418 366,3418 383,3417 400,3418 416,3417 433,3417 450,3416 466,3416 483,3415 500,3414 516,3414 533,3414 550,3413 566,3413 583,3412 600,3411 616,3411 633,3410 650,3410" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3418 266,3415 283,3413 300,3416 316,3415 333,3414 350,3414 366,3416 383,3415 400,3415 416,3415 433,3414 450,3414 466,3413 483,3413 500,3412 516,3412 533,3411 550,3411 566,3410 583,3410 600,3410 616,3409 633,3409 650,3408 666,3408 683,3407 700,3407 716,3407 733,3407 750,3406" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3419 266,3416 283,3414 300,3418 316,3416 333,3415 350,3414 366,3413 383,3417 400,3416 416,3416 433,3416 450,3415 466,3414 483,3414 500,3413 516,3414 533,3413 550,3412 566,3411 583,3411 600,3411 616,3410 633,3410 650,3409 666,3409 683,3409 700,3408 716,3407 733,3408 750,3407 766,3407" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3417 266,3415 283,3412 300,3415 316,3413 333,3411 350,3414 366,3414 383,3413 400,3414" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3417 266,3413 283,3417 300,3415 316,3412 333,3410 350,3413 366,3414 383,3413 400,3414 416,3414 433,3414" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3420 266,3417 283,3415 300,3418 316,3416 333,3414 350,3418 366,3417 383,3416 400,3415 416,3415" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3421 266,3419 283,3417 300,3419 316,3417 333,3415 350,3417 366,3417 383,3417 400,3416 416,3416" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="250" y="3590" class="axis" font-weight="600">Line colour = archive format; solid = plain, dashed = encrypted</text>
+</svg>

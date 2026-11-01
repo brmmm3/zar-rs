@@ -9,12 +9,14 @@ authors.workspace = true
 eframe = { version = "0.37", default-features = false, features = [
     "default_fonts",
     "glow",
+    "links",
     "x11",
     "wayland",
 ] }
 globset = { version = "0.4", default-features = false }
 image = { version = "0.25", default-features = false, features = ["png"] }
 regex = { version = "1.13.1", default-features = false, features = ["perf", "std", "unicode"] }
+dirs = "7"
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 zarlib = { path = "../zarlib" }
 

@@ -10,6 +10,7 @@ pub struct WindowGeometry {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Settings {
     pub window: Option<WindowGeometry>,
+    pub dialog_sizes: BTreeMap<String, [f32; 2]>,
     pub monitor_count: usize,
     pub view: String,
     pub sort: String,
@@ -66,6 +67,7 @@ impl Settings {
         let mut settings = Self::default();
         let mut size: Option<[f32; 2]> = None;
         let mut position: [Option<f32>; 2] = [None, None];
+        let mut dialog_sizes: BTreeMap<String, [Option<f32>; 2]> = BTreeMap::new();
         for line in text.lines() {
             let Some((key, value)) = line.split_once('=') else {
                 continue;
@@ -86,7 +88,25 @@ impl Settings {
                 "sort" => settings.sort = value.to_owned(),
                 "sort_reversed" => settings.sort_reversed = value == "true",
                 _ => {
-                    if let Some(column) = key.strip_prefix("column.")
+                    if let Some((dialog, dimension)) = key
+                        .strip_prefix("dialog.")
+                        .and_then(|key| key.rsplit_once('.'))
+                    {
+                        let index = match dimension {
+                            "width" => Some(0),
+                            "height" => Some(1),
+                            _ => None,
+                        };
+                        if let Some(index) = index
+                            && let Ok(value) = value.parse::<f32>()
+                            && value.is_finite()
+                            && value >= 100.0
+                        {
+                            dialog_sizes
+                                .entry(dialog.to_owned())
+                                .or_insert([None, None])[index] = Some(value);
+                        }
+                    } else if let Some(column) = key.strip_prefix("column.")
                         && let Ok(width) = value.parse::<f32>()
                         && width.is_finite()
                         && width > 0.0
@@ -96,6 +116,10 @@ impl Settings {
                 }
             }
         }
+        settings.dialog_sizes = dialog_sizes
+            .into_iter()
+            .filter_map(|(dialog, size)| Some((dialog, [size[0]?, size[1]?])))
+            .collect();
         settings.window = size
             .filter(|size| size[0] >= 100.0 && size[1] >= 100.0)
             .map(|size| WindowGeometry {
@@ -115,6 +139,12 @@ impl Settings {
             if let Some([x, y]) = window.position {
                 text.push_str(&format!("window.x={x}\nwindow.y={y}\n"));
             }
+        }
+        for (dialog, size) in &self.dialog_sizes {
+            text.push_str(&format!(
+                "dialog.{dialog}.width={}\ndialog.{dialog}.height={}\n",
+                size[0], size[1]
+            ));
         }
         text.push_str(&format!("monitors={}\n", self.monitor_count));
         text.push_str(&format!("view={}\nsort={}\n", self.view, self.sort));
@@ -146,6 +176,10 @@ mod tests {
                 size: [1100.0, 700.0],
                 position: Some([40.0, 25.0]),
             }),
+            dialog_sizes: BTreeMap::from([
+                ("benchmark".to_owned(), [560.0, 220.0]),
+                ("operation-create".to_owned(), [568.0, 332.0]),
+            ]),
             monitor_count: 2,
             view: "details".to_owned(),
             sort: "date".to_owned(),

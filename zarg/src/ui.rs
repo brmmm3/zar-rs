@@ -184,7 +184,7 @@ pub enum ContextAction {
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-enum UiIcon {
+pub(crate) enum UiIcon {
     Application,
     OpenArchive,
     CreateArchive,
@@ -207,6 +207,7 @@ enum UiIcon {
     Cancel,
     AddFilterList,
     Folder,
+    Drive,
     Symlink,
     Image,
     Audio,
@@ -256,6 +257,7 @@ fn icon_bytes(icon: UiIcon) -> &'static [u8] {
         UiIcon::Cancel => include_bytes!("../assets/icons/actions/dialog-cancel.png"),
         UiIcon::AddFilterList => include_bytes!("../assets/icons/actions/list-add.png"),
         UiIcon::Folder => include_bytes!("../assets/icons/places/folder.png"),
+        UiIcon::Drive => include_bytes!("../assets/icons/devices/drive-harddisk.png"),
         UiIcon::Symlink => include_bytes!("../assets/icons/mimetypes/emblem-symbolic-link.png"),
         UiIcon::Image => include_bytes!("../assets/icons/mimetypes/image-x-generic.png"),
         UiIcon::Audio => include_bytes!("../assets/icons/mimetypes/audio-x-generic.png"),
@@ -285,7 +287,7 @@ fn icon_bytes(icon: UiIcon) -> &'static [u8] {
     }
 }
 
-fn icon_texture(
+pub(crate) fn icon_texture(
     context: &egui::Context,
     cache: &RefCell<HashMap<UiIcon, egui::TextureHandle>>,
     icon: UiIcon,
@@ -337,7 +339,7 @@ fn icon_menu_button<R>(
     )
 }
 
-fn file_icon(path: &str) -> UiIcon {
+pub(crate) fn file_icon(path: &str) -> UiIcon {
     let extension = path.rsplit_once('.').map(|(_, extension)| extension);
     match extension.map(str::to_ascii_lowercase).as_deref() {
         Some("png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "svg" | "tif" | "tiff") => {
@@ -375,6 +377,19 @@ impl OperationKind {
             Self::Check => "Test archive",
             Self::List => "List archive",
             Self::Extract => "Extract",
+        }
+    }
+
+    fn dialog_size_key(self) -> &'static str {
+        match self {
+            Self::Create => "operation-create",
+            Self::Add => "operation-add",
+            Self::Remove => "operation-remove",
+            Self::Join => "operation-join",
+            Self::Metadata => "operation-metadata",
+            Self::Check => "operation-check",
+            Self::List => "operation-list",
+            Self::Extract => "operation-extract",
         }
     }
 
@@ -718,7 +733,6 @@ struct WorkerChannels {
     answers: Sender<bool>,
 }
 
-#[derive(Default)]
 pub struct ZargApp {
     icons: RefCell<HashMap<UiIcon, egui::TextureHandle>>,
     archive: String,
@@ -755,6 +769,7 @@ pub struct ZargApp {
     benchmark: BenchmarkState,
     pending_recent_archive: Option<String>,
     window_geometry: Option<crate::settings::WindowGeometry>,
+    dialog_sizes: HashMap<String, [f32; 2]>,
     archive_password: Option<String>,
     column_widths: HashMap<String, f32>,
     has_entry_dates: bool,
@@ -766,6 +781,62 @@ pub struct ZargApp {
     show_about: bool,
     opening_archive: bool,
     commit_ids: Vec<String>,
+    file_dialog: crate::file_dialog::FileDialog,
+}
+
+impl Default for ZargApp {
+    fn default() -> Self {
+        Self {
+            icons: RefCell::new(HashMap::new()),
+            archive: String::new(),
+            location: String::new(),
+            entries: Vec::new(),
+            entry_details: std::collections::BTreeMap::new(),
+            visible_entry_indices: Vec::new(),
+            selected: BTreeSet::new(),
+            selection_anchor: None,
+            status: String::new(),
+            operation: OperationForm::default(),
+            worker: None,
+            busy: false,
+            progress: 0.0,
+            progress_total: 0,
+            progress_done: 0,
+            progress_known: false,
+            progress_message: String::new(),
+            confirmation: None,
+            report: None,
+            warnings: Vec::new(),
+            filter_text: String::new(),
+            filter_regex: false,
+            filter_match_case: false,
+            filter_invalid: false,
+            archive_view: ArchiveView::default(),
+            sort_by: SortBy::default(),
+            sort_reversed: false,
+            pending_open: None,
+            recent_archives: Vec::new(),
+            recent_check: None,
+            info_loading: None,
+            info_view: None,
+            benchmark: BenchmarkState::default(),
+            pending_recent_archive: None,
+            window_geometry: None,
+            dialog_sizes: HashMap::new(),
+            archive_password: None,
+            column_widths: HashMap::new(),
+            has_entry_dates: false,
+            has_entry_owner: false,
+            has_entry_permissions: false,
+            expanded_tree_dirs: BTreeSet::new(),
+            structured_rows_cache: Vec::new(),
+            structured_rows_dirty: false,
+            show_about: false,
+            opening_archive: false,
+            commit_ids: Vec::new(),
+            file_dialog: crate::file_dialog::FileDialog::new(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -1195,10 +1266,8 @@ impl ZargApp {
         }
     }
 
-    fn choose_input_files(&mut self) {
-        if let Some(files) = rfd::FileDialog::new().pick_files() {
-            self.operation.input_paths.extend(files);
-        }
+    fn choose_input_paths(&mut self) {
+        self.file_dialog.open_for_selection();
     }
 
     fn choose_archive(&mut self, save: bool) {
@@ -1515,13 +1584,13 @@ impl ZargApp {
                 &self.icons,
                 UiIcon::Remove,
                 "Remove",
-                !self.busy && !self.archive.is_empty(),
+                !self.busy && !self.archive.is_empty() && !self.selected.is_empty(),
             )
             .clicked()
             {
                 let mut form = OperationForm::new(OperationKind::Remove, &self.archive);
                 form.remove_text = self.selected.iter().cloned().collect::<Vec<_>>().join("\n");
-                self.operation = form;
+                self.start_operation(form);
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let case_toggle = ui
@@ -1554,35 +1623,148 @@ impl ZargApp {
         });
     }
 
+    fn dialog_size(&self, key: &str, default: [f32; 2]) -> [f32; 2] {
+        self.dialog_sizes.get(key).copied().unwrap_or(default)
+    }
+
+    fn record_dialog_size(&mut self, key: &str, size: Option<[f32; 2]>) {
+        if let Some(size) = size.filter(|size| {
+            size.iter()
+                .all(|dimension| dimension.is_finite() && *dimension >= 100.0)
+        }) {
+            self.dialog_sizes.insert(key.to_owned(), size);
+        }
+    }
+
+    fn viewport_inner_size(context: &egui::Context) -> Option<[f32; 2]> {
+        context.input(|input| {
+            input
+                .viewport()
+                .inner_rect
+                .map(|rect| [rect.width(), rect.height()])
+        })
+    }
+
+    fn centered_dialog_viewport_builder(
+        context: &egui::Context,
+        title: &str,
+        inner_size: [f32; 2],
+        resizable: bool,
+    ) -> egui::ViewportBuilder {
+        let builder = egui::ViewportBuilder::default()
+            .with_title(title)
+            .with_inner_size(inner_size)
+            .with_resizable(resizable);
+        context
+            .input(|input| input.viewport().outer_rect)
+            .map(|parent_rect| {
+                let size = egui::vec2(inner_size[0], inner_size[1]);
+                builder
+                    .clone()
+                    .with_position(parent_rect.center() - size * 0.5)
+            })
+            .unwrap_or(builder)
+    }
+
     fn render_operation_dialog(&mut self, context: &egui::Context) {
         let Some(kind) = self.operation.kind else {
             return;
         };
+        if kind == OperationKind::Remove {
+            return;
+        }
+        let viewport_id =
+            egui::ViewportId::from_hash_of(format!("operation-dialog:{}", kind.title()));
         let mut open = true;
-        egui::Window::new(kind.title())
-            .open(&mut open)
-            .collapsible(false)
-            .resizable(true)
-            .default_width(560.0)
-            .show(context, |ui| {
-                egui::ScrollArea::vertical()
-                    .max_height(560.0)
-                    .show(ui, |ui| {
-                        self.render_operation_fields(ui, kind);
-                    });
-            });
-        if !open {
+        let default_size = if kind == OperationKind::Create {
+            [568.0, 330.0]
+        } else if kind == OperationKind::Add {
+            [568.0, 360.0]
+        } else if kind == OperationKind::Check {
+            [440.0, 105.0]
+        } else if kind == OperationKind::Metadata {
+            [440.0, 180.0]
+        } else if kind == OperationKind::Join {
+            [440.0, 130.0]
+        } else if kind == OperationKind::Extract {
+            [560.0, 310.0]
+        } else {
+            [500.0, 500.0]
+        };
+        let size_key = kind.dialog_size_key();
+        let size = self.dialog_size(size_key, default_size);
+        let mut actual_size = None;
+        context.show_viewport_immediate(
+            viewport_id,
+            Self::centered_dialog_viewport_builder(context, kind.title(), size, true),
+            |ui, _class| {
+                actual_size = Self::viewport_inner_size(ui.ctx());
+                if ui.ctx().input(|input| input.viewport().close_requested()) {
+                    open = false;
+                }
+                // Reserve room for the archive controls, option groups, and action buttons.
+                let input_list_height = if kind == OperationKind::Create {
+                    (ui.available_height() - 152.0).clamp(180.0, 400.0)
+                } else {
+                    180.0
+                };
+                let fields_scroll = egui::ScrollArea::vertical().max_height(560.0);
+                let fields_scroll = if kind == OperationKind::Create {
+                    fields_scroll.auto_shrink([false, false])
+                } else {
+                    fields_scroll
+                };
+                fields_scroll.show(ui, |ui| {
+                    self.render_operation_fields(ui, kind, input_list_height);
+                });
+                if !open || self.operation.kind.is_none() {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            },
+        );
+        self.record_dialog_size(size_key, actual_size);
+        if !open && self.operation.kind == Some(kind) {
             self.operation = OperationForm::default();
         }
     }
 
-    fn render_operation_fields(&mut self, ui: &mut egui::Ui, kind: OperationKind) {
+    fn render_operation_fields(
+        &mut self,
+        ui: &mut egui::Ui,
+        kind: OperationKind,
+        input_list_height: f32,
+    ) {
         if kind.needs_archive() || kind == OperationKind::Create {
             ui.horizontal(|ui| {
                 ui.label("Archive:");
-                ui.text_edit_singleline(&mut self.operation.archive);
-                if icon_button(ui, &self.icons, UiIcon::Browse, "Browse...", true).clicked() {
-                    self.choose_archive(kind == OperationKind::Create);
+                if matches!(
+                    kind,
+                    OperationKind::Create
+                        | OperationKind::Add
+                        | OperationKind::Check
+                        | OperationKind::Extract
+                        | OperationKind::Join
+                ) {
+                    ui.allocate_ui_with_layout(
+                        ui.available_size(),
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            if icon_button(ui, &self.icons, UiIcon::Browse, "Browse...", true)
+                                .clicked()
+                            {
+                                self.choose_archive(kind == OperationKind::Create);
+                            }
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.operation.archive)
+                                    .desired_width(ui.available_width()),
+                            );
+                        },
+                    );
+                } else {
+                    ui.text_edit_singleline(&mut self.operation.archive);
+                    if icon_button(ui, &self.icons, UiIcon::Browse, "Browse...", true).clicked() {
+                        self.choose_archive(kind == OperationKind::Create);
+                    }
                 }
             });
         }
@@ -1590,10 +1772,16 @@ impl ZargApp {
         match kind {
             OperationKind::Create | OperationKind::Add => {
                 ui.horizontal(|ui| {
-                    if icon_button(ui, &self.icons, UiIcon::AddFolder, "Add items...", true)
-                        .clicked()
+                    if icon_button(
+                        ui,
+                        &self.icons,
+                        UiIcon::AddFolder,
+                        "Add folders/files",
+                        true,
+                    )
+                    .clicked()
                     {
-                        self.choose_input_files();
+                        self.choose_input_paths();
                     }
                     if icon_button(
                         ui,
@@ -1626,8 +1814,10 @@ impl ZargApp {
                 });
                 egui::ScrollArea::vertical()
                     .id_salt("create-add-input-paths")
-                    .max_height(180.0)
+                    .max_height(input_list_height)
+                    .min_scrolled_height(input_list_height)
                     .show(ui, |ui| {
+                        ui.set_min_height(input_list_height);
                         ui.set_min_width(ui.available_width());
                         for path in &self.operation.input_paths {
                             let path_text = path.display().to_string();
@@ -1800,15 +1990,7 @@ impl ZargApp {
                 });
                 self.render_filter_fields(ui);
             }
-            OperationKind::Remove => {
-                ui.label("Archive paths to remove:");
-                ui.add(
-                    egui::TextEdit::multiline(&mut self.operation.remove_text)
-                        .desired_rows(5)
-                        .hint_text("One archive path per line"),
-                );
-                ui.label("The selected entries are prefilled when any are selected.");
-            }
+            OperationKind::Remove => return,
             OperationKind::Join => {
                 ui.horizontal(|ui| {
                     let form = &mut self.operation;
@@ -1839,15 +2021,23 @@ impl ZargApp {
                 });
                 ui.horizontal(|ui| {
                     ui.label("Write to:");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.operation.join_output)
-                            .hint_text("Optional; empty replaces the current archive"),
+                    ui.allocate_ui_with_layout(
+                        ui.available_size(),
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            if icon_button(ui, &self.icons, UiIcon::Browse, "Browse...", true)
+                                .clicked()
+                                && let Some(path) = rfd::FileDialog::new().save_file()
+                            {
+                                self.operation.join_output = path.to_string_lossy().into_owned();
+                            }
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.operation.join_output)
+                                    .desired_width(ui.available_width())
+                                    .hint_text("Optional; empty replaces the current archive"),
+                            );
+                        },
                     );
-                    if icon_button(ui, &self.icons, UiIcon::Browse, "Browse...", true).clicked()
-                        && let Some(path) = rfd::FileDialog::new().save_file()
-                    {
-                        self.operation.join_output = path.to_string_lossy().into_owned();
-                    }
                 });
                 ui.horizontal(|ui| {
                     egui::ComboBox::from_label("Block size")
@@ -1981,12 +2171,22 @@ impl ZargApp {
             OperationKind::Extract => {
                 ui.horizontal(|ui| {
                     ui.label("Destination:");
-                    ui.text_edit_singleline(&mut self.operation.destination);
-                    if icon_button(ui, &self.icons, UiIcon::Browse, "Browse...", true).clicked()
-                        && let Some(path) = rfd::FileDialog::new().pick_folder()
-                    {
-                        self.operation.destination = path.to_string_lossy().into_owned();
-                    }
+                    ui.allocate_ui_with_layout(
+                        ui.available_size(),
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            if icon_button(ui, &self.icons, UiIcon::Browse, "Browse...", true)
+                                .clicked()
+                                && let Some(path) = rfd::FileDialog::new().pick_folder()
+                            {
+                                self.operation.destination = path.to_string_lossy().into_owned();
+                            }
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.operation.destination)
+                                    .desired_width(ui.available_width()),
+                            );
+                        },
+                    );
                 });
                 egui::ComboBox::from_label("Last commit")
                     .selected_text(selected_commit_label(
@@ -2055,7 +2255,7 @@ impl ZargApp {
             let (icon, label) = match kind {
                 OperationKind::Create => (UiIcon::CreateArchive, "Create"),
                 OperationKind::Add => (UiIcon::Add, "Add"),
-                OperationKind::Remove => (UiIcon::Remove, "Remove"),
+                OperationKind::Remove => return,
                 OperationKind::Join => (UiIcon::Join, "Join"),
                 OperationKind::Metadata => (UiIcon::Info, "Apply"),
                 OperationKind::Check => (UiIcon::TestArchive, "Test"),
@@ -2679,6 +2879,11 @@ impl ZargApp {
             .cloned()
             .collect();
         self.start_recent_archive_check();
+        self.dialog_sizes = settings
+            .dialog_sizes
+            .iter()
+            .map(|(key, size)| (key.clone(), *size))
+            .collect();
         self.column_widths = settings
             .column_widths
             .iter()
@@ -2734,13 +2939,25 @@ impl ZargApp {
         let mut open = true;
         let mut start = false;
         let mut cancel = false;
+        let size_key = "benchmark";
+        let size = self.dialog_size(size_key, [560.0, 220.0]);
+        let mut actual_size = None;
         let archive = self.archive.clone();
         let state = &mut self.benchmark;
-        egui::Window::new("Benchmark")
-            .open(&mut open)
-            .collapsible(false)
-            .resizable(false)
-            .show(context, |ui| {
+        let viewport_id = egui::ViewportId::from_hash_of("benchmark-dialog");
+        context.show_viewport_immediate(
+            viewport_id,
+            Self::centered_dialog_viewport_builder(context, "Benchmark", size, true),
+            |ui, _class| {
+                actual_size = Self::viewport_inner_size(ui.ctx());
+                if ui.ctx().input(|input| input.viewport().close_requested()) {
+                    if running {
+                        ui.ctx()
+                            .send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                    } else {
+                        open = false;
+                    }
+                }
                 ui.label(format!("Archive: {archive}"));
                 ui.weak(
                     "Unpacks the archive to a temporary folder, then times creating and \
@@ -2849,7 +3066,12 @@ impl ZargApp {
                         cancel = true;
                     }
                 });
-            });
+                if !open {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            },
+        );
+        self.record_dialog_size(size_key, actual_size);
         if !open && !running {
             self.benchmark.open = false;
         }
@@ -2938,17 +3160,28 @@ impl ZargApp {
         let Some(view) = &self.info_view else {
             return;
         };
+        let size_key = "archive-information";
+        let size = self.dialog_size(size_key, [600.0, 520.0]);
+        let mut actual_size = None;
+        let viewport_id = egui::ViewportId::from_hash_of("archive-information-dialog");
         let mut open = true;
-        egui::Window::new("Archive information")
-            .open(&mut open)
-            .resizable(true)
-            .default_width(560.0)
-            .default_height(520.0)
-            .show(context, |ui| {
+        context.show_viewport_immediate(
+            viewport_id,
+            Self::centered_dialog_viewport_builder(context, "Archive information", size, true),
+            |ui, _class| {
+                actual_size = Self::viewport_inner_size(ui.ctx());
+                if ui.ctx().input(|input| input.viewport().close_requested()) {
+                    open = false;
+                }
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| render_info_contents(ui, view));
-            });
+                if !open {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            },
+        );
+        self.record_dialog_size(size_key, actual_size);
         if !open {
             self.info_view = None;
         }
@@ -2974,6 +3207,11 @@ impl ZargApp {
     fn current_settings(&self) -> crate::settings::Settings {
         crate::settings::Settings {
             window: self.window_geometry,
+            dialog_sizes: self
+                .dialog_sizes
+                .iter()
+                .map(|(key, size)| (key.clone(), *size))
+                .collect(),
             monitor_count: crate::settings::monitor_count(),
             view: self.archive_view.as_setting().to_owned(),
             sort: self.sort_by.as_setting().to_owned(),
@@ -3306,11 +3544,20 @@ impl eframe::App for ZargApp {
         self.render_benchmark(&context);
 
         if let Some(prompt) = self.confirmation.clone() {
-            egui::Window::new("Confirmation")
-                .collapsible(false)
-                .resizable(false)
-                .show(&context, |ui| {
-                    ui.label(prompt);
+            let viewport_id = egui::ViewportId::from_hash_of("confirmation-dialog");
+            let size_key = "confirmation";
+            let size = self.dialog_size(size_key, [380.0, 150.0]);
+            let mut actual_size = None;
+            let mut open = true;
+            context.show_viewport_immediate(
+                viewport_id,
+                Self::centered_dialog_viewport_builder(&context, "Confirmation", size, false),
+                |ui, _class| {
+                    actual_size = Self::viewport_inner_size(ui.ctx());
+                    if ui.ctx().input(|input| input.viewport().close_requested()) {
+                        open = false;
+                    }
+                    ui.label(&prompt);
                     ui.horizontal(|ui| {
                         if icon_button(ui, &self.icons, UiIcon::Confirm, "Yes", true).clicked() {
                             self.answer_confirmation(true);
@@ -3319,18 +3566,33 @@ impl eframe::App for ZargApp {
                             self.answer_confirmation(false);
                         }
                     });
-                });
+                    if !open || self.confirmation.is_none() {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                },
+            );
+            self.record_dialog_size(size_key, actual_size);
+            if !open && self.confirmation.is_some() {
+                self.answer_confirmation(false);
+            }
         }
 
         if self.show_about {
             let mut close_about = false;
+            let mut open = true;
+            let size_key = "about";
+            let size = self.dialog_size(size_key, [440.0, 220.0]);
+            let mut actual_size = None;
             let icons = &self.icons;
-            egui::Window::new("About zarg")
-                .open(&mut self.show_about)
-                .collapsible(false)
-                .resizable(false)
-                .default_width(420.0)
-                .show(&context, |ui| {
+            let viewport_id = egui::ViewportId::from_hash_of("about-dialog");
+            context.show_viewport_immediate(
+                viewport_id,
+                Self::centered_dialog_viewport_builder(&context, "About zarg", size, false),
+                |ui, _class| {
+                    actual_size = Self::viewport_inner_size(ui.ctx());
+                    if ui.ctx().input(|input| input.viewport().close_requested()) {
+                        open = false;
+                    }
                     ui.horizontal(|ui| {
                         let icon = icon_texture(ui.ctx(), &self.icons, UiIcon::Application);
                         ui.add(egui::Image::new(&icon).fit_to_exact_size(egui::vec2(88.0, 88.0)));
@@ -3365,22 +3627,80 @@ impl eframe::App for ZargApp {
                             close_about = true;
                         }
                     });
-                });
-            if close_about {
+                    if !open || close_about {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                },
+            );
+            self.record_dialog_size(size_key, actual_size);
+            if !open || close_about {
                 self.show_about = false;
             }
         }
         if let Some(report) = self.report.clone() {
+            let viewport_id = egui::ViewportId::from_hash_of("operation-error-dialog");
+            let size_key = "operation-error";
+            let size = self.dialog_size(size_key, [540.0, 240.0]);
+            let mut actual_size = None;
             let mut open = true;
-            egui::Window::new("Operation error")
-                .open(&mut open)
-                .resizable(true)
-                .default_width(520.0)
-                .show(&context, |ui| {
-                    ui.label(report);
-                });
+            context.show_viewport_immediate(
+                viewport_id,
+                Self::centered_dialog_viewport_builder(&context, "Operation error", size, true),
+                |ui, _class| {
+                    actual_size = Self::viewport_inner_size(ui.ctx());
+                    if ui.ctx().input(|input| input.viewport().close_requested()) {
+                        open = false;
+                    }
+                    ui.label(&report);
+                    if !open {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                },
+            );
+            self.record_dialog_size(size_key, actual_size);
             if !open {
                 self.report = None;
+            }
+        }
+
+        // Custom file dialog (separate OS window via multi-viewport)
+        if self.file_dialog.open {
+            let viewport_id = egui::ViewportId::from_hash_of("file-dialog");
+            let size_key = "file-selection";
+            let size = self.dialog_size(size_key, [780.0, 400.0]);
+            let mut actual_size = None;
+            let mut confirmed = false;
+            let mut closed = false;
+
+            context.show_viewport_immediate(
+                viewport_id,
+                Self::centered_dialog_viewport_builder(
+                    &context,
+                    "Select files and folders",
+                    size,
+                    true,
+                )
+                .with_min_inner_size([360.0, 300.0]),
+                |ui, _class| {
+                    actual_size = Self::viewport_inner_size(ui.ctx());
+                    // Check if the OS close button was clicked
+                    if ui.ctx().input(|i| i.viewport().close_requested()) {
+                        closed = true;
+                    }
+
+                    confirmed = self.file_dialog.ui(ui, &self.icons);
+
+                    if confirmed || closed {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                },
+            );
+            self.record_dialog_size(size_key, actual_size);
+
+            if confirmed || closed {
+                self.file_dialog.open = false;
+                let paths = self.file_dialog.selected_paths();
+                self.operation.input_paths.extend(paths);
             }
         }
     }
@@ -3951,7 +4271,7 @@ fn entry_type_key(path: &str, data: &EntryData) -> String {
     }
 }
 
-fn format_unix_millis(millis: i64) -> String {
+pub(crate) fn format_unix_millis(millis: i64) -> String {
     let seconds = millis.div_euclid(1_000);
     let days = seconds.div_euclid(86_400);
     let day_seconds = seconds.rem_euclid(86_400);

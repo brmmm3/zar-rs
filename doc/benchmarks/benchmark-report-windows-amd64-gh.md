@@ -4,7 +4,7 @@ Run date: 2026-10-30T15:15:08+01:00
 Operating system: Windows-11-10.0.26200-SP0  
 CPU: AMD64, 20 logical cores
 
-![Archive size, compression time, and extraction time charts](./benchmark-charts-windows.svg)
+![Archive size, compression time, and extraction time charts](./benchmark-charts-windows-amd64-gh.svg)
 
 ## Results
 

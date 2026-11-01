@@ -69,8 +69,8 @@ Source: "..\..\zarc\ReadMe.md"; DestDir: "{app}"; DestName: "zarc-ReadMe.md"; Fl
 Source: "..\..\zarg\ReadMe.md"; DestDir: "{app}"; DestName: "zarg-ReadMe.md"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\ZAR Archive Manager"; Filename: "{app}\zarg.exe"
-Name: "{autodesktop}\ZAR Archive Manager"; Filename: "{app}\zarg.exe"; Tasks: desktopicon
+Name: "{autoprograms}\ZAR Archive Manager"; Filename: "{app}\zarg.exe"; IconFilename: "{app}\application-x-zar.ico"
+Name: "{autodesktop}\ZAR Archive Manager"; Filename: "{app}\zarg.exe"; IconFilename: "{app}\application-x-zar.ico"; Tasks: desktopicon
 
 [Registry]
 Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; \

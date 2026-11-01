@@ -2,10 +2,6 @@ use std::io::{self, IsTerminal, Write};
 use std::process::ExitCode;
 mod args;
 use args::{Cli, Command};
-#[cfg(test)]
-use clap::Parser;
-#[cfg(not(unix))]
-use clap::Parser;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
@@ -179,6 +175,7 @@ fn classify_exit_code(error: &(dyn std::error::Error + 'static)) -> u8 {
 
 #[cfg(test)]
 fn run(args: impl Iterator<Item = String>) -> Result<u8, Box<dyn std::error::Error>> {
+    use clap::Parser;
     let cli = Cli::try_parse_from(std::iter::once("zarc".to_owned()).chain(args))?;
     execute(cli)
 }

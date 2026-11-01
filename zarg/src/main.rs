@@ -1,3 +1,6 @@
+#![windows_subsystem = "windows"]
+
+mod file_dialog;
 mod settings;
 mod ui;
 

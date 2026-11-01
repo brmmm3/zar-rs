@@ -6,7 +6,7 @@ Run date: 2026-11-01T12:36:04+01:00
 - Benchmark storage (Source and archives): SSD / non-rotational (may be virtual); model: Samsung SSD 980 1TB; device: nvme0n1
 - Benchmark storage (Extraction output): SSD / non-rotational (may be virtual); model: Samsung SSD 980 1TB; device: nvme0n1
 
-![Host OS, CPU and storage information, archive size, compression time, extraction time, CPU, and RAM charts](./benchmark-charts-linux-x86_64-1.svg)
+![Host OS, CPU and storage information, archive size, compression time, extraction time, CPU, and RAM charts](./benchmark-charts-linux-x86_64-ryzen5.svg)
 
 ## Results
 
