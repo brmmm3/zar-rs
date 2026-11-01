@@ -54,6 +54,7 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--strict", action="store_true")
     create.add_argument("--verbose", action="store_true")
     create.add_argument("--metadata", "--preserve-metadata", action="store_true")
+    create.add_argument("--dates", action="store_true")
     create.add_argument("--special-files", action="store_true")
     create.add_argument("--overwrite", action="store_true")
     create.add_argument("--password", action="store_true", help="prompt for encryption password")
@@ -78,6 +79,7 @@ def _parser() -> argparse.ArgumentParser:
     add.add_argument("--strict", action="store_true")
     add.add_argument("--verbose", action="store_true")
     add.add_argument("--metadata", "--preserve-metadata", action="store_true")
+    add.add_argument("--dates", action="store_true")
     add.add_argument("--special-files", action="store_true")
     add.add_argument("--password", action="store_true", help="encrypt the new commit")
     add.add_argument("--aead", choices=["aes-256-gcm", "chacha20-poly1305"], default="aes-256-gcm")
@@ -261,6 +263,7 @@ def _run(args: argparse.Namespace) -> int:
             strict=args.strict,
             overwrite=args.overwrite,
             save_metadata=args.metadata,
+            save_dates=args.dates,
             include_special_files=args.special_files,
             verbose=args.verbose,
             aead=args.aead,
@@ -283,6 +286,7 @@ def _run(args: argparse.Namespace) -> int:
             args.paths,
             strict=args.strict,
             save_metadata=args.metadata,
+            save_dates=args.dates,
             include_special_files=args.special_files,
             verbose=args.verbose,
             password=_password(args.password),

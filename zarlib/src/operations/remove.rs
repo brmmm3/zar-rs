@@ -58,6 +58,19 @@ pub fn remove_archive_with_progress(
         progress.inc(1);
     }
 
+    let header_bytes = LogicalHeader::new(changes).encode()?;
+    append_header_only_commit(archive_path, &header_bytes)
+}
+
+/// Appends a commit that carries only a logical header (no data section).
+pub(crate) fn append_header_only_commit(
+    archive_path: &Path,
+    header_bytes: &[u8],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let parent = archive_path
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
     let id = TEMP_FILE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let unique_id = unique_temp_file_id()?;
     let stem = archive_path
@@ -67,18 +80,17 @@ pub fn remove_archive_with_progress(
     let _staged_commit = parent.join(format!(".{stem}.zarc-remove-{unique_id}-{id}.tmp"));
     let staged_archive = parent.join(format!(".{stem}.zarc-remove-full-{unique_id}-{id}.tmp"));
     let mut cleanup = TemporaryFiles(Vec::new());
-    let header_bytes = LogicalHeader::new(changes).encode()?;
     let limits = CommitValidationLimits::default();
     let new_commit_id = next_commit_id(archive_path)?;
     let data_section_size = 0u64;
     let temp_ch = CommitHeader::new(0, new_commit_id, data_section_size, 0)?;
     let staged_header =
-        HeaderFrame::from_uncompressed(temp_ch, &header_bytes, UNENCRYPTED_DESCRIPTOR.to_vec(), 3)?;
+        HeaderFrame::from_uncompressed(temp_ch, header_bytes, UNENCRYPTED_DESCRIPTOR.to_vec(), 3)?;
     let header_size = u32::try_from(staged_header.encoded_size()?)?;
     let commit_header = CommitHeader::new(0, new_commit_id, data_section_size, header_size)?;
     let header = HeaderFrame::from_uncompressed(
         commit_header.clone(),
-        &header_bytes,
+        header_bytes,
         UNENCRYPTED_DESCRIPTOR.to_vec(),
         3,
     )?;

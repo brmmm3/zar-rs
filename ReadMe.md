@@ -5,6 +5,7 @@ It is written in memory-safe Rust and comes with a command-line tool, a desktop 
 bindings for many languages, and a lightning fast network copy tool.
 
 See the [changelog](./CHANGELOG.md) for recent project updates.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, checks, and pull request guidance.
 
 - **[`zarc`](./zarc/ReadMe.md)** is the command-line application.
 - **[`zarg`](./zarg/ReadMe.md)** is the egui desktop archive manager.
@@ -131,7 +132,7 @@ The [packaging](./packaging) directory contains installer definitions for the
   with `Zarg.app` and a `.pkg` that also installs `zarc`.
 
 ```sh
-iscc /DAppVersion=0.7.0 packaging\windows\zar-rs.iss   # Windows
+iscc /DAppVersion=0.8.0 packaging\windows\zar-rs.iss   # Windows
 packaging/linux/build-packages.sh deb                  # Linux
 ```
 

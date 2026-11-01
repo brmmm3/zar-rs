@@ -5,8 +5,29 @@ until a version is released.
 
 ## Unreleased
 
+## 0.8.0 - 2026-11-01
+
 ### Added
 
+- Added custom commit-level metadata: `zarc meta` lists, sets (`--set KEY=VALUE`)
+  and removes (`--remove KEY`) keys, each change stored as a header-only commit.
+  Join carries the effective metadata into the merged commit; keys starting with
+  `zar.` are reserved. `zarc info --meta` prints the pairs.
+- Added `zarc extract --strip-top-level` and the matching `zarg` option and
+  `zarlib` `ExtractionOptions::strip_top_level` to extract without the archive's
+  top-level folder.
+- Added fast single-file extraction in `zarlib`, used by `zarg` double-click open.
+- `zarg`: graphical Info window, Custom metadata dialog, Benchmark dialog with
+  cancel, About dialog, Recent archives menu (last 10, stale paths pruned in the
+  background), filter field with regex and case toggles, Invert Selection,
+  resizable/sortable columns with horizontal scrolling, and persisted settings
+  and window geometry.
+- `zarg` Join dialog uses commit comboboxes (through never precedes from) and can
+  write the result to another file.
+- Added opt-in per-entry modification timestamps (`zarc create/add --dates`,
+  a `zarg` checkbox, and `save_dates` in the bindings) stored in
+  logical-header version 7, plus sorting by name, date, compressed size, uncompressed size, ratio, and type in
+  `zarg`.
 - Commit headers now store the compressed size of each file group (as
   `zar.group.compressed_size.<group>` header metadata), so `zarc info -v` reads
   only the headers. Archives without these entries fall back to scanning the
@@ -24,6 +45,8 @@ until a version is released.
 
 ### Changed
 
+- Removed the `zarg` Favorites and Archive menus.
+- Bumped the project version to 0.8.0.
 - Updated the Java bindings to target Java 25.
 - Added WASI-specific directory traversal and sequential archive/extraction
   processing for runtimes without worker threads.

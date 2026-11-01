@@ -179,6 +179,7 @@ create-named|Create Archive (named)
 open|Open Archive
 extract-here|Extract here
 extract-to|Extract to...
+extract-to-folder|Extract to archive folder
 test|Test Archive
 EOF
 }

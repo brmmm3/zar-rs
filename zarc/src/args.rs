@@ -96,6 +96,8 @@ pub(crate) enum Command {
             help = "Save platform-specific owner, group, and permissions"
         )]
         metadata: bool,
+        #[arg(long, help = "Save the modification time of each entry")]
+        dates: bool,
         #[arg(
             long,
             help = "Include named pipes and Unix device nodes found in input paths"
@@ -198,6 +200,8 @@ pub(crate) enum Command {
             help = "Save platform-specific owner, group, and permissions"
         )]
         metadata: bool,
+        #[arg(long, help = "Save the modification time of each entry")]
+        dates: bool,
         #[arg(
             long,
             help = "Include named pipes and Unix device nodes found in input paths"
@@ -289,6 +293,37 @@ pub(crate) enum Command {
     },
 
     #[command(
+        alias = "m",
+        about = "List, set or remove custom archive metadata (key/value pairs)",
+        long_about = "List, set or remove custom key/value metadata stored in the archive.\n\n\
+            Without --set and --remove, the current metadata is listed. Changes are recorded in a \
+            new commit without file changes. Values are stored as integer, float or string \
+            depending on how they parse. Keys starting with `zar.` are reserved.\n\n\
+            USAGE EXAMPLES:\n  \
+              zarc meta archive.zar\n  \
+              zarc meta archive.zar --set author=Jane --set revision=3\n  \
+              zarc meta archive.zar --remove author"
+    )]
+    Meta {
+        #[arg(value_name = "ARCHIVE", help = "Existing archive file path (.zar)")]
+        archive: String,
+        #[arg(
+            short = 's',
+            long = "set",
+            value_name = "KEY=VALUE",
+            help = "Set a metadata key (may be repeated)"
+        )]
+        set: Vec<String>,
+        #[arg(
+            short = 'r',
+            long = "remove",
+            value_name = "KEY",
+            help = "Remove a metadata key (may be repeated)"
+        )]
+        remove: Vec<String>,
+    },
+
+    #[command(
         alias = "j",
         about = "Merge a contiguous range of commits into a single commit",
         long_about = "Compact and merge a contiguous range of commits (--from through --through) into a single commit.\n\n\
@@ -377,7 +412,8 @@ pub(crate) enum Command {
             USAGE EXAMPLES:\n  \
               zarc info archive.zar\n  \
               zarc info -v archive.zar\n  \
-              zarc info --json archive.zar"
+              zarc info --json archive.zar\n  \
+              zarc info --meta archive.zar"
     )]
     Info {
         #[arg(value_name = "ARCHIVE", help = "Archive file path to inspect (.zar)")]
@@ -391,6 +427,13 @@ pub(crate) enum Command {
         verbose: bool,
         #[arg(long, help = "Output commit metadata and framing sizes as JSON")]
         json: bool,
+        #[arg(
+            short = 'm',
+            long = "meta",
+            conflicts_with_all = ["json", "verbose"],
+            help = "Show the custom key=value metadata stored in the archive"
+        )]
+        meta: bool,
     },
 
     #[command(
@@ -499,6 +542,11 @@ pub(crate) enum Command {
             help = "Create archived Unix character and block devices (requires sufficient privileges)"
         )]
         devices: bool,
+        #[arg(
+            long,
+            help = "Skip the top-level folder of every archive path and extract its contents directly"
+        )]
+        strip_top_level: bool,
         #[arg(
             long,
             help = "Prompt for a default password to unlock every encrypted commit"

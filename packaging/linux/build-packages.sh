@@ -70,6 +70,7 @@ stage_files() {
             "ZAR - Open Archive" \
             "ZAR - Extract here" \
             "ZAR - Extract to..." \
+            "ZAR - Extract to archive folder" \
             "ZAR - Test Archive"; do
             ln -s /usr/libexec/zar-rs/nautilus-script \
                 "$stage/usr/share/nautilus/scripts/$script_name"

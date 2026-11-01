@@ -55,6 +55,8 @@ Options:
 - `--overwrite`: replace the target archive if it already exists.
 - `--metadata`: record supported platform-specific owner, group, and
   permission metadata.
+- `--dates`: record each entry's modification time (requires readers that
+  support logical-header version 7; shown and sortable in `zarg`).
 - `--special-files`: include named pipes and Unix device nodes; these are
   otherwise skipped with warnings.
 - `--verbose`: print the warning when storing a symbolic link. By default,
@@ -89,7 +91,13 @@ zarc add backup.zar new-file.txt updated-docs/
 zarc add --special-files backup.zar /dev/
 zarc remove backup.zar obsolete.txt old-directory/
 zarc join backup.zar --from 00000001 --through 00000004
+zarc meta backup.zar --set author=Jane --remove old-key
+zarc meta backup.zar
 ```
+
+`meta` lists, sets (`--set KEY=VALUE`) or removes (`--remove KEY`) custom
+key/value metadata. Changes are stored in a new commit without file changes;
+keys starting with `zar.` are reserved.
 
 - `add` appends a commit. New or modified paths replace the corresponding
   entries in the latest TOC; untouched entries remain available.
@@ -100,7 +108,7 @@ zarc join backup.zar --from 00000001 --through 00000004
   range. Commit IDs are eight hexadecimal digits.
 
 `add` accepts `--block-size`, `--compression-level`, `--metadata`,
-`--special-files`, `--strict`, `--verbose`, the include/exclude filter options
+`--dates`, `--special-files`, `--strict`, `--verbose`, the include/exclude filter options
 above, and `--progress`. Unreadable files are skipped
 with a warning unless `--strict` is set, in which case a permission error
 fails the operation. Named pipes and Unix device nodes are skipped with
@@ -149,6 +157,7 @@ zarc check --recover backup.zar
 zarc extract backup.zar --to ./restored/
 zarc extract backup.zar --to ./restored/ --through 00000002
 zarc extract backup.zar --dry-run
+zarc extract backup.zar --to ./restored/ --strip-top-level
 zarc extract backup.zar --collision rename --existing skip
 zarc extract --password secrets.zar --to ./private/
 ```

@@ -45,6 +45,16 @@ pub struct CommitFileStats {
     pub symlinks: u64,
     pub named_pipes: u64,
     pub devices: u64,
+    pub entry_metadata: EntryMetadataStats,
+}
+
+/// Number of entries in a commit header that carry each kind of saved metadata.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EntryMetadataStats {
+    pub owner: u64,
+    pub group: u64,
+    pub permissions: u64,
+    pub dates: u64,
 }
 
 pub fn info_archive(
@@ -217,6 +227,13 @@ pub fn summarize_commit_header_only(
 ) -> Result<CommitFileStats, Box<dyn std::error::Error>> {
     let mut stats = CommitFileStats::default();
     let mut seen_files = std::collections::HashSet::new();
+    for entry in &header.entry_metadata {
+        let counts = &mut stats.entry_metadata;
+        counts.owner += u64::from(entry.owner.is_some());
+        counts.group += u64::from(entry.group.is_some());
+        counts.permissions += u64::from(entry.permissions.is_some());
+        counts.dates += u64::from(entry.modified_unix_millis.is_some());
+    }
     for change in &header.changes {
         let entry = match change {
             TocChange::PutFile { entry, .. } => entry,

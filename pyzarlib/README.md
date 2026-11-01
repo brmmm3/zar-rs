@@ -309,12 +309,12 @@ physical commit order.
 ## API
 
 - `create_archive(archive, paths, *, strict=False, overwrite=False,
-  save_metadata=False, include_special_files=False, verbose=False,
-  block_size=8388608, compression_level=3, password=None, include_files=None,
+  save_metadata=False, save_dates=False, include_special_files=False,
+  verbose=False, block_size=8388608, compression_level=3, password=None, include_files=None,
   exclude_files=None, include_folders=None, exclude_folders=None)` creates an
   archive and returns its resolved block size and warnings.
 - `add_archive(archive, paths, *, strict=False, save_metadata=False,
-  include_special_files=False, verbose=False, block_size=8388608,
+  save_dates=False, include_special_files=False, verbose=False, block_size=8388608,
   compression_level=3, include_files=None, exclude_files=None,
   include_folders=None, exclude_folders=None)` appends a commit and returns
   warnings.

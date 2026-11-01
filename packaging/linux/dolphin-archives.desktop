@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Service
 MimeType=application/x-zar;
-Actions=openArchive;extractHere;extractTo;testArchive
+Actions=openArchive;extractHere;extractTo;extractToFolder;testArchive
 
 [Desktop Action openArchive]
 Name=Open Archive
@@ -17,6 +17,11 @@ Exec=zarg --context extract-here -- %F
 Name=Extract to...
 Icon=zarg
 Exec=zarg --context extract-to -- %F
+
+[Desktop Action extractToFolder]
+Name=Extract to archive folder
+Icon=zarg
+Exec=zarg --context extract-to-folder -- %F
 
 [Desktop Action testArchive]
 Name=Test Archive

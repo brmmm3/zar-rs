@@ -161,6 +161,8 @@ pub struct ExtractionOptions<'a> {
     pub restore_metadata: bool,
     pub restore_symlinks: bool,
     pub restore_devices: bool,
+    /// Drops the first path component of every archive path.
+    pub strip_top_level: bool,
 }
 
 pub fn extract_archive(
@@ -179,6 +181,7 @@ pub fn extract_archive(
             restore_metadata: false,
             restore_symlinks: false,
             restore_devices: false,
+            strip_top_level: false,
         },
         None,
         None,
@@ -311,6 +314,72 @@ pub fn extract_archive_to_memory_with_passwords_and_filters(
     Ok(files)
 }
 
+/// Extracts exactly one file into `output` in a single pass over the archive.
+/// Only the data blocks of that file are read and decoded.
+pub fn extract_single_file(
+    archive: &str,
+    path: &str,
+    output: &Path,
+    passwords: &PasswordSet,
+) -> Result<u64, Box<dyn std::error::Error>> {
+    let wanted = FilterSet::from_patterns(&[escape_glob(path)], &[], &[], &[], &[] as &[PathBuf])?;
+    let (toc, sources, _) =
+        load_extraction_state_impl(archive, None, passwords, None, Some(&wanted), None)?;
+    let archive_path = ArchivePath::new(path)?;
+    let Some(TocEntry::File(file_entry)) = toc
+        .iter()
+        .find_map(|(entry_path, entry)| (*entry_path == archive_path).then_some(entry))
+    else {
+        return Err(format!("{path} is not a file in the archive").into());
+    };
+    let source = sources
+        .get(&archive_path)
+        .ok_or_else(|| format!("missing extraction source for {path}"))?;
+    if !matches!(source.kind, ExtractedKind::File) || source.entry != *file_entry {
+        return Err(format!("extraction source mismatch for {path}").into());
+    }
+    let mut archive_file = File::open(archive)?;
+    let mut writer = io::BufWriter::new(File::create(output)?);
+    let mut checksum = Xxh64::new(0);
+    let mut written = 0_u64;
+    for block in &source.blocks {
+        let contents = decode_extraction_block(&mut archive_file, block)
+            .map_err(ExtractionFailure::from_send_sync)?;
+        if contents.len() != block.uncompressed_size {
+            return Err("archive block changed after extraction validation".into());
+        }
+        checksum.update(&contents);
+        writer.write_all(&contents)?;
+        written += contents.len() as u64;
+    }
+    writer.flush()?;
+    if written != file_entry.size {
+        return Err(format!("decoded size mismatch for {path}").into());
+    }
+    if file_entry.size != 0
+        && file_entry
+            .checksum
+            .is_some_and(|expected| expected != checksum.digest())
+    {
+        return Err(format!("file checksum mismatch for {path}").into());
+    }
+    Ok(written)
+}
+
+fn escape_glob(path: &str) -> String {
+    let mut escaped = String::with_capacity(path.len());
+    for character in path.chars() {
+        if matches!(character, '*' | '?' | '[' | '{') {
+            escaped.push('[');
+            escaped.push(character);
+            escaped.push(']');
+        } else {
+            escaped.push(character);
+        }
+    }
+    escaped
+}
+
 pub fn extract_archive_with_options(
     archive: &str,
     destination: &Path,
@@ -331,6 +400,7 @@ pub fn extract_archive_with_options(
             restore_metadata: false,
             restore_symlinks: false,
             restore_devices: false,
+            strip_top_level: false,
         },
         password,
         None,
@@ -409,6 +479,7 @@ pub fn extract_archive_with_passwords_progress_and_filters(
         restore_metadata,
         restore_symlinks,
         restore_devices,
+        strip_top_level,
     } = options;
     let progress = ProgressReporter::new(progress);
     let archive_size = File::open(archive)?.metadata()?.len().saturating_sub(4);
@@ -455,8 +526,16 @@ pub fn extract_archive_with_passwords_progress_and_filters(
         .collect();
 
     for (path, entry) in toc.iter() {
-        let target = path
-            .as_str()
+        let relative = if strip_top_level {
+            match path.as_str().split_once('/') {
+                Some((_, rest)) => rest,
+                None if matches!(entry, TocEntry::Directory) => continue,
+                None => path.as_str(),
+            }
+        } else {
+            path.as_str()
+        };
+        let target = relative
             .split('/')
             .fold(destination.to_path_buf(), |target, component| {
                 target.join(component)
@@ -474,7 +553,7 @@ pub fn extract_archive_with_passwords_progress_and_filters(
                 }
                 let mut source = source.clone();
                 source.metadata = entry_metadata.get(path).cloned();
-                let collision_key = path.as_str().to_lowercase();
+                let collision_key = relative.to_lowercase();
                 if let Some(&index) = collision_indices.get(&collision_key) {
                     match collision_policy {
                         CollisionPolicy::Error => {

@@ -8,6 +8,7 @@ case "$(basename "$0")" in
     "ZAR - Open Archive") action=open ;;
     "ZAR - Extract here") action=extract-here ;;
     "ZAR - Extract to...") action=extract-to ;;
+    "ZAR - Extract to archive folder") action=extract-to-folder ;;
     "ZAR - Test Archive") action=test ;;
     *) echo "Unknown ZAR Nautilus action." >&2; exit 2 ;;
 esac

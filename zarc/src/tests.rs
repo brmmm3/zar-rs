@@ -81,6 +81,24 @@ fn verbose_info_renders_stored_special_entry_counts() {
 }
 
 #[test]
+fn verbose_info_renders_saved_entry_metadata() {
+    assert!(render_commit_stats(&CommitFileStats::default()).contains("saved metadata: none"));
+    let stats = CommitFileStats {
+        entry_metadata: zarlib::operations::EntryMetadataStats {
+            owner: 2,
+            group: 2,
+            permissions: 2,
+            dates: 1,
+        },
+        ..CommitFileStats::default()
+    };
+    assert!(
+        render_commit_stats(&stats)
+            .contains("saved metadata: owner (2), group (2), permissions (2), date (1)")
+    );
+}
+
+#[test]
 fn verbose_info_only_renders_deduplication_when_files_were_deduplicated() {
     let without_deduplication = render_commit_stats(&CommitFileStats::default());
     assert!(!without_deduplication.contains("deduplicated files:"));
@@ -582,6 +600,7 @@ fn extract_progress_reports_summary_before_nonzero_work_and_counts_bytes() {
                 restore_metadata: false,
                 restore_symlinks: false,
                 restore_devices: false,
+                strip_top_level: false,
             },
             None,
             Some(&progress),
@@ -663,6 +682,7 @@ fn extract_summary_precedes_data_frame_validation() {
                 restore_metadata: false,
                 restore_symlinks: false,
                 restore_devices: false,
+                strip_top_level: false,
             },
             None,
             Some(&progress),
@@ -1885,6 +1905,7 @@ fn metadata_option_saves_and_restores_file_and_directory_metadata() {
             restore_metadata: true,
             restore_symlinks: false,
             restore_devices: false,
+            strip_top_level: false,
         },
         None,
         None,
@@ -2007,6 +2028,7 @@ fn create_and_extract_symlink_named_pipe_and_device_records() {
             restore_metadata: false,
             restore_symlinks: true,
             restore_devices: true,
+            strip_top_level: false,
         },
         None,
         None,
@@ -2036,6 +2058,7 @@ fn create_and_extract_symlink_named_pipe_and_device_records() {
                 restore_metadata: false,
                 restore_symlinks: true,
                 restore_devices: false,
+                strip_top_level: false,
             },
             None,
             None,
@@ -2189,6 +2212,7 @@ fn create_and_extract_apply_file_and_folder_filters() {
             restore_metadata: false,
             restore_symlinks: false,
             restore_devices: false,
+            strip_top_level: false,
         },
         None,
         None,
@@ -2343,6 +2367,7 @@ fn create_includes_named_pipes_only_when_special_files_are_enabled() {
         None,
         CreateInputOptions {
             save_metadata: false,
+            save_dates: false,
             include_special_files: false,
             overwrite_existing: false,
             verbose: false,
@@ -2372,6 +2397,7 @@ fn create_includes_named_pipes_only_when_special_files_are_enabled() {
         None,
         CreateInputOptions {
             save_metadata: false,
+            save_dates: false,
             include_special_files: true,
             overwrite_existing: false,
             verbose: false,
@@ -2415,6 +2441,7 @@ fn create_overwrite_replaces_existing_archive_only_after_successful_creation() {
         None,
         CreateInputOptions {
             save_metadata: false,
+            save_dates: false,
             include_special_files: true,
             overwrite_existing: true,
             verbose: false,
@@ -2445,6 +2472,7 @@ fn list_archive_details_reports_file_sizes_and_saved_metadata() {
         None,
         CreateInputOptions {
             save_metadata: true,
+            save_dates: false,
             ..CreateInputOptions::default()
         },
     )
@@ -3260,6 +3288,7 @@ fn explicit_error_collision_policy_rejects_case_folded_paths() {
                 restore_metadata: false,
                 restore_symlinks: false,
                 restore_devices: false,
+                strip_top_level: false,
             },
             None,
             Some(&progress),

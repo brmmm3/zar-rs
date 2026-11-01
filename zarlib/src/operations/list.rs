@@ -14,6 +14,7 @@ pub struct ArchiveEntryDetails {
     pub group: Option<u32>,
     pub permissions: Option<u32>,
     pub metadata_platform: Option<String>,
+    pub modified_unix_millis: Option<i64>,
 }
 
 pub fn list_archive_with_details(
@@ -107,6 +108,9 @@ fn apply_entry_details(
     metadata: &[EntryMetadata],
     block_sizes: &HashMap<u32, u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Later records win, matching the previous reverse linear search.
+    let metadata: HashMap<&ArchivePath, &EntryMetadata> =
+        metadata.iter().map(|entry| (&entry.path, entry)).collect();
     for change in changes {
         match change {
             TocChange::PutFile { path, entry } => {
@@ -118,14 +122,14 @@ fn apply_entry_details(
                     })?;
                 details.insert(
                     path.clone(),
-                    entry_details(path, metadata, Some(compressed_size)),
+                    entry_details(path, &metadata, Some(compressed_size)),
                 );
             }
             TocChange::PutDirectory { path }
             | TocChange::PutSymlink { path, .. }
             | TocChange::PutNamedPipe { path }
             | TocChange::PutDevice { path, .. } => {
-                details.insert(path.clone(), entry_details(path, metadata, None));
+                details.insert(path.clone(), entry_details(path, &metadata, None));
             }
             TocChange::RemoveFile { path } => {
                 details.remove(path);
@@ -146,16 +150,17 @@ fn apply_entry_details(
 
 fn entry_details(
     path: &ArchivePath,
-    metadata: &[EntryMetadata],
+    metadata: &HashMap<&ArchivePath, &EntryMetadata>,
     compressed_size: Option<u64>,
 ) -> ArchiveEntryDetails {
-    let entry_metadata = metadata.iter().rev().find(|entry| entry.path == *path);
+    let entry_metadata = metadata.get(path).copied();
     ArchiveEntryDetails {
         compressed_size,
         owner: entry_metadata.and_then(|entry| entry.owner),
         group: entry_metadata.and_then(|entry| entry.group),
         permissions: entry_metadata.and_then(|entry| entry.permissions),
         metadata_platform: entry_metadata.map(|entry| entry.platform.clone()),
+        modified_unix_millis: entry_metadata.and_then(|entry| entry.modified_unix_millis),
     }
 }
 

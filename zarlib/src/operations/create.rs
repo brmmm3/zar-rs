@@ -15,6 +15,7 @@ use zeroize::Zeroizing;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CreateInputOptions {
     pub save_metadata: bool,
+    pub save_dates: bool,
     pub include_special_files: bool,
     pub overwrite_existing: bool,
     pub verbose: bool,
@@ -75,6 +76,7 @@ pub fn create_archive_with_password_progress(
         progress,
         CreateInputOptions {
             save_metadata,
+            save_dates: false,
             include_special_files: true,
             overwrite_existing: false,
             verbose: false,
@@ -161,6 +163,7 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
     } = filter_options;
     let CreateInputOptions {
         save_metadata,
+        save_dates,
         include_special_files,
         overwrite_existing,
         verbose,
@@ -283,7 +286,7 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
     let data_section_size = archive.stream_position()? - commit_data_start - HEADER_OFFSET_SIZE;
 
     let logical_header = LogicalHeader::with_block_size(changes, options.block_size as u32)
-        .with_entry_metadata(entry_metadata);
+        .with_entry_metadata(finalize_entry_metadata(entry_metadata, save_dates));
     let group_sizes = group_size_metadata(&logical_header, &block_sizes)?;
     let header_bytes = logical_header.with_metadata(group_sizes).encode()?;
 

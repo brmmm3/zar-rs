@@ -1,10 +1,12 @@
+mod settings;
 mod ui;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
 
 fn main() -> eframe::Result {
-    let app = match parse_context_args(std::env::args_os().skip(1)) {
+    let saved = settings::Settings::load();
+    let mut app = match parse_context_args(std::env::args_os().skip(1)) {
         Ok(Some((action, paths))) => ui::ZargApp::from_context_action(action, paths)
             .unwrap_or_else(|error| {
                 eprintln!("zarg: {error}");
@@ -16,13 +18,20 @@ fn main() -> eframe::Result {
             std::process::exit(2);
         }
     };
+    app.apply_settings(&saved);
     let icon = image::load_from_memory(include_bytes!("../assets/zarg-icon.png"))
         .expect("embedded app icon must be a valid PNG")
         .into_rgba8();
     let (width, height) = icon.dimensions();
+    let mut viewport = eframe::egui::ViewportBuilder::default().with_inner_size([1000.0, 680.0]);
+    if let Some(geometry) = saved.geometry_for_startup(settings::monitor_count()) {
+        viewport = viewport.with_inner_size(geometry.size);
+        if let Some(position) = geometry.position {
+            viewport = viewport.with_position(position);
+        }
+    }
     let options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([1000.0, 680.0])
+        viewport: viewport
             .with_min_inner_size([720.0, 460.0])
             .with_app_id("zarg")
             .with_icon(eframe::egui::IconData {
@@ -67,6 +76,7 @@ fn parse_context_args(
         "open" => ui::ContextAction::Open,
         "extract-here" => ui::ContextAction::ExtractHere,
         "extract-to" => ui::ContextAction::ExtractTo,
+        "extract-to-folder" => ui::ContextAction::ExtractToFolder,
         "test" => ui::ContextAction::Test,
         _ => return Err(format!("unknown context action: {action}")),
     };
@@ -128,6 +138,23 @@ mod tests {
             Some((
                 ui::ContextAction::Open,
                 vec![PathBuf::from("/tmp/archive with spaces.zar")]
+            ))
+        );
+    }
+
+    #[test]
+    fn extract_to_folder_context_action_is_recognized() {
+        assert_eq!(
+            parse_context_args(os_args(&[
+                "--context",
+                "extract-to-folder",
+                "--",
+                "/tmp/foo.zar",
+            ]))
+            .unwrap(),
+            Some((
+                ui::ContextAction::ExtractToFolder,
+                vec![PathBuf::from("/tmp/foo.zar")]
             ))
         );
     }

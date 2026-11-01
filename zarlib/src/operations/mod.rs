@@ -11,6 +11,7 @@ pub mod filters;
 pub mod info;
 pub mod join;
 pub mod list;
+pub mod meta;
 pub mod pipeline;
 pub mod remove;
 
@@ -23,5 +24,6 @@ pub use filters::*;
 pub use info::*;
 pub use join::*;
 pub use list::*;
+pub use meta::*;
 pub use pipeline::*;
 pub use remove::*;

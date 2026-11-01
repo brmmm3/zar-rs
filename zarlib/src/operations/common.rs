@@ -390,18 +390,59 @@ pub fn platform_identifier() -> &'static str {
     "other"
 }
 
+pub fn modified_unix_millis(metadata: &std::fs::Metadata) -> Option<i64> {
+    let modified = metadata.modified().ok()?;
+    let millis = match modified.duration_since(std::time::UNIX_EPOCH) {
+        Ok(duration) => i128::try_from(duration.as_millis()).ok()?,
+        Err(error) => -(error.duration().as_millis() as i128),
+    };
+    i64::try_from(millis).ok()
+}
+
+/// Drops modification times unless requested, and omits records that carry no data.
+pub fn finalize_entry_metadata(
+    mut entries: Vec<EntryMetadata>,
+    save_dates: bool,
+) -> Vec<EntryMetadata> {
+    if !save_dates {
+        for entry in &mut entries {
+            entry.modified_unix_millis = None;
+        }
+    }
+    entries.retain(|entry| {
+        entry.owner.is_some()
+            || entry.group.is_some()
+            || entry.permissions.is_some()
+            || entry.modified_unix_millis.is_some()
+    });
+    entries
+}
+
+pub fn entry_date_metadata(path: &ArchivePath, modified_unix_millis: Option<i64>) -> EntryMetadata {
+    EntryMetadata {
+        path: path.clone(),
+        platform: platform_identifier().to_owned(),
+        owner: None,
+        group: None,
+        permissions: None,
+        modified_unix_millis,
+    }
+}
+
 #[cfg(unix)]
 pub fn capture_entry_metadata(
     path: &ArchivePath,
     metadata: &std::fs::Metadata,
+    save_metadata: bool,
 ) -> Result<EntryMetadata, Box<dyn std::error::Error>> {
     use std::os::unix::fs::MetadataExt;
     Ok(EntryMetadata {
         path: path.clone(),
         platform: platform_identifier().to_owned(),
-        owner: Some(metadata.uid()),
-        group: Some(metadata.gid()),
-        permissions: Some(metadata.mode() & 0o7777),
+        owner: save_metadata.then(|| metadata.uid()),
+        group: save_metadata.then(|| metadata.gid()),
+        permissions: save_metadata.then(|| metadata.mode() & 0o7777),
+        modified_unix_millis: modified_unix_millis(metadata),
     })
 }
 
@@ -409,22 +450,28 @@ pub fn capture_entry_metadata(
 pub fn capture_entry_metadata(
     path: &ArchivePath,
     metadata: &std::fs::Metadata,
+    save_metadata: bool,
 ) -> Result<EntryMetadata, Box<dyn std::error::Error>> {
     Ok(EntryMetadata {
         path: path.clone(),
         platform: platform_identifier().to_owned(),
         owner: None,
         group: None,
-        permissions: Some(u32::from(metadata.permissions().readonly())),
+        permissions: save_metadata.then(|| u32::from(metadata.permissions().readonly())),
+        modified_unix_millis: modified_unix_millis(metadata),
     })
 }
 
 #[cfg(not(any(unix, windows)))]
 pub fn capture_entry_metadata(
-    _path: &ArchivePath,
-    _metadata: &std::fs::Metadata,
+    path: &ArchivePath,
+    metadata: &std::fs::Metadata,
+    save_metadata: bool,
 ) -> Result<EntryMetadata, Box<dyn std::error::Error>> {
-    Err("metadata preservation is unsupported on this platform".into())
+    if save_metadata {
+        return Err("metadata preservation is unsupported on this platform".into());
+    }
+    Ok(entry_date_metadata(path, modified_unix_millis(metadata)))
 }
 
 pub fn push_unique_path(

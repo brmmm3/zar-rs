@@ -510,6 +510,25 @@ fn render_commit_stats(stats: &CommitFileStats) -> String {
             stats.symlinks, stats.named_pipes, stats.devices
         ));
     }
+    let metadata = &stats.entry_metadata;
+    let saved = [
+        ("owner", metadata.owner),
+        ("group", metadata.group),
+        ("permissions", metadata.permissions),
+        ("date", metadata.dates),
+    ]
+    .iter()
+    .filter(|(_, count)| *count > 0)
+    .map(|(name, count)| format!("{name} ({count})"))
+    .collect::<Vec<_>>();
+    output.push_str(&format!(
+        "  saved metadata: {}\n",
+        if saved.is_empty() {
+            "none".to_owned()
+        } else {
+            saved.join(", ")
+        }
+    ));
     output
 }
 
@@ -609,6 +628,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             strict,
             verbose,
             metadata,
+            dates,
             special_files,
             include_files,
             exclude_files,
@@ -650,6 +670,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                 CreateFilterOptions {
                     input: CreateInputOptions {
                         save_metadata: metadata,
+                        save_dates: dates,
                         include_special_files: special_files,
                         overwrite_existing: overwrite,
                         verbose,
@@ -685,6 +706,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             paths,
             progress,
             metadata,
+            dates,
             special_files,
             password: encrypt,
             aead,
@@ -745,6 +767,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                 Some(&progress_callback as &dyn Progress),
                 AddInputOptions {
                     save_metadata: metadata,
+                    save_dates: dates,
                     include_special_files: special_files,
                     strict,
                     verbose,
@@ -781,6 +804,28 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             )?;
             let elapsed = start.elapsed();
             println!("Time: {}", format_duration(elapsed));
+            Ok(0)
+        }
+        Command::Meta {
+            archive,
+            set,
+            remove,
+        } => {
+            if set.is_empty() && remove.is_empty() {
+                for (key, value) in read_custom_metadata(&archive)? {
+                    println!("{key}={}", format_metadata_value(&value));
+                }
+            } else {
+                let set = set
+                    .iter()
+                    .map(|item| {
+                        item.split_once('=')
+                            .map(|(key, value)| (key.to_owned(), parse_metadata_value(value)))
+                            .ok_or_else(|| format!("expected KEY=VALUE, got `{item}`"))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                update_custom_metadata(&archive, &set, &remove)?;
+            }
             Ok(0)
         }
         Command::Join {
@@ -848,7 +893,14 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             archive,
             verbose,
             json,
+            meta,
         } => {
+            if meta {
+                for (key, value) in read_custom_metadata(&archive)? {
+                    println!("{key}={}", format_metadata_value(&value));
+                }
+                return Ok(0);
+            }
             let commits = info_archive(&archive, verbose)?;
             if json {
                 let json_commits = commits
@@ -944,6 +996,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             progress,
             symlinks,
             devices,
+            strip_top_level,
             include_files,
             exclude_files,
             include_folders,
@@ -972,6 +1025,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                     restore_metadata: metadata,
                     restore_symlinks: symlinks,
                     restore_devices: devices,
+                    strip_top_level,
                 },
                 &passwords,
                 Some(&progress_callback as &dyn Progress),

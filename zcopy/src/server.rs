@@ -347,6 +347,7 @@ fn extract_batch(
             restore_metadata: metadata,
             restore_symlinks: false,
             restore_devices: false,
+            strip_top_level: false,
         },
         &passwords,
         None,

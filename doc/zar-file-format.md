@@ -102,6 +102,12 @@ end note
 @enduml
 ```
 
+Logical-header version 7 adds an optional signed Unix timestamp in
+milliseconds to each entry-metadata record. The timestamp is the source
+entry's modification time. Versions 5 and 6 remain readable and contain no
+stored modification time; version 7 is required to preserve dates and is not
+readable by older implementations.
+
 ## Data block frame
 
 The data section is a sequence of block frames. A file entry in the logical

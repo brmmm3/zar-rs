@@ -82,7 +82,7 @@ The output shapes follow the corresponding Python API:
 
 | Operation | Required request fields | Useful optional fields |
 |---|---|---|
-| `create_archive` | `archive`, `paths` | `block_size`, `compression_level`, `strict`, `overwrite`, `save_metadata`, `include_special_files`, `verbose`, `password`, `aead`, `encryption_scope`, `include_files`, `exclude_files`, `include_folders`, `exclude_folders` |
+| `create_archive` | `archive`, `paths` | `block_size`, `compression_level`, `strict`, `overwrite`, `save_metadata`, `save_dates`, `include_special_files`, `verbose`, `password`, `aead`, `encryption_scope`, `include_files`, `exclude_files`, `include_folders`, `exclude_folders` |
 | `add_archive` | `archive`, `paths` | Same encoding, scan, and filter fields as create; `password`, `passwords`, `aead`, `encryption_scope` |
 | `remove_archive` | `archive`, `paths` | — |
 | `join_archive` | `archive`, `from_id`, `through_id` | `block_size`, `compression_level` |

@@ -1,7 +1,7 @@
 ; Inno Setup script for the ZAR command-line tool (zarc) and archive manager (zarg).
 ;
 ; Build (from the repository root, after `cargo build --release --bins`):
-;   iscc /DAppVersion=0.7.0 packaging\windows\zar-rs.iss
+;   iscc /DAppVersion=0.8.0 packaging\windows\zar-rs.iss
 ; Options:
 ;   /DSourceDir=<dir>   directory containing zarc.exe and zarg.exe
 ;                       (default: target\release; use target\<triple>\release
@@ -9,7 +9,7 @@
 ;   /DArch=arm64        build the installer for Windows on ARM (default: x64)
 
 #ifndef AppVersion
-  #define AppVersion "0.7.0"
+  #define AppVersion "0.8.0"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\..\target\release"
@@ -116,6 +116,12 @@ Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.Extr
   ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
 Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.ExtractTo\command"; \
   ValueType: string; ValueName: ""; ValueData: """{app}\zarg.exe"" --context extract-to -- %*"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.ExtractToFolder"; \
+  ValueType: string; ValueName: ""; ValueData: "Extract to archive folder"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.ExtractToFolder"; \
+  ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.ExtractToFolder\command"; \
+  ValueType: string; ValueName: ""; ValueData: """{app}\zarg.exe"" --context extract-to-folder -- %*"; Flags: uninsdeletekey
 Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.Test"; \
   ValueType: string; ValueName: ""; ValueData: "Test Archive"; Flags: uninsdeletekey
 Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.Test"; \

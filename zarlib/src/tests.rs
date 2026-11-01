@@ -161,6 +161,57 @@ fn pipeline_groups_empty_tiny_small_and_big_files_properly() {
 }
 
 #[test]
+fn extract_single_file_writes_only_the_requested_file() {
+    let temp_dir = std::env::temp_dir().join(format!(
+        "zar_extract_single_test_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    let wanted = temp_dir.join("wa[n]ted.bin");
+    let other = temp_dir.join("other.bin");
+    let expected = (0_u8..200).collect::<Vec<_>>();
+    std::fs::write(&wanted, &expected).unwrap();
+    std::fs::write(&other, [7_u8; 64]).unwrap();
+    let archive_path = temp_dir.join("single.zar");
+    let archive = archive_path.to_str().unwrap();
+    crate::operations::create_archive_with_encoding(
+        archive,
+        &[wanted.clone(), other],
+        false,
+        crate::operations::EncodingOptions {
+            block_size: 16,
+            compression_level: 1,
+        },
+    )
+    .unwrap();
+    let archived = "wa[n]ted.bin";
+    let output = temp_dir.join("out.bin");
+    let written = crate::operations::extract_single_file(
+        archive,
+        archived,
+        &output,
+        &crate::operations::PasswordSet::default(),
+    )
+    .unwrap();
+    assert_eq!(written, 200);
+    assert_eq!(std::fs::read(&output).unwrap(), expected);
+    assert!(
+        crate::operations::extract_single_file(
+            archive,
+            "missing.bin",
+            &output,
+            &crate::operations::PasswordSet::default()
+        )
+        .is_err()
+    );
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
 fn extraction_to_memory_returns_file_contents_and_selected_slices() {
     let temp_dir = std::env::temp_dir().join(format!(
         "zar_extract_memory_test_{}_{}",
@@ -304,4 +355,61 @@ fn extraction_to_disk_creates_directories_and_files_properly() {
     );
 
     std::fs::remove_dir_all(temp_dir).unwrap();
+}
+
+#[test]
+fn custom_metadata_can_be_set_removed_and_survives_join() {
+    use crate::MetadataType;
+    use crate::operations::{EncodingOptions, read_custom_metadata, update_custom_metadata};
+    let temp_dir =
+        std::env::temp_dir().join(format!("zar_custom_meta_test_{}", std::process::id()));
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    let file = temp_dir.join("a.txt");
+    std::fs::write(&file, b"hello").unwrap();
+    let archive_path = temp_dir.join("meta.zar");
+    let archive = archive_path.to_str().unwrap();
+    let options = || EncodingOptions {
+        block_size: 64,
+        compression_level: 1,
+    };
+    crate::operations::create_archive_with_encoding(archive, &[file], false, options()).unwrap();
+    assert!(read_custom_metadata(archive).unwrap().is_empty());
+
+    update_custom_metadata(
+        archive,
+        &[
+            ("author".into(), MetadataType::String("me".into())),
+            ("rev".into(), MetadataType::I64(3)),
+        ],
+        &[],
+    )
+    .unwrap();
+    update_custom_metadata(archive, &[("rev".into(), MetadataType::I64(4))], &[]).unwrap();
+    update_custom_metadata(archive, &[], &["author".into()]).unwrap();
+    let meta = read_custom_metadata(archive).unwrap();
+    assert_eq!(meta.len(), 1);
+    assert_eq!(meta["rev"], MetadataType::I64(4));
+
+    assert!(update_custom_metadata(archive, &[], &["author".into()]).is_err());
+    assert!(
+        update_custom_metadata(archive, &[("zar.x".into(), MetadataType::I64(1))], &[]).is_err()
+    );
+
+    update_custom_metadata(
+        archive,
+        &[("author".into(), MetadataType::String("you".into()))],
+        &[],
+    )
+    .unwrap();
+    let ids = crate::operations::info_archive(archive, false)
+        .unwrap()
+        .iter()
+        .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+        .collect::<Vec<_>>();
+    crate::operations::join_archive_with_encoding(archive, &ids[1], &ids[ids.len() - 1], options())
+        .unwrap();
+    let meta = read_custom_metadata(archive).unwrap();
+    assert_eq!(meta["author"], MetadataType::String("you".into()));
+    assert_eq!(meta["rev"], MetadataType::I64(4));
+    let _ = std::fs::remove_dir_all(&temp_dir);
 }

@@ -102,6 +102,7 @@ pub fn join_archive_with_encoding_progress(
     }
     let mut joined_toc = prefix_toc.clone();
     let mut written_files = BTreeMap::<ArchivePath, Vec<u8>>::new();
+    let mut custom_metadata = HashMap::new();
     let mut joined_special = BTreeMap::<ArchivePath, TocEntry>::new();
     let limits = CommitValidationLimits::default();
     for (_header_offset, commit_header, data_start, _, commit) in &commits[first..=last] {
@@ -121,6 +122,7 @@ pub fn join_archive_with_encoding_progress(
             progress.inc(contents.len() as u64);
             blocks.insert(block.block_index, contents);
         }
+        super::meta::merge_custom_metadata(&mut custom_metadata, &header.metadata);
         joined_toc.apply_commit_with_available_blocks(&header.changes, &commit.block_indices)?;
         for change in &header.changes {
             match change {
@@ -284,7 +286,8 @@ pub fn join_archive_with_encoding_progress(
         }
     }
     let logical_header = LogicalHeader::with_block_size(changes.clone(), options.block_size as u32);
-    let group_sizes = group_size_metadata(&logical_header, &block_sizes)?;
+    let mut group_sizes = group_size_metadata(&logical_header, &block_sizes)?;
+    group_sizes.extend(custom_metadata);
     let header_bytes = logical_header.with_metadata(group_sizes).encode()?;
     let data_section_size = data.len() as u64;
     let new_commit_id = next_commit_id(archive_path)?;

@@ -218,6 +218,7 @@ fn create(request: &Value) -> Result<Value, String> {
         CreateFilterOptions {
             input: CreateInputOptions {
                 save_metadata: bool_option(request, "save_metadata", false)?,
+                save_dates: bool_option(request, "save_dates", false)?,
                 include_special_files: bool_option(request, "include_special_files", false)?,
                 overwrite_existing: bool_option(request, "overwrite", false)?,
                 verbose: bool_option(request, "verbose", false)?,
@@ -253,6 +254,7 @@ fn add(request: &Value) -> Result<Value, String> {
         Some(&warnings),
         AddInputOptions {
             save_metadata: bool_option(request, "save_metadata", false)?,
+            save_dates: bool_option(request, "save_dates", false)?,
             include_special_files: bool_option(request, "include_special_files", false)?,
             strict: bool_option(request, "strict", false)?,
             verbose: bool_option(request, "verbose", false)?,
@@ -334,6 +336,12 @@ fn info(request: &Value) -> Result<Value, String> {
                     "symlinks": details.symlinks,
                     "named_pipes": details.named_pipes,
                     "devices": details.devices,
+                    "entry_metadata": {
+                        "owner": details.entry_metadata.owner,
+                        "group": details.entry_metadata.group,
+                        "permissions": details.entry_metadata.permissions,
+                        "dates": details.entry_metadata.dates,
+                    },
                 })
             });
             let header_compression = commit.header_compression.map(|header| {
@@ -457,6 +465,7 @@ fn extract(request: &Value) -> Result<Value, String> {
             restore_metadata: bool_option(request, "restore_metadata", false)?,
             restore_symlinks: bool_option(request, "restore_symlinks", false)?,
             restore_devices: bool_option(request, "restore_devices", false)?,
+            strip_top_level: bool_option(request, "strip_top_level", false)?,
         },
         &passwords,
         None,

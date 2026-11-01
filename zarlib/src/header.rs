@@ -4,6 +4,7 @@ use crate::{ArchivePath, ArchivePathError, FileEntry, TocChange};
 
 const HEADER_MAGIC: [u8; 4] = *b"ZHDR";
 const FILE_TYPE_HEADER_VERSION: u16 = 6;
+const ENTRY_DATE_HEADER_VERSION: u16 = 7;
 const ENTRY_METADATA_HEADER_VERSION: u16 = 5;
 const METADATA_HEADER_VERSION: u16 = 4;
 const HEADER_VERSION: u16 = 3;
@@ -125,6 +126,7 @@ pub struct EntryMetadata {
     pub owner: Option<u32>,
     pub group: Option<u32>,
     pub permissions: Option<u32>,
+    pub modified_unix_millis: Option<i64>,
 }
 
 impl LogicalHeader {
@@ -171,7 +173,13 @@ impl LogicalHeader {
         if self.block_size == Some(0) {
             return Err(LogicalHeaderError::InvalidFileEntry);
         }
-        let version = if self.changes.iter().any(|change| {
+        let version = if self
+            .entry_metadata
+            .iter()
+            .any(|entry| entry.modified_unix_millis.is_some())
+        {
+            ENTRY_DATE_HEADER_VERSION
+        } else if self.changes.iter().any(|change| {
             matches!(
                 change,
                 TocChange::PutSymlink { .. }
@@ -194,9 +202,7 @@ impl LogicalHeader {
             LEGACY_HEADER_VERSION
         };
         let prefix_size = match version {
-            METADATA_HEADER_VERSION | ENTRY_METADATA_HEADER_VERSION | FILE_TYPE_HEADER_VERSION => {
-                METADATA_HEADER_PREFIX_SIZE
-            }
+            METADATA_HEADER_VERSION..=ENTRY_DATE_HEADER_VERSION => METADATA_HEADER_PREFIX_SIZE,
             BLOCK_SIZE_HEADER_VERSION | HEADER_VERSION => HEADER_PREFIX_SIZE,
             _ => LEGACY_HEADER_PREFIX_SIZE,
         };
@@ -220,11 +226,17 @@ impl LogicalHeader {
         } else if version == METADATA_HEADER_VERSION
             || version == ENTRY_METADATA_HEADER_VERSION
             || version == FILE_TYPE_HEADER_VERSION
+            || version == ENTRY_DATE_HEADER_VERSION
         {
             bytes.extend_from_slice(&self.block_size.unwrap_or(0).to_le_bytes());
             write_metadata(&mut bytes, &self.metadata, limits)?;
             if version >= ENTRY_METADATA_HEADER_VERSION {
-                write_entry_metadata(&mut bytes, &self.entry_metadata, limits)?;
+                write_entry_metadata(
+                    &mut bytes,
+                    &self.entry_metadata,
+                    limits,
+                    version >= ENTRY_DATE_HEADER_VERSION,
+                )?;
             }
         }
         bytes.extend_from_slice(&(self.changes.len() as u32).to_le_bytes());
@@ -331,7 +343,7 @@ impl LogicalHeader {
             ENTRY_METADATA_HEADER_VERSION => {
                 let block_size = reader.u32()?;
                 let metadata = read_metadata(&mut reader, limits)?;
-                let entry_metadata = read_entry_metadata(&mut reader, limits)?;
+                let entry_metadata = read_entry_metadata(&mut reader, limits, false)?;
                 (
                     if block_size == 0 {
                         None
@@ -346,7 +358,22 @@ impl LogicalHeader {
             FILE_TYPE_HEADER_VERSION => {
                 let block_size = reader.u32()?;
                 let metadata = read_metadata(&mut reader, limits)?;
-                let entry_metadata = read_entry_metadata(&mut reader, limits)?;
+                let entry_metadata = read_entry_metadata(&mut reader, limits, false)?;
+                (
+                    if block_size == 0 {
+                        None
+                    } else {
+                        Some(block_size)
+                    },
+                    true,
+                    metadata,
+                    entry_metadata,
+                )
+            }
+            ENTRY_DATE_HEADER_VERSION => {
+                let block_size = reader.u32()?;
+                let metadata = read_metadata(&mut reader, limits)?;
+                let entry_metadata = read_entry_metadata(&mut reader, limits, true)?;
                 (
                     if block_size == 0 {
                         None
@@ -567,6 +594,7 @@ fn write_entry_metadata(
     output: &mut Vec<u8>,
     entries: &[EntryMetadata],
     limits: LogicalHeaderLimits,
+    include_dates: bool,
 ) -> Result<(), LogicalHeaderError> {
     if entries.len() > limits.max_entry_metadata || entries.len() > u32::MAX as usize {
         return Err(LogicalHeaderError::LimitExceeded);
@@ -595,6 +623,15 @@ fn write_entry_metadata(
                 None => output.push(0),
             }
         }
+        if include_dates {
+            match entry.modified_unix_millis {
+                Some(value) => {
+                    output.push(1);
+                    output.extend_from_slice(&value.to_le_bytes());
+                }
+                None => output.push(0),
+            }
+        }
         if output.len() > limits.max_encoded_size {
             return Err(LogicalHeaderError::LimitExceeded);
         }
@@ -605,6 +642,7 @@ fn write_entry_metadata(
 fn read_entry_metadata(
     reader: &mut SliceReader<'_>,
     limits: LogicalHeaderLimits,
+    include_dates: bool,
 ) -> Result<Vec<EntryMetadata>, LogicalHeaderError> {
     let count = reader.u32()? as usize;
     if count > limits.max_entry_metadata {
@@ -643,12 +681,27 @@ fn read_entry_metadata(
                 _ => Err(LogicalHeaderError::InvalidMetadata),
             }
         };
+        let owner = read_value()?;
+        let group = read_value()?;
+        let permissions = read_value()?;
+        let modified_unix_millis = if include_dates {
+            match reader.u8()? {
+                0 => None,
+                1 => Some(i64::from_le_bytes(
+                    reader.take(8)?.try_into().expect("fixed length"),
+                )),
+                _ => return Err(LogicalHeaderError::InvalidMetadata),
+            }
+        } else {
+            None
+        };
         entries.push(EntryMetadata {
             path,
             platform,
-            owner: read_value()?,
-            group: read_value()?,
-            permissions: read_value()?,
+            owner,
+            group,
+            permissions,
+            modified_unix_millis,
         });
     }
     Ok(entries)
@@ -877,6 +930,7 @@ mod tests {
                 owner: Some(1000),
                 group: Some(100),
                 permissions: Some(0o755),
+                modified_unix_millis: None,
             },
             EntryMetadata {
                 path: path("docs/file.txt"),
@@ -884,11 +938,35 @@ mod tests {
                 owner: Some(1000),
                 group: Some(100),
                 permissions: Some(0o640),
+                modified_unix_millis: None,
             },
         ]);
 
         let encoded = header.encode().unwrap();
         assert_eq!(&encoded[4..6], &ENTRY_METADATA_HEADER_VERSION.to_le_bytes());
+        assert_eq!(LogicalHeader::decode(&encoded).unwrap(), header);
+    }
+
+    #[test]
+    fn logical_header_round_trips_entry_modification_times() {
+        let header = LogicalHeader::with_block_size(
+            vec![TocChange::PutFile {
+                path: path("file.txt"),
+                entry: FileEntry::new(1, vec![0]).unwrap(),
+            }],
+            64 * 1024,
+        )
+        .with_entry_metadata(vec![EntryMetadata {
+            path: path("file.txt"),
+            platform: "unix".to_owned(),
+            owner: None,
+            group: None,
+            permissions: None,
+            modified_unix_millis: Some(1_700_000_000_123),
+        }]);
+
+        let encoded = header.encode().unwrap();
+        assert_eq!(&encoded[4..6], &ENTRY_DATE_HEADER_VERSION.to_le_bytes());
         assert_eq!(LogicalHeader::decode(&encoded).unwrap(), header);
     }
 
@@ -900,6 +978,7 @@ mod tests {
             owner: Some(1),
             group: Some(1),
             permissions: Some(0o600),
+            modified_unix_millis: None,
         };
         let header = LogicalHeader::new(vec![TocChange::PutFile {
             path: path("file"),
@@ -945,10 +1024,10 @@ mod tests {
     fn rejects_unknown_version_tag_truncation_and_trailing_bytes() {
         let encoded = sample_header().encode().unwrap();
         let mut invalid_version = encoded.clone();
-        invalid_version[4] = 7;
+        invalid_version[4] = 8;
         assert!(matches!(
             LogicalHeader::decode(&invalid_version),
-            Err(LogicalHeaderError::UnsupportedVersion(7))
+            Err(LogicalHeaderError::UnsupportedVersion(8))
         ));
 
         let mut invalid_tag = encoded.clone();

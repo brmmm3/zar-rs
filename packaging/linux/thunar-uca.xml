@@ -85,4 +85,14 @@
     <patterns>*.zar</patterns>
     <other-files/>
   </action>
+  <action>
+    <icon>zarg</icon>
+    <name>ZAR - Extract to archive folder</name>
+    <unique-id>2026061008</unique-id>
+    <command>zarg --context extract-to-folder -- %F</command>
+    <description>Extract the selected ZAR archive into a folder named after the archive</description>
+    <range/>
+    <patterns>*.zar</patterns>
+    <other-files/>
+  </action>
 </actions>

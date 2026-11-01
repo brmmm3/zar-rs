@@ -6,7 +6,7 @@ Installers for `zarc` (CLI) and `zarg` (GUI). Output goes to `dist/`.
 
 ```powershell
 cargo build --release --bins
-iscc /DAppVersion=0.7.0 packaging\windows\zar-rs.iss
+iscc /DAppVersion=0.8.0 packaging\windows\zar-rs.iss
 ```
 
 Use `/DSourceDir=target\<triple>\release` when building with `--target`, and
@@ -14,10 +14,11 @@ Use `/DSourceDir=target\<triple>\release` when building with `--target`, and
 `PATH`, create Start menu and desktop shortcuts, and register Explorer verbs
 for files, folders and `.zar` archives. Explorer passes multiple selections to
 the create actions. Windows does not support substituting the selected
-filename into a registry verb's display text, so the named action uses the
-fixed label **Create Archive (named)** on all platforms. It creates
-`<first file's stem>.zar` or `<first folder's name>.zar` beside the first
-selected item. The `.zar` file icon is generated from the PNG MIME icon.
+filename into a registry verb's display text, so the named actions use fixed
+labels. **Create Archive (named)** creates `<first file's stem>.zar` or
+`<first folder's name>.zar` beside the first selected item. **Extract to archive
+folder** extracts `foo.zar` into a sibling folder named `foo`. The `.zar` file
+icon is generated from the PNG MIME icon.
 
 ## Linux
 
@@ -37,7 +38,8 @@ deb, rpm and AppImage are assembled from the release binaries
 The AppImage starts `zarg`; invoked through a symlink named `zarc` (or with
 `ZAR_CLI=1`) it starts the CLI.
 
-The deb and rpm packages register Nautilus scripts and a Dolphin service menu.
+The deb and rpm packages register Nautilus scripts and a Dolphin service menu,
+including an action to extract into a folder named after the archive.
 They also install a Thunar action template and the
 `zarg-install-thunar-actions` helper. Thunar keeps actions in each user's
 configuration, so run that helper once as the user to merge the ZAR actions

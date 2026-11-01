@@ -55,6 +55,7 @@ pub struct TreeEntry {
     pub source_path: PathBuf,
     pub kind: TreeEntryKind,
     pub size: u64,
+    pub modified_unix_millis: Option<i64>,
 }
 
 #[derive(Clone, Debug)]
@@ -161,6 +162,7 @@ pub fn scan_tree(
             source_path: source.to_owned(),
             kind,
             size: metadata.len(),
+            modified_unix_millis: modified_unix_millis(&metadata),
         }]);
     }
 
@@ -177,6 +179,7 @@ pub fn scan_tree(
             source_path: source.to_owned(),
             kind: TreeEntryKind::Directory,
             size: 0,
+            modified_unix_millis: modified_unix_millis(&metadata),
         });
     }
 
@@ -214,6 +217,7 @@ pub fn scan_tree(
                 continue;
             }
             let source_path = source.join(relative_path);
+            let metadata = std::fs::symlink_metadata(&source_path)?;
             let archive_path = if prefix.is_empty() {
                 relative
             } else {
@@ -239,12 +243,11 @@ pub fn scan_tree(
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::FileTypeExt;
-                    let file_type = std::fs::symlink_metadata(&source_path)?.file_type();
+                    let file_type = metadata.file_type();
                     if file_type.is_fifo() {
                         TreeEntryKind::NamedPipe
                     } else if file_type.is_char_device() || file_type.is_block_device() {
                         use std::os::unix::fs::MetadataExt;
-                        let md = std::fs::symlink_metadata(&source_path)?;
                         let device_kind = if file_type.is_char_device() {
                             DeviceKind::Character
                         } else {
@@ -254,12 +257,12 @@ pub fn scan_tree(
                             kind: device_kind,
                             major: {
                                 #[allow(clippy::useless_conversion)]
-                                let rdev = md.rdev().try_into().unwrap();
+                                let rdev = metadata.rdev().try_into().unwrap();
                                 libc::major(rdev) as u32
                             },
                             minor: {
                                 #[allow(clippy::useless_conversion)]
-                                let rdev = md.rdev().try_into().unwrap();
+                                let rdev = metadata.rdev().try_into().unwrap();
                                 libc::minor(rdev) as u32
                             },
                         }
@@ -278,6 +281,7 @@ pub fn scan_tree(
                 source_path,
                 kind,
                 size: ext.st_size,
+                modified_unix_millis: modified_unix_millis(&metadata),
             });
         }
     }
@@ -305,6 +309,7 @@ pub fn scan_tree(
             source_path: source.to_owned(),
             kind: classify_entry(source, &metadata)?,
             size: metadata.len(),
+            modified_unix_millis: modified_unix_millis(&metadata),
         }]);
     }
 
@@ -315,6 +320,7 @@ pub fn scan_tree(
             source_path: source.to_owned(),
             kind: TreeEntryKind::Directory,
             size: 0,
+            modified_unix_millis: modified_unix_millis(&metadata),
         });
     }
     scan_wasi_directory(source, prefix, &mut entries)?;
@@ -350,6 +356,7 @@ fn scan_wasi_directory(
             source_path: path.clone(),
             kind: kind.clone(),
             size: metadata.len(),
+            modified_unix_millis: modified_unix_millis(&metadata),
         });
         if matches!(kind, TreeEntryKind::Directory) {
             scan_wasi_directory(&path, &relative, entries)?;
@@ -535,6 +542,7 @@ pub struct PendingHardLink {
     pub archive_path: ArchivePath,
     pub target_path: ArchivePath,
     pub source_path: PathBuf,
+    pub modified_unix_millis: Option<i64>,
 }
 
 pub fn process_tree_entries(
@@ -604,6 +612,7 @@ pub fn process_tree_entries(
                             archive_path: path,
                             target_path: target_path.clone(),
                             source_path: entry.source_path.clone(),
+                            modified_unix_millis: entry.modified_unix_millis,
                         });
                         continue;
                     }
@@ -617,11 +626,11 @@ pub fn process_tree_entries(
                         path: path.clone(),
                         entry: file_entry,
                     });
-                    if context.save_metadata {
-                        context
-                            .entry_metadata
-                            .push(capture_entry_metadata(&path, &metadata)?);
-                    }
+                    context.entry_metadata.push(capture_entry_metadata(
+                        &path,
+                        &metadata,
+                        context.save_metadata,
+                    )?);
                     continue;
                 }
 
@@ -643,12 +652,18 @@ pub fn process_tree_entries(
             path: hard_link.archive_path.clone(),
             entry: target_entry,
         });
-        if context.save_metadata {
-            let metadata = std::fs::symlink_metadata(&hard_link.source_path)?;
-            context
-                .entry_metadata
-                .push(capture_entry_metadata(&hard_link.archive_path, &metadata)?);
-        }
+        let metadata = if context.save_metadata {
+            Some(std::fs::symlink_metadata(&hard_link.source_path)?)
+        } else {
+            None
+        };
+        context
+            .entry_metadata
+            .push(if let Some(metadata) = metadata {
+                capture_entry_metadata(&hard_link.archive_path, &metadata, true)?
+            } else {
+                entry_date_metadata(&hard_link.archive_path, hard_link.modified_unix_millis)
+            });
     }
 
     Ok(())
@@ -673,13 +688,19 @@ pub fn process_directory_entry(
     entry: &TreeEntry,
     context: &mut ScanContext<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if context.save_metadata {
-        let metadata = std::fs::symlink_metadata(&entry.source_path)?;
-        context.entry_metadata.push(capture_entry_metadata(
-            &ArchivePath::new(entry.archive_path.clone())?,
-            &metadata,
-        )?);
-    }
+    let path = ArchivePath::new(entry.archive_path.clone())?;
+    let metadata = if context.save_metadata {
+        Some(std::fs::symlink_metadata(&entry.source_path)?)
+    } else {
+        None
+    };
+    context
+        .entry_metadata
+        .push(if let Some(metadata) = metadata {
+            capture_entry_metadata(&path, &metadata, true)?
+        } else {
+            entry_date_metadata(&path, entry.modified_unix_millis)
+        });
     push_unique_path(
         ArchivePath::new(entry.archive_path.clone())?,
         context.seen_paths,
@@ -707,12 +728,18 @@ pub fn process_symlink_entry(
     }
     let path = ArchivePath::new(entry.archive_path.clone())?;
     push_unique_path(path.clone(), context.seen_paths)?;
-    if context.save_metadata {
-        let metadata = std::fs::symlink_metadata(&entry.source_path)?;
-        context
-            .entry_metadata
-            .push(capture_entry_metadata(&path, &metadata)?);
-    }
+    let metadata = if context.save_metadata {
+        Some(std::fs::symlink_metadata(&entry.source_path)?)
+    } else {
+        None
+    };
+    context
+        .entry_metadata
+        .push(if let Some(metadata) = metadata {
+            capture_entry_metadata(&path, &metadata, true)?
+        } else {
+            entry_date_metadata(&path, entry.modified_unix_millis)
+        });
     context.changes.push(TocChange::PutSymlink {
         path,
         target: target.to_owned(),
@@ -731,12 +758,18 @@ pub fn process_named_pipe_entry(
     context.policy.warnings = true;
     let path = ArchivePath::new(entry.archive_path.clone())?;
     push_unique_path(path.clone(), context.seen_paths)?;
-    if context.save_metadata {
-        let metadata = std::fs::symlink_metadata(&entry.source_path)?;
-        context
-            .entry_metadata
-            .push(capture_entry_metadata(&path, &metadata)?);
-    }
+    let metadata = if context.save_metadata {
+        Some(std::fs::symlink_metadata(&entry.source_path)?)
+    } else {
+        None
+    };
+    context
+        .entry_metadata
+        .push(if let Some(metadata) = metadata {
+            capture_entry_metadata(&path, &metadata, true)?
+        } else {
+            entry_date_metadata(&path, entry.modified_unix_millis)
+        });
     context.changes.push(TocChange::PutNamedPipe { path });
     Ok(())
 }
@@ -755,12 +788,18 @@ pub fn process_device_entry(
     context.policy.warnings = true;
     let path = ArchivePath::new(entry.archive_path.clone())?;
     push_unique_path(path.clone(), context.seen_paths)?;
-    if context.save_metadata {
-        let metadata = std::fs::symlink_metadata(&entry.source_path)?;
-        context
-            .entry_metadata
-            .push(capture_entry_metadata(&path, &metadata)?);
-    }
+    let metadata = if context.save_metadata {
+        Some(std::fs::symlink_metadata(&entry.source_path)?)
+    } else {
+        None
+    };
+    context
+        .entry_metadata
+        .push(if let Some(metadata) = metadata {
+            capture_entry_metadata(&path, &metadata, true)?
+        } else {
+            entry_date_metadata(&path, entry.modified_unix_millis)
+        });
     context.changes.push(TocChange::PutDevice {
         path,
         kind,
@@ -1030,7 +1069,7 @@ pub fn process_file_entries_parallel(
 
                     let metadata = if save_metadata {
                         match std::fs::symlink_metadata(&entry.source_path) {
-                            Ok(md) => match capture_entry_metadata(&path, &md) {
+                            Ok(md) => match capture_entry_metadata(&path, &md, true) {
                                 Ok(m) => Some(m),
                                 Err(e) => {
                                     let _ = w_tx.send(Err(e.to_string()));
@@ -1049,7 +1088,7 @@ pub fn process_file_entries_parallel(
                             }
                         }
                     } else {
-                        None
+                        Some(entry_date_metadata(&path, entry.modified_unix_millis))
                     };
 
                     let skip_compression = should_skip_compression(&entry.source_path);
@@ -1445,7 +1484,7 @@ pub fn process_file_entries_parallel(
 
         let metadata = if context.save_metadata {
             match std::fs::symlink_metadata(&entry.source_path) {
-                Ok(metadata) => Some(capture_entry_metadata(&path, &metadata)?),
+                Ok(metadata) => Some(capture_entry_metadata(&path, &metadata, true)?),
                 Err(error)
                     if error.kind() == io::ErrorKind::PermissionDenied
                         && !context.policy.strict =>
@@ -1465,7 +1504,7 @@ pub fn process_file_entries_parallel(
                 }
             }
         } else {
-            None
+            Some(entry_date_metadata(&path, entry.modified_unix_millis))
         };
 
         let skip_compression = should_skip_compression(&entry.source_path);
@@ -1775,6 +1814,7 @@ mod tests {
             source_path: Path::new("/restricted.txt").to_owned(),
             kind: TreeEntryKind::File,
             size: 12,
+            modified_unix_millis: None,
         };
         let warnings = Mutex::new(Vec::new());
         let permission_error = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
