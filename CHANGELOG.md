@@ -5,6 +5,13 @@ until a version is released.
 
 ## Unreleased
 
+### Added
+
+- Added `.zip`, `.7z`, `.tar` and `.tar.gz` input support for create and add
+  operations across the CLI, GUI, and language bindings. Entries retain their
+  internal paths; safe `.` components are normalized, while traversal, links,
+  and special entries are rejected.
+
 ## 0.8.0 - 2026-11-01
 
 ### Added
