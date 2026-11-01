@@ -66,6 +66,7 @@ ARCH_TAG = _ARCH_ALIASES.get(platform.machine().casefold(), re.sub(r"\W+", "-", 
 BENCHMARKS_DIR = ROOT / "doc" / "benchmarks"
 REPORT_PATH = BENCHMARKS_DIR / f"benchmark-report-{OS_TAG}-{ARCH_TAG}.md"
 CHART_PATH = BENCHMARKS_DIR / f"benchmark-charts-{OS_TAG}-{ARCH_TAG}.svg"
+BENCHMARK_RUN_DELAY_SECONDS = 3
 PARTIAL_FILES = (
     "fs/btrfs/check-integrity.c",
     "lib/xz/xz_dec_test.c",
@@ -1908,8 +1909,10 @@ storage; such cases are identified as unknown or non-rotational/possibly virtual
   temporary private key is deleted when the benchmark exits.
 - Compression and extraction are measured twice per hot-cache configuration
   and once per cold-cache configuration. The report shows the minimum and
-  maximum runtime across those runs. Build time, source download/extraction, and
-  post-extraction verification are excluded from the measured operation times.
+  maximum runtime across those runs. The runner waits 3 seconds between
+  benchmark runs; this delay is not included in the measured operation times.
+  Build time, source download/extraction, and post-extraction verification are
+  also excluded from the measured operation times.
 
 ## Tool versions
 
@@ -1920,6 +1923,15 @@ The source archive and extracted source tree remain in `testdata/`.
 """,
         encoding="utf-8",
     )
+
+
+def wait_between_benchmark_runs(previous_run_completed: bool) -> None:
+    if previous_run_completed:
+        print(
+            f"Waiting {BENCHMARK_RUN_DELAY_SECONDS} seconds before the next "
+            "benchmark run..."
+        )
+        time.sleep(BENCHMARK_RUN_DELAY_SECONDS)
 
 
 def run_benchmarks(
@@ -1972,6 +1984,7 @@ def run_benchmarks(
             skipped.add((method, True))
     results: list[dict[str, object]] = []
     versions = tool_versions({**tools, "zarc": str(binary)})
+    has_completed_benchmark_run = False
     if ARCHIVE_DIR.exists():
         print(f"Remove existing benchmark archive directory: {ARCHIVE_DIR}")
         shutil.rmtree(ARCHIVE_DIR)
@@ -2058,6 +2071,7 @@ def run_benchmarks(
                     monitor = ResourceMonitor()
 
                     for run in range(runs_per_test):
+                        wait_between_benchmark_runs(has_completed_benchmark_run)
                         label = f" (run {run + 1}/{runs_per_test})"
                         print(
                             f"Compressing {method} (encrypted={encrypted}, "
@@ -2142,6 +2156,7 @@ def run_benchmarks(
                             )
                         finally:
                             clean_testresults()
+                        has_completed_benchmark_run = True
 
                     compression_min = min(compression_times)
                     compression_max = max(compression_times)

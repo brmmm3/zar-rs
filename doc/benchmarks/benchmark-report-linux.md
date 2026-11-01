@@ -98,8 +98,10 @@ The installed 7-Zip does not support the zstd codec (only forks such as 7-Zip-zs
   temporary private key is deleted when the benchmark exits.
 - Compression and extraction are measured twice per hot-cache configuration
   and once per cold-cache configuration. The report shows the minimum and
-  maximum runtime across those runs. Build time, source download/extraction, and
-  post-extraction verification are excluded from the measured operation times.
+  maximum runtime across those runs. The runner waits 3 seconds between
+  benchmark runs; this delay is not included in the measured operation times.
+  Build time, source download/extraction, and post-extraction verification are
+  also excluded from the measured operation times.
 
 ## Tool versions
 

@@ -521,8 +521,8 @@ extracts it there, and measures compression and extraction with `zarlib`, ZIP,
 and the `zip`, `unzip`, `7z`, `tar`, and `openssl` command-line tools. Encrypted
 tar.gz uses OpenSSL CMS AES-256-GCM because the tar.gz format itself has no
 encryption. Extracted output is checked against the source tree, and
-`testresults/` is emptied after every extraction. The script writes
-The script writes `benchmark-report-<os>-<architecture>.md` and
+`testresults/` is emptied after every extraction. The runner waits 3 seconds
+between benchmark runs. It writes `benchmark-report-<os>-<architecture>.md` and
 `benchmark-charts-<os>-<architecture>.svg` in [`benchmarks/`](./benchmarks/).
 Both outputs record the host operating system, CPU
 model and logical-core count, and OS-reported media type, model, and device for

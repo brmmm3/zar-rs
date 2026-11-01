@@ -36,6 +36,18 @@ def test_run_7z_extract_rejects_unexpected_errors() -> None:
             benchmark_archivers.run_7z_extract(["7z"], benchmark_archivers.ROOT, 12)
 
 
+def test_wait_between_benchmark_runs_sleeps_only_after_a_completed_run(
+    monkeypatch,
+) -> None:
+    sleeps = []
+    monkeypatch.setattr(benchmark_archivers.time, "sleep", sleeps.append)
+
+    benchmark_archivers.wait_between_benchmark_runs(False)
+    benchmark_archivers.wait_between_benchmark_runs(True)
+
+    assert sleeps == [3]
+
+
 def test_source_matches_tarball_tolerates_case_collisions_on_macos(
     tmp_path, monkeypatch
 ) -> None:
