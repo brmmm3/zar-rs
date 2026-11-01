@@ -18,8 +18,14 @@ pub struct Settings {
     pub recent_archives: Vec<String>,
 }
 
+#[cfg(not(all(target_os = "linux", target_env = "musl")))]
 pub fn monitor_count() -> usize {
     display_info::DisplayInfo::all().map_or(0, |displays| displays.len())
+}
+
+#[cfg(all(target_os = "linux", target_env = "musl"))]
+pub fn monitor_count() -> usize {
+    0
 }
 
 fn settings_path() -> Option<PathBuf> {
