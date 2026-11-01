@@ -14,10 +14,12 @@ globset.workspace = true
 xxhash-rust.workspace = true
 zeroize.workspace = true
 rayon.workspace = true
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 sysinfo = "0.40"
 libc = "0.2"
 zstd = "0.14.3"
 tempfile = "3"
+tar = { version = "0.4", default-features = false }
 sevenz-rust2 = { version = "0.24", default-features = false, features = ["bzip2", "ppmd", "brotli", "deflate", "lz4", "zstd"] }
 zip = { version = "9", default-features = false, features = ["deflate"] }
 

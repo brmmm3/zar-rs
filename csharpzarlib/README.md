@@ -4,8 +4,9 @@ C# (.NET 10) wrapper for ZAR. It P/Invokes the `czarlib` JSON C ABI and exposes
 all nine operations: create, add, remove, join, check, info, list, extract and
 in-memory extract. Request and response fields are documented in
 [../czarlib/README.md](../czarlib/README.md).
-Create and Add requests may include `.zip` or `.7z` source paths; their contents
-are imported into the resulting ZAR using the source archive's internal paths.
+Create and Add requests may include `.zip`, `.7z`, `.tar`, or `.tar.gz` source
+paths; their contents are imported into the resulting ZAR using the source
+archive's internal paths.
 
 ## Build the native library
 

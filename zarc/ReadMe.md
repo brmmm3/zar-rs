@@ -36,6 +36,8 @@ For example, `zarc a backup.zar new-file.txt` is equivalent to
 zarc create backup.zar docs/ src/ report.txt
 zarc create converted.zar downloaded.zip
 zarc create converted-7z.zar downloaded.7z
+zarc create converted-tar.zar downloaded.tar
+zarc create converted-tar-gz.zar downloaded.tar.gz
 zarc create --block-size 4M --compression-level 7 backup.zar dataset/
 zarc create --password secrets.zar private/
 ```
@@ -47,12 +49,14 @@ Directories are scanned recursively. Paths inside the current working
 directory are stored relative to it; an absolute input outside it is stored
 using its basename (for example, `/var/log` is stored as `log`). Empty files
 are supported.
-ZIP and 7z files passed as input are imported by their internal paths rather
-than stored as a single archive file. This also applies to paths passed to
-`zarc add`. Encrypted source archives and symbolic links are not supported.
-Source archive timestamps are not retained; `--dates` records the import-time
-filesystem timestamps instead. 7z entries using COPY, LZMA/LZMA2, BZip2, PPMD,
-DEFLATE, Brotli, LZ4, or Zstandard are supported.
+ZIP, 7z, TAR, and TAR.GZ files passed as input are imported by their internal
+paths rather than stored as a single archive file. This also applies to paths
+passed to `zarc add`. Encrypted ZIP/7z sources and archive links are not
+supported. TAR paths with harmless `.` components are normalized; parent
+traversal and special entries are rejected. Source archive timestamps are not
+retained; `--dates` records the import-time filesystem timestamps instead. 7z
+entries using COPY, LZMA/LZMA2, BZip2, PPMD, DEFLATE, Brotli, LZ4, or Zstandard
+are supported.
 
 Options:
 

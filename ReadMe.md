@@ -43,13 +43,15 @@ Highlights:
   The [archive benchmark workflow](./.github/workflows/benchmark-archives.yml)
   runs on Windows, Linux, and macOS; each run uploads its generated report and
   chart from the `doc/benchmarks/` folder as workflow artifacts.
-- **ZIP and 7z import.** Pass a `.zip` or `.7z` file as an input to create or
-  add, and its contents are imported under their paths in the new ZAR commit.
-  This works through `zarlib`, `zarc`, `zarg`, and the language bindings;
-  encrypted archives and symbolic links are not supported. Source archive
-  timestamps are not retained; `--dates` records import-time filesystem
-  timestamps instead. 7z entries using COPY, LZMA/LZMA2, BZip2, PPMD, DEFLATE,
-  Brotli, LZ4, or Zstandard are supported.
+- **ZIP, 7z, TAR, and TAR.GZ import.** Pass a `.zip`, `.7z`, `.tar`, or
+  `.tar.gz` file as an input to create or add, and its contents are imported
+  under their paths in the new ZAR commit. This works through `zarlib`,
+  `zarc`, `zarg`, and the language bindings. Encrypted ZIP/7z archives and
+  archive links are not supported. TAR paths with harmless `.` components are
+  normalized; parent traversal and special entries are rejected. Source
+  archive timestamps are not retained; `--dates` records import-time
+  filesystem timestamps instead. 7z entries using COPY, LZMA/LZMA2, BZip2,
+  PPMD, DEFLATE, Brotli, LZ4, or Zstandard are supported.
 - **Commit-based history.** `add`, `remove`, and `join` append or compact
   commits instead of rewriting the archive; the archive is published atomically,
   and the original survives any failure.
@@ -154,9 +156,11 @@ See [packaging/README.md](./packaging/README.md) for prerequisites and options.
 # Create an archive from files and directories
 zarc create backup.zar documents/ src/ notes.txt
 
-# Convert a ZIP or 7z archive's contents into a ZAR archive
+# Convert a supported archive's contents into a ZAR archive
 zarc create backup.zar downloaded.zip
 zarc create backup-from-7z.zar downloaded.7z
+zarc create backup-from-tar.zar downloaded.tar
+zarc create backup-from-tar-gz.zar downloaded.tar.gz
 
 # Replace backup.zar atomically with a newly created archive
 zarc create --overwrite backup.zar documents/ src/ notes.txt

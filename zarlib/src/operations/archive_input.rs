@@ -1,8 +1,9 @@
 use super::pipeline::{TreeEntry, archive_prefix, scan_tree};
 use crate::ArchivePath;
+use flate2::read::MultiGzDecoder;
 use sevenz_rust2::{ArchiveReader, Password};
 use std::fs::{File, OpenOptions};
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 use zip::ZipArchive;
@@ -16,6 +17,8 @@ pub(super) struct ScannedInputs {
 enum ImportArchiveKind {
     Zip,
     SevenZip,
+    Tar,
+    TarGz,
 }
 
 pub(super) fn scan_input_paths(
@@ -41,6 +44,10 @@ pub(super) fn scan_input_paths(
             match kind {
                 ImportArchiveKind::Zip => extract_zip(&source, &temporary_root)?,
                 ImportArchiveKind::SevenZip => extract_7z(&source, &temporary_root)?,
+                ImportArchiveKind::Tar => extract_tar(File::open(&source)?, &temporary_root)?,
+                ImportArchiveKind::TarGz => {
+                    extract_tar(MultiGzDecoder::new(File::open(&source)?), &temporary_root)?
+                }
             }
             entries.extend(scan_tree(&temporary_root, "")?);
             temporary_roots.push(temporary_root);
@@ -62,11 +69,18 @@ pub(super) fn scan_input_paths(
 }
 
 fn import_archive_kind(path: &Path) -> Option<ImportArchiveKind> {
+    let filename = path.file_name()?.to_str()?;
+    if filename.to_ascii_lowercase().ends_with(".tar.gz") {
+        return Some(ImportArchiveKind::TarGz);
+    }
+
     let extension = path.extension()?.to_str()?;
     if extension.eq_ignore_ascii_case("zip") {
         Some(ImportArchiveKind::Zip)
     } else if extension.eq_ignore_ascii_case("7z") {
         Some(ImportArchiveKind::SevenZip)
+    } else if extension.eq_ignore_ascii_case("tar") {
+        Some(ImportArchiveKind::Tar)
     } else {
         None
     }
@@ -186,4 +200,101 @@ fn extract_7z(source: &Path, destination: &Path) -> Result<(), Box<dyn std::erro
         Ok(true)
     })?;
     Ok(())
+}
+
+fn extract_tar<R: Read>(source: R, destination: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let mut archive = tar::Archive::new(source);
+    for result in archive.entries()? {
+        let mut entry = result?;
+        let entry_type = entry.header().entry_type();
+        let entry_name = entry
+            .path()?
+            .to_str()
+            .ok_or("TAR entry path is not valid UTF-8")?
+            .to_owned();
+        let is_directory = entry_type.is_dir();
+        let is_file = entry_type.is_file() || entry_type.is_contiguous();
+        let archive_path = tar_archive_path(&entry_name, is_directory)?;
+
+        if entry_type.is_symlink() || entry_type.is_hard_link() {
+            return Err(format!("TAR links are not supported: {entry_name:?}").into());
+        }
+        if !is_directory && !is_file {
+            return Err(format!("unsupported TAR entry type: {entry_name:?}").into());
+        }
+
+        let Some(archive_path) = archive_path else {
+            continue;
+        };
+        let destination_path = destination.join(archive_path.as_str());
+
+        if is_directory {
+            std::fs::create_dir_all(&destination_path)?;
+            continue;
+        }
+
+        let parent = destination_path
+            .parent()
+            .ok_or("TAR entry has no parent directory")?;
+        std::fs::create_dir_all(parent)?;
+        let mut output = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&destination_path)
+            .map_err(|error| {
+                format!(
+                    "cannot create TAR entry {entry_name:?} without overwriting another entry: {error}"
+                )
+            })?;
+        let copied = io::copy(&mut entry, &mut output)?;
+        if copied != entry.size() {
+            return Err(format!(
+                "TAR entry {entry_name:?} contained {copied} bytes, expected {}",
+                entry.size()
+            )
+            .into());
+        }
+    }
+    Ok(())
+}
+
+fn tar_archive_path(
+    entry_name: &str,
+    is_directory: bool,
+) -> Result<Option<ArchivePath>, Box<dyn std::error::Error>> {
+    if entry_name.is_empty() {
+        return Err("invalid TAR entry path: empty path".into());
+    }
+
+    let path = if is_directory {
+        entry_name.strip_suffix('/').unwrap_or(entry_name)
+    } else {
+        entry_name
+    };
+    let mut components = Vec::new();
+    for component in path.split('/') {
+        match component {
+            "." => {}
+            ".." => {
+                return Err(
+                    format!("invalid TAR entry path {entry_name:?}: parent component").into(),
+                );
+            }
+            "" => {
+                return Err(
+                    format!("invalid TAR entry path {entry_name:?}: empty component").into(),
+                );
+            }
+            component => components.push(component),
+        }
+    }
+
+    if components.is_empty() && is_directory && path == "." {
+        return Ok(None);
+    }
+
+    let normalized_path = components.join("/");
+    let archive_path = ArchivePath::new(normalized_path)
+        .map_err(|error| format!("invalid TAR entry path {entry_name:?}: {error}"))?;
+    Ok(Some(archive_path))
 }

@@ -59,12 +59,14 @@ pub(crate) enum Command {
             deduplicates identical contents using xxhash64 and content comparison, compresses data \
             blocks using Zstandard, and optionally encrypts block payloads and headers using AEAD \
             (AES-256-GCM or ChaCha20-Poly1305) with an Argon2id-derived key.\n\n\
-            ZIP and 7z input paths are imported using their internal entry paths, not stored as a single source archive. \
-            Encrypted source archives and symbolic links are not supported.\n\n\
+            ZIP, 7z, TAR, and TAR.GZ input paths are imported using their internal entry paths, not stored as a single source archive. \
+            Encrypted ZIP/7z sources and archive links are not supported.\n\n\
             USAGE EXAMPLES:\n  \
               zarc create archive.zar docs/ src/ file.txt\n  \
               zarc create converted.zar downloaded.zip\n  \
               zarc create converted.zar downloaded.7z\n  \
+              zarc create converted.zar downloaded.tar\n  \
+              zarc create converted.zar downloaded.tar.gz\n  \
               zarc create --password archive.zar secrets/\n  \
               zarc create --password --aead chacha20-poly1305 archive.zar secrets/\n  \
               zarc create --block-size 4M --compression-level 7 archive.zar large_dataset/\n  \
@@ -84,7 +86,7 @@ pub(crate) enum Command {
             value_name = "PATH",
             required = true,
             num_args = 1..,
-            help = "Input files, directories, ZIP archives, or 7z archives to include"
+            help = "Input files, directories, or ZIP, 7z, TAR, and TAR.GZ archives to include"
         )]
         paths: Vec<PathBuf>,
         #[arg(
@@ -169,12 +171,14 @@ pub(crate) enum Command {
             independently with --password, --aead, and --encryption-scope; use --password-for \
             repeatedly to unlock earlier commits that use different passwords. Existing files with matching \
             archive paths will be updated in the new commit's table of contents (TOC), while \
-            untouched files from earlier commits remain preserved. ZIP and 7z input paths are imported \
-            using their internal entry paths. Encrypted source archives and symbolic links are not supported.\n\n\
+            untouched files from earlier commits remain preserved. ZIP, 7z, TAR, and TAR.GZ input paths are imported \
+            using their internal entry paths. Encrypted ZIP/7z sources and archive links are not supported.\n\n\
             USAGE EXAMPLES:\n  \
               zarc add archive.zar newfile.txt extra_docs/\n  \
               zarc add archive.zar downloaded.zip\n  \
               zarc add archive.zar downloaded.7z\n  \
+              zarc add archive.zar downloaded.tar\n  \
+              zarc add archive.zar downloaded.tar.gz\n  \
               zarc add --metadata -p archive.zar updated_src/\n  \
               zarc add --block-size 1M --compression-level 5 archive.zar photos/\n  \
               zarc add --special-files archive.zar /dev/\n  \
@@ -198,7 +202,7 @@ pub(crate) enum Command {
             value_name = "PATH",
             required = true,
             num_args = 1..,
-            help = "Input files, directories, ZIP archives, or 7z archives to add or update"
+            help = "Input files, directories, or ZIP, 7z, TAR, and TAR.GZ archives to add or update"
         )]
         paths: Vec<PathBuf>,
         #[arg(

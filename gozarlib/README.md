@@ -18,8 +18,9 @@ The request fields, validation, response shapes, encryption and archive
 semantics are shared with `czarlib`. See
 [`czarlib/README.md`](../czarlib/README.md) for all request options, filter
 formats, encryption scope, per-commit password behavior, and limitations.
-Create and Add requests may include `.zip` or `.7z` source paths; their contents
-are imported into the resulting ZAR using the source archive's internal paths.
+Create and Add requests may include `.zip`, `.7z`, `.tar`, or `.tar.gz` source
+paths; their contents are imported into the resulting ZAR using the source
+archive's internal paths.
 
 ## Requirements and build
 
