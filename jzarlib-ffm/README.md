@@ -5,8 +5,8 @@ It requires Java 25 or newer and exposes the same nine JSON operations:
 create, add, remove, join, check, info, list, filesystem extract, and
 in-memory extract. See [`czarlib/README.md`](../czarlib/README.md) for all
 request fields, filters, encryption settings, and support boundaries.
-Create and Add requests may include `.zip` source paths; their contents are
-imported into the resulting ZAR using the ZIP's internal paths.
+Create and Add requests may include `.zip` or `.7z` source paths; their contents
+are imported into the resulting ZAR using the source archive's internal paths.
 
 ## Build and test
 

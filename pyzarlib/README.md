@@ -3,8 +3,8 @@
 `pyzarlib` provides Python bindings to the Rust `zarlib` archive library.
 The package exposes high-level create, add, remove, join, check, info, list,
 and extract operations.
-ZIP paths in `create_archive` and `add_archive` are imported by their internal
-entry paths; encrypted ZIP entries and ZIP symbolic links are not supported.
+ZIP and 7z paths in `create_archive` and `add_archive` are imported by their
+internal entry paths; encrypted archives and symbolic links are not supported.
 
 ## Python compatibility
 

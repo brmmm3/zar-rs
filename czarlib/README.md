@@ -54,10 +54,10 @@ bytes should use the Rust or Python APIs. A request containing a password
 contains plaintext credentials; avoid logging it and clear mutable request
 buffers after use.
 
-`create_archive` and `add_archive` import the contents of any `.zip` paths in
-their `paths` arrays, preserving the entry paths inside the ZIP. This behavior
-is shared by the C, C++, Go, C#, Java, Python, and WASI bindings. Encrypted ZIP
-entries and ZIP symbolic links are not supported.
+`create_archive` and `add_archive` import the contents of `.zip` and `.7z`
+paths in their `paths` arrays, preserving the entry paths inside each source
+archive. This behavior is shared by the C, C++, Go, C#, Java, Python, and WASI
+bindings. Encrypted source archives and symbolic links are not supported.
 
 ```c
 #include "czarlib.h"

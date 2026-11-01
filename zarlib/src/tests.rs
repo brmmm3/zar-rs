@@ -13,6 +13,17 @@ fn write_zip(path: &std::path::Path, entries: &[(&str, &[u8])]) {
     archive.finish().unwrap();
 }
 
+fn write_7z(path: &std::path::Path, entries: &[(&str, &[u8])]) {
+    let mut archive =
+        sevenz_rust2::ArchiveWriter::new(std::fs::File::create(path).unwrap()).unwrap();
+    for (name, contents) in entries {
+        archive
+            .push_archive_entry(sevenz_rust2::ArchiveEntry::new_file(name), Some(*contents))
+            .unwrap();
+    }
+    archive.finish().unwrap();
+}
+
 fn sample_commit_header() -> CommitHeader {
     CommitHeader::new(0, [7; 4], 32, 128).unwrap()
 }
@@ -296,6 +307,83 @@ fn create_archive_rejects_zip_paths_that_escape_the_import_directory() {
     )
     .unwrap_err();
     assert!(error.to_string().contains("invalid ZIP entry path"));
+    assert!(!directory.path().join("escaped.txt").exists());
+    assert!(!archive_path.exists());
+}
+
+#[test]
+fn create_archive_imports_7z_entries_and_preserves_their_paths() {
+    let directory = tempfile::tempdir().unwrap();
+    let sevenz_path = directory.path().join("source.7Z");
+    let archive_path = directory.path().join("converted.zar");
+    write_7z(
+        &sevenz_path,
+        &[("nested/hello.txt", b"hello from 7z"), ("empty.txt", b"")],
+    );
+
+    crate::operations::create_archive(
+        archive_path.to_str().unwrap(),
+        std::slice::from_ref(&sevenz_path),
+    )
+    .unwrap();
+
+    let contents = crate::operations::extract_archive_to_memory(
+        archive_path.to_str().unwrap(),
+        None,
+        None,
+        None,
+        0,
+    )
+    .unwrap();
+    assert_eq!(contents.get("nested/hello.txt").unwrap(), b"hello from 7z");
+    assert_eq!(contents.get("empty.txt").unwrap(), b"");
+}
+
+#[test]
+fn add_archive_imports_7z_entries() {
+    let directory = tempfile::tempdir().unwrap();
+    let source_path = directory.path().join("original.txt");
+    let archive_path = directory.path().join("archive.zar");
+    let sevenz_path = directory.path().join("additional.7z");
+    std::fs::write(&source_path, b"existing").unwrap();
+    write_7z(&sevenz_path, &[("added/file.txt", b"new contents")]);
+
+    crate::operations::create_archive(
+        archive_path.to_str().unwrap(),
+        std::slice::from_ref(&source_path),
+    )
+    .unwrap();
+    crate::operations::add_archive(
+        archive_path.to_str().unwrap(),
+        std::slice::from_ref(&sevenz_path),
+    )
+    .unwrap();
+
+    let contents = crate::operations::extract_archive_to_memory(
+        archive_path.to_str().unwrap(),
+        None,
+        None,
+        None,
+        0,
+    )
+    .unwrap();
+    assert_eq!(contents.get("original.txt").unwrap(), b"existing");
+    assert_eq!(contents.get("added/file.txt").unwrap(), b"new contents");
+}
+
+#[test]
+fn create_archive_rejects_7z_paths_that_escape_the_import_directory() {
+    let directory = tempfile::tempdir().unwrap();
+    let sevenz_path = directory.path().join("unsafe.7z");
+    let archive_path = directory.path().join("unsafe.zar");
+    write_7z(&sevenz_path, &[("../escaped.txt", b"outside")]);
+
+    let error = crate::operations::create_archive(
+        archive_path.to_str().unwrap(),
+        std::slice::from_ref(&sevenz_path),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("invalid 7z entry path"));
     assert!(!directory.path().join("escaped.txt").exists());
     assert!(!archive_path.exists());
 }

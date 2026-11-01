@@ -3,6 +3,7 @@
 //! is implemented here.
 
 pub mod add;
+mod archive_input;
 pub mod check;
 pub mod common;
 pub mod create;
@@ -14,7 +15,6 @@ pub mod list;
 pub mod meta;
 pub mod pipeline;
 pub mod remove;
-mod zip;
 
 pub use add::*;
 pub use check::*;

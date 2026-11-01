@@ -214,7 +214,7 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
         action: "Adding",
         encryption: encryption_context,
     };
-    let scanned_inputs = super::zip::scan_input_paths(paths, &cwd, parent)?;
+    let scanned_inputs = super::archive_input::scan_input_paths(paths, &cwd, parent)?;
     let all_tree_entries = filter_tree_entries(scanned_inputs.entries, filters);
     if let Some(progress) = progress {
         let summary = summarize_tree_entries(&all_tree_entries)?;
