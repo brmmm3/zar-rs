@@ -63,8 +63,9 @@ OS_TAG = {"linux": "linux", "win32": "windows", "darwin": "macos"}.get(
 )
 _ARCH_ALIASES = {"amd64": "x86_64", "x64": "x86_64", "aarch64": "arm64", "i686": "x86", "i386": "x86"}
 ARCH_TAG = _ARCH_ALIASES.get(platform.machine().casefold(), re.sub(r"\W+", "-", platform.machine().casefold()) or "unknown")
-REPORT_PATH = ROOT / "doc" / f"benchmark-report-{OS_TAG}-{ARCH_TAG}.md"
-CHART_PATH = ROOT / "doc" / f"benchmark-charts-{OS_TAG}-{ARCH_TAG}.svg"
+BENCHMARKS_DIR = ROOT / "doc" / "benchmarks"
+REPORT_PATH = BENCHMARKS_DIR / f"benchmark-report-{OS_TAG}-{ARCH_TAG}.md"
+CHART_PATH = BENCHMARKS_DIR / f"benchmark-charts-{OS_TAG}-{ARCH_TAG}.svg"
 PARTIAL_FILES = (
     "fs/btrfs/check-integrity.c",
     "lib/xz/xz_dec_test.c",
@@ -1442,9 +1443,8 @@ def svg_chart(
     row_height = 30
     bar_panel_height = 80 + row_height * len(results)
     top = 120
-    # Time-series panels for CPU and RAM are taller: 200 px each
-    ts_panel_height = 220
-    height = top + bar_panel_height * 3 + ts_panel_height * 2 + 40
+    ts_panel_height = 250
+    height = top + bar_panel_height * 4 + ts_panel_height * 4 + 40
     multiple_caches = len({item["cache"] for item in results}) > 1
     colors = {
         "zarlib": "#2563eb",
@@ -1529,10 +1529,13 @@ def svg_chart(
 
     def _resource_panel(
         title: str,
-        resource_key: str,  # "compression_resources" or "extraction_resources"
+        resource_key: str,
+        metric_index: int,
+        metric_name: str,
+        unit: str,
         y: int,
     ) -> str:
-        """Draw a time-series line chart for CPU % and RAM GiB."""
+        """Draw one metric's time-series data for a benchmark phase."""
         parts = [
             f'<text x="24" y="{y}" class="heading">{html.escape(title)}</text>',
         ]
@@ -1541,19 +1544,17 @@ def svg_chart(
         chart_height = 160
         chart_bottom = chart_top + chart_height
 
-        # Collect all time-series data
-        all_cpu: list[float] = []
-        all_ram: list[float] = []
+        all_values: list[float] = []
         max_time = 0.0
         for item in results:
             samples = item.get(resource_key, [])
             if samples:
-                for t, cpu, ram in samples:
-                    all_cpu.append(cpu)
-                    all_ram.append(ram)
+                for sample in samples:
+                    all_values.append(float(sample[metric_index]))
+                    t = float(sample[0])
                     if t > max_time:
                         max_time = t
-        if not all_cpu:
+        if not all_values:
             parts.append(
                 f'<text x="{plot_x}" y="{chart_top + chart_height // 2}" '
                 f'class="axis">No resource data recorded</text>'
@@ -1561,38 +1562,30 @@ def svg_chart(
             return "\n".join(parts)
 
         max_time = max(max_time, 1.0)
-        cpu_max = max(max(all_cpu), 1.0)
-        ram_max = max(max(all_ram), 0.1)
+        value_max = max(max(all_values), 1.0 if metric_index == 1 else 0.1)
 
-        # Y-axis labels (CPU left, RAM right)
         for tick in range(5):
             y_pos = chart_bottom - int(chart_height * tick / 4)
+            tick_value = value_max * tick / 4
+            tick_label = (
+                f"{tick_value:.0f}"
+                if metric_index == 1
+                else f"{tick_value:.1f}"
+            )
             parts.append(
                 f'<line x1="{plot_x}" y1="{y_pos}" x2="{plot_x + plot_width}" '
                 f'y2="{y_pos}" class="grid"/>'
             )
-            # CPU label (left)
             parts.append(
                 f'<text x="{plot_x - 8}" y="{y_pos + 4}" text-anchor="end" '
-                f'class="axis">{cpu_max * tick / 4:.0f}</text>'
-            )
-            # RAM label (right)
-            parts.append(
-                f'<text x="{plot_x + plot_width + 8}" y="{y_pos + 4}" '
-                f'text-anchor="start" class="axis">{ram_max * tick / 4:.1f}</text>'
+                f'class="axis">{tick_label}</text>'
             )
 
-        # Axis labels
         parts.append(
             f'<text x="{plot_x - 8}" y="{chart_top - 14}" text-anchor="end" '
-            f'class="axis" fill="#2563eb">CPU %</text>'
-        )
-        parts.append(
-            f'<text x="{plot_x + plot_width + 8}" y="{chart_top - 14}" '
-            f'text-anchor="start" class="axis" fill="#16a34a">RAM GiB</text>'
+            f'class="axis">{html.escape(metric_name)} ({html.escape(unit)})</text>'
         )
 
-        # X-axis time labels
         for tick in range(5):
             x = plot_x + int(plot_width * tick / 4)
             parts.append(
@@ -1600,9 +1593,6 @@ def svg_chart(
                 f'class="axis">{max_time * tick / 4:.1f}s</text>'
             )
 
-        # Draw one line per result
-        cpu_opacity = "0.55"
-        ram_opacity = "0.55"
         for item in results:
             samples = item.get(resource_key, [])
             if not samples:
@@ -1612,39 +1602,26 @@ def svg_chart(
             encrypted = bool(item["encrypted"])
             dash = "6,3" if encrypted else ""
 
-            def _to_px(t: float, val: float, vmax: float) -> tuple[int, int]:
+            def _to_px(t: float, value: float) -> tuple[int, int]:
                 x = plot_x + int(plot_width * t / max_time) if max_time > 0 else plot_x
-                y = chart_bottom - int(chart_height * val / vmax)
+                y = chart_bottom - int(chart_height * value / value_max)
                 return x, y
 
-            # CPU line
-            cpu_pts = " ".join(
-                f"{_to_px(t, cpu, cpu_max)[0]},{_to_px(t, cpu, cpu_max)[1]}"
-                for t, cpu, _ram in samples
+            points = " ".join(
+                f"{_to_px(float(sample[0]), float(sample[metric_index]))[0]},"
+                f"{_to_px(float(sample[0]), float(sample[metric_index]))[1]}"
+                for sample in samples
             )
             parts.append(
-                f'<polyline points="{cpu_pts}" fill="none" stroke="{color}" '
-                f'stroke-width="1.5" opacity="{cpu_opacity}" stroke-dasharray="{dash}"/>'
+                f'<polyline points="{points}" fill="none" stroke="{color}" '
+                f'stroke-width="1.5" stroke-dasharray="{dash}"/>'
             )
 
-            # RAM line
-            ram_pts = " ".join(
-                f"{_to_px(t, ram, ram_max)[0]},{_to_px(t, ram, ram_max)[1]}"
-                for t, _cpu, ram in samples
-            )
-            parts.append(
-                f'<polyline points="{ram_pts}" fill="none" stroke="{color}" '
-                f'stroke-width="1.5" opacity="{ram_opacity}" '
-                f'stroke-dasharray="{dash}" stroke-dashoffset="4"/>'
-            )
-
-        # Legend
         legend_x = plot_x
         legend_y = chart_bottom + 36
         parts.append(
             f'<text x="{legend_x}" y="{legend_y}" class="axis" font-weight="600">'
-            f"Line colour = archive format; solid = plain, dashed = encrypted; "
-            f"thick line = CPU %, thin dashed = RAM GiB</text>"
+            f"Line colour = archive format; solid = plain, dashed = encrypted</text>"
         )
 
         return "\n".join(parts)
@@ -1666,14 +1643,50 @@ def svg_chart(
         minimum_key="extraction_min_seconds",
         maximum_key="extraction_max_seconds",
     )
-    cpu_ram_compress_y = top + bar_panel_height * 3 + 10
-    cpu_ram_extract_y = cpu_ram_compress_y + ts_panel_height
-    cpu_ram_compress = _resource_panel(
-        "CPU & RAM during compression", "compression_resources", cpu_ram_compress_y
+    partial_extraction_panel = chart_panel(
+        "Extraction time (3 files)",
+        "partial_extraction_max_seconds",
+        "s",
+        top + bar_panel_height * 3,
+        minimum_key="partial_extraction_min_seconds",
+        maximum_key="partial_extraction_max_seconds",
     )
-    cpu_ram_extract = _resource_panel(
-        "CPU & RAM during extraction", "extraction_resources", cpu_ram_extract_y
-    )
+    resources_y = top + bar_panel_height * 4 + 10
+    resource_panels = [
+        _resource_panel(
+            "CPU during compression",
+            "compression_resources",
+            1,
+            "CPU",
+            "%",
+            resources_y,
+        ),
+        _resource_panel(
+            "RAM during compression",
+            "compression_resources",
+            2,
+            "RAM",
+            "GiB",
+            resources_y + ts_panel_height,
+        ),
+        _resource_panel(
+            "CPU during extraction",
+            "extraction_resources",
+            1,
+            "CPU",
+            "%",
+            resources_y + ts_panel_height * 2,
+        ),
+        _resource_panel(
+            "RAM during extraction",
+            "extraction_resources",
+            2,
+            "RAM",
+            "GiB",
+            resources_y + ts_panel_height * 3,
+        ),
+    ]
+    # Removed extraneous closing parenthesis
     metadata = [
         '<text x="24" y="24" class="heading">Benchmark system</text>',
         f'<text x="24" y="46" class="metadata">'
@@ -1689,8 +1702,8 @@ def svg_chart(
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
         f'viewBox="0 0 {width} {height}" role="img" aria-labelledby="title description">\n'
         f'<title id="title">{html.escape(OS_TAG)} {html.escape(ARCH_TAG)} archive benchmark charts</title>\n'
-        f'<desc id="description">Archive size, compression time, extraction time, '
-        f'CPU utilisation, and RAM usage '
+        f'<desc id="description">Archive size, compression time, full and three-file '
+        f'extraction time, CPU utilisation, and RAM usage '
         f'for archive formats with and without encryption, with hot and cold file caches where available. Source size: '
         f'{source_bytes / (1024 * 1024):.1f} MiB. Operating system: '
         f'{html.escape(hardware.operating_system)}. {html.escape(cpu_summary)}. '
@@ -1714,9 +1727,9 @@ def svg_chart(
         + "\n"
         + extraction_panel
         + "\n"
-        + cpu_ram_compress
+        + partial_extraction_panel
         + "\n"
-        + cpu_ram_extract
+        + "\n".join(resource_panels)
         + "\n</svg>\n"
     )
 
@@ -1729,6 +1742,7 @@ def write_report(
     tools: dict[str, str],
     notes: list[str],
 ) -> None:
+    BENCHMARKS_DIR.mkdir(parents=True, exist_ok=True)
     hardware = collect_benchmark_hardware()
     CHART_PATH.write_text(
         svg_chart(results, source_bytes, hardware), encoding="utf-8"
@@ -1821,7 +1835,7 @@ Run date: {timestamp}
 - CPU: {hardware.cpu_model} ({platform.machine()}, {logical_cores} logical cores)
 {storage_lines}
 
-![Host OS, CPU and storage information, archive size, compression time, extraction time, CPU, and RAM charts](./{CHART_PATH.name})
+![Host OS, CPU and storage information, archive size, compression time, full and three-file extraction times, and separate CPU and RAM charts](./{CHART_PATH.name})
 
 ## Results
 
@@ -1852,9 +1866,10 @@ relative links during extraction, as noted above.
 CPU utilisation and RAM consumption were sampled at 1-second intervals during
 each compression and extraction operation using `psutil`. The table shows the
 average CPU % and RAM GiB across all samples for each phase. Runtime values show
-the minimum and maximum measured time for each phase. The time-series
-charts below the bar charts plot every sample, with one line per archive format
-(solid = plain, dashed = encrypted; thick line = CPU %, thin dashed line = RAM GiB).
+the minimum and maximum measured time for each phase. The charts plot full
+extraction times and the times to extract the three selected files separately.
+The time-series charts plot CPU and RAM on separate axes for compression and
+extraction, with one line per archive format (solid = plain, dashed = encrypted).
 The CPU model and operating system are collected from the host. Storage details
 describe the volumes holding the source/archive files and extraction output.
 The operating system may not expose physical media behind virtual or layered
@@ -2248,6 +2263,31 @@ def tool_versions(tools: dict[str, str]) -> dict[str, str]:
         "zarc": ["--version"],
     }
     versions: dict[str, str] = {}
+    metadata_result = subprocess.run(
+        [
+            tools["cargo"],
+            "metadata",
+            "--no-deps",
+            "--format-version",
+            "1",
+        ],
+        cwd=ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    if metadata_result.returncode:
+        raise RuntimeError("Unable to read zarlib version from cargo metadata")
+    try:
+        metadata = json.loads(metadata_result.stdout)
+        zarlib_version = next(
+            package["version"]
+            for package in metadata["packages"]
+            if package["name"] == "zarlib"
+        )
+    except (KeyError, StopIteration, TypeError, json.JSONDecodeError) as error:
+        raise RuntimeError("Unable to read zarlib version from cargo metadata") from error
+    versions["zarlib"] = str(zarlib_version)
     for name, executable in tools.items():
         result = subprocess.run(
             [executable, *arguments[name]],

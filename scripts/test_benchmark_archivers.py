@@ -80,6 +80,7 @@ def test_source_matches_tarball_rejects_non_collision_mismatches_on_macos(
 def test_write_report_shows_runtime_minimum_and_maximum(tmp_path, monkeypatch) -> None:
     report_path = tmp_path / "report.md"
     chart_path = tmp_path / "chart.svg"
+    monkeypatch.setattr(benchmark_archivers, "BENCHMARKS_DIR", tmp_path)
     monkeypatch.setattr(benchmark_archivers, "REPORT_PATH", report_path)
     monkeypatch.setattr(benchmark_archivers, "CHART_PATH", chart_path)
     monkeypatch.setattr(
@@ -106,13 +107,49 @@ def test_write_report_shows_runtime_minimum_and_maximum(tmp_path, monkeypatch) -
     ]
 
     benchmark_archivers.write_report(
-        results, 1024 * 1024, 1, 0, {}, []
+        results,
+        1024 * 1024,
+        1,
+        0,
+        {"zarlib": "0.8.0", "zarc": "zarc 0.8.0"},
+        [],
     )
 
     report = report_path.read_text(encoding="utf-8")
     chart = chart_path.read_text(encoding="utf-8")
+    assert "`zarlib`: `0.8.0`" in report
+    assert "`zarc`: `zarc 0.8.0`" in report
     assert "2.00-3.00 s" in report
     assert "4.00-5.00 s" in report
     assert "0.200-0.300 s" in report
     assert "2.00-3.00 s" in chart
     assert "4.00-5.00 s" in chart
+    assert "Extraction time (3 files)" in chart
+    assert "0.20-0.30 s" in chart
+    assert "CPU during compression" in chart
+    assert "RAM during compression" in chart
+    assert "CPU during extraction" in chart
+    assert "RAM during extraction" in chart
+    assert "CPU &amp; RAM" not in chart
+
+
+def test_tool_versions_includes_zarlib_and_zarc_versions(monkeypatch) -> None:
+    def run(arguments, **kwargs):
+        if "metadata" in arguments:
+            return subprocess.CompletedProcess(
+                arguments,
+                0,
+                b'{"packages":[{"name":"zarlib","version":"0.8.0"}]}',
+            )
+        if arguments[1:] == ["--version"]:
+            return subprocess.CompletedProcess(arguments, 0, b"zarc 0.8.0\n")
+        return subprocess.CompletedProcess(arguments, 0, b"cargo 1.99.1\n")
+
+    monkeypatch.setattr(benchmark_archivers.subprocess, "run", run)
+
+    versions = benchmark_archivers.tool_versions(
+        {"cargo": "cargo", "zarc": "zarc"}
+    )
+
+    assert versions["zarlib"] == "0.8.0"
+    assert versions["zarc"] == "zarc 0.8.0"

@@ -4,7 +4,7 @@ Run date: 2026-10-30T18:17:01+01:00
 Operating system: Linux-7.2.6-070206-generic-x86_64-with-glibc2.43  
 CPU: x86_64, 8 logical cores
 
-![Archive size, compression time, and extraction time charts](./benchmark-charts-linux.svg)
+![Archive size, compression time, and extraction time charts](./benchmark-charts-linux-arm64-gh.svg)
 
 ## Results
 

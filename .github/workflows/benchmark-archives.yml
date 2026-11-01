@@ -82,6 +82,6 @@ jobs:
         with:
           name: archive-benchmark-${{ matrix.platform.name }}
           path: |
-            doc/benchmark-report-${{ matrix.platform.os }}.md
-            doc/benchmark-charts-${{ matrix.platform.os }}.svg
+            doc/benchmarks/benchmark-report-${{ matrix.platform.os }}-*.md
+            doc/benchmarks/benchmark-charts-${{ matrix.platform.os }}-*.svg
           if-no-files-found: warn
