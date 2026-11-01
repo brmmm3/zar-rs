@@ -12,8 +12,7 @@ eframe = { version = "0.37", default-features = false, features = [
     "x11",
     "wayland",
 ] }
-globset.workspace = true
-globset.default-features = false
+globset = { version = "0.4", default-features = false }
 image = { version = "0.25", default-features = false, features = ["png"] }
 regex = { version = "1.13.1", default-features = false, features = ["perf", "std", "unicode"] }
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
