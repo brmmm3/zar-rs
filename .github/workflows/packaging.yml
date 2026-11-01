@@ -36,8 +36,10 @@ jobs:
         run: |
           sudo apt-get update
           case "$FORMAT" in
-            rpm) sudo apt-get install -y rpm ;;
+            deb) sudo apt-get install -y libxcb1-dev ;;
+            rpm) sudo apt-get install -y libxcb1-dev rpm ;;
             appimage)
+              sudo apt-get install -y libxcb1-dev
               sudo apt-get install -y libfuse2t64 || sudo apt-get install -y libfuse2
               curl -fsSL -o /tmp/appimagetool \
                 https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
