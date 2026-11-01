@@ -388,10 +388,33 @@ jobs:
           path: dist/${{ matrix.module }}/
           if-no-files-found: error
 
+  find-reusable-ci-run:
+    name: Find same-commit CI artifacts
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      run_id: ${{ steps.find.outputs.run_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Find successful CI run for this commit
+        id: find
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/find-successful-ci-run.sh
+
   build-binaries:
     name: Build binaries (${{ matrix.platform.name }})
-    needs: [cargo-fmt, cargo-clippy, cargo-test]
+    needs: [find-reusable-ci-run, cargo-fmt, cargo-clippy, cargo-test]
     runs-on: ${{ matrix.platform.runner }}
+    permissions:
+      actions: read
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -417,6 +440,9 @@ jobs:
           - name: macos-aarch64
             runner: macos-latest
             target: aarch64-apple-darwin
+          - name: macos-x86_64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
           - name: windows-x86_64
             runner: windows-latest
             target: x86_64-pc-windows-msvc
@@ -428,29 +454,59 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Download binary archive from successful same-commit CI run
+        id: reuse
+        if: needs.find-reusable-ci-run.outputs.run_id != ''
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: zar-rs-binaries-${{ matrix.platform.name }}
+          path: reused
+          run-id: ${{ needs.find-reusable-ci-run.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Copy reused binary archive into this run (Unix)
+        if: steps.reuse.outcome == 'success' && runner.os != 'Windows'
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform.name }}
+        run: |
+          archive="reused/zar-rs-$PLATFORM.tar.gz"
+          test -f "$archive"
+          mkdir -p dist
+          cp "$archive" dist/
+      - name: Copy reused binary archive into this run (Windows)
+        if: steps.reuse.outcome == 'success' && runner.os == 'Windows'
+        shell: pwsh
+        env:
+          PLATFORM: ${{ matrix.platform.name }}
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "reused/zar-rs-$env:PLATFORM.zip" dist/
       - name: Install Linux GUI build dependencies
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && steps.reuse.outcome != 'success'
         run: |
           sudo apt-get update
           sudo apt-get install --yes libgl1-mesa-dev libwayland-dev libx11-dev libxcursor-dev libxi-dev libxkbcommon-dev libxrandr-dev pkg-config
       - name: Install musl toolchain
-        if: matrix.platform.static == true
+        if: matrix.platform.static == true && steps.reuse.outcome != 'success'
         run: |
           sudo apt-get update
           sudo apt-get install --yes musl-tools
       - name: Install Rust toolchain
+        if: steps.reuse.outcome != 'success'
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
         with:
           toolchain: stable
           targets: ${{ matrix.platform.target }}
       - name: Build zarc and zarg
+        if: steps.reuse.outcome != 'success'
         env:
           RUSTFLAGS: ${{ matrix.platform.static && '-C target-feature=+crt-static' || '' }}
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: ${{ matrix.platform.linker-env == 'CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER' && matrix.platform.linker || '' }}
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: ${{ matrix.platform.linker-env == 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER' && matrix.platform.linker || '' }}
         run: cargo build --release --bins --locked --target ${{ matrix.platform.target }}
       - name: Package binaries (Unix)
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && steps.reuse.outcome != 'success'
         shell: bash
         env:
           PLATFORM: ${{ matrix.platform.name }}
@@ -460,7 +516,7 @@ jobs:
           cp target/$TARGET/release/zarc target/$TARGET/release/zarg dist/zar-rs-$PLATFORM/
           tar -C dist -czf dist/zar-rs-$PLATFORM.tar.gz zar-rs-$PLATFORM
       - name: Package binaries (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.reuse.outcome != 'success'
         shell: pwsh
         env:
           PLATFORM: ${{ matrix.platform.name }}

@@ -13,6 +13,9 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, checks, and pull
   format and operations library.
 - **[`zcopy`](./zcopy/README.md)** copies file trees between machines over the
   network, compressed and optionally encrypted, sending only missing or newer files.
+  `zcopy` uses the fast compression and decompression pipeline of zarlib and the data is streamed
+  over the network. There is no need to create/decompress archives anymore to copy a filetree from
+  one host do another.
 
 ## What makes ZAR different
 

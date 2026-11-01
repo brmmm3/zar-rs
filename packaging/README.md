@@ -2,6 +2,11 @@
 
 Installers for `zarc` (CLI) and `zarg` (GUI). Output goes to `dist/`.
 
+The release workflows reuse binaries from the latest successful CI run on
+`master` for the exact tagged commit when those artifacts are still retained.
+If no matching artifact is available, the workflow builds the binaries from
+source. Flatpak continues to build inside its Freedesktop SDK.
+
 ## Windows (Inno Setup)
 
 ```powershell

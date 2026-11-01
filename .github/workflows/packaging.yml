@@ -14,9 +14,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  find-reusable-ci-run:
+    name: Find same-commit CI artifacts
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      run_id: ${{ steps.find.outputs.run_id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Find successful CI run for this commit
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/find-successful-ci-run.sh
+
   linux-packages:
     name: Linux packages (${{ matrix.format }})
+    needs: find-reusable-ci-run
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -26,7 +49,25 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Download Linux binaries from successful same-commit CI run
+        id: reuse
+        if: matrix.format != 'flatpak' && needs.find-reusable-ci-run.outputs.run_id != ''
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: zar-rs-binaries-linux-x86_64
+          path: reused
+          run-id: ${{ needs.find-reusable-ci-run.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Prepare reused Linux binaries
+        if: steps.reuse.outcome == 'success'
+        run: |
+          mkdir -p dist/reused
+          tar -xzf reused/zar-rs-linux-x86_64.tar.gz -C dist/reused
+          echo "BIN_DIR=$PWD/dist/reused/zar-rs-linux-x86_64" >> "$GITHUB_ENV"
+          echo "SKIP_BUILD=1" >> "$GITHUB_ENV"
       - name: Install Rust toolchain
+        if: matrix.format != 'flatpak' && steps.reuse.outcome != 'success'
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
         with:
           toolchain: stable
@@ -71,29 +112,64 @@ jobs:
 
   windows-installer:
     name: Windows installer (${{ matrix.arch }})
+    needs: find-reusable-ci-run
     runs-on: windows-latest
+    permissions:
+      actions: read
+      contents: read
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: x64
             target: x86_64-pc-windows-msvc
+            binary_platform: windows-x86_64
           - arch: arm64
             target: aarch64-pc-windows-msvc
+            binary_platform: windows-aarch64
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Download Windows binaries from successful same-commit CI run
+        id: reuse
+        if: needs.find-reusable-ci-run.outputs.run_id != ''
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: zar-rs-binaries-${{ matrix.binary_platform }}
+          path: reused
+          run-id: ${{ needs.find-reusable-ci-run.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Prepare reused Windows binaries
+        if: steps.reuse.outcome == 'success'
+        env:
+          BINARY_PLATFORM: ${{ matrix.binary_platform }}
+        shell: pwsh
+        run: |
+          $archive = Join-Path $PWD "reused/zar-rs-$env:BINARY_PLATFORM.zip"
+          $destination = Join-Path $PWD "reused/extracted"
+          Expand-Archive -LiteralPath $archive -DestinationPath $destination
+          $binaryDir = Join-Path $destination "zar-rs-$env:BINARY_PLATFORM"
+          if (!(Test-Path (Join-Path $binaryDir "zarc.exe")) -or
+              !(Test-Path (Join-Path $binaryDir "zarg.exe"))) {
+            throw "Downloaded binary archive is incomplete: $binaryDir"
+          }
+          "BINARY_DIR=$binaryDir" >> $env:GITHUB_ENV
       - name: Install Rust toolchain
+        if: steps.reuse.outcome != 'success'
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
         with:
           toolchain: stable
           targets: ${{ matrix.target }}
       - name: Build binaries
+        if: steps.reuse.outcome != 'success'
         env:
           TARGET: ${{ matrix.target }}
-        run: cargo build --release --bins --locked --target $env:TARGET
+        run: |
+          cargo build --release --bins --locked --target $env:TARGET
+          "BINARY_DIR=$PWD/target/$env:TARGET/release" >> $env:GITHUB_ENV
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
       - name: Build installer
@@ -105,7 +181,7 @@ jobs:
           $version = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' |
             Select-Object -First 1).Matches[0].Groups[1].Value
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          & $iscc "/DAppVersion=$version" "/DArch=$env:ARCH" "/DSourceDir=..\..\target\$env:TARGET\release" packaging\windows\zar-rs.iss
+          & $iscc "/DAppVersion=$version" "/DArch=$env:ARCH" "/DSourceDir=$env:BINARY_DIR" packaging\windows\zar-rs.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload installer
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -116,21 +192,47 @@ jobs:
 
   macos-packages:
     name: macOS packages (${{ matrix.arch }})
+    needs: find-reusable-ci-run
     runs-on: ${{ matrix.runner }}
+    permissions:
+      actions: read
+      contents: read
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: arm64
             runner: macos-latest
+            binary_platform: macos-aarch64
           - arch: x86_64
             runner: macos-15-intel
+            binary_platform: macos-x86_64
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Download macOS binaries from successful same-commit CI run
+        id: reuse
+        if: needs.find-reusable-ci-run.outputs.run_id != ''
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: zar-rs-binaries-${{ matrix.binary_platform }}
+          path: reused
+          run-id: ${{ needs.find-reusable-ci-run.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Prepare reused macOS binaries
+        if: steps.reuse.outcome == 'success'
+        env:
+          BINARY_PLATFORM: ${{ matrix.binary_platform }}
+        run: |
+          mkdir -p dist/reused
+          tar -xzf "reused/zar-rs-$BINARY_PLATFORM.tar.gz" -C dist/reused
+          echo "BIN_DIR=$PWD/dist/reused/zar-rs-$BINARY_PLATFORM" >> "$GITHUB_ENV"
+          echo "SKIP_BUILD=1" >> "$GITHUB_ENV"
       - name: Install Rust toolchain
+        if: steps.reuse.outcome != 'success'
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
         with:
           toolchain: stable
