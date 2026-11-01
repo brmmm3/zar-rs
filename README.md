@@ -43,12 +43,14 @@ Highlights:
   The [archive benchmark workflow](./.github/workflows/benchmark-archives.yml)
   runs on Windows, Linux, and macOS; each run uploads its generated report and
   chart from the `doc/benchmarks/` folder as workflow artifacts.
-- **ZIP, 7z, TAR, and TAR.GZ import.** Pass a `.zip`, `.7z`, `.tar`, or
-  `.tar.gz` file as an input to create or add, and its contents are imported
-  under their paths in the new ZAR commit. This works through `zarlib`,
+- **ZIP, 7z, TAR, and gzip-TAR import.** Pass a `.zip`, `.7z`, `.tar`,
+  `.tar.gz`, or `.tgz` file as an input to create or add, and its contents are
+  imported under their paths in the new ZAR commit. This works through `zarlib`,
   `zarc`, `zarg`, and the language bindings. Encrypted ZIP/7z archives and
-  archive links are not supported. TAR paths with harmless `.` components are
-  normalized; parent traversal and special entries are rejected. Source
+  ZIP/7z links are not supported. TAR symbolic links are preserved where the
+  host supports them; hard links are imported as regular files. TAR paths with
+  harmless `.` components are normalized; parent traversal and special entries
+  are rejected. Source
   archive timestamps are not retained; `--dates` records import-time
   filesystem timestamps instead. 7z entries using COPY, LZMA/LZMA2, BZip2,
   PPMD, DEFLATE, Brotli, LZ4, or Zstandard are supported.
@@ -161,6 +163,7 @@ zarc create backup.zar downloaded.zip
 zarc create backup-from-7z.zar downloaded.7z
 zarc create backup-from-tar.zar downloaded.tar
 zarc create backup-from-tar-gz.zar downloaded.tar.gz
+zarc create backup-from-tgz.zar downloaded.tgz
 
 # Replace backup.zar atomically with a newly created archive
 zarc create --overwrite backup.zar documents/ src/ notes.txt

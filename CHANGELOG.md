@@ -9,10 +9,10 @@ until a version is released.
 
 ### Added
 
-- Added `.zip`, `.7z`, `.tar` and `.tar.gz` input support for create and add
-  operations across the CLI, GUI, and language bindings. Entries retain their
-  internal paths; safe `.` components are normalized, while traversal, links,
-  and special entries are rejected.
+- Added `.zip`, `.7z`, `.tar`, `.tar.gz`, and `.tgz` input support for create
+  and add operations across the CLI, GUI, and language bindings. Entries retain
+  their internal paths; safe `.` components are normalized, while traversal,
+  links, and special entries are rejected.
 
 ### Changed
 

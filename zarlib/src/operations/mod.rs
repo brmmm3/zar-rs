@@ -17,6 +17,7 @@ pub mod pipeline;
 pub mod remove;
 
 pub use add::*;
+pub use archive_input::is_supported_import_archive;
 pub use check::*;
 pub use common::*;
 pub use create::*;

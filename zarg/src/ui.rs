@@ -1,9 +1,9 @@
 use eframe::egui;
 use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use zarlib::operations::{
     self, AddInputOptions, ArchiveEntryDetails, CheckReport, CollisionPolicy, CommitInfo,
     CreateFilterOptions, CreateInputOptions, EncodingOptions, ExistingPolicy, ExtractionOptions,
@@ -226,6 +226,7 @@ pub(crate) enum UiIcon {
     Presentation,
     Generic,
     SpecialData,
+    Error,
 }
 
 fn icon_bytes(icon: UiIcon) -> &'static [u8] {
@@ -284,6 +285,7 @@ fn icon_bytes(icon: UiIcon) -> &'static [u8] {
         UiIcon::SpecialData => {
             include_bytes!("../assets/icons/mimetypes/application-octet-stream.png")
         }
+        UiIcon::Error => include_bytes!("../assets/icons/status/dialog-error.png"),
     }
 }
 
@@ -348,7 +350,7 @@ pub(crate) fn file_icon(path: &str) -> UiIcon {
         Some("mp3" | "wav" | "flac" | "ogg" | "m4a" | "aac") => UiIcon::Audio,
         Some("mp4" | "mkv" | "mov" | "avi" | "webm" | "mpeg" | "mpg") => UiIcon::Video,
         Some("zar") => UiIcon::ZarArchive,
-        Some("zip" | "7z" | "rar" | "tar" | "gz" | "bz2" | "xz") => UiIcon::Archive,
+        Some("zip" | "7z" | "rar" | "tar" | "gz" | "tgz" | "bz2" | "xz") => UiIcon::Archive,
         Some("pdf") => UiIcon::Pdf,
         Some("py") => UiIcon::Python,
         Some("java" | "kt") => UiIcon::Java,
@@ -402,6 +404,7 @@ impl OperationKind {
 struct OperationForm {
     kind: Option<OperationKind>,
     archive: String,
+    archive_backend: Option<(String, String)>,
     input_paths: Vec<PathBuf>,
     selected_input_paths: BTreeSet<PathBuf>,
     input_selection_anchor: Option<PathBuf>,
@@ -499,6 +502,10 @@ enum UiEvent {
             String,
         >,
     ),
+    ImportedArchive {
+        directory: tempfile::TempDir,
+        path: String,
+    },
     CommitIds(Vec<String>),
     Finished(Result<String, String>),
 }
@@ -736,6 +743,8 @@ struct WorkerChannels {
 pub struct ZargApp {
     icons: RefCell<HashMap<UiIcon, egui::TextureHandle>>,
     archive: String,
+    read_archive: String,
+    imported_archive_dir: Option<tempfile::TempDir>,
     location: String,
     entries: Vec<(String, EntryData)>,
     entry_details: std::collections::BTreeMap<String, ArchiveEntryDetails>,
@@ -789,6 +798,8 @@ impl Default for ZargApp {
         Self {
             icons: RefCell::new(HashMap::new()),
             archive: String::new(),
+            read_archive: String::new(),
+            imported_archive_dir: None,
             location: String::new(),
             entries: Vec::new(),
             entry_details: std::collections::BTreeMap::new(),
@@ -930,7 +941,15 @@ impl ZargApp {
 
     fn open_dialog(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
+            .add_filter(
+                "All supported archives",
+                &["zar", "zip", "7z", "tar", "tgz", "tar.gz"],
+            )
             .add_filter("ZAR archive", &["zar"])
+            .add_filter("ZIP archive", &["zip"])
+            .add_filter("7z archive", &["7z"])
+            .add_filter("TAR archive", &["tar"])
+            .add_filter("gz archive", &["tgz", "tar.gz"])
             .pick_file()
         {
             self.open_archive(path, None);
@@ -941,6 +960,8 @@ impl ZargApp {
         let archive = path.to_string_lossy().into_owned();
         self.commit_ids.clear();
         let opened_archive = archive.clone();
+        self.imported_archive_dir = None;
+        self.read_archive.clone_from(&archive);
         self.pending_recent_archive = Some(archive.clone());
         self.archive.clone_from(&archive);
         self.location.clone_from(&archive);
@@ -954,17 +975,47 @@ impl ZargApp {
         self.archive_password = (!password.is_empty()).then(|| password.clone());
         self.opening_archive = true;
         self.begin_worker(events_rx, answer_tx, "Reading archive");
-        let event_sender = events_tx.clone();
         std::thread::spawn(move || {
-            if let Ok(commits) = operations::info_archive(&archive, false) {
+            let prepared_archive =
+                if operations::is_supported_import_archive(PathBuf::from(&archive).as_path()) {
+                    (|| {
+                        let directory = tempfile::Builder::new()
+                            .prefix("zarg-open-archive-")
+                            .tempdir()?;
+                        let imported_path = directory.path().join("opened.zar");
+                        let imported_path = imported_path.to_string_lossy().into_owned();
+                        operations::create_archive(&imported_path, &[PathBuf::from(&archive)])?;
+                        Ok::<_, Box<dyn std::error::Error>>(Some((directory, imported_path)))
+                    })()
+                } else {
+                    Ok(None)
+                };
+            let (archive_to_read, imported_directory) = match prepared_archive {
+                Ok(Some((directory, imported_path))) => (imported_path, Some(directory)),
+                Ok(None) => (archive.clone(), None),
+                Err(error) => {
+                    let error = error.to_string();
+                    let _ = events_tx.send(UiEvent::Loaded(Err(error.clone())));
+                    finish_with_events(events_tx, Err(error));
+                    return;
+                }
+            };
+            let is_imported = imported_directory.is_some();
+            if let Some(directory) = imported_directory {
+                let _ = events_tx.send(UiEvent::ImportedArchive {
+                    directory,
+                    path: archive_to_read.clone(),
+                });
+            }
+            if !is_imported && let Ok(commits) = operations::info_archive(&archive_to_read, false) {
                 let ids = commits
                     .iter()
                     .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
                     .collect();
-                let _ = event_sender.send(UiEvent::CommitIds(ids));
+                let _ = events_tx.send(UiEvent::CommitIds(ids));
             }
             let result = operations::list_archive_with_details(
-                &archive,
+                &archive_to_read,
                 None,
                 (!password.is_empty()).then_some(password.as_bytes()),
             )
@@ -973,7 +1024,12 @@ impl ZargApp {
                 Ok(toc) => {
                     let count = toc.0.len();
                     let _ = events_tx.send(UiEvent::Loaded(Ok(toc)));
-                    finish_with_events(events_tx, Ok(format!("{count} entries loaded")));
+                    let summary = if is_imported {
+                        format!("{count} entries loaded (read-only archive)")
+                    } else {
+                        format!("{count} entries loaded")
+                    };
+                    finish_with_events(events_tx, Ok(summary));
                 }
                 Err(error) => {
                     let _ = events_tx.send(UiEvent::Loaded(Err(error.clone())));
@@ -1028,7 +1084,14 @@ impl ZargApp {
             events: events_tx.clone(),
             answers: Arc::new(Mutex::new(answer_rx)),
         };
-        let archive = form.archive.clone();
+        let archive = form
+            .archive_backend
+            .as_ref()
+            .filter(|(source, _)| source == &form.archive)
+            .map(|(_, backend)| backend.clone())
+            .unwrap_or_else(|| form.archive.clone());
+        let mut form = form;
+        form.archive.clone_from(&archive);
         let refresh_password = (kind == OperationKind::Add && form.existing_password_is_set)
             .then(|| form.existing_password.clone())
             .or_else(|| form.password_is_set.then(|| form.password.clone()));
@@ -1084,7 +1147,7 @@ impl ZargApp {
         self.begin_worker(events_rx, answer_tx, "Extracting file");
         self.status = format!("Opening {path}");
         self.warnings.clear();
-        let archive = self.archive.clone();
+        let archive = self.read_archive.clone();
         let password = self.archive_password.clone();
         std::thread::spawn(move || {
             let outcome = extract_and_open(&archive, &path, password.as_deref());
@@ -1129,6 +1192,10 @@ impl ZargApp {
                 }
                 UiEvent::Confirm(prompt) => self.confirmation = Some(prompt),
                 UiEvent::CommitIds(ids) => self.commit_ids = ids,
+                UiEvent::ImportedArchive { directory, path } => {
+                    self.read_archive = path;
+                    self.imported_archive_dir = Some(directory);
+                }
                 UiEvent::Loaded(result) => match result {
                     Ok((toc, details)) => {
                         self.opening_archive = false;
@@ -1139,6 +1206,8 @@ impl ZargApp {
                     }
                     Err(error) => {
                         self.status = error.clone();
+                        self.imported_archive_dir = None;
+                        self.read_archive.clone_from(&self.archive);
                         if self.opening_archive && error.contains("password") {
                             self.operation = OperationForm::new(OperationKind::List, &self.archive);
                             self.operation.commit_ids.clone_from(&self.commit_ids);
@@ -1283,6 +1352,7 @@ impl ZargApp {
     }
 
     fn render_menus(&mut self, ui: &mut egui::Ui) {
+        let is_imported_archive = self.imported_archive_dir.is_some();
         egui::MenuBar::new().ui(ui, |ui| {
             icon_menu_button(
                 ui,
@@ -1294,7 +1364,7 @@ impl ZargApp {
                         &self.icons,
                         UiIcon::OpenArchive,
                         "Open archive...",
-                        true,
+                        !self.busy,
                     )
                     .clicked()
                     {
@@ -1455,7 +1525,7 @@ impl ZargApp {
                         &self.icons,
                         UiIcon::TestArchive,
                         "Test archive",
-                        !self.busy,
+                        !self.busy && !is_imported_archive,
                     )
                     .clicked()
                     {
@@ -1467,7 +1537,7 @@ impl ZargApp {
                         &self.icons,
                         UiIcon::Info,
                         "Custom metadata...",
-                        !self.busy,
+                        !self.busy && !is_imported_archive,
                     )
                     .clicked()
                     {
@@ -1479,15 +1549,21 @@ impl ZargApp {
                         &self.icons,
                         UiIcon::TestArchive,
                         "Benchmark...",
-                        !self.archive.is_empty(),
+                        !self.archive.is_empty() && !is_imported_archive,
                     )
                     .clicked()
                     {
                         self.benchmark.open = true;
                         ui.close();
                     }
-                    if icon_button(ui, &self.icons, UiIcon::Join, "Join commits...", !self.busy)
-                        .clicked()
+                    if icon_button(
+                        ui,
+                        &self.icons,
+                        UiIcon::Join,
+                        "Join commits...",
+                        !self.busy && !is_imported_archive,
+                    )
+                    .clicked()
                     {
                         self.show_operation(OperationKind::Join);
                         ui.close();
@@ -1520,6 +1596,12 @@ impl ZargApp {
             self.archive.clone()
         };
         self.operation = OperationForm::new(kind, &archive);
+        if self.imported_archive_dir.is_some()
+            && matches!(kind, OperationKind::List | OperationKind::Extract)
+        {
+            self.operation.archive_backend =
+                Some((self.archive.clone(), self.read_archive.clone()));
+        }
         if matches!(kind, OperationKind::List | OperationKind::Extract) {
             self.operation.commit_ids.clone_from(&self.commit_ids);
             self.operation.through = self.commit_ids.last().cloned().unwrap_or_default();
@@ -1556,14 +1638,10 @@ impl ZargApp {
                 ("Extract", UiIcon::Extract, OperationKind::Extract),
                 ("Test", UiIcon::TestArchive, OperationKind::Check),
             ] {
-                if icon_button(
-                    ui,
-                    &self.icons,
-                    icon,
-                    label,
-                    !self.busy && !self.archive.is_empty(),
-                )
-                .clicked()
+                let can_use_archive = !self.archive.is_empty()
+                    && (kind == OperationKind::Extract || self.imported_archive_dir.is_none());
+                if icon_button(ui, &self.icons, icon, label, !self.busy && can_use_archive)
+                    .clicked()
                 {
                     self.show_operation(kind);
                 }
@@ -1573,7 +1651,7 @@ impl ZargApp {
                 &self.icons,
                 UiIcon::Info,
                 "Info",
-                !self.busy && !self.archive.is_empty(),
+                !self.busy && !self.archive.is_empty() && self.imported_archive_dir.is_none(),
             )
             .clicked()
             {
@@ -1584,7 +1662,10 @@ impl ZargApp {
                 &self.icons,
                 UiIcon::Remove,
                 "Remove",
-                !self.busy && !self.archive.is_empty() && !self.selected.is_empty(),
+                !self.busy
+                    && !self.archive.is_empty()
+                    && !self.selected.is_empty()
+                    && self.imported_archive_dir.is_none(),
             )
             .clicked()
             {
@@ -1666,6 +1747,22 @@ impl ZargApp {
             .unwrap_or(builder)
     }
 
+    fn error_dialog_icon() -> egui::IconData {
+        static ICON: OnceLock<egui::IconData> = OnceLock::new();
+        ICON.get_or_init(|| {
+            let icon = image::load_from_memory(include_bytes!("../assets/zarg-error.png"))
+                .expect("embedded error dialog icon must be a valid PNG")
+                .into_rgba8();
+            let (width, height) = icon.dimensions();
+            egui::IconData {
+                rgba: icon.into_raw(),
+                width,
+                height,
+            }
+        })
+        .clone()
+    }
+
     fn render_operation_dialog(&mut self, context: &egui::Context) {
         let Some(kind) = self.operation.kind else {
             return;
@@ -1698,6 +1795,11 @@ impl ZargApp {
             viewport_id,
             Self::centered_dialog_viewport_builder(context, kind.title(), size, true),
             |ui, _class| {
+                ui.painter().rect_filled(
+                    ui.max_rect(),
+                    0.0,
+                    ui.visuals().window_fill().to_opaque(),
+                );
                 actual_size = Self::viewport_inner_size(ui.ctx());
                 if ui.ctx().input(|input| input.viewport().close_requested()) {
                     open = false;
@@ -2949,6 +3051,11 @@ impl ZargApp {
             viewport_id,
             Self::centered_dialog_viewport_builder(context, "Benchmark", size, true),
             |ui, _class| {
+                ui.painter().rect_filled(
+                    ui.max_rect(),
+                    0.0,
+                    ui.visuals().window_fill().to_opaque(),
+                );
                 actual_size = Self::viewport_inner_size(ui.ctx());
                 if ui.ctx().input(|input| input.viewport().close_requested()) {
                     if running {
@@ -3102,6 +3209,9 @@ impl ZargApp {
     }
 
     fn show_archive_info(&mut self) {
+        if self.imported_archive_dir.is_some() {
+            return;
+        }
         let archive = self.archive.clone();
         let (sender, receiver) = mpsc::channel();
         self.info_loading = Some(receiver);
@@ -3169,6 +3279,11 @@ impl ZargApp {
             viewport_id,
             Self::centered_dialog_viewport_builder(context, "Archive information", size, true),
             |ui, _class| {
+                ui.painter().rect_filled(
+                    ui.max_rect(),
+                    0.0,
+                    ui.visuals().window_fill().to_opaque(),
+                );
                 actual_size = Self::viewport_inner_size(ui.ctx());
                 if ui.ctx().input(|input| input.viewport().close_requested()) {
                     open = false;
@@ -3265,7 +3380,7 @@ impl eframe::App for ZargApp {
                     &self.icons,
                     UiIcon::OpenArchive,
                     "Open archive...",
-                    true,
+                    !self.busy,
                 )
                 .clicked()
                 {
@@ -3553,6 +3668,11 @@ impl eframe::App for ZargApp {
                 viewport_id,
                 Self::centered_dialog_viewport_builder(&context, "Confirmation", size, false),
                 |ui, _class| {
+                    ui.painter().rect_filled(
+                        ui.max_rect(),
+                        0.0,
+                        ui.visuals().window_fill().to_opaque(),
+                    );
                     actual_size = Self::viewport_inner_size(ui.ctx());
                     if ui.ctx().input(|input| input.viewport().close_requested()) {
                         open = false;
@@ -3589,6 +3709,11 @@ impl eframe::App for ZargApp {
                 viewport_id,
                 Self::centered_dialog_viewport_builder(&context, "About zarg", size, false),
                 |ui, _class| {
+                    ui.painter().rect_filled(
+                        ui.max_rect(),
+                        0.0,
+                        ui.visuals().window_fill().to_opaque(),
+                    );
                     actual_size = Self::viewport_inner_size(ui.ctx());
                     if ui.ctx().input(|input| input.viewport().close_requested()) {
                         open = false;
@@ -3640,23 +3765,59 @@ impl eframe::App for ZargApp {
         if let Some(report) = self.report.clone() {
             let viewport_id = egui::ViewportId::from_hash_of("operation-error-dialog");
             let size_key = "operation-error";
-            let size = self.dialog_size(size_key, [540.0, 240.0]);
+            let size = self.dialog_size(size_key, [520.0, 190.0]);
             let mut actual_size = None;
             let mut open = true;
-            context.show_viewport_immediate(
-                viewport_id,
-                Self::centered_dialog_viewport_builder(&context, "Operation error", size, true),
-                |ui, _class| {
-                    actual_size = Self::viewport_inner_size(ui.ctx());
-                    if ui.ctx().input(|input| input.viewport().close_requested()) {
+            let viewport_builder =
+                Self::centered_dialog_viewport_builder(&context, "Operation error", size, false)
+                    .with_app_id("zarg-error")
+                    .with_icon(Self::error_dialog_icon());
+            context.show_viewport_immediate(viewport_id, viewport_builder, |ui, _class| {
+                ui.painter().rect_filled(
+                    ui.max_rect(),
+                    0.0,
+                    ui.visuals().window_fill().to_opaque(),
+                );
+                actual_size = Self::viewport_inner_size(ui.ctx());
+                if ui.ctx().input(|input| input.viewport().close_requested()) {
+                    open = false;
+                }
+                let available_size = ui.available_size();
+                let footer_height =
+                    ui.spacing().interact_size.y + ui.spacing().item_spacing.y * 4.0;
+                let message_size = egui::vec2(
+                    available_size.x,
+                    (available_size.y - footer_height).max(48.0),
+                );
+                ui.allocate_ui_with_layout(
+                    message_size,
+                    egui::Layout::left_to_right(egui::Align::Min),
+                    |ui| {
+                        ui.set_min_size(message_size);
+                        let error_icon = icon_texture(ui.ctx(), &self.icons, UiIcon::Error);
+                        ui.add(
+                            egui::Image::new(&error_icon).fit_to_exact_size(egui::vec2(48.0, 48.0)),
+                        );
+                        egui::ScrollArea::vertical()
+                            .max_height(message_size.y)
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                ui.add_space(8.0);
+                                ui.add(egui::Label::new(report.as_str()).wrap());
+                            });
+                    },
+                );
+                ui.separator();
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Close").clicked() {
                         open = false;
                     }
-                    ui.label(&report);
-                    if !open {
-                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                },
-            );
+                });
+                ui.add_space(8.0);
+                if !open {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            });
             self.record_dialog_size(size_key, actual_size);
             if !open {
                 self.report = None;
@@ -3682,6 +3843,11 @@ impl eframe::App for ZargApp {
                 )
                 .with_min_inner_size([360.0, 300.0]),
                 |ui, _class| {
+                    ui.painter().rect_filled(
+                        ui.max_rect(),
+                        0.0,
+                        ui.visuals().window_fill().to_opaque(),
+                    );
                     actual_size = Self::viewport_inner_size(ui.ctx());
                     // Check if the OS close button was clicked
                     if ui.ctx().input(|i| i.viewport().close_requested()) {
@@ -3986,7 +4152,30 @@ fn build_job(
             let restore_symlinks = form.restore_symlinks;
             let restore_devices = form.restore_devices;
             let strip_top_level = form.strip_top_level;
+            let import_archive = operations::is_supported_import_archive(Path::new(&archive));
             Box::new(move || {
+                let imported_directory = if import_archive {
+                    Some(
+                        tempfile::Builder::new()
+                            .prefix("zarg-extract-archive-")
+                            .tempdir()
+                            .map_err(|error| error.to_string())?,
+                    )
+                } else {
+                    None
+                };
+                let archive_to_extract = if let Some(directory) = &imported_directory {
+                    let imported_path = directory
+                        .path()
+                        .join("imported.zar")
+                        .to_string_lossy()
+                        .into_owned();
+                    operations::create_archive(&imported_path, &[PathBuf::from(&archive)])
+                        .map_err(|error| error.to_string())?;
+                    imported_path
+                } else {
+                    archive.clone()
+                };
                 let options = ExtractionOptions {
                     dry_run,
                     through: through.as_deref(),
@@ -3998,7 +4187,7 @@ fn build_job(
                     strip_top_level,
                 };
                 operations::extract_archive_with_progress_and_filters(
-                    &archive,
+                    &archive_to_extract,
                     &destination,
                     options,
                     password.as_deref(),
@@ -5143,6 +5332,10 @@ mod tests {
         assert_eq!(file_icon("src/main.rs"), UiIcon::Code);
         assert_eq!(file_icon("archives/backup.ZAR"), UiIcon::ZarArchive);
         assert_eq!(file_icon("archives/backup.zip"), UiIcon::Archive);
+        assert_eq!(file_icon("archives/backup.7z"), UiIcon::Archive);
+        assert_eq!(file_icon("archives/backup.tar"), UiIcon::Archive);
+        assert_eq!(file_icon("archives/backup.tar.gz"), UiIcon::Archive);
+        assert_eq!(file_icon("archives/backup.tgz"), UiIcon::Archive);
         assert_eq!(file_icon("unknown.data"), UiIcon::Generic);
     }
 
@@ -5188,11 +5381,19 @@ mod tests {
             UiIcon::Presentation,
             UiIcon::Generic,
             UiIcon::SpecialData,
+            UiIcon::Error,
         ];
         for icon in icons {
             image::load_from_memory(icon_bytes(icon))
                 .unwrap_or_else(|error| panic!("invalid bundled icon {icon:?}: {error}"));
         }
+    }
+
+    #[test]
+    fn error_dialog_window_icon_is_valid() {
+        let icon = ZargApp::error_dialog_icon();
+        assert!(icon.width > 0 && icon.height > 0);
+        assert_eq!(icon.rgba.len(), (icon.width * icon.height * 4) as usize);
     }
 
     #[test]

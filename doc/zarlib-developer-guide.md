@@ -84,13 +84,15 @@ create_archive(
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-`create_archive` and `add_archive` also accept `.zip`, `.7z`, `.tar`, and
-`.tar.gz` paths in their input lists. Entries are imported using their internal
-paths, then processed like other inputs. Encrypted ZIP/7z sources, archive
-links, and TAR special entries are rejected. Safe TAR paths with leading `./`
-components are normalized, but parent traversal is rejected. Source archive
-timestamps are not retained; when `save_dates` is enabled, the import-time
-filesystem timestamps are recorded instead. 7z entries using COPY, LZMA/LZMA2,
+`create_archive` and `add_archive` also accept `.zip`, `.7z`, `.tar`, `.tar.gz`,
+and `.tgz` paths in their input lists. Entries are imported using their internal
+paths, then processed like other inputs. Encrypted ZIP/7z sources and ZIP/7z
+links are rejected. TAR symbolic links are preserved where the host supports
+them, hard links are imported as regular files, and TAR special entries are
+rejected. Safe TAR paths with leading `./` components are normalized, but
+parent traversal is rejected. Source archive timestamps are not retained;
+when `save_dates` is enabled, the import-time filesystem timestamps are
+recorded instead. 7z entries using COPY, LZMA/LZMA2,
 BZip2, PPMD, DEFLATE, Brotli, LZ4, or Zstandard are supported.
 
 ### Add or replace files

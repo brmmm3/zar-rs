@@ -48,8 +48,12 @@ stage_files() {
     install -Dm755 "$BIN_DIR/zarc" "$stage/usr/bin/zarc"
     install -Dm755 "$BIN_DIR/zarg" "$stage/usr/bin/zarg"
     install -Dm644 "$ROOT/zarg/data/zarg.desktop" "$stage/usr/share/applications/zarg.desktop"
+    install -Dm644 "$ROOT/zarg/data/zarg-error.desktop" \
+        "$stage/usr/share/applications/zarg-error.desktop"
     install -Dm644 "$ROOT/zarg/assets/zarg-icon.png" \
         "$stage/usr/share/icons/hicolor/256x256/apps/zarg.png"
+    install -Dm644 "$ROOT/zarg/assets/zarg-error.png" \
+        "$stage/usr/share/icons/hicolor/64x64/apps/zarg-error.png"
     install -Dm644 "$ROOT/zarg/assets/application-x-zar.png" \
         "$stage/usr/share/icons/hicolor/64x64/mimetypes/application-x-zar.png"
     install -Dm644 "$HERE/zarg-mime.xml" \

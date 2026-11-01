@@ -55,10 +55,12 @@ contains plaintext credentials; avoid logging it and clear mutable request
 buffers after use.
 
 `create_archive` and `add_archive` import the contents of `.zip`, `.7z`,
-`.tar`, and `.tar.gz` paths in their `paths` arrays, preserving the entry
+`.tar`, `.tar.gz`, and `.tgz` paths in their `paths` arrays, preserving the entry
 paths inside each source archive. This behavior is shared by the C, C++, Go,
-C#, Java, Python, and WASI bindings. Encrypted ZIP/7z sources, archive links,
-and TAR special entries are not supported.
+C#, Java, Python, and WASI bindings. Encrypted ZIP/7z sources and ZIP/7z links
+are not supported. TAR symbolic links are preserved where the host supports
+them, hard links are imported as regular files, and TAR special entries are
+not supported.
 
 ```c
 #include "czarlib.h"

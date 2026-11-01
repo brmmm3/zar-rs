@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=ZAR Archive Manager Error Dialog
+Exec=zarg
+TryExec=zarg
+Icon=zarg-error
+Terminal=false
+NoDisplay=true

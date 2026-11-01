@@ -756,7 +756,7 @@ fn file_type_label(name: &str) -> String {
             "mp3" | "wav" | "flac" | "ogg" | "m4a" | "aac" => "Audio".into(),
             "mp4" | "mkv" | "mov" | "avi" | "webm" => "Video".into(),
             "pdf" => "PDF document".into(),
-            "zip" | "7z" | "rar" | "tar" | "gz" | "bz2" | "xz" => "Archive".into(),
+            "zip" | "7z" | "rar" | "tar" | "gz" | "tgz" | "bz2" | "xz" => "Archive".into(),
             "zar" => "ZAR archive".into(),
             "exe" | "dll" => "Application".into(),
             "rs" | "py" | "js" | "ts" | "c" | "cpp" | "h" | "java" | "go" | "cs" => {

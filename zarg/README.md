@@ -32,10 +32,13 @@ install the launcher and icon with:
 ```sh
 install -Dm644 zarg/data/zarg.desktop ~/.local/share/applications/zarg.desktop
 install -Dm644 zarg/assets/zarg-icon.png ~/.local/share/icons/hicolor/256x256/apps/zarg.png
+install -Dm644 zarg/data/zarg-error.desktop ~/.local/share/applications/zarg-error.desktop
+install -Dm644 zarg/assets/zarg-error.png ~/.local/share/icons/hicolor/64x64/apps/zarg-error.png
 ```
 
-The window title-bar icon is platform-controlled and may not be displayed
-under Wayland.
+The error dialog uses the `zarg-error` desktop identity so Wayland compositors
+such as KDE Plasma can resolve its window and taskbar icon from the matching
+desktop entry.
 
 ## Features
 
@@ -65,7 +68,8 @@ under Wayland.
 - Show `.zar` files with the dedicated bundled ZAR archive icon.
 - Virtualize large archive listings so only visible rows are rendered.
 - Create or append archives from selected files and folders with a dedicated options panel for ZAR's Zstandard compression level, block size, metadata/special-file handling, strict input checks, filters and overwrite behavior. Create and Add support AES-256-GCM or ChaCha20-Poly1305 encryption with header/data scope selection; Add can also unlock existing commits.
-- Include a `.zip`, `.7z`, `.tar`, or `.tar.gz` file among Create or Add inputs to import its contents using the paths stored inside the archive.
+- Include a `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz` file among Create or Add inputs to import its contents using the paths stored inside the archive.
+- Open those formats directly for read-only browsing and extraction; zarg creates a temporary ZAR snapshot and leaves the source archive unchanged.
 - Remove selected archive entries or paths.
 - Join a contiguous range of commits.
 - Test archives, optionally recovering past damaged framing.

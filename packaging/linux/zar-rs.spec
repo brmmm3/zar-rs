@@ -31,7 +31,9 @@ cp -a %{stage_dir}/. %{buildroot}/
 /usr/bin/zarg
 /usr/bin/zarg-install-thunar-actions
 /usr/share/applications/zarg.desktop
+/usr/share/applications/zarg-error.desktop
 /usr/share/icons/hicolor/256x256/apps/zarg.png
+/usr/share/icons/hicolor/64x64/apps/zarg-error.png
 /usr/share/icons/hicolor/64x64/mimetypes/application-x-zar.png
 /usr/share/kio/servicemenus/zarg-files.desktop
 /usr/share/kio/servicemenus/zarg-archives.desktop

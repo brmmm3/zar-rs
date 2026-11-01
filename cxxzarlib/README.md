@@ -9,8 +9,8 @@ All nine C-wrapper operations are supported: `create_archive`, `add_archive`,
 `list_archive`, `extract_archive`, and `extract_archive_to_memory`. Request
 fields, validation, output shapes, password handling, filters, and archive
 semantics are shared with `czarlib`.
-Create and Add requests may include `.zip`, `.7z`, `.tar`, or `.tar.gz` source
-paths; their contents are imported into the resulting ZAR using the source
+Create and Add requests may include `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz`
+source paths; their contents are imported into the resulting ZAR using the source
 archive's internal paths.
 
 ## Build

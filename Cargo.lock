@@ -4944,6 +4944,7 @@ dependencies = [
  "image",
  "regex",
  "rfd",
+ "tempfile",
  "zarlib",
 ]
 

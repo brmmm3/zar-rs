@@ -28,6 +28,42 @@ fn write_tar(path: &std::path::Path, entries: &[(&str, &[u8])], gzip: bool) {
     }
 }
 
+fn write_tar_gz_with_global_pax_header(path: &std::path::Path, entries: &[(&str, &[u8])]) {
+    let encoder = flate2::write::GzEncoder::new(
+        std::fs::File::create(path).unwrap(),
+        flate2::Compression::default(),
+    );
+    let mut archive = tar::Builder::new(encoder);
+    let pax_data = b"11 mtime=1\n";
+    let mut header = tar::Header::new_ustar();
+    header.set_path("pax_global_header").unwrap();
+    header.set_entry_type(tar::EntryType::XGlobalHeader);
+    header.set_size(pax_data.len() as u64);
+    header.set_mode(0o644);
+    header.set_cksum();
+    archive.append(&header, Cursor::new(pax_data)).unwrap();
+    append_tar_entries(&mut archive, entries);
+    archive.into_inner().unwrap().finish().unwrap();
+}
+
+#[test]
+fn supported_archive_import_types_are_detected_case_insensitively() {
+    for path in [
+        "backup.zip",
+        "backup.7z",
+        "backup.tar",
+        "backup.tar.gz",
+        "backup.TGZ",
+    ] {
+        assert!(crate::operations::is_supported_import_archive(
+            std::path::Path::new(path)
+        ));
+    }
+    assert!(!crate::operations::is_supported_import_archive(
+        std::path::Path::new("backup.rar")
+    ));
+}
+
 fn write_tar_with_raw_path(path: &std::path::Path, entry_name: &str, contents: &[u8]) {
     let mut archive = tar::Builder::new(std::fs::File::create(path).unwrap());
     let mut header = tar::Header::new_gnu();
@@ -51,6 +87,20 @@ fn write_tar_symlink(path: &std::path::Path, entry_name: &str, target: &str) {
     header.set_link_name(target).unwrap();
     archive
         .append_data(&mut header, entry_name, Cursor::new([]))
+        .unwrap();
+    archive.into_inner().unwrap();
+}
+
+fn write_tar_with_hard_link(path: &std::path::Path, target: &str, link_name: &str) {
+    let mut archive = tar::Builder::new(std::fs::File::create(path).unwrap());
+    append_tar_entries(&mut archive, &[(target, b"hard-linked contents")]);
+    let mut header = tar::Header::new_gnu();
+    header.set_entry_type(tar::EntryType::Link);
+    header.set_size(0);
+    header.set_mode(0o644);
+    header.set_link_name(target).unwrap();
+    archive
+        .append_data(&mut header, link_name, Cursor::new([]))
         .unwrap();
     archive.into_inner().unwrap();
 }
@@ -507,6 +557,54 @@ fn add_archive_imports_tar_gz_entries() {
 }
 
 #[test]
+fn create_archive_imports_tgz_entries() {
+    let directory = tempfile::tempdir().unwrap();
+    let tar_gz_path = directory.path().join("source.TGZ");
+    let archive_path = directory.path().join("converted.zar");
+    write_tar(&tar_gz_path, &[("nested/file.txt", b"from tgz")], true);
+
+    crate::operations::create_archive(
+        archive_path.to_str().unwrap(),
+        std::slice::from_ref(&tar_gz_path),
+    )
+    .unwrap();
+
+    let contents = crate::operations::extract_archive_to_memory(
+        archive_path.to_str().unwrap(),
+        None,
+        None,
+        None,
+        0,
+    )
+    .unwrap();
+    assert_eq!(contents.get("nested/file.txt").unwrap(), b"from tgz");
+}
+
+#[test]
+fn create_archive_imports_tar_gz_with_global_pax_header() {
+    let directory = tempfile::tempdir().unwrap();
+    let tar_gz_path = directory.path().join("source.tar.gz");
+    let archive_path = directory.path().join("converted.zar");
+    write_tar_gz_with_global_pax_header(&tar_gz_path, &[("nested/file.txt", b"from pax tar")]);
+
+    crate::operations::create_archive(
+        archive_path.to_str().unwrap(),
+        std::slice::from_ref(&tar_gz_path),
+    )
+    .unwrap();
+
+    let contents = crate::operations::extract_archive_to_memory(
+        archive_path.to_str().unwrap(),
+        None,
+        None,
+        None,
+        0,
+    )
+    .unwrap();
+    assert_eq!(contents.get("nested/file.txt").unwrap(), b"from pax tar");
+}
+
+#[test]
 fn create_archive_rejects_tar_paths_that_escape_the_import_directory() {
     let directory = tempfile::tempdir().unwrap();
     let tar_path = directory.path().join("unsafe.tar");
@@ -524,20 +622,76 @@ fn create_archive_rejects_tar_paths_that_escape_the_import_directory() {
 }
 
 #[test]
-fn create_archive_rejects_tar_symbolic_links() {
+fn create_archive_imports_tar_symbolic_links_without_following_targets() {
     let directory = tempfile::tempdir().unwrap();
     let tar_path = directory.path().join("link.tar");
     let archive_path = directory.path().join("link.zar");
     write_tar_symlink(&tar_path, "linked.txt", "../outside.txt");
 
-    let error = crate::operations::create_archive(
+    crate::operations::create_archive(
         archive_path.to_str().unwrap(),
         std::slice::from_ref(&tar_path),
     )
-    .unwrap_err();
-    assert!(error.to_string().contains("TAR links are not supported"));
+    .unwrap();
+    let toc = crate::operations::list_archive(archive_path.to_str().unwrap(), None, None).unwrap();
+    assert!(matches!(
+        toc.get(&ArchivePath::new("linked.txt").unwrap()),
+        Some(TocEntry::Symlink { target }) if target == "../outside.txt"
+    ));
     assert!(!directory.path().join("outside.txt").exists());
+}
+
+#[test]
+fn create_archive_rejects_tar_entries_nested_under_symbolic_links() {
+    let directory = tempfile::tempdir().unwrap();
+    let tar_path = directory.path().join("link-parent.tar");
+    let archive_path = directory.path().join("link-parent.zar");
+    let mut archive = tar::Builder::new(std::fs::File::create(&tar_path).unwrap());
+    let mut link_header = tar::Header::new_gnu();
+    link_header.set_entry_type(tar::EntryType::Symlink);
+    link_header.set_size(0);
+    link_header.set_mode(0o777);
+    link_header.set_link_name("../outside").unwrap();
+    archive
+        .append_data(&mut link_header, "redirect", Cursor::new([]))
+        .unwrap();
+    append_tar_entries(&mut archive, &[("redirect/escape.txt", b"outside")]);
+    archive.into_inner().unwrap();
+
+    assert!(
+        crate::operations::create_archive(
+            archive_path.to_str().unwrap(),
+            std::slice::from_ref(&tar_path),
+        )
+        .is_err()
+    );
+    assert!(!directory.path().join("outside/escape.txt").exists());
     assert!(!archive_path.exists());
+}
+
+#[test]
+fn create_archive_imports_tar_hard_links_as_files() {
+    let directory = tempfile::tempdir().unwrap();
+    let tar_path = directory.path().join("hard-link.tar");
+    let archive_path = directory.path().join("hard-link.zar");
+    write_tar_with_hard_link(&tar_path, "target.txt", "linked.txt");
+
+    crate::operations::create_archive(
+        archive_path.to_str().unwrap(),
+        std::slice::from_ref(&tar_path),
+    )
+    .unwrap();
+
+    let contents = crate::operations::extract_archive_to_memory(
+        archive_path.to_str().unwrap(),
+        None,
+        None,
+        None,
+        0,
+    )
+    .unwrap();
+    assert_eq!(contents.get("target.txt").unwrap(), b"hard-linked contents");
+    assert_eq!(contents.get("linked.txt").unwrap(), b"hard-linked contents");
 }
 
 #[test]

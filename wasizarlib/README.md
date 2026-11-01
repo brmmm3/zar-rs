@@ -7,9 +7,11 @@ returns a JSON response or an error. The operation names and request/response
 schemas match [`czarlib`](../czarlib/README.md), so all archive operations are
 available without introducing a second API implementation.
 As with the other bindings, `create_archive` and `add_archive` requests may
-include `.zip`, `.7z`, `.tar`, or `.tar.gz` paths; source entry paths are
-imported into the resulting ZAR. Encrypted ZIP/7z sources, archive links, and
-TAR special entries are not supported.
+include `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz` paths; source entry paths are
+imported into the resulting ZAR. Encrypted ZIP/7z sources and ZIP/7z links are
+not supported. TAR symbolic links are preserved where the host supports them,
+hard links are imported as regular files, and TAR special entries are not
+supported.
 
 ## Build
 

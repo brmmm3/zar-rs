@@ -21,6 +21,11 @@ enum ImportArchiveKind {
     TarGz,
 }
 
+/// Returns whether a path has a supported archive format for importing into ZAR.
+pub fn is_supported_import_archive(path: &Path) -> bool {
+    import_archive_kind(path).is_some()
+}
+
 pub(super) fn scan_input_paths(
     paths: &[PathBuf],
     cwd: &Path,
@@ -70,7 +75,8 @@ pub(super) fn scan_input_paths(
 
 fn import_archive_kind(path: &Path) -> Option<ImportArchiveKind> {
     let filename = path.file_name()?.to_str()?;
-    if filename.to_ascii_lowercase().ends_with(".tar.gz") {
+    let filename = filename.to_ascii_lowercase();
+    if filename.ends_with(".tar.gz") || filename.ends_with(".tgz") {
         return Some(ImportArchiveKind::TarGz);
     }
 
@@ -204,9 +210,15 @@ fn extract_7z(source: &Path, destination: &Path) -> Result<(), Box<dyn std::erro
 
 fn extract_tar<R: Read>(source: R, destination: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let mut archive = tar::Archive::new(source);
+    let mut symbolic_links = Vec::new();
+    let mut hard_links = Vec::new();
     for result in archive.entries()? {
         let mut entry = result?;
         let entry_type = entry.header().entry_type();
+        if entry_type.is_pax_global_extensions() {
+            continue;
+        }
+
         let entry_name = entry
             .path()?
             .to_str()
@@ -216,10 +228,7 @@ fn extract_tar<R: Read>(source: R, destination: &Path) -> Result<(), Box<dyn std
         let is_file = entry_type.is_file() || entry_type.is_contiguous();
         let archive_path = tar_archive_path(&entry_name, is_directory)?;
 
-        if entry_type.is_symlink() || entry_type.is_hard_link() {
-            return Err(format!("TAR links are not supported: {entry_name:?}").into());
-        }
-        if !is_directory && !is_file {
+        if !is_directory && !is_file && !entry_type.is_symlink() && !entry_type.is_hard_link() {
             return Err(format!("unsupported TAR entry type: {entry_name:?}").into());
         }
 
@@ -227,6 +236,38 @@ fn extract_tar<R: Read>(source: R, destination: &Path) -> Result<(), Box<dyn std
             continue;
         };
         let destination_path = destination.join(archive_path.as_str());
+
+        if entry_type.is_symlink() {
+            let target = entry
+                .link_name()?
+                .ok_or("TAR symbolic link has no target")?;
+            let target = target
+                .to_str()
+                .ok_or("TAR symbolic-link target is not valid UTF-8")?
+                .to_owned();
+            if target.is_empty() || target.as_bytes().contains(&0) {
+                return Err("TAR symbolic-link target is empty or contains NUL".into());
+            }
+            symbolic_links.push((destination_path, target, entry_name));
+            continue;
+        }
+        if entry_type.is_hard_link() {
+            let target = entry.link_name()?.ok_or("TAR hard link has no target")?;
+            let target = target
+                .to_str()
+                .ok_or("TAR hard-link target is not valid UTF-8")?;
+            if target.as_bytes().contains(&0) {
+                return Err("TAR hard-link target contains NUL".into());
+            }
+            let target_path =
+                tar_archive_path(target, false)?.ok_or("TAR hard link has an empty target")?;
+            hard_links.push((
+                destination_path,
+                destination.join(target_path.as_str()),
+                entry_name,
+            ));
+            continue;
+        }
 
         if is_directory {
             std::fs::create_dir_all(&destination_path)?;
@@ -255,7 +296,116 @@ fn extract_tar<R: Read>(source: R, destination: &Path) -> Result<(), Box<dyn std
             .into());
         }
     }
+
+    while !hard_links.is_empty() {
+        let mut unresolved = Vec::new();
+        let mut linked_any = false;
+        for (link_path, target_path, entry_name) in hard_links {
+            match std::fs::symlink_metadata(&target_path) {
+                Ok(metadata) if metadata.file_type().is_file() => {
+                    ensure_tar_parent_directories(destination, &link_path)?;
+                    std::fs::hard_link(&target_path, &link_path).map_err(|error| {
+                        format!(
+                            "cannot create TAR hard link {entry_name:?} without overwriting another entry: {error}"
+                        )
+                    })?;
+                    linked_any = true;
+                }
+                Ok(_) => {
+                    return Err(format!(
+                        "TAR hard-link target is not a regular file: {}",
+                        target_path.display()
+                    )
+                    .into());
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    unresolved.push((link_path, target_path, entry_name));
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        if !unresolved.is_empty() && !linked_any {
+            let (_, target_path, entry_name) = &unresolved[0];
+            return Err(format!(
+                "TAR hard link {entry_name:?} has no regular-file target: {}",
+                target_path.display()
+            )
+            .into());
+        }
+        hard_links = unresolved;
+    }
+
+    symbolic_links.sort_by_key(|(link_path, _, _)| link_path.components().count());
+    for (link_path, target, entry_name) in symbolic_links {
+        ensure_tar_parent_directories(destination, &link_path)?;
+        create_tar_symlink(&target, &link_path)
+            .map_err(|error| format!("cannot create TAR symbolic link {entry_name:?}: {error}"))?;
+    }
+
     Ok(())
+}
+
+fn ensure_tar_parent_directories(
+    destination: &Path,
+    entry_path: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let parent = entry_path
+        .parent()
+        .ok_or("TAR entry has no parent directory")?;
+    let relative_parent = parent.strip_prefix(destination)?;
+    let mut current = destination.to_path_buf();
+    for component in relative_parent.components() {
+        let std::path::Component::Normal(name) = component else {
+            return Err("invalid TAR entry parent path".into());
+        };
+        current.push(name);
+        match std::fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.is_dir() => {}
+            Ok(_) => {
+                return Err(
+                    format!("TAR entry parent is not a directory: {}", current.display()).into(),
+                );
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                std::fs::create_dir(&current)?;
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn create_tar_symlink(target: &str, link_path: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(target, link_path)
+}
+
+#[cfg(windows)]
+fn create_tar_symlink(target: &str, link_path: &Path) -> io::Result<()> {
+    use std::os::windows::fs::{symlink_dir, symlink_file};
+
+    let target_path = Path::new(target);
+    let resolved_target = if target_path.is_absolute() {
+        target_path.to_path_buf()
+    } else {
+        link_path
+            .parent()
+            .ok_or_else(|| io::Error::other("TAR symbolic link has no parent directory"))?
+            .join(target_path)
+    };
+    if std::fs::metadata(resolved_target).is_ok_and(|metadata| metadata.is_dir()) {
+        symlink_dir(target, link_path)
+    } else {
+        symlink_file(target, link_path)
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn create_tar_symlink(_target: &str, _link_path: &Path) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "symbolic links are not supported on this platform",
+    ))
 }
 
 fn tar_archive_path(

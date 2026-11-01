@@ -18,6 +18,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 regex = { version = "1.13.1", default-features = false, features = ["perf", "std", "unicode"] }
 dirs = "7"
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
+tempfile = "3"
 zarlib = { path = "../zarlib" }
 
 [target.'cfg(not(all(target_os = "linux", target_env = "musl")))'.dependencies]
