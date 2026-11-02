@@ -286,6 +286,17 @@ fn join(request: &Value) -> Result<Value, String> {
     Ok(json!({ "warnings": warnings.take() }))
 }
 
+fn undo(request: &Value) -> Result<Value, String> {
+    let commits = request
+        .get("commits")
+        .and_then(Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+        .ok_or("'commits' must be a positive integer in range")?;
+    operations::undo_archive(required_string(request, "archive")?, commits)
+        .map_err(|error| error.to_string())?;
+    Ok(Value::Null)
+}
+
 fn check(request: &Value) -> Result<Value, String> {
     let passwords = passwords(request)?;
     let report = operations::check_archive_with_recovery_and_passwords(
@@ -545,6 +556,7 @@ fn execute(operation: &str, request: &Value) -> Result<Value, String> {
         "add_archive" => add(request),
         "remove_archive" => remove(request),
         "join_archive" => join(request),
+        "undo_archive" => undo(request),
         "check_archive" => check(request),
         "info_archive" => info(request),
         "list_archive" => list(request),
@@ -688,5 +700,44 @@ mod tests {
         .unwrap();
         let contents: serde_json::Value = serde_json::from_str(&contents).unwrap();
         assert_eq!(contents["inside/file.txt"], serde_json::json!(b"from JSON"));
+    }
+
+    #[test]
+    fn undo_archive_json_removes_tail_and_preserves_first_commit() {
+        let directory = tempfile::tempdir().unwrap();
+        let first = directory.path().join("first.txt");
+        let second = directory.path().join("second.txt");
+        let archive = directory.path().join("undo.zar");
+        std::fs::write(&first, b"first").unwrap();
+        std::fs::write(&second, b"second").unwrap();
+
+        execute_json(
+            "create_archive",
+            &serde_json::json!({"archive": archive, "paths": [first]}).to_string(),
+        )
+        .unwrap();
+        execute_json(
+            "add_archive",
+            &serde_json::json!({"archive": archive, "paths": [second]}).to_string(),
+        )
+        .unwrap();
+        execute_json(
+            "undo_archive",
+            &serde_json::json!({"archive": archive, "commits": 1}).to_string(),
+        )
+        .unwrap();
+
+        let report = execute_json(
+            "check_archive",
+            &serde_json::json!({"archive": archive}).to_string(),
+        )
+        .unwrap();
+        assert!(report.contains("\"commits\":1"));
+        let error = execute_json(
+            "undo_archive",
+            &serde_json::json!({"archive": archive, "commits": 1}).to_string(),
+        )
+        .unwrap_err();
+        assert!(error.contains("first commit must be retained"));
     }
 }

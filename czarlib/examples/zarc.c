@@ -85,6 +85,7 @@ static const char *operation_name(const char *command) {
     if (!strcmp(command, "add") || !strcmp(command, "a")) return "add_archive";
     if (!strcmp(command, "remove") || !strcmp(command, "r")) return "remove_archive";
     if (!strcmp(command, "join") || !strcmp(command, "j")) return "join_archive";
+    if (!strcmp(command, "undo") || !strcmp(command, "u")) return "undo_archive";
     if (!strcmp(command, "check") || !strcmp(command, "k")) return "check_archive";
     if (!strcmp(command, "info") || !strcmp(command, "i")) return "info_archive";
     if (!strcmp(command, "list") || !strcmp(command, "l")) return "list_archive";
@@ -99,6 +100,7 @@ static void usage(const char *program) {
             "  add|a ARCHIVE PATH...\n"
             "  remove|r ARCHIVE ARCHIVE_PATH...\n"
             "  join|j ARCHIVE --from ID --through ID\n"
+            "  undo|u ARCHIVE COMMITS\n"
             "  check|k ARCHIVE\n"
             "  info|i ARCHIVE\n"
             "  list|l ARCHIVE\n"
@@ -149,6 +151,22 @@ int main(int argc, char **argv) {
                 append_json_string(&request, argv[4]) &&
                 append_text(&request, ",\"through_id\":") &&
                 append_json_string(&request, argv[6]);
+    } else if (!strcmp(operation, "undo_archive")) {
+        char *end = NULL;
+        if (argc != 4 || argv[3][0] == '-') {
+            free(request.data);
+            usage(argv[0]);
+            return 2;
+        }
+        unsigned long long commits = strtoull(argv[3], &end, 10);
+        if (end == argv[3] || *end != '\0') {
+            free(request.data);
+            fputs("COMMITS must be a positive integer\n", stderr);
+            return 2;
+        }
+        char number[32];
+        (void)snprintf(number, sizeof(number), ",\"commits\":%llu", commits);
+        valid = valid && append_text(&request, number);
     } else if (!strcmp(operation, "extract_archive")) {
         int dry_run = 0;
         const char *destination = "restored";

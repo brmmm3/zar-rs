@@ -134,6 +134,16 @@ public sealed class ZarLibTests : IDisposable
         memory = ZarLibrary.ExtractArchiveToMemory(new { archive = "sample.zar", offset = 1000 });
         AssertFile(memory, "input/alpha.txt", "");
         AssertFile(memory, "input/empty.txt", "");
+
+        Write("undo-first.txt", "first");
+        Write("undo-second.txt", "second");
+        ZarLibrary.CreateArchive(new { archive = "undo.zar", paths = new[] { "undo-first.txt" } });
+        ZarLibrary.AddArchive(new { archive = "undo.zar", paths = new[] { "undo-second.txt" } });
+        ZarLibrary.UndoArchive(new { archive = "undo.zar", commits = 1 });
+        Assert.Contains("\"commits\":1", ZarLibrary.CheckArchive(new { archive = "undo.zar" }));
+        ExpectError(
+            () => ZarLibrary.UndoArchive(new { archive = "undo.zar", commits = 1 }),
+            "first commit must be retained");
     }
 
     [Fact]

@@ -1,8 +1,8 @@
 # jzarlib-jni
 
 `jzarlib-jni` is the Java Native Interface binding to the `czarlib` C ABI. It
-provides the same nine archive operations and JSON contract as the C wrapper:
-create, add, remove, join, check, info, list, filesystem extract, and in-memory
+provides the same ten archive operations and JSON contract as the C wrapper:
+create, add, remove, join, undo, check, info, list, filesystem extract, and in-memory
 extract. See [`czarlib/README.md`](../czarlib/README.md) for operation request
 fields, filters, encryption options, and limitations.
 Create and Add requests may include `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz`

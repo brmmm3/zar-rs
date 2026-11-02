@@ -129,6 +129,30 @@ def test_add_replaces_files_and_remove_tombstones(
     assert pyzarlib.check_archive(archive)["commits"] == 3
 
 
+def test_undo_removes_trailing_commits_but_retains_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    archive = create_sample_archive(tmp_path, monkeypatch)
+    added = tmp_path / "later.txt"
+    added.write_text("later", encoding="utf-8")
+    pyzarlib.add_archive(archive, [added])
+    assert pyzarlib.check_archive(archive)["commits"] == 2
+
+    pyzarlib.undo_archive(archive, 1)
+
+    assert pyzarlib.check_archive(archive)["commits"] == 1
+    assert "input/alpha.txt" in {
+        entry["path"] for entry in pyzarlib.list_archive(archive)
+    }
+    assert "later.txt" not in {
+        entry["path"] for entry in pyzarlib.list_archive(archive)
+    }
+    with pytest.raises(RuntimeError, match="first commit must be retained"):
+        pyzarlib.undo_archive(archive, 1)
+    with pytest.raises(RuntimeError, match="greater than zero"):
+        pyzarlib.undo_archive(archive, 0)
+
+
 def test_add_and_remove_failures_leave_archive_unchanged(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

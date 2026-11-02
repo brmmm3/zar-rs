@@ -135,6 +135,7 @@ enum OperationKind {
     Add,
     Remove,
     Join,
+    Undo,
     Metadata,
     Check,
     List,
@@ -375,6 +376,7 @@ impl OperationKind {
             Self::Add => "Add to archive",
             Self::Remove => "Remove entries",
             Self::Join => "Join commits",
+            Self::Undo => "Undo commits",
             Self::Metadata => "Custom metadata",
             Self::Check => "Test archive",
             Self::List => "List archive",
@@ -388,6 +390,7 @@ impl OperationKind {
             Self::Add => "operation-add",
             Self::Remove => "operation-remove",
             Self::Join => "operation-join",
+            Self::Undo => "operation-undo",
             Self::Metadata => "operation-metadata",
             Self::Check => "operation-check",
             Self::List => "operation-list",
@@ -412,6 +415,7 @@ struct OperationForm {
     from_id: String,
     through_id: String,
     join_output: String,
+    undo_commits: usize,
     // (key, original value, edited value, remove) of existing custom metadata.
     meta_items: Vec<(String, String, String, bool)>,
     meta_new: Vec<(String, String)>,
@@ -484,6 +488,13 @@ impl OperationForm {
             block_size,
             compression_level,
         })
+    }
+
+    fn has_metadata_changes(&self) -> bool {
+        self.meta_items
+            .iter()
+            .any(|(_, original, edited, remove)| *remove || original != edited)
+            || self.meta_new.iter().any(|(key, _)| !key.trim().is_empty())
     }
 }
 
@@ -1092,14 +1103,19 @@ impl ZargApp {
             .unwrap_or_else(|| form.archive.clone());
         let mut form = form;
         form.archive.clone_from(&archive);
-        let refresh_password = (kind == OperationKind::Add && form.existing_password_is_set)
-            .then(|| form.existing_password.clone())
-            .or_else(|| form.password_is_set.then(|| form.password.clone()));
+        let refresh_password = if kind == OperationKind::Undo {
+            self.archive_password.clone()
+        } else {
+            (kind == OperationKind::Add && form.existing_password_is_set)
+                .then(|| form.existing_password.clone())
+                .or_else(|| form.password_is_set.then(|| form.password.clone()))
+        };
         if let Some(password) = &refresh_password {
             self.archive_password = Some(password.clone());
         }
         let refresh_through = (kind == OperationKind::List && !form.through.trim().is_empty())
             .then(|| form.through.clone());
+        let refresh_commit_ids = kind == OperationKind::Undo;
         let result = match build_job(kind, form, events_tx.clone(), progress) {
             Ok(job) => job,
             Err(error) => {
@@ -1112,6 +1128,22 @@ impl ZargApp {
         self.warnings.clear();
         std::thread::spawn(move || {
             let mut outcome = result();
+            if outcome.is_ok() && refresh_commit_ids {
+                match operations::info_archive(&archive, false) {
+                    Ok(commits) => {
+                        let ids = commits
+                            .iter()
+                            .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                            .collect();
+                        let _ = events_tx.send(UiEvent::CommitIds(ids));
+                    }
+                    Err(error) => {
+                        outcome = Err(format!(
+                            "Undo completed, but commit refresh failed: {error}"
+                        ));
+                    }
+                }
+            }
             if outcome.is_ok() {
                 match operations::list_archive_with_details(
                     &archive,
@@ -1451,7 +1483,7 @@ impl ZargApp {
                         &self.icons,
                         UiIcon::ClearSelection,
                         "Clear selection",
-                        true,
+                        !self.selected.is_empty() && !self.busy,
                     )
                     .clicked()
                     {
@@ -1523,18 +1555,6 @@ impl ZargApp {
                     if icon_button(
                         ui,
                         &self.icons,
-                        UiIcon::TestArchive,
-                        "Test archive",
-                        !self.busy && !is_imported_archive,
-                    )
-                    .clicked()
-                    {
-                        self.show_operation(OperationKind::Check);
-                        ui.close();
-                    }
-                    if icon_button(
-                        ui,
-                        &self.icons,
                         UiIcon::Info,
                         "Custom metadata...",
                         !self.busy && !is_imported_archive,
@@ -1547,18 +1567,6 @@ impl ZargApp {
                     if icon_button(
                         ui,
                         &self.icons,
-                        UiIcon::TestArchive,
-                        "Benchmark...",
-                        !self.archive.is_empty() && !is_imported_archive,
-                    )
-                    .clicked()
-                    {
-                        self.benchmark.open = true;
-                        ui.close();
-                    }
-                    if icon_button(
-                        ui,
-                        &self.icons,
                         UiIcon::Join,
                         "Join commits...",
                         !self.busy && !is_imported_archive,
@@ -1566,6 +1574,42 @@ impl ZargApp {
                     .clicked()
                     {
                         self.show_operation(OperationKind::Join);
+                        ui.close();
+                    }
+                    if icon_button(
+                        ui,
+                        &self.icons,
+                        UiIcon::Join,
+                        "Undo commits...",
+                        !self.busy && !is_imported_archive,
+                    )
+                    .clicked()
+                    {
+                        self.show_operation(OperationKind::Undo);
+                        ui.close();
+                    }
+                    if icon_button(
+                        ui,
+                        &self.icons,
+                        UiIcon::TestArchive,
+                        "Test archive",
+                        !self.busy && !is_imported_archive,
+                    )
+                    .clicked()
+                    {
+                        self.show_operation(OperationKind::Check);
+                        ui.close();
+                    }
+                    if icon_button(
+                        ui,
+                        &self.icons,
+                        UiIcon::TestArchive,
+                        "Benchmark...",
+                        !self.archive.is_empty() && !is_imported_archive,
+                    )
+                    .clicked()
+                    {
+                        self.benchmark.open = true;
                         ui.close();
                     }
                 },
@@ -1625,6 +1669,10 @@ impl ZargApp {
             self.operation.commit_ids.clone_from(&self.commit_ids);
             self.operation.from_id = self.commit_ids.first().cloned().unwrap_or_default();
             self.operation.through_id = self.commit_ids.last().cloned().unwrap_or_default();
+        }
+        if kind == OperationKind::Undo {
+            self.operation.undo_commits = 1;
+            self.operation.commit_ids.clone_from(&self.commit_ids);
         }
     }
 
@@ -1778,22 +1826,35 @@ impl ZargApp {
         } else if kind == OperationKind::Add {
             [568.0, 360.0]
         } else if kind == OperationKind::Check {
-            [440.0, 105.0]
-        } else if kind == OperationKind::Metadata {
             [440.0, 180.0]
+        } else if kind == OperationKind::Metadata {
+            [440.0, 210.0]
         } else if kind == OperationKind::Join {
-            [440.0, 130.0]
+            [440.0, 150.0]
         } else if kind == OperationKind::Extract {
             [560.0, 310.0]
+        } else if kind == OperationKind::Undo {
+            [500.0, 150.0]
         } else {
             [500.0, 500.0]
         };
         let size_key = kind.dialog_size_key();
-        let size = self.dialog_size(size_key, default_size);
+        let fixed_size = matches!(kind, OperationKind::Check | OperationKind::Undo);
+        let saved_size = self.dialog_size(size_key, default_size);
+        let size = if fixed_size {
+            default_size
+        } else if kind == OperationKind::Join && saved_size == [440.0, 130.0] {
+            // Replace the previous default without discarding custom sizes.
+            default_size
+        } else if kind == OperationKind::Metadata && saved_size == [440.0, 180.0] {
+            default_size
+        } else {
+            saved_size
+        };
         let mut actual_size = None;
         context.show_viewport_immediate(
             viewport_id,
-            Self::centered_dialog_viewport_builder(context, kind.title(), size, true),
+            Self::centered_dialog_viewport_builder(context, kind.title(), size, !fixed_size),
             |ui, _class| {
                 ui.painter().rect_filled(
                     ui.max_rect(),
@@ -1804,21 +1865,45 @@ impl ZargApp {
                 if ui.ctx().input(|input| input.viewport().close_requested()) {
                     open = false;
                 }
-                // Reserve room for the archive controls, option groups, and action buttons.
-                let input_list_height = if kind == OperationKind::Create {
-                    (ui.available_height() - 152.0).clamp(180.0, 400.0)
+                if matches!(kind, OperationKind::Create | OperationKind::Add) {
+                    egui::Panel::bottom("operation-actions")
+                        .frame(egui::Frame::new().inner_margin(3))
+                        .show_separator_line(false)
+                        .show(ui, |ui| self.render_operation_actions(ui, kind));
+                    egui::Panel::bottom("create-options")
+                        .frame(egui::Frame::new().inner_margin(3))
+                        .show_separator_line(false)
+                        .show(ui, |ui| self.render_create_options(ui, kind));
+                    egui::Panel::top("create-controls")
+                        .frame(egui::Frame::new().inner_margin(3))
+                        .show_separator_line(false)
+                        .show(ui, |ui| self.render_operation_header(ui, kind));
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::new().inner_margin(3))
+                        .show(ui, |ui| {
+                            let input_list_height = ui.available_height().max(0.0);
+                            self.render_operation_input_list(ui, input_list_height);
+                        });
                 } else {
-                    180.0
-                };
-                let fields_scroll = egui::ScrollArea::vertical().max_height(560.0);
-                let fields_scroll = if kind == OperationKind::Create {
-                    fields_scroll.auto_shrink([false, false])
-                } else {
-                    fields_scroll
-                };
-                fields_scroll.show(ui, |ui| {
-                    self.render_operation_fields(ui, kind, input_list_height);
-                });
+                    // Keep the action buttons visible while the remaining form scrolls.
+                    egui::Panel::bottom("operation-actions")
+                        .frame(egui::Frame::new().inner_margin(3))
+                        .show_separator_line(false)
+                        .show(ui, |ui| self.render_operation_actions(ui, kind));
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::new().inner_margin(3))
+                        .show(ui, |ui| {
+                            if fixed_size {
+                                self.render_operation_fields(ui, kind, 180.0);
+                            } else {
+                                egui::ScrollArea::vertical()
+                                    .max_height(560.0)
+                                    .show(ui, |ui| {
+                                        self.render_operation_fields(ui, kind, 180.0);
+                                    });
+                            }
+                        });
+                }
                 if !open || self.operation.kind.is_none() {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
@@ -1836,275 +1921,41 @@ impl ZargApp {
         kind: OperationKind,
         input_list_height: f32,
     ) {
-        if kind.needs_archive() || kind == OperationKind::Create {
-            ui.horizontal(|ui| {
-                ui.label("Archive:");
-                if matches!(
-                    kind,
-                    OperationKind::Create
-                        | OperationKind::Add
-                        | OperationKind::Check
-                        | OperationKind::Extract
-                        | OperationKind::Join
-                ) {
-                    ui.allocate_ui_with_layout(
-                        ui.available_size(),
-                        egui::Layout::right_to_left(egui::Align::Center),
-                        |ui| {
-                            if icon_button(ui, &self.icons, UiIcon::Browse, "Browse...", true)
-                                .clicked()
-                            {
-                                self.choose_archive(kind == OperationKind::Create);
-                            }
-                            ui.add(
-                                egui::TextEdit::singleline(&mut self.operation.archive)
-                                    .desired_width(ui.available_width()),
-                            );
-                        },
-                    );
-                } else {
-                    ui.text_edit_singleline(&mut self.operation.archive);
-                    if icon_button(ui, &self.icons, UiIcon::Browse, "Browse...", true).clicked() {
-                        self.choose_archive(kind == OperationKind::Create);
-                    }
-                }
-            });
-        }
-
+        self.render_operation_header(ui, kind);
         match kind {
             OperationKind::Create | OperationKind::Add => {
-                ui.horizontal(|ui| {
-                    if icon_button(
-                        ui,
-                        &self.icons,
-                        UiIcon::AddFolder,
-                        "Add folders/files",
-                        true,
-                    )
-                    .clicked()
-                    {
-                        self.choose_input_paths();
-                    }
-                    if icon_button(
-                        ui,
-                        &self.icons,
-                        UiIcon::Remove,
-                        "Remove items",
-                        !self.operation.selected_input_paths.is_empty(),
-                    )
-                    .clicked()
-                    {
-                        self.operation
-                            .input_paths
-                            .retain(|path| !self.operation.selected_input_paths.contains(path));
-                        self.operation.selected_input_paths.clear();
-                        self.operation.input_selection_anchor = None;
-                    }
-                    if icon_button(
-                        ui,
-                        &self.icons,
-                        UiIcon::ClearInputs,
-                        "Clear list",
-                        !self.operation.input_paths.is_empty(),
-                    )
-                    .clicked()
-                    {
-                        self.operation.input_paths.clear();
-                        self.operation.selected_input_paths.clear();
-                        self.operation.input_selection_anchor = None;
-                    }
-                });
-                egui::ScrollArea::vertical()
-                    .id_salt("create-add-input-paths")
-                    .max_height(input_list_height)
-                    .min_scrolled_height(input_list_height)
-                    .show(ui, |ui| {
-                        ui.set_min_height(input_list_height);
-                        ui.set_min_width(ui.available_width());
-                        for path in &self.operation.input_paths {
-                            let path_text = path.display().to_string();
-                            let icon_kind = if path.is_dir() {
-                                UiIcon::Folder
-                            } else {
-                                file_icon(&path_text)
-                            };
-                            let icon = icon_texture(ui.ctx(), &self.icons, icon_kind);
-                            ui.horizontal(|ui| {
-                                let response = ui.add(
-                                    egui::Image::new(&icon)
-                                        .fit_to_exact_size(egui::vec2(16.0, 16.0)),
-                                );
-                                let selected = self.operation.selected_input_paths.contains(path);
-                                let response =
-                                    response.union(ui.selectable_label(selected, path_text));
-                                if response.clicked() {
-                                    let modifiers = ui.input(|input| input.modifiers);
-                                    let selection = extended_selection(
-                                        &self.operation.input_paths,
-                                        &self.operation.selected_input_paths,
-                                        &self.operation.input_selection_anchor,
-                                        path,
-                                        modifiers,
-                                    );
-                                    self.operation.selected_input_paths = selection.selected;
-                                    self.operation.input_selection_anchor = selection.anchor;
-                                }
-                            });
-                        }
-                    });
-                ui.collapsing("Compression and archive options", |ui| {
-                    ui.label("Format: ZAR (Zstandard-compressed blocks)");
-                    ui.horizontal(|ui| {
-                        egui::ComboBox::from_label("Block size")
-                            .selected_text(format!(
-                                "{} MB",
-                                self.operation.block_size.trim_end_matches(['M', 'm'])
-                            ))
-                            .show_ui(ui, |ui| {
-                                for size in ["1M", "2M", "4M", "8M", "16M"] {
-                                    ui.selectable_value(
-                                        &mut self.operation.block_size,
-                                        size.to_owned(),
-                                        format!("{} MB", size.trim_end_matches('M')),
-                                    );
-                                }
-                            });
-                        egui::ComboBox::from_label("Compression level")
-                            .selected_text(&self.operation.compression_level)
-                            .show_ui(ui, |ui| {
-                                for level in -7..=22 {
-                                    let level = level.to_string();
-                                    ui.selectable_value(
-                                        &mut self.operation.compression_level,
-                                        level.clone(),
-                                        level,
-                                    );
-                                }
-                            });
-                        ui.label("-7 (fastest) to 22 (smallest)");
-                    });
-                    ui.checkbox(
-                        &mut self.operation.metadata,
-                        "Preserve platform-specific metadata",
-                    );
-                    ui.checkbox(&mut self.operation.dates, "Save modification dates");
-                    ui.checkbox(
-                        &mut self.operation.special_files,
-                        "Include named pipes and device nodes",
-                    );
-                    ui.checkbox(&mut self.operation.strict, "Strict input validation");
-                    ui.checkbox(&mut self.operation.verbose, "Show symbolic-link warnings");
-                    if kind == OperationKind::Create {
-                        ui.checkbox(
-                            &mut self.operation.overwrite,
-                            "Replace archive if it already exists",
-                        );
-                    } else {
-                        ui.label(
-                            "Update mode: add or replace files; earlier commits are retained.",
-                        );
-                    }
-                });
-                if kind == OperationKind::Add {
-                    ui.collapsing("Unlock existing archive", |ui| {
-                        ui.checkbox(
-                            &mut self.operation.existing_password_is_set,
-                            "Existing commits require a password",
-                        );
-                        if self.operation.existing_password_is_set {
-                            ui.add(
-                                egui::TextEdit::singleline(&mut self.operation.existing_password)
-                                    .password(!self.operation.show_password)
-                                    .hint_text("Password for existing archive commits"),
-                            );
-                        }
-                    });
-                }
-                ui.collapsing("Encryption", |ui| {
-                    ui.checkbox(
-                        &mut self.operation.password_is_set,
-                        "Encrypt this archive / new commit",
-                    );
-                    if self.operation.password_is_set {
-                        egui::ComboBox::from_label("Encryption algorithm")
-                            .selected_text(
-                                ["AES-256-GCM", "ChaCha20-Poly1305"][self.operation.aead.min(1)],
-                            )
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.operation.aead, 0, "AES-256-GCM");
-                                ui.selectable_value(
-                                    &mut self.operation.aead,
-                                    1,
-                                    "ChaCha20-Poly1305",
-                                );
-                            });
-                        egui::ComboBox::from_label("Encryption scope")
-                            .selected_text(
-                                ["Header and data", "Data only", "Header only"]
-                                    [self.operation.encryption_scope.min(2)],
-                            )
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(
-                                    &mut self.operation.encryption_scope,
-                                    0,
-                                    "Header and data",
-                                );
-                                ui.selectable_value(
-                                    &mut self.operation.encryption_scope,
-                                    1,
-                                    "Data only",
-                                );
-                                ui.selectable_value(
-                                    &mut self.operation.encryption_scope,
-                                    2,
-                                    "Header only",
-                                );
-                            });
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.operation.password)
-                                .password(!self.operation.show_password)
-                                .hint_text("Enter password"),
-                        );
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.operation.password_confirm)
-                                .password(!self.operation.show_password)
-                                .hint_text("Re-enter password"),
-                        );
-                        ui.checkbox(&mut self.operation.show_password, "Show password");
-                        let missing = password_requirements(&self.operation.password);
-                        if missing.is_empty() {
-                            ui.colored_label(
-                                egui::Color32::GREEN,
-                                "Password meets the minimum requirements.",
-                            );
-                        } else {
-                            ui.label("Password must have:");
-                            for requirement in missing {
-                                ui.colored_label(egui::Color32::YELLOW, format!("• {requirement}"));
-                            }
-                        }
-                        if !self.operation.password_confirm.is_empty()
-                            && self.operation.password != self.operation.password_confirm
-                        {
-                            ui.colored_label(egui::Color32::RED, "Passwords do not match.");
-                        }
-                    }
-                });
-                self.render_filter_fields(ui);
+                self.render_operation_input_list(ui, input_list_height);
+                self.render_create_options(ui, kind);
             }
-            OperationKind::Remove => return,
+            OperationKind::Remove => {}
+            OperationKind::Undo => {
+                let maximum = self.operation.commit_ids.len().saturating_sub(1);
+                let range_maximum = maximum.max(1);
+                self.operation.undo_commits = self.operation.undo_commits.clamp(1, range_maximum);
+                ui.horizontal(|ui| {
+                    ui.label("Commits to undo:");
+                    ui.add_enabled(
+                        maximum > 0,
+                        egui::DragValue::new(&mut self.operation.undo_commits)
+                            .range(1..=range_maximum),
+                    );
+                });
+                ui.label("The first commit is retained and cannot be undone.");
+            }
             OperationKind::Join => {
                 ui.horizontal(|ui| {
                     let form = &mut self.operation;
                     let position = |ids: &[String], id: &str| ids.iter().position(|c| c == id);
-                    egui::ComboBox::from_label("From commit")
+                    ui.label("From commit");
+                    egui::ComboBox::from_id_salt("join-from-commit")
                         .selected_text(&form.from_id)
                         .show_ui(ui, |ui| {
                             for id in &form.commit_ids {
                                 ui.selectable_value(&mut form.from_id, id.clone(), id);
                             }
                         });
-                    egui::ComboBox::from_label("Through")
+                    ui.label("To");
+                    egui::ComboBox::from_id_salt("join-to-commit")
                         .selected_text(&form.through_id)
                         .show_ui(ui, |ui| {
                             let min = position(&form.commit_ids, &form.from_id).unwrap_or(0);
@@ -2112,7 +1963,6 @@ impl ZargApp {
                                 ui.selectable_value(&mut form.through_id, id.clone(), id);
                             }
                         });
-                    // Keep "through" from pointing before "from".
                     if let (Some(from), Some(through)) = (
                         position(&form.commit_ids, &form.from_id),
                         position(&form.commit_ids, &form.through_id),
@@ -2352,13 +2202,261 @@ impl ZargApp {
                 self.render_filter_fields(ui);
             }
         }
+    }
+
+    fn render_operation_header(&mut self, ui: &mut egui::Ui, kind: OperationKind) {
+        if kind.needs_archive() || kind == OperationKind::Create {
+            ui.horizontal(|ui| {
+                ui.label("Archive:");
+                if matches!(
+                    kind,
+                    OperationKind::Create
+                        | OperationKind::Add
+                        | OperationKind::Check
+                        | OperationKind::Extract
+                        | OperationKind::Join
+                        | OperationKind::Undo
+                ) {
+                    ui.allocate_ui_with_layout(
+                        ui.available_size(),
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            if icon_button(ui, &self.icons, UiIcon::Browse, "Browse...", true)
+                                .clicked()
+                            {
+                                self.choose_archive(kind == OperationKind::Create);
+                            }
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.operation.archive)
+                                    .desired_width(ui.available_width()),
+                            );
+                        },
+                    );
+                } else {
+                    ui.text_edit_singleline(&mut self.operation.archive);
+                    if icon_button(ui, &self.icons, UiIcon::Browse, "Browse...", true).clicked() {
+                        self.choose_archive(kind == OperationKind::Create);
+                    }
+                }
+            });
+        }
+        if matches!(kind, OperationKind::Create | OperationKind::Add) {
+            ui.horizontal(|ui| {
+                if icon_button(
+                    ui,
+                    &self.icons,
+                    UiIcon::AddFolder,
+                    "Add folders/files",
+                    true,
+                )
+                .clicked()
+                {
+                    self.choose_input_paths();
+                }
+                if icon_button(
+                    ui,
+                    &self.icons,
+                    UiIcon::Remove,
+                    "Remove items",
+                    !self.operation.selected_input_paths.is_empty(),
+                )
+                .clicked()
+                {
+                    self.operation
+                        .input_paths
+                        .retain(|path| !self.operation.selected_input_paths.contains(path));
+                    self.operation.selected_input_paths.clear();
+                    self.operation.input_selection_anchor = None;
+                }
+                if icon_button(
+                    ui,
+                    &self.icons,
+                    UiIcon::ClearInputs,
+                    "Clear list",
+                    !self.operation.input_paths.is_empty(),
+                )
+                .clicked()
+                {
+                    self.operation.input_paths.clear();
+                    self.operation.selected_input_paths.clear();
+                    self.operation.input_selection_anchor = None;
+                }
+            });
+        }
+    }
+
+    fn render_operation_input_list(&mut self, ui: &mut egui::Ui, input_list_height: f32) {
+        egui::ScrollArea::vertical()
+            .id_salt("create-add-input-paths")
+            .max_height(input_list_height)
+            .min_scrolled_height(input_list_height)
+            .show(ui, |ui| {
+                ui.set_min_height(input_list_height);
+                ui.set_min_width(ui.available_width());
+                for path in &self.operation.input_paths {
+                    let path_text = path.display().to_string();
+                    let icon_kind = if path.is_dir() {
+                        UiIcon::Folder
+                    } else {
+                        file_icon(&path_text)
+                    };
+                    let icon = icon_texture(ui.ctx(), &self.icons, icon_kind);
+                    ui.horizontal(|ui| {
+                        let response = ui
+                            .add(egui::Image::new(&icon).fit_to_exact_size(egui::vec2(16.0, 16.0)));
+                        let selected = self.operation.selected_input_paths.contains(path);
+                        let response = response.union(ui.selectable_label(selected, path_text));
+                        if response.clicked() {
+                            let modifiers = ui.input(|input| input.modifiers);
+                            let selection = extended_selection(
+                                &self.operation.input_paths,
+                                &self.operation.selected_input_paths,
+                                &self.operation.input_selection_anchor,
+                                path,
+                                modifiers,
+                            );
+                            self.operation.selected_input_paths = selection.selected;
+                            self.operation.input_selection_anchor = selection.anchor;
+                        }
+                    });
+                }
+            });
+    }
+
+    fn render_create_options(&mut self, ui: &mut egui::Ui, kind: OperationKind) {
+        ui.collapsing("Compression and archive options", |ui| {
+            ui.label("Format: ZAR (Zstandard-compressed blocks)");
+            ui.horizontal(|ui| {
+                egui::ComboBox::from_label("Block size")
+                    .selected_text(format!(
+                        "{} MB",
+                        self.operation.block_size.trim_end_matches(['M', 'm'])
+                    ))
+                    .show_ui(ui, |ui| {
+                        for size in ["1M", "2M", "4M", "8M", "16M"] {
+                            ui.selectable_value(
+                                &mut self.operation.block_size,
+                                size.to_owned(),
+                                format!("{} MB", size.trim_end_matches('M')),
+                            );
+                        }
+                    });
+                egui::ComboBox::from_label("Compression level")
+                    .selected_text(&self.operation.compression_level)
+                    .show_ui(ui, |ui| {
+                        for level in -7..=22 {
+                            let level = level.to_string();
+                            ui.selectable_value(
+                                &mut self.operation.compression_level,
+                                level.clone(),
+                                level,
+                            );
+                        }
+                    });
+                ui.label("-7 (fastest) to 22 (smallest)");
+            });
+            ui.checkbox(
+                &mut self.operation.metadata,
+                "Preserve platform-specific metadata",
+            );
+            ui.checkbox(&mut self.operation.dates, "Save modification dates");
+            ui.checkbox(
+                &mut self.operation.special_files,
+                "Include named pipes and device nodes",
+            );
+            ui.checkbox(&mut self.operation.strict, "Strict input validation");
+            ui.checkbox(&mut self.operation.verbose, "Show symbolic-link warnings");
+            if kind == OperationKind::Create {
+                ui.checkbox(
+                    &mut self.operation.overwrite,
+                    "Replace archive if it already exists",
+                );
+            } else {
+                ui.label("Update mode: add or replace files; earlier commits are retained.");
+            }
+        });
+        if kind == OperationKind::Add {
+            ui.collapsing("Unlock existing archive", |ui| {
+                ui.checkbox(
+                    &mut self.operation.existing_password_is_set,
+                    "Existing commits require a password",
+                );
+                if self.operation.existing_password_is_set {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.operation.existing_password)
+                            .password(!self.operation.show_password)
+                            .hint_text("Password for existing archive commits"),
+                    );
+                }
+            });
+        }
+        ui.collapsing("Encryption", |ui| {
+            ui.checkbox(
+                &mut self.operation.password_is_set,
+                "Encrypt this archive / new commit",
+            );
+            if self.operation.password_is_set {
+                egui::ComboBox::from_label("Encryption algorithm")
+                    .selected_text(["AES-256-GCM", "ChaCha20-Poly1305"][self.operation.aead.min(1)])
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.operation.aead, 0, "AES-256-GCM");
+                        ui.selectable_value(&mut self.operation.aead, 1, "ChaCha20-Poly1305");
+                    });
+                egui::ComboBox::from_label("Encryption scope")
+                    .selected_text(
+                        ["Header and data", "Data only", "Header only"]
+                            [self.operation.encryption_scope.min(2)],
+                    )
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut self.operation.encryption_scope,
+                            0,
+                            "Header and data",
+                        );
+                        ui.selectable_value(&mut self.operation.encryption_scope, 1, "Data only");
+                        ui.selectable_value(&mut self.operation.encryption_scope, 2, "Header only");
+                    });
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.operation.password)
+                        .password(!self.operation.show_password)
+                        .hint_text("Enter password"),
+                );
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.operation.password_confirm)
+                        .password(!self.operation.show_password)
+                        .hint_text("Re-enter password"),
+                );
+                ui.checkbox(&mut self.operation.show_password, "Show password");
+                let missing = password_requirements(&self.operation.password);
+                if missing.is_empty() {
+                    ui.colored_label(
+                        egui::Color32::GREEN,
+                        "Password meets the minimum requirements.",
+                    );
+                } else {
+                    ui.label("Password must have:");
+                    for requirement in missing {
+                        ui.colored_label(egui::Color32::YELLOW, format!("• {requirement}"));
+                    }
+                }
+                if !self.operation.password_confirm.is_empty()
+                    && self.operation.password != self.operation.password_confirm
+                {
+                    ui.colored_label(egui::Color32::RED, "Passwords do not match.");
+                }
+            }
+        });
+        self.render_filter_fields(ui);
+    }
+    fn render_operation_actions(&mut self, ui: &mut egui::Ui, kind: OperationKind) {
         ui.separator();
-        ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let (icon, label) = match kind {
                 OperationKind::Create => (UiIcon::CreateArchive, "Create"),
                 OperationKind::Add => (UiIcon::Add, "Add"),
                 OperationKind::Remove => return,
                 OperationKind::Join => (UiIcon::Join, "Join"),
+                OperationKind::Undo => (UiIcon::Join, "Undo"),
                 OperationKind::Metadata => (UiIcon::Info, "Apply"),
                 OperationKind::Check => (UiIcon::TestArchive, "Test"),
                 OperationKind::List => (UiIcon::ListContents, "List"),
@@ -2377,14 +2475,28 @@ impl ZargApp {
                         && valid_destination_path(&self.operation.destination)
                 }
                 OperationKind::Check => PathBuf::from(self.operation.archive.trim()).is_file(),
+                OperationKind::Metadata => {
+                    PathBuf::from(self.operation.archive.trim()).is_file()
+                        && self.operation.has_metadata_changes()
+                }
+                OperationKind::Undo => {
+                    PathBuf::from(self.operation.archive.trim()).is_file()
+                        && self.operation.undo_commits > 0
+                        && self.operation.undo_commits < self.operation.commit_ids.len()
+                }
+                OperationKind::Join => join_range_is_valid(
+                    &self.operation.commit_ids,
+                    &self.operation.from_id,
+                    &self.operation.through_id,
+                ),
                 _ => true,
             };
+            if icon_button(ui, &self.icons, UiIcon::Cancel, "Cancel", true).clicked() {
+                self.operation = OperationForm::default();
+            }
             if icon_button(ui, &self.icons, icon, label, can_start).clicked() {
                 let form = std::mem::take(&mut self.operation);
                 self.start_operation(form);
-            }
-            if icon_button(ui, &self.icons, UiIcon::Cancel, "Cancel", true).clicked() {
-                self.operation = OperationForm::default();
             }
         });
     }
@@ -2506,7 +2618,9 @@ impl ZargApp {
                                     );
                                     cell_ui.add_sized(
                                         [inner.width(), 36.0],
-                                        egui::Label::new(&path).truncate(),
+                                        egui::Label::new(&path)
+                                            .truncate()
+                                            .show_tooltip_when_elided(false),
                                     );
                                 },
                             );
@@ -3065,113 +3179,116 @@ impl ZargApp {
                         open = false;
                     }
                 }
-                ui.label(format!("Archive: {archive}"));
-                ui.weak(
-                    "Unpacks the archive to a temporary folder, then times creating and \
+                egui::Frame::new().inner_margin(3).show(ui, |ui| {
+                    ui.label(format!("Archive: {archive}"));
+                    ui.weak(
+                        "Unpacks the archive to a temporary folder, then times creating and \
                      extracting a new archive with these settings. Nothing else is written.",
-                );
-                ui.add_enabled_ui(!running, |ui| {
-                    egui::Grid::new("benchmark_settings")
-                        .num_columns(2)
-                        .spacing([16.0, 6.0])
-                        .show(ui, |ui| {
-                            ui.label("Block size");
-                            egui::ComboBox::from_id_salt("bench_block")
-                                .selected_text(&state.settings.block_size)
-                                .show_ui(ui, |ui| {
-                                    for size in
-                                        ["64K", "256K", "1M", "2M", "4M", "8M", "16M", "32M"]
-                                    {
-                                        ui.selectable_value(
-                                            &mut state.settings.block_size,
-                                            size.to_owned(),
-                                            size,
-                                        );
-                                    }
-                                });
-                            ui.end_row();
-                            ui.label("Compression level");
-                            ui.add(egui::Slider::new(
-                                &mut state.settings.compression_level,
-                                -7..=22,
-                            ));
-                            ui.end_row();
-                        });
-                    ui.checkbox(
-                        &mut state.settings.owner_permissions,
-                        "Save owner and permissions",
                     );
-                    ui.checkbox(&mut state.settings.dates, "Save modification dates");
-                    ui.checkbox(
-                        &mut state.settings.special_files,
-                        "Include symbolic links and special files",
-                    );
-                });
-                ui.separator();
-                match &state.result {
-                    _ if running => {
-                        ui.horizontal(|ui| {
-                            ui.spinner();
-                            ui.label(if cancelling {
-                                "Cancelling after the current step..."
-                            } else {
-                                "Running benchmark..."
-                            });
-                        });
-                    }
-                    Some(Ok(result)) => {
-                        egui::Grid::new("benchmark_result")
+                    ui.add_enabled_ui(!running, |ui| {
+                        egui::Grid::new("benchmark_settings")
                             .num_columns(2)
-                            .spacing([16.0, 4.0])
+                            .spacing([16.0, 6.0])
                             .show(ui, |ui| {
-                                info_row(ui, "Files", result.files.to_string());
-                                info_row(ui, "Original size", display_size(result.uncompressed));
-                                info_row(ui, "Archive size", display_size(result.archive_size));
-                                ui.label(egui::RichText::new("Ratio").weak());
-                                info_ratio_bar(
-                                    ui,
-                                    info_ratio(result.archive_size, result.uncompressed),
-                                );
+                                ui.label("Block size");
+                                egui::ComboBox::from_id_salt("bench_block")
+                                    .selected_text(&state.settings.block_size)
+                                    .show_ui(ui, |ui| {
+                                        for size in
+                                            ["64K", "256K", "1M", "2M", "4M", "8M", "16M", "32M"]
+                                        {
+                                            ui.selectable_value(
+                                                &mut state.settings.block_size,
+                                                size.to_owned(),
+                                                size,
+                                            );
+                                        }
+                                    });
                                 ui.end_row();
-                                info_row(
-                                    ui,
-                                    "Create",
-                                    format!(
-                                        "{:.2} s, {}",
-                                        result.create_seconds,
-                                        throughput(result.uncompressed, result.create_seconds)
-                                    ),
-                                );
-                                info_row(
-                                    ui,
-                                    "Extract",
-                                    format!(
-                                        "{:.2} s, {}",
-                                        result.extract_seconds,
-                                        throughput(result.uncompressed, result.extract_seconds)
-                                    ),
-                                );
+                                ui.label("Compression level");
+                                ui.add(egui::Slider::new(
+                                    &mut state.settings.compression_level,
+                                    -7..=22,
+                                ));
+                                ui.end_row();
                             });
+                        ui.checkbox(
+                            &mut state.settings.owner_permissions,
+                            "Save owner and permissions",
+                        );
+                        ui.checkbox(&mut state.settings.dates, "Save modification dates");
+                        ui.checkbox(
+                            &mut state.settings.special_files,
+                            "Include symbolic links and special files",
+                        );
+                    });
+                    ui.separator();
+                    match &state.result {
+                        _ if running => {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label(if cancelling {
+                                    "Cancelling after the current step..."
+                                } else {
+                                    "Running benchmark..."
+                                });
+                            });
+                        }
+                        Some(Ok(result)) => {
+                            egui::Grid::new("benchmark_result")
+                                .num_columns(2)
+                                .spacing([16.0, 4.0])
+                                .show(ui, |ui| {
+                                    info_row(ui, "Files", result.files.to_string());
+                                    info_row(
+                                        ui,
+                                        "Original size",
+                                        display_size(result.uncompressed),
+                                    );
+                                    info_row(ui, "Archive size", display_size(result.archive_size));
+                                    ui.label(egui::RichText::new("Ratio").weak());
+                                    info_ratio_bar(
+                                        ui,
+                                        info_ratio(result.archive_size, result.uncompressed),
+                                    );
+                                    ui.end_row();
+                                    info_row(
+                                        ui,
+                                        "Create",
+                                        format!(
+                                            "{:.2} s, {}",
+                                            result.create_seconds,
+                                            throughput(result.uncompressed, result.create_seconds)
+                                        ),
+                                    );
+                                    info_row(
+                                        ui,
+                                        "Extract",
+                                        format!(
+                                            "{:.2} s, {}",
+                                            result.extract_seconds,
+                                            throughput(result.uncompressed, result.extract_seconds)
+                                        ),
+                                    );
+                                });
+                        }
+                        Some(Err(error)) => {
+                            ui.colored_label(ui.visuals().error_fg_color, error);
+                        }
+                        None => {}
                     }
-                    Some(Err(error)) => {
-                        ui.colored_label(ui.visuals().error_fg_color, error);
-                    }
-                    None => {}
-                }
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(!running, egui::Button::new("Start"))
-                        .clicked()
-                    {
-                        start = true;
-                    }
-                    if ui
-                        .add_enabled(running && !cancelling, egui::Button::new("Cancel"))
-                        .clicked()
-                    {
-                        cancel = true;
-                    }
+                    ui.add_space(ui.available_height().max(0.0));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .add_enabled(running && !cancelling, egui::Button::new("Cancel"))
+                            .clicked()
+                        {
+                            cancel = true;
+                        }
+                        if !running && ui.button("Start").clicked() {
+                            start = true;
+                        }
+                    });
                 });
                 if !open {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
@@ -3288,9 +3405,11 @@ impl ZargApp {
                 if ui.ctx().input(|input| input.viewport().close_requested()) {
                     open = false;
                 }
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| render_info_contents(ui, view));
+                egui::Frame::new().inner_margin(3).show(ui, |ui| {
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| render_info_contents(ui, view));
+                });
                 if !open {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
@@ -3407,246 +3526,257 @@ impl eframe::App for ZargApp {
                 ui.label(&self.status);
             }
         });
-        egui::CentralPanel::default().show(ui, |ui| {
-            if self.archive.is_empty() {
-                ui.centered_and_justified(|ui| {
-                    ui.heading("Open or create a ZAR archive");
-                });
-                return;
-            }
-            if self.archive_view == ArchiveView::Structured {
-                self.render_structured_archive_list(ui);
-                return;
-            }
-            if self.archive_view != ArchiveView::Details {
-                self.render_icon_archive_list(ui, &context);
-                return;
-            }
-            let has_dates = self.has_entry_dates;
-            let (has_owner, has_permissions) = (self.has_entry_owner, self.has_entry_permissions);
-            egui::ScrollArea::horizontal()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    let mut labels = vec!["Name"];
-                    let mut defaults = vec![360.0];
-                    let mut sorts = vec![Some(SortBy::Name)];
-                    if has_dates {
-                        labels.push("Modified");
-                        defaults.push(160.0);
-                        sorts.push(Some(SortBy::Date));
-                    }
-                    labels.extend(["Compressed", "Uncompressed", "Ratio"]);
-                    defaults.extend([110.0, 110.0, 80.0]);
-                    sorts.extend([
-                        Some(SortBy::CompressedSize),
-                        Some(SortBy::UncompressedSize),
-                        Some(SortBy::Ratio),
-                    ]);
-                    if has_owner {
-                        labels.push("Owner");
+        // Fusion draws item views on the Base color rather than the window color.
+        let list_frame = egui::Frame::central_panel(ui.style()).fill(ui.visuals().extreme_bg_color);
+        egui::CentralPanel::default()
+            .frame(list_frame)
+            .show(ui, |ui| {
+                if self.archive.is_empty() {
+                    ui.centered_and_justified(|ui| {
+                        ui.heading("Open or create a ZAR archive");
+                    });
+                    return;
+                }
+                if self.archive_view == ArchiveView::Structured {
+                    self.render_structured_archive_list(ui);
+                    return;
+                }
+                if self.archive_view != ArchiveView::Details {
+                    self.render_icon_archive_list(ui, &context);
+                    return;
+                }
+                let has_dates = self.has_entry_dates;
+                let (has_owner, has_permissions) =
+                    (self.has_entry_owner, self.has_entry_permissions);
+                egui::ScrollArea::horizontal()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        let mut labels = vec!["Name"];
+                        let mut defaults = vec![360.0];
+                        let mut sorts = vec![Some(SortBy::Name)];
+                        if has_dates {
+                            labels.push("Modified");
+                            defaults.push(160.0);
+                            sorts.push(Some(SortBy::Date));
+                        }
+                        labels.extend(["Compressed", "Uncompressed", "Ratio"]);
+                        defaults.extend([110.0, 110.0, 80.0]);
+                        sorts.extend([
+                            Some(SortBy::CompressedSize),
+                            Some(SortBy::UncompressedSize),
+                            Some(SortBy::Ratio),
+                        ]);
+                        if has_owner {
+                            labels.push("Owner");
+                            defaults.push(110.0);
+                            sorts.push(None);
+                        }
+                        if has_permissions {
+                            labels.push("Permissions");
+                            defaults.push(100.0);
+                            sorts.push(None);
+                        }
+                        labels.push("Type");
                         defaults.push(110.0);
-                        sorts.push(None);
-                    }
-                    if has_permissions {
-                        labels.push("Permissions");
-                        defaults.push(100.0);
-                        sorts.push(None);
-                    }
-                    labels.push("Type");
-                    defaults.push(110.0);
-                    sorts.push(Some(SortBy::Type));
-                    let mut columns = self.column_widths_for("details", &labels, &defaults);
-                    let content_width = columns.iter().sum::<f32>() + 8.0 * columns.len() as f32;
-                    let spacing = ui.spacing().item_spacing.x;
-                    let header_columns = labels
-                        .iter()
-                        .copied()
-                        .zip(sorts.iter().copied())
-                        .collect::<Vec<_>>();
-                    let clicked_sort = render_column_header(
-                        ui,
-                        ui.scope_id().with("details-header"),
-                        &header_columns,
-                        &mut columns,
-                        (self.sort_by, self.sort_reversed),
-                        &HeaderLayout {
-                            offset: 24.0 + spacing,
-                            trim: 28.0,
-                            gap: spacing,
-                            pad: 0.0,
-                        },
-                    );
-                    self.store_column_widths("details", &labels, &columns);
-                    if let Some(sort_by) = clicked_sort {
-                        self.apply_sort_choice(sort_by);
-                    }
-                    ui.separator();
-                    let row_height = ui.spacing().interact_size.y;
-                    egui::ScrollArea::vertical()
-                        .auto_shrink([false, false])
-                        .show_rows(
+                        sorts.push(Some(SortBy::Type));
+                        let mut columns = self.column_widths_for("details", &labels, &defaults);
+                        let content_width =
+                            columns.iter().sum::<f32>() + 8.0 * columns.len() as f32;
+                        let spacing = ui.spacing().item_spacing.x;
+                        let header_columns = labels
+                            .iter()
+                            .copied()
+                            .zip(sorts.iter().copied())
+                            .collect::<Vec<_>>();
+                        let clicked_sort = render_column_header(
                             ui,
-                            row_height,
-                            self.visible_entry_indices.len(),
-                            |ui, row_range| {
-                                ui.set_min_width(content_width);
-                                for row in row_range {
-                                    let (path, data) =
-                                        &self.entries[self.visible_entry_indices[row]];
-                                    let selected = self.selected.contains(path);
-                                    let row_rect = egui::Rect::from_min_size(
-                                        ui.cursor().min,
-                                        egui::vec2(content_width, row_height),
-                                    );
-                                    if selected {
-                                        ui.painter().rect_filled(
-                                            row_rect,
-                                            0.0,
-                                            ui.visuals().selection.bg_fill,
-                                        );
-                                    }
-                                    ui.horizontal(|ui| {
-                                        ui.set_min_width(content_width);
-                                        let icon = match data {
-                                            EntryData::Directory => UiIcon::Folder,
-                                            EntryData::File(_) => file_icon(path),
-                                            EntryData::Symlink(_) => UiIcon::Symlink,
-                                            EntryData::NamedPipe | EntryData::Device(_) => {
-                                                UiIcon::SpecialData
-                                            }
-                                        };
-                                        let hover_text = match data {
-                                            EntryData::Symlink(target) => {
-                                                format!("{path} → {target}")
-                                            }
-                                            _ => path.clone(),
-                                        };
-                                        let texture = icon_texture(&context, &self.icons, icon);
-                                        left_aligned_cell(
-                                            ui,
-                                            24.0,
-                                            row_height,
-                                            egui::Image::new(&texture)
-                                                .fit_to_exact_size(egui::vec2(20.0, 20.0)),
-                                        );
-                                        let name_response = left_aligned_cell(
-                                            ui,
-                                            columns[0] - 28.0,
-                                            row_height,
-                                            egui::Label::new(egui::RichText::new(path).color(
-                                                if selected {
-                                                    ui.visuals().selection.stroke.color
-                                                } else {
-                                                    ui.visuals().text_color()
-                                                },
-                                            ))
-                                            .halign(egui::Align::Min)
-                                            .truncate()
-                                            .sense(egui::Sense::click()),
-                                        )
-                                        .on_hover_text(hover_text);
-                                        if name_response.double_clicked() {
-                                            self.pending_open = Some(path.clone());
-                                        }
-                                        if name_response.clicked() {
-                                            let modifiers = ui.input(|input| input.modifiers);
-                                            let visible_paths = self
-                                                .visible_entry_indices
-                                                .iter()
-                                                .map(|index| self.entries[*index].0.clone())
-                                                .collect::<Vec<_>>();
-                                            let selection = extended_selection(
-                                                &visible_paths,
-                                                &self.selected,
-                                                &self.selection_anchor,
-                                                path,
-                                                modifiers,
-                                            );
-                                            self.selected = selection.selected;
-                                            self.selection_anchor = selection.anchor;
-                                        }
-                                        let details = self.entry_details.get(path);
-                                        let (compressed, uncompressed, ratio, kind) = match data {
-                                            EntryData::File(size) => {
-                                                let compressed_size = details
-                                                    .and_then(|details| details.compressed_size);
-                                                let ratio = compressed_size
-                                                    .map(|compressed| {
-                                                        if *size == 0 {
-                                                            "—".to_owned()
-                                                        } else {
-                                                            format!(
-                                                                "{:.1}%",
-                                                                compressed as f64 * 100.0
-                                                                    / *size as f64
-                                                            )
-                                                        }
-                                                    })
-                                                    .unwrap_or_else(|| "—".to_owned());
-                                                (
-                                                    compressed_size
-                                                        .map(display_size)
-                                                        .unwrap_or_else(|| "—".to_owned()),
-                                                    display_size(*size),
-                                                    ratio,
-                                                    "File",
-                                                )
-                                            }
-                                            EntryData::Directory => (
-                                                "—".to_owned(),
-                                                "—".to_owned(),
-                                                "—".to_owned(),
-                                                "Folder",
-                                            ),
-                                            EntryData::Symlink(_) => (
-                                                "—".to_owned(),
-                                                "—".to_owned(),
-                                                "—".to_owned(),
-                                                "Symbolic link",
-                                            ),
-                                            EntryData::NamedPipe => (
-                                                "—".to_owned(),
-                                                "—".to_owned(),
-                                                "—".to_owned(),
-                                                "Named pipe",
-                                            ),
-                                            EntryData::Device(kind) => (
-                                                "—".to_owned(),
-                                                "—".to_owned(),
-                                                "—".to_owned(),
-                                                kind.as_str(),
-                                            ),
-                                        };
-                                        let mut values = Vec::with_capacity(7);
-                                        if has_dates {
-                                            values.push(format_modified(details));
-                                        }
-                                        values.extend([compressed, uncompressed, ratio]);
-                                        if has_owner {
-                                            values.push(format_owner(details));
-                                        }
-                                        if has_permissions {
-                                            values.push(format_permissions(details));
-                                        }
-                                        values.push(kind.to_owned());
-                                        for (value, width) in
-                                            values.into_iter().zip(columns[1..].iter().copied())
-                                        {
-                                            left_aligned_cell(
-                                                ui,
-                                                width,
-                                                row_height,
-                                                egui::Label::new(value)
-                                                    .halign(egui::Align::Min)
-                                                    .truncate(),
-                                            );
-                                        }
-                                    });
-                                }
+                            ui.scope_id().with("details-header"),
+                            &header_columns,
+                            &mut columns,
+                            (self.sort_by, self.sort_reversed),
+                            &HeaderLayout {
+                                offset: 24.0 + spacing,
+                                trim: 28.0,
+                                gap: spacing,
+                                pad: 0.0,
                             },
                         );
-                });
-        });
+                        self.store_column_widths("details", &labels, &columns);
+                        if let Some(sort_by) = clicked_sort {
+                            self.apply_sort_choice(sort_by);
+                        }
+                        ui.separator();
+                        let row_height = ui.spacing().interact_size.y;
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .show_rows(
+                                ui,
+                                row_height,
+                                self.visible_entry_indices.len(),
+                                |ui, row_range| {
+                                    ui.set_min_width(content_width);
+                                    for row in row_range {
+                                        let (path, data) =
+                                            &self.entries[self.visible_entry_indices[row]];
+                                        let selected = self.selected.contains(path);
+                                        let row_rect = egui::Rect::from_min_size(
+                                            ui.cursor().min,
+                                            egui::vec2(content_width, row_height),
+                                        );
+                                        if selected {
+                                            ui.painter().rect_filled(
+                                                row_rect,
+                                                0.0,
+                                                ui.visuals().selection.bg_fill,
+                                            );
+                                        }
+                                        ui.horizontal(|ui| {
+                                            ui.set_min_width(content_width);
+                                            let icon = match data {
+                                                EntryData::Directory => UiIcon::Folder,
+                                                EntryData::File(_) => file_icon(path),
+                                                EntryData::Symlink(_) => UiIcon::Symlink,
+                                                EntryData::NamedPipe | EntryData::Device(_) => {
+                                                    UiIcon::SpecialData
+                                                }
+                                            };
+                                            let hover_text = match data {
+                                                EntryData::Symlink(target) => {
+                                                    format!("{path} → {target}")
+                                                }
+                                                _ => path.clone(),
+                                            };
+                                            let texture = icon_texture(&context, &self.icons, icon);
+                                            left_aligned_cell(
+                                                ui,
+                                                24.0,
+                                                row_height,
+                                                egui::Image::new(&texture)
+                                                    .fit_to_exact_size(egui::vec2(20.0, 20.0)),
+                                            );
+                                            let name_response = left_aligned_cell(
+                                                ui,
+                                                columns[0] - 28.0,
+                                                row_height,
+                                                egui::Label::new(egui::RichText::new(path).color(
+                                                    if selected {
+                                                        ui.visuals().selection.stroke.color
+                                                    } else {
+                                                        ui.visuals().text_color()
+                                                    },
+                                                ))
+                                                .halign(egui::Align::Min)
+                                                .truncate()
+                                                // The hover text below already shows the full path.
+                                                .show_tooltip_when_elided(false)
+                                                .sense(egui::Sense::click()),
+                                            )
+                                            .on_hover_text(hover_text);
+                                            if name_response.double_clicked() {
+                                                self.pending_open = Some(path.clone());
+                                            }
+                                            if name_response.clicked() {
+                                                let modifiers = ui.input(|input| input.modifiers);
+                                                let visible_paths = self
+                                                    .visible_entry_indices
+                                                    .iter()
+                                                    .map(|index| self.entries[*index].0.clone())
+                                                    .collect::<Vec<_>>();
+                                                let selection = extended_selection(
+                                                    &visible_paths,
+                                                    &self.selected,
+                                                    &self.selection_anchor,
+                                                    path,
+                                                    modifiers,
+                                                );
+                                                self.selected = selection.selected;
+                                                self.selection_anchor = selection.anchor;
+                                            }
+                                            let details = self.entry_details.get(path);
+                                            let (compressed, uncompressed, ratio, kind) = match data
+                                            {
+                                                EntryData::File(size) => {
+                                                    let compressed_size =
+                                                        details.and_then(|details| {
+                                                            details.compressed_size
+                                                        });
+                                                    let ratio = compressed_size
+                                                        .map(|compressed| {
+                                                            if *size == 0 {
+                                                                "—".to_owned()
+                                                            } else {
+                                                                format!(
+                                                                    "{:.1}%",
+                                                                    compressed as f64 * 100.0
+                                                                        / *size as f64
+                                                                )
+                                                            }
+                                                        })
+                                                        .unwrap_or_else(|| "—".to_owned());
+                                                    (
+                                                        compressed_size
+                                                            .map(display_size)
+                                                            .unwrap_or_else(|| "—".to_owned()),
+                                                        display_size(*size),
+                                                        ratio,
+                                                        "File",
+                                                    )
+                                                }
+                                                EntryData::Directory => (
+                                                    "—".to_owned(),
+                                                    "—".to_owned(),
+                                                    "—".to_owned(),
+                                                    "Folder",
+                                                ),
+                                                EntryData::Symlink(_) => (
+                                                    "—".to_owned(),
+                                                    "—".to_owned(),
+                                                    "—".to_owned(),
+                                                    "Symbolic link",
+                                                ),
+                                                EntryData::NamedPipe => (
+                                                    "—".to_owned(),
+                                                    "—".to_owned(),
+                                                    "—".to_owned(),
+                                                    "Named pipe",
+                                                ),
+                                                EntryData::Device(kind) => (
+                                                    "—".to_owned(),
+                                                    "—".to_owned(),
+                                                    "—".to_owned(),
+                                                    kind.as_str(),
+                                                ),
+                                            };
+                                            let mut values = Vec::with_capacity(7);
+                                            if has_dates {
+                                                values.push(format_modified(details));
+                                            }
+                                            values.extend([compressed, uncompressed, ratio]);
+                                            if has_owner {
+                                                values.push(format_owner(details));
+                                            }
+                                            if has_permissions {
+                                                values.push(format_permissions(details));
+                                            }
+                                            values.push(kind.to_owned());
+                                            for (value, width) in
+                                                values.into_iter().zip(columns[1..].iter().copied())
+                                            {
+                                                left_aligned_cell(
+                                                    ui,
+                                                    width,
+                                                    row_height,
+                                                    egui::Label::new(value)
+                                                        .halign(egui::Align::Min)
+                                                        .truncate(),
+                                                );
+                                            }
+                                        });
+                                    }
+                                },
+                            );
+                    });
+            });
 
         if let Some(path) = self.pending_open.take() {
             self.open_entry_externally(path);
@@ -3677,14 +3807,18 @@ impl eframe::App for ZargApp {
                     if ui.ctx().input(|input| input.viewport().close_requested()) {
                         open = false;
                     }
-                    ui.label(&prompt);
-                    ui.horizontal(|ui| {
-                        if icon_button(ui, &self.icons, UiIcon::Confirm, "Yes", true).clicked() {
-                            self.answer_confirmation(true);
-                        }
-                        if icon_button(ui, &self.icons, UiIcon::Cancel, "No", true).clicked() {
-                            self.answer_confirmation(false);
-                        }
+                    egui::Frame::new().inner_margin(3).show(ui, |ui| {
+                        ui.label(&prompt);
+                        ui.add_space(ui.available_height().max(0.0));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if icon_button(ui, &self.icons, UiIcon::Cancel, "No", true).clicked() {
+                                self.answer_confirmation(false);
+                            }
+                            if icon_button(ui, &self.icons, UiIcon::Confirm, "Yes", true).clicked()
+                            {
+                                self.answer_confirmation(true);
+                            }
+                        });
                     });
                     if !open || self.confirmation.is_none() {
                         ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
@@ -3700,64 +3834,58 @@ impl eframe::App for ZargApp {
         if self.show_about {
             let mut close_about = false;
             let mut open = true;
-            let size_key = "about";
-            let size = self.dialog_size(size_key, [440.0, 220.0]);
-            let mut actual_size = None;
+            let size = self.dialog_size("about", [440.0, 220.0]);
             let icons = &self.icons;
-            let viewport_id = egui::ViewportId::from_hash_of("about-dialog");
-            context.show_viewport_immediate(
-                viewport_id,
-                Self::centered_dialog_viewport_builder(&context, "About zarg", size, false),
-                |ui, _class| {
-                    ui.painter().rect_filled(
-                        ui.max_rect(),
-                        0.0,
-                        ui.visuals().window_fill().to_opaque(),
-                    );
-                    actual_size = Self::viewport_inner_size(ui.ctx());
-                    if ui.ctx().input(|input| input.viewport().close_requested()) {
-                        open = false;
-                    }
-                    ui.horizontal(|ui| {
-                        let icon = icon_texture(ui.ctx(), &self.icons, UiIcon::Application);
-                        ui.add(egui::Image::new(&icon).fit_to_exact_size(egui::vec2(88.0, 88.0)));
-                        ui.vertical(|ui| {
-                            ui.heading("ZAR Archive Manager");
-                            ui.label("A graphical archive manager for the ZAR format.");
-                            ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+            egui::Window::new("About zarg")
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .fixed_size(size)
+                .resizable(false)
+                .collapsible(false)
+                .order(egui::Order::Foreground)
+                .frame(egui::Frame::window(&context.style_of(context.theme())).inner_margin(3))
+                .open(&mut open)
+                .show(&context, |ui| {
+                    ui.vertical(|ui| {
+                        ui.horizontal(|ui| {
+                            let icon = icon_texture(ui.ctx(), &self.icons, UiIcon::Application);
+                            ui.add(
+                                egui::Image::new(&icon).fit_to_exact_size(egui::vec2(88.0, 88.0)),
+                            );
+                            ui.vertical(|ui| {
+                                ui.heading("ZAR Archive Manager");
+                                ui.label("A graphical archive manager for the ZAR format.");
+                                ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                                ui.hyperlink_to(
+                                    "GitHub repository",
+                                    "https://github.com/brmmm3/zar-rs-inter",
+                                );
+                            });
+                        });
+                        ui.separator();
+                        ui.label(format!("Author: {}", env!("CARGO_PKG_AUTHORS")));
+                        ui.label(format!("License: {}", env!("CARGO_PKG_LICENSE")));
+                        ui.separator();
+                        ui.label("Icons: KDE4 Crystal Diamond 1.1 by Paolino (Paolo Campitelli)");
+                        ui.horizontal(|ui| {
+                            ui.label("Licensed under the");
                             ui.hyperlink_to(
-                                "GitHub repository",
-                                "https://github.com/brmmm3/zar-rs-inter",
+                                "GNU LGPL 3.0",
+                                "https://www.gnu.org/licenses/lgpl-3.0.html",
+                            );
+                            ui.label("-");
+                            ui.hyperlink_to(
+                                "paolocampitelli.com",
+                                "https://www.paolocampitelli.com/",
                             );
                         });
+                        ui.add_space(ui.available_height().max(0.0));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if icon_button(ui, icons, UiIcon::Cancel, "Close", true).clicked() {
+                                close_about = true;
+                            }
+                        });
                     });
-                    ui.separator();
-                    ui.label(format!("Author: {}", env!("CARGO_PKG_AUTHORS")));
-                    ui.label(format!("License: {}", env!("CARGO_PKG_LICENSE")));
-                    ui.separator();
-                    ui.label("Icons: KDE4 Crystal Diamond 1.1 by Paolino (Paolo Campitelli)");
-                    ui.horizontal(|ui| {
-                        ui.label("Licensed under the");
-                        ui.hyperlink_to(
-                            "GNU LGPL 3.0",
-                            "https://www.gnu.org/licenses/lgpl-3.0.html",
-                        );
-                        ui.label("-");
-                        ui.hyperlink_to("paolocampitelli.com", "https://www.paolocampitelli.com/");
-                    });
-                    ui.add_space(6.0);
-                    ui.horizontal(|ui| {
-                        ui.add_space((ui.available_width() - 90.0).max(0.0));
-                        if icon_button(ui, icons, UiIcon::Cancel, "Close", true).clicked() {
-                            close_about = true;
-                        }
-                    });
-                    if !open || close_about {
-                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                },
-            );
-            self.record_dialog_size(size_key, actual_size);
+                });
             if !open || close_about {
                 self.show_about = false;
             }
@@ -3782,38 +3910,41 @@ impl eframe::App for ZargApp {
                 if ui.ctx().input(|input| input.viewport().close_requested()) {
                     open = false;
                 }
-                let available_size = ui.available_size();
-                let footer_height =
-                    ui.spacing().interact_size.y + ui.spacing().item_spacing.y * 4.0;
-                let message_size = egui::vec2(
-                    available_size.x,
-                    (available_size.y - footer_height).max(48.0),
-                );
-                ui.allocate_ui_with_layout(
-                    message_size,
-                    egui::Layout::left_to_right(egui::Align::Min),
-                    |ui| {
-                        ui.set_min_size(message_size);
-                        let error_icon = icon_texture(ui.ctx(), &self.icons, UiIcon::Error);
-                        ui.add(
-                            egui::Image::new(&error_icon).fit_to_exact_size(egui::vec2(48.0, 48.0)),
+                egui::Panel::bottom("operation-error-actions")
+                    .frame(egui::Frame::new().inner_margin(3))
+                    .show_separator_line(false)
+                    .show(ui, |ui| {
+                        ui.separator();
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Close").clicked() {
+                                open = false;
+                            }
+                        });
+                    });
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::new().inner_margin(3))
+                    .show(ui, |ui| {
+                        let message_size = ui.available_size();
+                        ui.allocate_ui_with_layout(
+                            message_size,
+                            egui::Layout::left_to_right(egui::Align::Min),
+                            |ui| {
+                                ui.set_min_size(message_size);
+                                let error_icon = icon_texture(ui.ctx(), &self.icons, UiIcon::Error);
+                                ui.add(
+                                    egui::Image::new(&error_icon)
+                                        .fit_to_exact_size(egui::vec2(48.0, 48.0)),
+                                );
+                                egui::ScrollArea::vertical()
+                                    .max_height(message_size.y)
+                                    .auto_shrink([false, false])
+                                    .show(ui, |ui| {
+                                        ui.add_space(8.0);
+                                        ui.add(egui::Label::new(report.as_str()).wrap());
+                                    });
+                            },
                         );
-                        egui::ScrollArea::vertical()
-                            .max_height(message_size.y)
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| {
-                                ui.add_space(8.0);
-                                ui.add(egui::Label::new(report.as_str()).wrap());
-                            });
-                    },
-                );
-                ui.separator();
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Close").clicked() {
-                        open = false;
-                    }
-                });
-                ui.add_space(8.0);
+                    });
                 if !open {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
@@ -3854,7 +3985,9 @@ impl eframe::App for ZargApp {
                         closed = true;
                     }
 
-                    confirmed = self.file_dialog.ui(ui, &self.icons);
+                    egui::Frame::new().inner_margin(3).show(ui, |ui| {
+                        confirmed = self.file_dialog.ui(ui, &self.icons);
+                    });
 
                     if confirmed || closed {
                         ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
@@ -4083,6 +4216,14 @@ fn build_job(
             Box::new(move || {
                 operations::remove_archive_with_progress(&archive, &paths, Some(progress.as_ref()))
                     .map(|()| format!("Removed {} archive path(s)", paths.len()))
+                    .map_err(|error| error.to_string())
+            })
+        }
+        OperationKind::Undo => {
+            let commits = form.undo_commits;
+            Box::new(move || {
+                operations::undo_archive(&archive, commits)
+                    .map(|()| format!("Undid {commits} trailing commit(s)"))
                     .map_err(|error| error.to_string())
             })
         }
@@ -4678,6 +4819,12 @@ fn selected_commit_label(selected: &str, commits: &[String]) -> String {
     }
 }
 
+fn join_range_is_valid(commits: &[String], from: &str, to: &str) -> bool {
+    let from = commits.iter().position(|id| id == from);
+    let to = commits.iter().position(|id| id == to);
+    matches!((from, to), (Some(from), Some(to)) if to > from)
+}
+
 fn password_requirements(password: &str) -> Vec<&'static str> {
     let mut missing = Vec::new();
     if password.chars().count() < 12 {
@@ -4992,6 +5139,35 @@ fn check_summary(report: &CheckReport) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn metadata_changes_require_an_edited_pair() {
+        let mut form = OperationForm::new(OperationKind::Metadata, "");
+        assert!(!form.has_metadata_changes());
+
+        form.meta_new.push(("key".to_owned(), String::new()));
+        assert!(form.has_metadata_changes());
+        form.meta_new.clear();
+
+        form.meta_items
+            .push(("key".to_owned(), "old".to_owned(), "old".to_owned(), false));
+        assert!(!form.has_metadata_changes());
+        form.meta_items[0].2 = "new".to_owned();
+        assert!(form.has_metadata_changes());
+        form.meta_items[0].2 = "old".to_owned();
+        form.meta_items[0].3 = true;
+        assert!(form.has_metadata_changes());
+    }
+
+    #[test]
+    fn join_requires_to_commit_after_from_commit() {
+        let commits = vec!["first".to_owned(), "middle".to_owned(), "last".to_owned()];
+        assert!(join_range_is_valid(&commits, "first", "middle"));
+        assert!(join_range_is_valid(&commits, "first", "last"));
+        assert!(!join_range_is_valid(&commits, "middle", "middle"));
+        assert!(!join_range_is_valid(&commits, "last", "first"));
+        assert!(!join_range_is_valid(&commits, "missing", "last"));
+    }
 
     #[test]
     fn archive_contents_default_to_normal_view() {

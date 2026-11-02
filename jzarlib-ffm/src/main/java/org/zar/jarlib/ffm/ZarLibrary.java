@@ -114,6 +114,10 @@ public final class ZarLibrary {
         return executeJson("join_archive", requestJson);
     }
 
+    public static String undoArchive(String requestJson) throws ZarException {
+        return executeJson("undo_archive", requestJson);
+    }
+
     public static String checkArchive(String requestJson) throws ZarException {
         return executeJson("check_archive", requestJson);
     }

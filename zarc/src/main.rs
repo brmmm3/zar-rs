@@ -803,6 +803,11 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             println!("Time: {}", format_duration(elapsed));
             Ok(0)
         }
+        Command::Undo { archive, commits } => {
+            undo_archive(&archive, commits)?;
+            println!("Removed {commits} trailing commit(s)");
+            Ok(0)
+        }
         Command::Meta {
             archive,
             set,
@@ -982,7 +987,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
         }
         Command::Extract {
             archive,
-            to: destination,
+            output: destination,
             through,
             collision,
             existing,

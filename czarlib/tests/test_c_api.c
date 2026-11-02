@@ -278,6 +278,30 @@ static void test_join_and_suffix_preservation(void) {
     czarlib_string_free(listing);
 }
 
+static void test_undo_retains_first_commit(void) {
+    write_file("undo-first.txt", "first", 5);
+    write_file("undo-second.txt", "second", 6);
+    char *response = invoke(
+        "create_archive",
+        "{\"archive\":\"undo.zar\",\"paths\":[\"undo-first.txt\"]}");
+    czarlib_string_free(response);
+    response = invoke(
+        "add_archive",
+        "{\"archive\":\"undo.zar\",\"paths\":[\"undo-second.txt\"]}");
+    czarlib_string_free(response);
+    response = invoke(
+        "undo_archive",
+        "{\"archive\":\"undo.zar\",\"commits\":1}");
+    czarlib_string_free(response);
+    char *report = invoke("check_archive", "{\"archive\":\"undo.zar\"}");
+    REQUIRE(strstr(report, "\"commits\":1") != NULL);
+    czarlib_string_free(report);
+    expect_error(
+        "undo_archive",
+        "{\"archive\":\"undo.zar\",\"commits\":1}",
+        "first commit must be retained");
+}
+
 static void test_extract_policies_memory_and_encryption(void) {
     REQUIRE(mkdir("existing", 0700) == 0);
     REQUIRE(mkdir("existing/input", 0700) == 0);
@@ -469,6 +493,7 @@ int main(void) {
     test_options_filters_and_atomic_failures();
     test_add_replace_remove_and_through();
     test_join_and_suffix_preservation();
+    test_undo_retains_first_commit();
     test_extract_policies_memory_and_encryption();
     test_concurrent_calls();
     puts("czarlib C API tests passed");

@@ -94,6 +94,7 @@ The output shapes follow the corresponding Python API:
 | `add_archive` | `archive`, `paths` | Same encoding, scan, and filter fields as create; `password`, `passwords`, `aead`, `encryption_scope` |
 | `remove_archive` | `archive`, `paths` | — |
 | `join_archive` | `archive`, `from_id`, `through_id` | `block_size`, `compression_level` |
+| `undo_archive` | `archive`, `commits` | — |
 | `check_archive` | `archive` | `recover`, `password`, `passwords` |
 | `info_archive` | `archive` | `verbose` |
 | `list_archive` | `archive` | `through`, `password`, `passwords` |
@@ -104,6 +105,9 @@ Supported block sizes are `0` (automatic) or 64 KiB through 32 MiB;
 compression levels are -7 through 22. Filter values are arrays of fnmatch
 patterns. The `remove_archive` paths are archive-relative names, not filesystem
 paths to delete. Join endpoints are inclusive eight-hex-digit commit IDs.
+`undo_archive` removes the given positive number of trailing commits. It
+validates and atomically replaces the archive, and rejects any request that
+would remove the first commit.
 
 For password encryption, set `"password"` and optionally `"aead"` and
 `"encryption_scope"` on a `create_archive` or `add_archive` request. The `aead`

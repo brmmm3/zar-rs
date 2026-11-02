@@ -7,6 +7,7 @@ const string Usage = """
       add|a ARCHIVE PATH...
       remove|r ARCHIVE ARCHIVE_PATH...
       join|j ARCHIVE --from ID --through ID
+      undo|u ARCHIVE COMMITS
       check|k ARCHIVE
       info|i ARCHIVE
       list|l ARCHIVE
@@ -31,6 +32,7 @@ var operation = args[0] switch
     "add" or "a" => "add_archive",
     "remove" or "r" => "remove_archive",
     "join" or "j" => "join_archive",
+    "undo" or "u" => "undo_archive",
     "check" or "k" => "check_archive",
     "info" or "i" => "info_archive",
     "list" or "l" => "list_archive",
@@ -64,6 +66,14 @@ switch (operation)
         }
         request["from_id"] = rest[1];
         request["through_id"] = rest[3];
+        break;
+    case "undo_archive":
+        if (rest.Length != 1 || !uint.TryParse(rest[0], out var commits))
+        {
+            Console.Error.WriteLine("COMMITS must be a positive integer.");
+            return 2;
+        }
+        request["commits"] = commits;
         break;
     case "extract_archive":
         var destination = "restored";

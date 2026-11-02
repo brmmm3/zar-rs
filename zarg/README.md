@@ -20,7 +20,13 @@ directory named `foo` (the archive filename without `.zar`). The normal
 no-argument launch still opens the main window. Opening a `.zar` file directly
 also opens it in the manager.
 
-The application is a desktop program built with eframe/egui. On Linux, native
+The application is a desktop program built with eframe/egui. It uses a Qt6
+Fusion appearance and follows the desktop's light or dark mode: Windows and
+macOS report the theme through winit, while on Linux it is read from the XDG
+settings portal (falling back to `gsettings`, KDE `kdeglobals`, GTK settings,
+and `GTK_THEME`) and re-checked every few seconds, so switching the system
+theme updates the running app. If no theme can be determined, light is used. On
+Linux, native
 file selection uses the XDG desktop portal. The PNG app icon and selected
 KDE4 Crystal Diamond icons for buttons and archive entry types are embedded in
 the window binary. Icon attribution and license information is in
@@ -72,6 +78,8 @@ desktop entry.
 - Open those formats directly for read-only browsing and extraction; zarg creates a temporary ZAR snapshot and leaves the source archive unchanged.
 - Remove selected archive entries or paths.
 - Join a contiguous range of commits.
+- Undo a selected positive number of trailing commits while retaining the
+  first commit (Tools → Undo commits).
 - Test archives, optionally recovering past damaged framing.
 - View commit information, including stored and uncompressed sizes, with
   optional verbose statistics or JSON output.

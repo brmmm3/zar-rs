@@ -19,6 +19,7 @@ from . import (
     join_archive,
     list_archive,
     remove_archive,
+    undo_archive,
 )
 
 
@@ -97,6 +98,12 @@ def _parser() -> argparse.ArgumentParser:
     remove = commands.add_parser("remove", aliases=["r"], help="append path tombstones")
     remove.add_argument("archive")
     remove.add_argument("paths", nargs="+", type=Path)
+
+    undo = commands.add_parser(
+        "undo", aliases=["u"], help="remove trailing commits but retain the first"
+    )
+    undo.add_argument("archive")
+    undo.add_argument("commits", type=int)
 
     join = commands.add_parser("join", aliases=["j"], help="compact an inclusive commit range")
     _add_encoding(join)
@@ -303,6 +310,11 @@ def _run(args: argparse.Namespace) -> int:
 
     if command in {"remove", "r"}:
         remove_archive(args.archive, args.paths)
+        return 0
+
+    if command in {"undo", "u"}:
+        undo_archive(args.archive, args.commits)
+        print(f"Removed {args.commits} trailing commit(s)")
         return 0
 
     if command in {"join", "j"}:

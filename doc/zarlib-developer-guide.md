@@ -147,7 +147,7 @@ println!(
 
 ### Extract files
 
-Equivalent CLI: `zarc extract backup.zar --to restored`
+Equivalent CLI: `zarc extract backup.zar --output restored`
 
 ```rust,no_run
 use std::path::Path;
@@ -480,7 +480,7 @@ zarc create --password --encryption-scope data visible-header.zar public/
 zarc add --password --aead chacha20-poly1305 archive.zar updated/
 zarc check --password secrets-chacha.zar
 zarc list --password secrets-chacha.zar
-zarc extract --password secrets-chacha.zar --to restored/
+zarc extract --password secrets-chacha.zar --output restored/
 zarc extract --password-for 00000001 --password-for 00000002 mixed.zar
 ```
 

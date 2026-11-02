@@ -326,6 +326,13 @@ fn remove_archive(py: Python<'_>, archive: PathBuf, paths: Vec<PathBuf>) -> PyRe
 }
 
 #[pyfunction]
+fn undo_archive(py: Python<'_>, archive: PathBuf, commits: usize) -> PyResult<()> {
+    let archive = archive_string(archive)?;
+    py.detach(|| operations::undo_archive(&archive, commits).map_err(|error| error.to_string()))
+        .map_err(runtime_error)
+}
+
+#[pyfunction]
 #[pyo3(signature = (
     archive,
     from_id,
@@ -693,6 +700,7 @@ fn _pyzarlib(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(create_archive, module)?)?;
     module.add_function(wrap_pyfunction!(add_archive, module)?)?;
     module.add_function(wrap_pyfunction!(remove_archive, module)?)?;
+    module.add_function(wrap_pyfunction!(undo_archive, module)?)?;
     module.add_function(wrap_pyfunction!(join_archive, module)?)?;
     module.add_function(wrap_pyfunction!(check_archive, module)?)?;
     module.add_function(wrap_pyfunction!(info_archive, module)?)?;

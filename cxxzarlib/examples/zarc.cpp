@@ -52,6 +52,7 @@ std::string operation_name(const std::string &command) {
     if (command == "add" || command == "a") return "add_archive";
     if (command == "remove" || command == "r") return "remove_archive";
     if (command == "join" || command == "j") return "join_archive";
+    if (command == "undo" || command == "u") return "undo_archive";
     if (command == "check" || command == "k") return "check_archive";
     if (command == "info" || command == "i") return "info_archive";
     if (command == "list" || command == "l") return "list_archive";
@@ -65,6 +66,7 @@ void usage(const char *program) {
               << "  add|a ARCHIVE PATH...\n"
               << "  remove|r ARCHIVE ARCHIVE_PATH...\n"
               << "  join|j ARCHIVE --from ID --through ID\n"
+              << "  undo|u ARCHIVE COMMITS\n"
               << "  check|k ARCHIVE\n"
               << "  info|i ARCHIVE\n"
               << "  list|l ARCHIVE\n"
@@ -100,6 +102,18 @@ int main(int argc, char **argv) {
             request += json_quote(argv[index]);
         }
         request += ']';
+    } else if (operation == "undo_archive") {
+        if (argc != 4) {
+            usage(argv[0]);
+            return 2;
+        }
+        try {
+            const auto commits = std::stoull(argv[3]);
+            request += ",\"commits\":" + std::to_string(commits);
+        } catch (const std::exception &) {
+            std::cerr << "COMMITS must be a positive integer\n";
+            return 2;
+        }
     } else if (operation == "join_archive") {
         if (argc != 7 || std::string(argv[3]) != "--from" ||
             std::string(argv[5]) != "--through") {

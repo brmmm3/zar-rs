@@ -79,6 +79,14 @@ final class ZarLibraryTest {
                     + ",\"paths\":[" + quote(directory.getFileName() + "/second.txt") + "]}");
             assertFalse(ZarLibrary.listArchive("{\"archive\":" + quote(archive.toString()) + "}")
                     .contains("second.txt"));
+            assertTrue(ZarLibrary.checkArchive("{\"archive\":" + quote(archive.toString()) + "}")
+                    .contains("\"commits\":2"));
+            ZarLibrary.undoArchive("{\"archive\":" + quote(archive.toString())
+                    + ",\"commits\":1}");
+            assertTrue(ZarLibrary.checkArchive("{\"archive\":" + quote(archive.toString()) + "}")
+                    .contains("\"commits\":1"));
+            assertThrows(ZarException.class, () -> ZarLibrary.undoArchive(
+                    "{\"archive\":" + quote(archive.toString()) + ",\"commits\":1}"));
             assertThrows(ZarException.class, () -> ZarLibrary.createArchive(
                     "{\"archive\":" + quote(directory.resolve("bad.zar").toString())
                             + ",\"paths\":[" + quote(second.toString())

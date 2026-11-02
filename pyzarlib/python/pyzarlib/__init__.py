@@ -10,6 +10,7 @@ from ._pyzarlib import (
     join_archive,
     list_archive,
     remove_archive,
+    undo_archive,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "join_archive",
     "list_archive",
     "remove_archive",
+    "undo_archive",
 ]

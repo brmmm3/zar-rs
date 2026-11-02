@@ -122,6 +122,7 @@ public static class ZarLibrary
     public static string AddArchive(object request) => Execute("add_archive", request);
     public static string RemoveArchive(object request) => Execute("remove_archive", request);
     public static string JoinArchive(object request) => Execute("join_archive", request);
+    public static string UndoArchive(object request) => Execute("undo_archive", request);
     public static string CheckArchive(object request) => Execute("check_archive", request);
     public static string InfoArchive(object request) => Execute("info_archive", request);
     public static string ListArchive(object request) => Execute("list_archive", request);

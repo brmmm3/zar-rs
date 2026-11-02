@@ -5,6 +5,22 @@ until a version is released.
 
 ## Unreleased
 
+### Added
+
+- `zarg` now has a Qt6 Fusion appearance and follows the system light/dark
+  theme, including runtime changes. On Linux the theme is detected through the
+  XDG settings portal with desktop-specific fallbacks, since winit does not
+  report it there.
+- Added undo support to remove a positive number of trailing commits while
+  retaining the first commit. The operation is available in `zarc`, `zarg`,
+  Python, C/C++, Go, Java FFM/JNI, C#, and WASI interfaces.
+
+### Fixed
+
+- The `zarg` operation dialogs (Create, Add, Extract, ...) keep their action
+  buttons pinned to the bottom, so Create and Cancel stay visible when the
+  dialog is small; only the form fields scroll.
+
 ## 0.9.0 - 2026-??-??
 
 ### Added

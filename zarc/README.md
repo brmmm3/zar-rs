@@ -19,6 +19,7 @@ Each subcommand also has a one-letter shortcut:
 | `add` | `a` |
 | `remove` | `r` |
 | `join` | `j` |
+| `undo` | `u` |
 | `check` | `k` |
 | `info` | `i` |
 | `list` | `l` |
@@ -105,6 +106,7 @@ zarc add backup.zar new-file.txt updated-docs/
 zarc add --special-files backup.zar /dev/
 zarc remove backup.zar obsolete.txt old-directory/
 zarc join backup.zar --from 00000001 --through 00000004
+zarc undo backup.zar 1
 zarc meta backup.zar --set author=Jane --remove old-key
 zarc meta backup.zar
 ```
@@ -120,6 +122,9 @@ keys starting with `zar.` are reserved.
 - `join` compacts an inclusive, contiguous range of commits into one commit at
   the same position, preserving the resulting TOC state and commits outside the
   range. Commit IDs are eight hexadecimal digits.
+- `undo` removes the requested positive number of commits from the end of the
+  archive. It validates and atomically replaces the archive, and refuses to
+  remove the first commit.
 
 `add` accepts `--block-size`, `--compression-level`, `--metadata`,
 `--dates`, `--special-files`, `--strict`, `--verbose`, the include/exclude filter options
@@ -133,6 +138,9 @@ extraction with `extract --devices` and may require privileges.
 replacement before publishing it. These state-changing operations currently
 reject archives whose accumulated TOC depends on encrypted headers; encrypted
 archive append/removal/compaction is not supported.
+`undo` is different: it only validates framing and truncates a suffix, so it
+can remove encrypted commits without decrypting them. It still preserves the
+first commit.
 
 ### Inspect and verify
 
@@ -168,15 +176,16 @@ zarc check --recover backup.zar
 ### Extract files
 
 ```sh
-zarc extract backup.zar --to ./restored/
-zarc extract backup.zar --to ./restored/ --through 00000002
+zarc extract backup.zar --output ./restored/
+zarc extract backup.zar -o ./restored/ --through 00000002
 zarc extract backup.zar --dry-run
-zarc extract backup.zar --to ./restored/ --strip-top-level
+zarc extract backup.zar --output ./restored/ --strip-top-level
 zarc extract backup.zar --collision rename --existing skip
-zarc extract --password secrets.zar --to ./private/
+zarc extract --password secrets.zar --output ./private/
 ```
 
-The default destination is the current directory. Extraction plans and validates
+`--output DIR` (`-o DIR`) selects the output directory; its default is the
+current directory. Extraction plans and validates
 the selected archive state, then streams decoded blocks to files and verifies
 reconstructed file sizes.
 

@@ -1,7 +1,7 @@
 # pyzarlib
 
 `pyzarlib` provides Python bindings to the Rust `zarlib` archive library.
-The package exposes high-level create, add, remove, join, check, info, list,
+The package exposes high-level create, add, remove, join, undo, check, info, list,
 and extract operations.
 ZIP, 7z, TAR, TAR.GZ, and TGZ paths in `create_archive` and `add_archive` are
 imported by their internal entry paths. Encrypted ZIP/7z sources and ZIP/7z
@@ -55,14 +55,16 @@ from this directory:
 ```sh
 zarc-py --help
 python examples/zarc.py create backup.zar src/ README.md
+zarc-py undo backup.zar 1
 zarc-py list backup.zar
 zarc-py check backup.zar
 zarc-py extract backup.zar --to restored --dry-run
 ```
 
-It supports create (`c`), add (`a`), remove (`r`), join (`j`), check (`k`),
+It supports create (`c`), add (`a`), remove (`r`), join (`j`), undo (`u`), check (`k`),
 info (`i`), list (`l`), and extract (`e`), including path filters and file
-list rules. `--password` prompts without echo where encryption is supported.
+list rules. Undo (`u`) removes trailing commits but never the first commit.
+`--password` prompts without echo where encryption is supported.
 Progress bars and interactive `ask` extraction policies are omitted because
 the current Python binding does not provide an interactive progress callback.
 The source is in [`python/pyzarlib/cli.py`](./python/pyzarlib/cli.py); it is an

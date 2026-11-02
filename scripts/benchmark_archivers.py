@@ -1369,7 +1369,7 @@ def extract_archive(
         command.extend(["--collision", "rename"])
         for name in names:
             command.extend(["--include-file", name])
-        command.extend([str(path), "--to", str(TESTRESULTS)])
+        command.extend([str(path), "--output", str(TESTRESULTS)])
         if encrypted:
             run_with_password(command, TESTDATA, ENCRYPTED_PASSWORD)
         else:

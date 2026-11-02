@@ -118,6 +118,11 @@ func JoinArchive(request any) (json.RawMessage, error) {
 	return execute("join_archive", request)
 }
 
+// UndoArchive removes trailing commits while retaining the first commit.
+func UndoArchive(request any) (json.RawMessage, error) {
+	return execute("undo_archive", request)
+}
+
 // CheckArchive validates archive framing and readable content.
 func CheckArchive(request any) (json.RawMessage, error) {
 	return execute("check_archive", request)

@@ -249,6 +249,25 @@ void test_join_and_suffix_preservation() {
             "join lost second joined file");
 }
 
+void test_undo_retains_the_first_commit() {
+    write_file("undo-first.txt", "first");
+    write_file("undo-second.txt", "second");
+    (void)invoke(
+        "create_archive",
+        R"({"archive":"undo.zar","paths":["undo-first.txt"]})");
+    (void)invoke(
+        "add_archive",
+        R"({"archive":"undo.zar","paths":["undo-second.txt"]})");
+    (void)invoke("undo_archive", R"({"archive":"undo.zar","commits":1})");
+    auto check = invoke("check_archive", R"({"archive":"undo.zar"})");
+    require(check.find("\"commits\":1") != std::string::npos,
+            "undo did not remove the trailing commit");
+    expect_error(
+        "undo_archive",
+        R"({"archive":"undo.zar","commits":1})",
+        "first commit must be retained");
+}
+
 void test_extract_policies_memory_and_encryption() {
     fs::create_directories("existing/input");
     write_file("existing/input/alpha.txt", "keep existing");
@@ -430,6 +449,7 @@ int main() {
         test_options_filters_and_atomic_failures();
         test_add_replace_remove_and_through();
         test_join_and_suffix_preservation();
+        test_undo_retains_the_first_commit();
         test_extract_policies_memory_and_encryption();
         test_concurrent_calls();
         fs::current_path(original);

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/brmmm3/zar-rs/gozarlib"
@@ -16,6 +17,7 @@ func usage(program string) {
 	fmt.Fprintln(os.Stderr, "  add|a ARCHIVE PATH...")
 	fmt.Fprintln(os.Stderr, "  remove|r ARCHIVE ARCHIVE_PATH...")
 	fmt.Fprintln(os.Stderr, "  join|j ARCHIVE --from ID --through ID")
+	fmt.Fprintln(os.Stderr, "  undo|u ARCHIVE COMMITS")
 	fmt.Fprintln(os.Stderr, "  check|k ARCHIVE")
 	fmt.Fprintln(os.Stderr, "  info|i ARCHIVE")
 	fmt.Fprintln(os.Stderr, "  list|l ARCHIVE")
@@ -38,6 +40,7 @@ func main() {
 		"add": "add_archive", "a": "add_archive",
 		"remove": "remove_archive", "r": "remove_archive",
 		"join": "join_archive", "j": "join_archive",
+		"undo": "undo_archive", "u": "undo_archive",
 		"check": "check_archive", "k": "check_archive",
 		"info": "info_archive", "i": "info_archive",
 		"list": "list_archive", "l": "list_archive",
@@ -66,6 +69,17 @@ func main() {
 		}
 		request["from_id"] = args[1]
 		request["through_id"] = args[3]
+	case "undo_archive":
+		if len(args) != 1 {
+			usage(os.Args[0])
+			os.Exit(2)
+		}
+		commits, err := strconv.ParseUint(args[0], 10, 64)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "COMMITS must be a positive integer")
+			os.Exit(2)
+		}
+		request["commits"] = commits
 	case "extract_archive":
 		destination := "restored"
 		for _, arg := range args {

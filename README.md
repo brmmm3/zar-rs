@@ -75,7 +75,7 @@ wins on compression ratio.
 ## Language bindings and runtime packages
 
 `zarlib` is available through language bindings and a WASI component. They
-expose the same operations (create, add, remove, join, check, info, list,
+expose the same operations (create, add, remove, join, undo, check, info, list,
 extract, and in-memory extract) through their respective language or runtime
 interfaces.
 
@@ -174,7 +174,7 @@ zarc list backup.zar
 
 # Verify the archive and extract its contents
 zarc check backup.zar
-zarc extract backup.zar --to ./restored/
+zarc extract backup.zar --output ./restored/
 ```
 
 Use `zarc <command> --help` for command-specific options. See the [CLI guide](./zarc/README.md)

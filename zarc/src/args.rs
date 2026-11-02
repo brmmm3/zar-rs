@@ -306,6 +306,26 @@ pub(crate) enum Command {
     },
 
     #[command(
+        alias = "u",
+        about = "Remove the requested number of commits from the end of an archive",
+        long_about = "Remove commits from the end of an archive while retaining its first commit.\n\n\
+            The count must be at least one and must leave the initial commit in place. The archive \
+            is validated and replaced atomically; commits before the removed suffix are preserved.\n\n\
+            USAGE EXAMPLES:\n  \
+              zarc undo archive.zar 1\n  \
+              zarc undo archive.zar 3"
+    )]
+    Undo {
+        #[arg(value_name = "ARCHIVE", help = "Existing archive file path (.zar)")]
+        archive: String,
+        #[arg(
+            value_name = "COMMITS",
+            help = "Number of commits to remove from the end (must retain the first commit)"
+        )]
+        commits: usize,
+    },
+
+    #[command(
         alias = "m",
         about = "List, set or remove custom archive metadata (key/value pairs)",
         long_about = "List, set or remove custom key/value metadata stored in the archive.\n\n\
@@ -491,8 +511,8 @@ pub(crate) enum Command {
             verification. Provides configurable policies for handling case-insensitive filesystem \
             collisions and existing files on disk.\n\n\
             USAGE EXAMPLES:\n  \
-              zarc extract archive.zar --to ./extracted/\n  \
-              zarc extract archive.zar --to ./output/ --collision rename --existing overwrite\n  \
+              zarc extract archive.zar --output ./extracted/\n  \
+              zarc extract archive.zar -o ./output/ --collision rename --existing overwrite\n  \
               zarc extract --dry-run archive.zar\n  \
               zarc extract --metadata --symlinks archive.zar\n  \
               zarc extract --password archive.zar\n  \
@@ -508,12 +528,13 @@ pub(crate) enum Command {
         )]
         progress: bool,
         #[arg(
+            short = 'o',
             long,
             value_name = "DIR",
             default_value = ".",
-            help = "Destination directory where files will be extracted (default: current directory '.')"
+            help = "Output directory where files will be extracted (default: current directory '.')"
         )]
-        to: PathBuf,
+        output: PathBuf,
         #[arg(
             long,
             value_name = "COMMIT_ID",

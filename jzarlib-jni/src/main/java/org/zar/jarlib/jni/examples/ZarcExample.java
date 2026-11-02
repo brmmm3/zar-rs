@@ -19,6 +19,7 @@ public final class ZarcExample {
             case "add", "a" -> "add_archive";
             case "remove", "r" -> "remove_archive";
             case "join", "j" -> "join_archive";
+            case "undo", "u" -> "undo_archive";
             case "check", "k" -> "check_archive";
             case "info", "i" -> "info_archive";
             case "list", "l" -> "list_archive";
@@ -59,6 +60,12 @@ public final class ZarcExample {
             }
             request.append(",\"from_id\":").append(json(args[3]))
                     .append(",\"through_id\":").append(json(args[5]));
+        } else if (operation.equals("undo_archive")) {
+            if (args.length != 3) {
+                throw new IllegalArgumentException("undo requires a positive commit count");
+            }
+            long commits = Long.parseLong(args[2]);
+            request.append(",\"commits\":").append(commits);
         } else if (operation.equals("extract_archive")) {
             String destination = "restored";
             boolean dryRun = false;
@@ -85,6 +92,7 @@ public final class ZarcExample {
         System.err.println("  add|a ARCHIVE PATH...");
         System.err.println("  remove|r ARCHIVE ARCHIVE_PATH...");
         System.err.println("  join|j ARCHIVE --from ID --through ID");
+        System.err.println("  undo|u ARCHIVE COMMITS");
         System.err.println("  check|k ARCHIVE");
         System.err.println("  info|i ARCHIVE");
         System.err.println("  list|l ARCHIVE");

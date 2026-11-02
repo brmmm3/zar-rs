@@ -2,6 +2,7 @@
 
 mod file_dialog;
 mod settings;
+mod theme;
 mod ui;
 
 use std::ffi::OsString;
@@ -47,7 +48,10 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "ZAR Archive Manager",
         options,
-        Box::new(move |_creation_context| Ok(Box::new(app))),
+        Box::new(move |creation_context| {
+            theme::install(&creation_context.egui_ctx);
+            Ok(Box::new(app))
+        }),
     )
 }
 

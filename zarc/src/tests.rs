@@ -313,6 +313,15 @@ fn clap_parser_accepts_cli_options_and_rejects_invalid_usage() {
         } if include_folders == &["docs"] && exclude_files == &["*.tmp"]
     ));
     assert!(Cli::try_parse_from(["zarc", "extract", "archive.zar", "--metadata"]).is_ok());
+    for (option, value) in [("--output", "long-output"), ("-o", "short-output")] {
+        assert!(matches!(
+            Cli::try_parse_from(["zarc", "extract", "archive.zar", option, value])
+                .unwrap()
+                .command,
+            Command::Extract { ref output, .. } if output == value
+        ));
+    }
+    assert!(Cli::try_parse_from(["zarc", "extract", "archive.zar", "--to", "output"]).is_err());
     assert!(Cli::try_parse_from(["zarc", "info", "archive.zar", "-v"]).is_ok());
     assert!(Cli::try_parse_from(["zarc", "info", "archive.zar", "--verbose"]).is_ok());
     assert!(Cli::try_parse_from(["zarc", "info", "archive.zar", "--json", "--verbose"]).is_err());
@@ -325,6 +334,7 @@ fn clap_parser_accepts_short_subcommand_aliases() {
         ("a", "add"),
         ("r", "remove"),
         ("j", "join"),
+        ("u", "undo"),
         ("k", "check"),
         ("i", "info"),
         ("l", "list"),
@@ -761,6 +771,34 @@ fn add_progress_uses_adding_message_byte_counts_and_total() {
             .windows(2)
             .all(|pair| pair[1].duration_since(pair[0]) >= std::time::Duration::from_millis(200))
     );
+}
+
+#[test]
+fn undo_command_removes_tail_and_preserves_initial_commit() {
+    let directory = TestDirectory::new();
+    let archive = directory.path().join("undo.zar");
+    let first = directory.path().join("first.txt");
+    let second = directory.path().join("second.txt");
+    std::fs::write(&first, b"first").unwrap();
+    std::fs::write(&second, b"second").unwrap();
+    create_archive(archive.to_str().unwrap(), std::slice::from_ref(&first)).unwrap();
+    add_archive(archive.to_str().unwrap(), std::slice::from_ref(&second)).unwrap();
+
+    run(["undo", archive.to_str().unwrap(), "1"]
+        .into_iter()
+        .map(str::to_owned))
+    .unwrap();
+    assert_eq!(
+        info_archive(archive.to_str().unwrap(), false)
+            .unwrap()
+            .len(),
+        1
+    );
+    let error = run(["undo", archive.to_str().unwrap(), "1"]
+        .into_iter()
+        .map(str::to_owned))
+    .unwrap_err();
+    assert!(error.to_string().contains("first commit must be retained"));
 }
 
 #[test]

@@ -24,7 +24,6 @@ def test_python_zarc_cli_aliases_cover_archive_commands(
     capsys.readouterr()
     assert main(["k", archive]) == 0
     assert "2 commit(s)" in capsys.readouterr().out
-
     commit_ids = [commit["id"] for commit in pyzarlib.info_archive(archive)]
     assert main(
         ["j", archive, "--from", commit_ids[0], "--through", commit_ids[1]]
@@ -45,6 +44,10 @@ def test_python_zarc_cli_aliases_cover_archive_commands(
     capsys.readouterr()
     assert main(["list", archive]) == 0
     assert "added.txt" not in capsys.readouterr().out
+    assert main(["u", archive, "1"]) == 0
+    assert "Removed 1 trailing commit" in capsys.readouterr().out
+    assert main(["list", archive]) == 0
+    assert "added.txt" in capsys.readouterr().out
 
 
 def test_python_zarc_cli_filelist_filters_inputs(

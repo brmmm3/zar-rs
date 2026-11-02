@@ -378,6 +378,45 @@ func testConcurrentCalls(t *testing.T) {
 	}
 }
 
+func TestUndoArchiveRetainsFirstCommit(t *testing.T) {
+	temp := t.TempDir()
+	oldWorkingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Chdir(temp); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if chdirErr := os.Chdir(oldWorkingDirectory); chdirErr != nil {
+			t.Errorf("restore working directory: %v", chdirErr)
+		}
+	}()
+
+	writeFixture(t, "first.txt", []byte("first"))
+	writeFixture(t, "second.txt", []byte("second"))
+	if _, err := CreateArchive(map[string]any{
+		"archive": "undo.zar", "paths": []string{"first.txt"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AddArchive(map[string]any{
+		"archive": "undo.zar", "paths": []string{"second.txt"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := UndoArchive(map[string]any{
+		"archive": "undo.zar", "commits": 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	requireContains(t, call(t, "check_archive", map[string]any{"archive": "undo.zar"}),
+		`"commits":1`)
+	expectError(t, "undo_archive", map[string]any{
+		"archive": "undo.zar", "commits": 1,
+	}, "first commit must be retained")
+}
+
 func TestExecuteJSONValidation(t *testing.T) {
 	for _, test := range []struct {
 		name      string
