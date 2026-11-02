@@ -1,6 +1,6 @@
 # `zarg` — ZAR Archive Manager
 
-`zarg` is the native egui graphical companion to [`zarc`](../zarc/ReadMe.md).
+`zarg` is the native egui graphical companion to [`zarc`](../zarc/README.md).
 It uses the same `zarlib` operations, so GUI-created archives use the same
 format and validation as archives created by the CLI.
 

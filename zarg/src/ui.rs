@@ -5122,7 +5122,7 @@ mod tests {
     #[test]
     fn archive_list_filter_returns_matching_entry_indexes() {
         let entries = vec![
-            ("docs/ReadMe.md".to_owned(), EntryData::File(12)),
+            ("docs/README.md".to_owned(), EntryData::File(12)),
             ("src/main.rs".to_owned(), EntryData::File(20)),
             ("docs/guide.md".to_owned(), EntryData::File(30)),
         ];

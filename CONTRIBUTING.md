@@ -40,9 +40,9 @@ defined in [`packaging.yml`](.github/workflows/packaging.yml).
 
 | Path | Contents |
 |---|---|
-| [`ReadMe.md`](ReadMe.md) | Project overview, features, and workspace build instructions |
+| [`README.md`](README.md) | Project overview, features, and workspace build instructions |
 | [`doc/`](doc/) | Archive format, library developer guide, and benchmark reports |
-| [`zarc/ReadMe.md`](zarc/ReadMe.md), [`zarg/ReadMe.md`](zarg/ReadMe.md) | CLI and desktop application |
+| [`zarc/README.md`](zarc/README.md), [`zarg/README.md`](zarg/README.md) | CLI and desktop application |
 | [`zarlib/`](zarlib/) | Core archive library |
 | [`pyzarlib/README.md`](pyzarlib/README.md), [`czarlib/README.md`](czarlib/README.md), [`cxxzarlib/README.md`](cxxzarlib/README.md), [`gozarlib/README.md`](gozarlib/README.md) | Python, C, C++, and Go bindings |
 | [`jzarlib-jni/README.md`](jzarlib-jni/README.md), [`jzarlib-ffm/README.md`](jzarlib-ffm/README.md), [`csharpzarlib/README.md`](csharpzarlib/README.md) | Java and C# bindings |

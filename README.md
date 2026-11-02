@@ -7,8 +7,8 @@ bindings for many languages, and a lightning fast network copy tool.
 See the [changelog](./CHANGELOG.md) for recent project updates.
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, checks, and pull request guidance.
 
-- **[`zarc`](./zarc/ReadMe.md)** is the command-line application.
-- **[`zarg`](./zarg/ReadMe.md)** is the egui desktop archive manager.
+- **[`zarc`](./zarc/README.md)** is the command-line application.
+- **[`zarg`](./zarg/README.md)** is the egui desktop archive manager.
 - **[`zarlib`](./doc/zarlib-developer-guide.md)** is the reusable archive
   format and operations library.
 - **[`zcopy`](./zcopy/README.md)** copies file trees between machines over the
@@ -177,7 +177,7 @@ zarc check backup.zar
 zarc extract backup.zar --to ./restored/
 ```
 
-Use `zarc <command> --help` for command-specific options. See the [CLI guide](./zarc/ReadMe.md)
+Use `zarc <command> --help` for command-specific options. See the [CLI guide](./zarc/README.md)
 for workflows, options, and limitations, and the [library developer guide](./doc/zarlib-developer-guide.md)
 to call the Rust API directly.
 

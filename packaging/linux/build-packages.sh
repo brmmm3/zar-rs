@@ -86,7 +86,7 @@ stage_files() {
     fi
     install -Dm644 "$ROOT/LICENSE-MIT" "$stage/usr/share/doc/zar-rs/LICENSE-MIT"
     install -Dm644 "$ROOT/LICENSE-APACHE" "$stage/usr/share/doc/zar-rs/LICENSE-APACHE"
-    install -Dm644 "$ROOT/ReadMe.md" "$stage/usr/share/doc/zar-rs/ReadMe.md"
+    install -Dm644 "$ROOT/README.md" "$stage/usr/share/doc/zar-rs/README.md"
 }
 
 build_deb() {

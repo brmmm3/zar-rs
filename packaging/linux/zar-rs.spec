@@ -26,7 +26,7 @@ cp -a %{stage_dir}/. %{buildroot}/
 %files
 %license /usr/share/doc/zar-rs/LICENSE-MIT
 %license /usr/share/doc/zar-rs/LICENSE-APACHE
-%doc /usr/share/doc/zar-rs/ReadMe.md
+%doc /usr/share/doc/zar-rs/README.md
 /usr/bin/zarc
 /usr/bin/zarg
 /usr/bin/zarg-install-thunar-actions

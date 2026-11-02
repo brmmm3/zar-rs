@@ -64,9 +64,9 @@ Source: "{#SourceDir}\zarg.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\zarg\assets\application-x-zar.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE-MIT"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE-APACHE"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\ReadMe.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\zarc\ReadMe.md"; DestDir: "{app}"; DestName: "zarc-ReadMe.md"; Flags: ignoreversion
-Source: "..\..\zarg\ReadMe.md"; DestDir: "{app}"; DestName: "zarg-ReadMe.md"; Flags: ignoreversion
+Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\zarc\README.md"; DestDir: "{app}"; DestName: "zarc-README.md"; Flags: ignoreversion
+Source: "..\..\zarg\README.md"; DestDir: "{app}"; DestName: "zarg-README.md"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\ZAR Archive Manager"; Filename: "{app}\zarg.exe"; IconFilename: "{app}\application-x-zar.ico"
