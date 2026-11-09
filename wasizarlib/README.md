@@ -5,7 +5,8 @@ Component Model component targeting WASI Preview 2. Its WIT interface exports
 one `execute` function that accepts an operation name and a JSON request and
 returns a JSON response or an error. The operation names and request/response
 schemas match [`czarlib`](../czarlib/README.md), so all archive operations are
-available without introducing a second API implementation.
+available without introducing a second API implementation, including the
+`encrypt_archive_commits` and `decrypt_archive_commits` range operations.
 As with the other bindings, `create_archive` and `add_archive` requests may
 include `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz` paths; source entry paths are
 imported into the resulting ZAR. Encrypted ZIP/7z sources and ZIP/7z links are
@@ -77,6 +78,10 @@ The component performs filesystem operations through Rust's standard library.
 Configure the server-side WASI runtime to preopen only the directories the
 component needs; paths in requests are resolved within those granted
 capabilities. Do not pass password-bearing requests to logs.
+
+External archive extraction creates a temporary directory in the destination
+or its nearest existing parent. That directory must be writable and accessible
+through a WASI preopen.
 
 ## WIT interface
 

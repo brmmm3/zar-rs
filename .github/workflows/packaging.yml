@@ -2,8 +2,6 @@ name: Packaging
 
 on:
   push:
-    tags:
-      - "*.*.*"
   workflow_dispatch:
 
 permissions:

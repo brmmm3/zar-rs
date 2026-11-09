@@ -7,7 +7,73 @@ pub struct WindowGeometry {
     pub position: Option<[f32; 2]>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ThemeMode {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DefaultEncryptionMethod {
+    #[default]
+    Aes256Gcm,
+    ChaCha20Poly1305,
+}
+
+impl DefaultEncryptionMethod {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Aes256Gcm => "AES-256-GCM",
+            Self::ChaCha20Poly1305 => "ChaCha20-Poly1305",
+        }
+    }
+
+    fn as_setting(self) -> &'static str {
+        match self {
+            Self::Aes256Gcm => "aes-256-gcm",
+            Self::ChaCha20Poly1305 => "chacha20-poly1305",
+        }
+    }
+
+    fn from_setting(value: &str) -> Option<Self> {
+        match value {
+            "aes-256-gcm" => Some(Self::Aes256Gcm),
+            "chacha20-poly1305" => Some(Self::ChaCha20Poly1305),
+            _ => None,
+        }
+    }
+}
+
+impl ThemeMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::System => "System",
+            Self::Light => "Light",
+            Self::Dark => "Dark",
+        }
+    }
+
+    pub fn as_setting(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Light => "light",
+            Self::Dark => "dark",
+        }
+    }
+
+    pub fn from_setting(value: &str) -> Option<Self> {
+        match value {
+            "system" => Some(Self::System),
+            "light" => Some(Self::Light),
+            "dark" => Some(Self::Dark),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
     pub window: Option<WindowGeometry>,
     pub dialog_sizes: BTreeMap<String, [f32; 2]>,
@@ -15,8 +81,58 @@ pub struct Settings {
     pub view: String,
     pub sort: String,
     pub sort_reversed: bool,
+    pub ui_scale: f32,
+    pub theme_mode: ThemeMode,
+    pub default_block_size: String,
+    pub default_compression_level: i32,
+    pub default_encryption_method: DefaultEncryptionMethod,
+    pub archive_defaults: ArchiveDefaults,
     pub column_widths: BTreeMap<String, f32>,
     pub recent_archives: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ArchiveDefaults {
+    pub metadata: bool,
+    pub dates: bool,
+    pub special_files: bool,
+    pub strict: bool,
+    pub save_user: bool,
+    pub include_files: String,
+    pub exclude_files: String,
+    pub include_folders: String,
+    pub exclude_folders: String,
+}
+
+pub const BLOCK_SIZE_OPTIONS: [&str; 6] = ["1M", "2M", "4M", "8M", "16M", "32M"];
+
+pub const UI_SCALE_OPTIONS: [(f32, &str); 5] = [
+    (1.0, "1.0"),
+    (1.25, "1.25"),
+    (1.5, "1.5"),
+    (1.75, "1.75"),
+    (2.0, "2.0"),
+];
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            window: None,
+            dialog_sizes: BTreeMap::new(),
+            monitor_count: 0,
+            view: String::new(),
+            sort: String::new(),
+            sort_reversed: false,
+            ui_scale: 1.0,
+            theme_mode: ThemeMode::System,
+            default_block_size: "8M".to_owned(),
+            default_compression_level: 3,
+            default_encryption_method: DefaultEncryptionMethod::Aes256Gcm,
+            archive_defaults: ArchiveDefaults::default(),
+            column_widths: BTreeMap::new(),
+            recent_archives: Vec::new(),
+        }
+    }
 }
 
 #[cfg(not(all(target_os = "linux", target_env = "musl")))]
@@ -87,6 +203,55 @@ impl Settings {
                 "view" => settings.view = value.to_owned(),
                 "sort" => settings.sort = value.to_owned(),
                 "sort_reversed" => settings.sort_reversed = value == "true",
+                "ui_scale" => {
+                    if let Ok(scale) = value.parse::<f32>()
+                        && UI_SCALE_OPTIONS.iter().any(|(option, _)| *option == scale)
+                    {
+                        settings.ui_scale = scale;
+                    }
+                }
+                "large_controls" => {
+                    settings.ui_scale = if value == "true" { 1.25 } else { 1.0 };
+                }
+                "theme" => {
+                    if let Some(theme_mode) = ThemeMode::from_setting(value) {
+                        settings.theme_mode = theme_mode;
+                    }
+                }
+                "default_block_size" if BLOCK_SIZE_OPTIONS.contains(&value) => {
+                    settings.default_block_size = value.to_owned();
+                }
+                "default_compression_level" => {
+                    if let Ok(level) = value.parse::<i32>()
+                        && (-7..=22).contains(&level)
+                    {
+                        settings.default_compression_level = level;
+                    }
+                }
+                "default_encryption_method" => {
+                    if let Some(method) = DefaultEncryptionMethod::from_setting(value) {
+                        settings.default_encryption_method = method;
+                    }
+                }
+                "default_metadata" => settings.archive_defaults.metadata = value == "true",
+                "default_dates" => settings.archive_defaults.dates = value == "true",
+                "default_special_files" => {
+                    settings.archive_defaults.special_files = value == "true"
+                }
+                "default_strict" => settings.archive_defaults.strict = value == "true",
+                "default_save_user" => settings.archive_defaults.save_user = value == "true",
+                "default_include_file" => {
+                    Self::append_filter(&mut settings.archive_defaults.include_files, value)
+                }
+                "default_exclude_file" => {
+                    Self::append_filter(&mut settings.archive_defaults.exclude_files, value)
+                }
+                "default_include_folder" => {
+                    Self::append_filter(&mut settings.archive_defaults.include_folders, value)
+                }
+                "default_exclude_folder" => {
+                    Self::append_filter(&mut settings.archive_defaults.exclude_folders, value)
+                }
                 _ => {
                     if let Some((dialog, dimension)) = key
                         .strip_prefix("dialog.")
@@ -149,6 +314,36 @@ impl Settings {
         text.push_str(&format!("monitors={}\n", self.monitor_count));
         text.push_str(&format!("view={}\nsort={}\n", self.view, self.sort));
         text.push_str(&format!("sort_reversed={}\n", self.sort_reversed));
+        text.push_str(&format!("ui_scale={}\n", self.ui_scale));
+        text.push_str(&format!("theme={}\n", self.theme_mode.as_setting()));
+        text.push_str(&format!("default_block_size={}\n", self.default_block_size));
+        text.push_str(&format!(
+            "default_compression_level={}\n",
+            self.default_compression_level
+        ));
+        text.push_str(&format!(
+            "default_encryption_method={}\n",
+            self.default_encryption_method.as_setting()
+        ));
+        let defaults = &self.archive_defaults;
+        text.push_str(&format!(
+            "default_metadata={}\ndefault_dates={}\ndefault_special_files={}\ndefault_strict={}\ndefault_save_user={}\n",
+            defaults.metadata, defaults.dates, defaults.special_files, defaults.strict, defaults.save_user
+        ));
+        for (key, patterns) in [
+            ("default_include_file", &defaults.include_files),
+            ("default_exclude_file", &defaults.exclude_files),
+            ("default_include_folder", &defaults.include_folders),
+            ("default_exclude_folder", &defaults.exclude_folders),
+        ] {
+            for pattern in patterns
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+            {
+                text.push_str(&format!("{key}={pattern}\n"));
+            }
+        }
         for archive in &self.recent_archives {
             text.push_str(&format!("recent={archive}\n"));
         }
@@ -156,6 +351,15 @@ impl Settings {
             text.push_str(&format!("column.{column}={width}\n"));
         }
         text
+    }
+
+    fn append_filter(target: &mut String, value: &str) {
+        if !value.is_empty() {
+            if !target.is_empty() {
+                target.push('\n');
+            }
+            target.push_str(value);
+        }
     }
 
     /// Saved window geometry is only reused when the monitor setup is unchanged.
@@ -184,6 +388,22 @@ mod tests {
             view: "details".to_owned(),
             sort: "date".to_owned(),
             sort_reversed: true,
+            ui_scale: 1.75,
+            theme_mode: ThemeMode::Dark,
+            default_block_size: "16M".to_owned(),
+            default_compression_level: 12,
+            default_encryption_method: DefaultEncryptionMethod::ChaCha20Poly1305,
+            archive_defaults: ArchiveDefaults {
+                metadata: true,
+                dates: true,
+                special_files: true,
+                strict: true,
+                save_user: true,
+                include_files: "*.rs\nname=*.txt".to_owned(),
+                exclude_files: "*.tmp".to_owned(),
+                include_folders: "src/**".to_owned(),
+                exclude_folders: "target/**".to_owned(),
+            },
             column_widths: BTreeMap::from([("details:Name".to_owned(), 321.5)]),
             recent_archives: vec!["/a/one.zar".to_owned(), "/b/two.zar".to_owned()],
         }
@@ -192,6 +412,86 @@ mod tests {
     #[test]
     fn settings_round_trip() {
         let settings = sample();
+        assert_eq!(Settings::parse(&settings.render()), settings);
+    }
+
+    #[test]
+    fn ui_scale_defaults_to_one_and_loads_supported_values() {
+        assert_eq!(Settings::default().ui_scale, 1.0);
+        for (scale, _) in UI_SCALE_OPTIONS {
+            assert_eq!(
+                Settings::parse(&format!("ui_scale={scale}\n")).ui_scale,
+                scale
+            );
+        }
+        assert_eq!(Settings::parse("ui_scale=1.3\n").ui_scale, 1.0);
+    }
+
+    #[test]
+    fn ui_scale_migrates_legacy_large_controls_setting() {
+        assert_eq!(Settings::parse("large_controls=true\n").ui_scale, 1.25);
+        assert_eq!(Settings::parse("large_controls=false\n").ui_scale, 1.0);
+    }
+
+    #[test]
+    fn theme_mode_defaults_to_system_and_loads_supported_values() {
+        assert_eq!(Settings::default().theme_mode, ThemeMode::System);
+        for (setting, mode) in [
+            ("system", ThemeMode::System),
+            ("light", ThemeMode::Light),
+            ("dark", ThemeMode::Dark),
+        ] {
+            assert_eq!(
+                Settings::parse(&format!("theme={setting}\n")).theme_mode,
+                mode
+            );
+        }
+        assert_eq!(
+            Settings::parse("theme=unknown\n").theme_mode,
+            ThemeMode::System
+        );
+    }
+
+    #[test]
+    fn operation_defaults_are_validated_and_persisted() {
+        let defaults = Settings::default();
+        assert_eq!(defaults.archive_defaults, ArchiveDefaults::default());
+        assert_eq!(
+            Settings::parse("default_block_size=16M\n").archive_defaults,
+            ArchiveDefaults::default()
+        );
+        assert_eq!(defaults.default_block_size, "8M");
+        assert_eq!(defaults.default_compression_level, 3);
+        assert_eq!(
+            defaults.default_encryption_method,
+            DefaultEncryptionMethod::Aes256Gcm
+        );
+
+        let parsed = Settings::parse(
+            "default_block_size=16M\ndefault_compression_level=-7\ndefault_encryption_method=chacha20-poly1305\n",
+        );
+        assert_eq!(parsed.default_block_size, "16M");
+        assert_eq!(parsed.default_compression_level, -7);
+        assert_eq!(
+            parsed.default_encryption_method,
+            DefaultEncryptionMethod::ChaCha20Poly1305
+        );
+        let parsed = Settings::parse(
+            "default_block_size=3M\ndefault_compression_level=23\ndefault_encryption_method=unknown\n",
+        );
+        assert_eq!(parsed.default_block_size, "8M");
+        assert_eq!(parsed.default_compression_level, 3);
+        assert_eq!(
+            parsed.default_encryption_method,
+            DefaultEncryptionMethod::Aes256Gcm
+        );
+
+        let settings = Settings {
+            default_block_size: "4M".to_owned(),
+            default_compression_level: 7,
+            default_encryption_method: DefaultEncryptionMethod::ChaCha20Poly1305,
+            ..Settings::default()
+        };
         assert_eq!(Settings::parse(&settings.render()), settings);
     }
 

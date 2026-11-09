@@ -19,7 +19,7 @@ pub struct ArchiveEntryDetails {
 
 pub fn list_archive_with_details(
     path: &str,
-    through: Option<&str>,
+    to: Option<&str>,
     password: Option<&[u8]>,
 ) -> Result<(Toc, BTreeMap<ArchivePath, ArchiveEntryDetails>), Box<dyn std::error::Error>> {
     let mut file = File::open(path)?;
@@ -28,9 +28,9 @@ pub fn list_archive_with_details(
     let mut toc = Toc::default();
     let mut details = BTreeMap::new();
     let mut header_offset = container.first_header_offset;
-    let requested_id = through.map(parse_commit_id).transpose()?;
+    let requested_id = to.map(parse_commit_id).transpose()?;
     let mut matching_commits = 0_u32;
-    let mut stopped_at_through = false;
+    let mut stopped_at_to = false;
 
     while header_offset != 0 {
         let (commit_header, data_start, next_header_offset) =
@@ -38,10 +38,10 @@ pub fn list_archive_with_details(
         if requested_id == Some(commit_header.commit_id) {
             matching_commits += 1;
             if matching_commits > 1 {
-                return Err("--through commit ID is ambiguous".into());
+                return Err("--to commit ID is ambiguous".into());
             }
         }
-        if stopped_at_through {
+        if stopped_at_to {
             header_offset = next_header_offset;
             continue;
         }
@@ -90,13 +90,13 @@ pub fn list_archive_with_details(
             &block_sizes,
         )?;
         if requested_id == Some(validated.commit_header.commit_id) {
-            stopped_at_through = true;
+            stopped_at_to = true;
         }
         header_offset = next_header_offset;
     }
 
     if requested_id.is_some() && matching_commits == 0 {
-        return Err("--through commit ID was not found".into());
+        return Err("--to commit ID was not found".into());
     }
 
     Ok((toc, details))
@@ -185,60 +185,60 @@ pub fn load_toc(file: &mut File) -> Result<Toc, Box<dyn std::error::Error>> {
 
 pub fn list_archive(
     path: &str,
-    through: Option<&str>,
+    to: Option<&str>,
     password: Option<&[u8]>,
 ) -> Result<Toc, Box<dyn std::error::Error>> {
     let passwords = PasswordSet::new(password.map(<[u8]>::to_vec));
-    list_archive_with_passwords(path, through, &passwords)
+    list_archive_with_passwords(path, to, &passwords)
 }
 
 pub fn list_archive_with_passwords(
     path: &str,
-    through: Option<&str>,
+    to: Option<&str>,
     passwords: &PasswordSet,
 ) -> Result<Toc, Box<dyn std::error::Error>> {
-    load_toc_through_with_passwords(path, through, passwords)
+    load_toc_through_with_passwords(path, to, passwords)
 }
 
 pub fn load_toc_through(
     archive: &str,
-    through: Option<&str>,
+    to: Option<&str>,
     password: Option<&[u8]>,
 ) -> Result<Toc, Box<dyn std::error::Error>> {
     let passwords = PasswordSet::new(password.map(<[u8]>::to_vec));
-    load_toc_through_with_passwords(archive, through, &passwords)
+    load_toc_through_with_passwords(archive, to, &passwords)
 }
 
 pub fn load_toc_through_with_passwords(
     archive: &str,
-    through: Option<&str>,
+    to: Option<&str>,
     passwords: &PasswordSet,
 ) -> Result<Toc, Box<dyn std::error::Error>> {
-    load_toc_through_with_passwords_and_progress(archive, through, passwords, None)
+    load_toc_through_with_passwords_and_progress(archive, to, passwords, None)
 }
 
 pub fn load_toc_through_with_progress(
     archive: &str,
-    through: Option<&str>,
+    to: Option<&str>,
     password: Option<&[u8]>,
     progress: Option<&ProgressReporter<'_>>,
 ) -> Result<Toc, Box<dyn std::error::Error>> {
     let passwords = PasswordSet::new(password.map(<[u8]>::to_vec));
-    load_toc_through_with_passwords_and_progress(archive, through, &passwords, progress)
+    load_toc_through_with_passwords_and_progress(archive, to, &passwords, progress)
 }
 
 pub fn load_toc_through_with_passwords_and_progress(
     archive: &str,
-    through: Option<&str>,
+    to: Option<&str>,
     passwords: &PasswordSet,
     progress: Option<&ProgressReporter<'_>>,
 ) -> Result<Toc, Box<dyn std::error::Error>> {
     let mut file = File::open(archive)?;
     let container = ContainerHeader::read_from(&mut file)?;
-    let requested_id = through.map(parse_commit_id).transpose()?;
+    let requested_id = to.map(parse_commit_id).transpose()?;
     let mut toc = Toc::default();
     let mut matches = 0_u32;
-    let mut stopped_at_through = false;
+    let mut stopped_at_to = false;
     let limits = CommitValidationLimits::default();
 
     let mut header_offset = container.first_header_offset;
@@ -248,10 +248,10 @@ pub fn load_toc_through_with_passwords_and_progress(
         if requested_id == Some(commit_header.commit_id) {
             matches += 1;
             if matches > 1 {
-                return Err("--through commit ID is ambiguous".into());
+                return Err("--to commit ID is ambiguous".into());
             }
         }
-        if stopped_at_through {
+        if stopped_at_to {
             header_offset = next_header_offset;
             continue;
         }
@@ -273,13 +273,13 @@ pub fn load_toc_through_with_passwords_and_progress(
         };
         toc.apply_commit(&header.changes)?;
         if requested_id == Some(validated.commit_header.commit_id) {
-            stopped_at_through = true;
+            stopped_at_to = true;
         }
         header_offset = next_header_offset;
     }
 
     if requested_id.is_some() && matches == 0 {
-        return Err("--through commit ID was not found".into());
+        return Err("--to commit ID was not found".into());
     }
     Ok(toc)
 }

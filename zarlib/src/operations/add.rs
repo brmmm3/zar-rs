@@ -17,6 +17,7 @@ use zeroize::Zeroizing;
 pub struct AddInputOptions {
     pub save_metadata: bool,
     pub save_dates: bool,
+    pub save_user: bool,
     pub include_special_files: bool,
     pub strict: bool,
     pub verbose: bool,
@@ -49,6 +50,7 @@ pub fn add_archive_with_encoding_progress(
         AddInputOptions {
             save_metadata,
             save_dates: false,
+            save_user: false,
             include_special_files: true,
             strict: false,
             verbose: false,
@@ -72,6 +74,7 @@ pub fn add_archive_with_encoding_progress_and_special_files(
         AddInputOptions {
             save_metadata,
             save_dates: false,
+            save_user: false,
             include_special_files,
             strict: false,
             verbose: false,
@@ -131,6 +134,7 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
     let AddInputOptions {
         save_metadata,
         save_dates,
+        save_user,
         include_special_files,
         strict,
         verbose,
@@ -233,7 +237,9 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
 
     let logical_header = LogicalHeader::with_block_size(changes.clone(), options.block_size as u32)
         .with_entry_metadata(finalize_entry_metadata(entry_metadata, save_dates));
-    let group_sizes = group_size_metadata(&logical_header, &block_sizes)?;
+    let mut group_sizes = group_size_metadata(&logical_header, &block_sizes)?;
+    let username = save_user.then(current_username).transpose()?;
+    group_sizes.extend(commit_metadata(username.as_deref())?);
     let header_bytes = logical_header.with_metadata(group_sizes).encode()?;
     let data_size = data.stream_position()?;
     data.flush()?;

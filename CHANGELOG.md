@@ -17,6 +17,9 @@ until a version is released.
 
 ### Fixed
 
+- Small files are now packed together into configured-size blocks. Logical
+  header version 8 records each packed file's offset, preserving extraction and
+  join behavior.
 - The `zarg` operation dialogs (Create, Add, Extract, ...) keep their action
   buttons pinned to the bottom, so Create and Cancel stay visible when the
   dialog is small; only the form fields scroll.

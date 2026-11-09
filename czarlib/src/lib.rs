@@ -219,6 +219,7 @@ fn create(request: &Value) -> Result<Value, String> {
             input: CreateInputOptions {
                 save_metadata: bool_option(request, "save_metadata", false)?,
                 save_dates: bool_option(request, "save_dates", false)?,
+                save_user: bool_option(request, "save_user", false)?,
                 include_special_files: bool_option(request, "include_special_files", false)?,
                 overwrite_existing: bool_option(request, "overwrite", false)?,
                 verbose: bool_option(request, "verbose", false)?,
@@ -255,6 +256,7 @@ fn add(request: &Value) -> Result<Value, String> {
         AddInputOptions {
             save_metadata: bool_option(request, "save_metadata", false)?,
             save_dates: bool_option(request, "save_dates", false)?,
+            save_user: bool_option(request, "save_user", false)?,
             include_special_files: bool_option(request, "include_special_files", false)?,
             strict: bool_option(request, "strict", false)?,
             verbose: bool_option(request, "verbose", false)?,
@@ -278,7 +280,7 @@ fn join(request: &Value) -> Result<Value, String> {
     operations::join_archive_with_encoding_progress(
         required_string(request, "archive")?,
         required_string(request, "from_id")?,
-        required_string(request, "through_id")?,
+        required_string(request, "to_id")?,
         encoding_options(request)?,
         Some(&warnings),
     )
@@ -294,6 +296,49 @@ fn undo(request: &Value) -> Result<Value, String> {
         .ok_or("'commits' must be a positive integer in range")?;
     operations::undo_archive(required_string(request, "archive")?, commits)
         .map_err(|error| error.to_string())?;
+    Ok(Value::Null)
+}
+
+fn encrypt_commits(request: &Value) -> Result<Value, String> {
+    let archive = required_string(request, "archive")?;
+    let from_id = required_string(request, "from_id")?;
+    let to_id = required_string(request, "to_id")?;
+    let output = optional_string(request, "output")?;
+    let new_password = required_string(request, "new_password")?.as_bytes();
+    let algorithm = content_aead(request)?;
+    let scope = encryption_scope(request)?;
+    let passwords = passwords(request)?;
+    operations::encrypt_archive_commits(
+        archive,
+        operations::CommitRangeOptions {
+            from_id,
+            to_id,
+            output,
+            passwords: &passwords,
+            strict: bool_option(request, "strict", false)?,
+        },
+        new_password,
+        algorithm,
+        scope,
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(Value::Null)
+}
+
+fn decrypt_commits(request: &Value) -> Result<Value, String> {
+    let archive = required_string(request, "archive")?;
+    let passwords = passwords(request)?;
+    operations::decrypt_archive_commits(
+        archive,
+        operations::CommitRangeOptions {
+            from_id: required_string(request, "from_id")?,
+            to_id: required_string(request, "to_id")?,
+            output: optional_string(request, "output")?,
+            passwords: &passwords,
+            strict: bool_option(request, "strict", false)?,
+        },
+    )
+    .map_err(|error| error.to_string())?;
     Ok(Value::Null)
 }
 
@@ -388,7 +433,7 @@ fn list(request: &Value) -> Result<Value, String> {
     let passwords = passwords(request)?;
     let toc = operations::list_archive_with_passwords(
         required_string(request, "archive")?,
-        optional_string(request, "through")?,
+        optional_string(request, "to")?,
         &passwords,
     )
     .map_err(|error| error.to_string())?;
@@ -470,7 +515,7 @@ fn extract(request: &Value) -> Result<Value, String> {
         &destination,
         ExtractionOptions {
             dry_run,
-            through: optional_string(request, "through")?,
+            to: optional_string(request, "to")?,
             collision_policy: collision_policy(request)?,
             existing_policy: existing_policy(request)?,
             restore_metadata: bool_option(request, "restore_metadata", false)?,
@@ -531,7 +576,7 @@ fn extract_to_memory(request: &Value) -> Result<Value, String> {
     let files =
         operations::extract_archive_to_memory_with_passwords_and_filters(
             required_string(request, "archive")?,
-            optional_string(request, "through")?,
+            optional_string(request, "to")?,
             &passwords,
             match request.get("size_limit") {
                 None | Some(Value::Null) => None,
@@ -557,6 +602,8 @@ fn execute(operation: &str, request: &Value) -> Result<Value, String> {
         "remove_archive" => remove(request),
         "join_archive" => join(request),
         "undo_archive" => undo(request),
+        "encrypt_archive_commits" => encrypt_commits(request),
+        "decrypt_archive_commits" => decrypt_commits(request),
         "check_archive" => check(request),
         "info_archive" => info(request),
         "list_archive" => list(request),
@@ -739,5 +786,75 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("first commit must be retained"));
+    }
+
+    #[test]
+    fn encrypt_and_decrypt_archive_commits_json_round_trip() {
+        let directory = tempfile::tempdir().unwrap();
+        let first = directory.path().join("first.txt");
+        let second = directory.path().join("second.txt");
+        let archive = directory.path().join("source.zar");
+        let output = directory.path().join("encrypted.zar");
+        std::fs::write(&first, b"first").unwrap();
+        std::fs::write(&second, b"second").unwrap();
+
+        execute_json(
+            "create_archive",
+            &serde_json::json!({"archive": archive, "paths": [first]}).to_string(),
+        )
+        .unwrap();
+        execute_json(
+            "add_archive",
+            &serde_json::json!({"archive": archive, "paths": [second]}).to_string(),
+        )
+        .unwrap();
+        execute_json(
+            "encrypt_archive_commits",
+            &serde_json::json!({
+                "archive": archive,
+                "from_id": "00000002",
+                "to_id": "00000002",
+                "output": output,
+                "new_password": "current password",
+                "aead": "chacha20-poly1305",
+                "encryption_scope": "header-and-data",
+                "strict": true,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let info: serde_json::Value = serde_json::from_str(
+            &execute_json(
+                "info_archive",
+                &serde_json::json!({"archive": output}).to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(info[1]["header_encrypted"], true);
+        assert_eq!(info[1]["data_encrypted"], true);
+
+        execute_json(
+            "decrypt_archive_commits",
+            &serde_json::json!({
+                "archive": output,
+                "from_id": "00000002",
+                "to_id": "00000002",
+                "password": "current password",
+                "strict": true,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let info: serde_json::Value = serde_json::from_str(
+            &execute_json(
+                "info_archive",
+                &serde_json::json!({"archive": output}).to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(info[1]["header_encrypted"], false);
+        assert_eq!(info[1]["data_encrypted"], false);
     }
 }

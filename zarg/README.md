@@ -51,6 +51,7 @@ desktop entry.
 - Open and browse archives in a virtualized list with MIME-style icons,
   compressed/uncompressed sizes, ratio, and saved owner/permission metadata
   when available.
+- Show the open archive's filename in the main window title.
 - Switch the archive contents between Normal icon tiles, Compact multi-column
   rows, Details with size, ratio, owner, permissions, and type columns, and a
   Structured expandable directory tree. Structured view shows file sizes,
@@ -80,6 +81,10 @@ desktop entry.
 - Join a contiguous range of commits.
 - Undo a selected positive number of trailing commits while retaining the
   first commit (Tools → Undo commits).
+- Encrypt, decrypt, or change encryption for commits through a unified dialog
+  (Tools → Change commits). Choose an inclusive commit range and optionally
+  write the result to a different archive. Encryption offers AES-256-GCM or
+  ChaCha20-Poly1305, with header/data scope selection.
 - Test archives, optionally recovering past damaged framing.
 - View commit information, including stored and uncompressed sizes, with
   optional verbose statistics or JSON output.
@@ -89,6 +94,15 @@ desktop entry.
   symlink/device restoration, dry run, and commit selection.
 - Configure block size, compression, strict input handling, special files,
   overwrite, and the CLI's fnmatch include/exclude filters and filter lists.
+- Set defaults for metadata, dates, special files, strict input validation,
+  username recording, and include/exclude patterns in Settings. These defaults
+  prefill New archive. The first Add dialog for a new archive uses that New
+  dialog's settings; for an opened archive it uses Settings defaults. Later
+  Add dialogs remember their settings until another archive is created or opened
+  or the application exits, including when the dialog is canceled. Selected
+  input files and passwords are not remembered; passwords must be re-entered.
+  Username recording applies only to new archives. Extraction filters remain
+  independent.
 - Use installed file-manager actions to create archives from selected items,
   open `.zar` files, extract, and test archives. “Add to Archive...” opens the
   create form and asks for a destination for a new archive. “Create Archive...”
@@ -101,3 +115,6 @@ desktop entry.
 Operations are provided by `zarlib`; encryption, file type and filesystem
 safety behavior follows the library. In particular, archive append and
 compaction retain the same encrypted-header limitations as `zarc`.
+
+To measure compression and extraction of a saved archive with different
+settings, see [Benchmark an archive in zarg](../doc/benchmarks/README.md#benchmark-an-archive-in-zarg).

@@ -169,7 +169,7 @@ void test_options_filters_and_atomic_failures() {
             "overwrite did not replace archive");
 }
 
-void test_add_replace_remove_and_through() {
+void test_add_replace_remove_and_to() {
     write_file("input/alpha.txt", "replaced");
     write_file("input/nested/new.txt", "new");
     (void)invoke(
@@ -188,14 +188,14 @@ void test_add_replace_remove_and_through() {
     auto info = invoke("info_archive", R"({"archive":"sample.zar"})");
     require(info.find("\"id\":\"00000001\"") != std::string::npos,
             "add unexpectedly changed first commit ID");
-    auto through = invoke(
+    auto listing_to_commit = invoke(
         "list_archive",
-        R"({"archive":"sample.zar","through":"00000001"})");
-    require(through.find("input/nested/new.txt") == std::string::npos,
-            "through listing included a later commit");
+        R"({"archive":"sample.zar","to":"00000001"})");
+    require(listing_to_commit.find("input/nested/new.txt") == std::string::npos,
+            "listing through --to included a later commit");
     expect_error(
         "list_archive",
-        R"({"archive":"sample.zar","through":"ffffffff"})",
+        R"({"archive":"sample.zar","to":"ffffffff"})",
         "not found");
 
     copy_file("sample.zar", "sample-before-failed-remove.zar");
@@ -205,11 +205,11 @@ void test_add_replace_remove_and_through() {
         "not found");
     require_same_file("sample.zar", "sample-before-failed-remove.zar");
 
-    auto through_plan = invoke(
+    auto to_plan = invoke(
         "extract_archive",
-        R"({"archive":"sample.zar","destination":"through","through":"00000001","dry_run":true})");
-    require(through_plan.find("new.txt") == std::string::npos,
-            "through extraction plan included a later commit");
+        R"({"archive":"sample.zar","destination":"to","to":"00000001","dry_run":true})");
+    require(to_plan.find("new.txt") == std::string::npos,
+            "extraction plan through --to included a later commit");
     (void)invoke(
         "remove_archive",
         R"({"archive":"sample.zar","paths":["input/nested"]})");
@@ -238,7 +238,7 @@ void test_join_and_suffix_preservation() {
             "fixture did not have expected suffix commit");
     (void)invoke(
         "join_archive",
-        R"({"archive":"sample.zar","from_id":"00000003","through_id":"00000004"})");
+        R"({"archive":"sample.zar","from_id":"00000003","to_id":"00000004"})");
     auto after = invoke("info_archive", R"({"archive":"sample.zar"})");
     require(after.find("\"id\":\"00000005\"") != std::string::npos,
             "join failed to preserve suffix commit");
@@ -266,6 +266,41 @@ void test_undo_retains_the_first_commit() {
         "undo_archive",
         R"({"archive":"undo.zar","commits":1})",
         "first commit must be retained");
+}
+
+void test_encrypt_decrypt_commit_range() {
+    write_file("transform-first.txt", "first");
+    write_file("transform-second.txt", "second");
+    (void)invoke(
+        "create_archive",
+        R"({"archive":"transform.zar","paths":["transform-first.txt"]})");
+    (void)invoke(
+        "add_archive",
+        R"({"archive":"transform.zar","paths":["transform-second.txt"]})");
+    (void)invoke(
+        "encrypt_archive_commits",
+        R"({"archive":"transform.zar","from_id":"00000002","to_id":"00000002","output":"transform-copy.zar","new_password":"new-password","aead":"chacha20-poly1305","encryption_scope":"header-and-data","strict":true})");
+
+    auto info = invoke("info_archive", R"({"archive":"transform-copy.zar"})");
+    require(info.find("\"header_encrypted\":true") != std::string::npos,
+            "encryption did not encrypt the commit header");
+    require(info.find("\"data_encrypted\":true") != std::string::npos,
+            "encryption did not encrypt commit data");
+    require(
+        invoke(
+            "check_archive",
+            R"({"archive":"transform-copy.zar","password":"new-password"})")
+                .find("\"commits\":2") != std::string::npos,
+        "encrypted copy failed validation");
+
+    (void)invoke(
+        "decrypt_archive_commits",
+        R"({"archive":"transform-copy.zar","from_id":"00000002","to_id":"00000002","password":"new-password","strict":true})");
+    info = invoke("info_archive", R"({"archive":"transform-copy.zar"})");
+    require(info.find("\"header_encrypted\":true") == std::string::npos,
+            "decryption left a commit header encrypted");
+    require(info.find("\"data_encrypted\":true") == std::string::npos,
+            "decryption left commit data encrypted");
 }
 
 void test_extract_policies_memory_and_encryption() {
@@ -447,9 +482,10 @@ int main() {
         test_request_validation();
         test_create_list_check_info_extract();
         test_options_filters_and_atomic_failures();
-        test_add_replace_remove_and_through();
+        test_add_replace_remove_and_to();
         test_join_and_suffix_preservation();
         test_undo_retains_the_first_commit();
+        test_encrypt_decrypt_commit_range();
         test_extract_policies_memory_and_encryption();
         test_concurrent_calls();
         fs::current_path(original);

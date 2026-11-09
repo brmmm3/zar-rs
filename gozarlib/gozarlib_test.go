@@ -167,12 +167,12 @@ func TestFullArchiveOperations(t *testing.T) {
 	})
 	assertMemoryFile(t, memory, "input/alpha.txt", []byte("replaced"))
 	assertMemoryFile(t, memory, "input/nested/new.txt", []byte("new"))
-	through := call(t, "list_archive", map[string]any{
-		"archive": "sample.zar", "through": "00000001",
+	listingAtTo := call(t, "list_archive", map[string]any{
+		"archive": "sample.zar", "to": "00000001",
 	})
-	requireNotContains(t, through, "input/nested/new.txt")
+	requireNotContains(t, listingAtTo, "input/nested/new.txt")
 	expectError(t, "list_archive", map[string]any{
-		"archive": "sample.zar", "through": "ffffffff",
+		"archive": "sample.zar", "to": "ffffffff",
 	}, "not found")
 	if _, err := os.Stat("sample.zar"); err != nil {
 		t.Fatal(err)
@@ -204,7 +204,7 @@ func TestFullArchiveOperations(t *testing.T) {
 	requireContains(t, call(t, "info_archive", map[string]any{"archive": "sample.zar"}),
 		`"id":"00000005"`)
 	call(t, "join_archive", map[string]any{
-		"archive": "sample.zar", "from_id": "00000003", "through_id": "00000004",
+		"archive": "sample.zar", "from_id": "00000003", "to_id": "00000004",
 	})
 	listing = call(t, "list_archive", map[string]any{"archive": "sample.zar"})
 	requireContains(t, listing, "input/one.txt")
@@ -415,6 +415,55 @@ func TestUndoArchiveRetainsFirstCommit(t *testing.T) {
 	expectError(t, "undo_archive", map[string]any{
 		"archive": "undo.zar", "commits": 1,
 	}, "first commit must be retained")
+}
+
+func TestEncryptAndDecryptArchiveCommits(t *testing.T) {
+	temp := t.TempDir()
+	oldWorkingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Chdir(temp); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if chdirErr := os.Chdir(oldWorkingDirectory); chdirErr != nil {
+			t.Errorf("restore working directory: %v", chdirErr)
+		}
+	}()
+
+	writeFixture(t, "first.txt", []byte("first"))
+	writeFixture(t, "second.txt", []byte("second"))
+	if _, err := CreateArchive(map[string]any{
+		"archive": "source.zar", "paths": []string{"first.txt"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AddArchive(map[string]any{
+		"archive": "source.zar", "paths": []string{"second.txt"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EncryptArchiveCommits(map[string]any{
+		"archive": "source.zar", "from_id": "00000002", "to_id": "00000002",
+		"output": "encrypted.zar", "new_password": "current password",
+		"aead": "chacha20-poly1305", "encryption_scope": "header-and-data",
+		"strict": true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	info := call(t, "info_archive", map[string]any{"archive": "encrypted.zar"})
+	requireContains(t, info, `"header_encrypted":true`)
+	requireContains(t, info, `"data_encrypted":true`)
+	if _, err := DecryptArchiveCommits(map[string]any{
+		"archive": "encrypted.zar", "from_id": "00000002", "to_id": "00000002",
+		"password": "current password", "strict": true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	info = call(t, "info_archive", map[string]any{"archive": "encrypted.zar"})
+	requireNotContains(t, info, `"header_encrypted":true`)
+	requireNotContains(t, info, `"data_encrypted":true`)
 }
 
 func TestExecuteJSONValidation(t *testing.T) {

@@ -113,7 +113,6 @@ impl FilterSet {
         if self.rules.is_empty() {
             return true;
         }
-        let ancestors = path_ancestors(path);
         if self.rules.iter().any(|rule| {
             if rule.include {
                 return false;
@@ -124,17 +123,13 @@ impl FilterSet {
                     if is_directory && rule.matcher.is_match(path) {
                         true
                     } else {
-                        ancestors
-                            .iter()
-                            .any(|ancestor| rule.matcher.is_match(ancestor))
+                        path_ancestors(path).any(|ancestor| rule.matcher.is_match(ancestor))
                     }
                 }
                 FilterTarget::Any => {
                     rule.matcher.is_match(path)
                         || (!is_directory
-                            && ancestors
-                                .iter()
-                                .any(|ancestor| rule.matcher.is_match(ancestor)))
+                            && path_ancestors(path).any(|ancestor| rule.matcher.is_match(ancestor)))
                 }
             }
         }) {
@@ -155,17 +150,13 @@ impl FilterSet {
                     if is_directory && rule.matcher.is_match(path) {
                         true
                     } else {
-                        ancestors
-                            .iter()
-                            .any(|ancestor| rule.matcher.is_match(ancestor))
+                        path_ancestors(path).any(|ancestor| rule.matcher.is_match(ancestor))
                     }
                 }
                 FilterTarget::Any => {
                     rule.matcher.is_match(path)
                         || (!is_directory
-                            && ancestors
-                                .iter()
-                                .any(|ancestor| rule.matcher.is_match(ancestor)))
+                            && path_ancestors(path).any(|ancestor| rule.matcher.is_match(ancestor)))
                 }
             }
         })
@@ -223,10 +214,8 @@ impl FilterSet {
     }
 }
 
-fn path_ancestors(path: &str) -> Vec<&str> {
-    path.match_indices('/')
-        .map(|(index, _)| &path[..index])
-        .collect()
+fn path_ancestors(path: &str) -> impl Iterator<Item = &str> {
+    path.match_indices('/').map(|(index, _)| &path[..index])
 }
 
 #[cfg(test)]

@@ -170,9 +170,28 @@ pub fn check_archive_with_recovery_and_passwords_progress(
                         for index in &entry.block_indices {
                             match block_sizes.get(index) {
                                 Some(Some(size)) => {
-                                    decoded_size = decoded_size
-                                        .checked_add(*size as u64)
-                                        .ok_or("decoded file size overflow")?;
+                                    let file_range = if let Some(offset) = entry.offset_in_block {
+                                        if entry.block_indices.as_slice() != [*index] {
+                                            return Err(crate::FramingError::InvalidSize.into());
+                                        }
+                                        let start = usize::try_from(offset)
+                                            .map_err(|_| "packed file offset overflow")?;
+                                        let file_size = usize::try_from(entry.size)
+                                            .map_err(|_| "packed file size overflow")?;
+                                        let end = start
+                                            .checked_add(file_size)
+                                            .filter(|&end| end <= *size)
+                                            .ok_or(crate::FramingError::InvalidSize)?;
+                                        decoded_size = decoded_size
+                                            .checked_add(entry.size)
+                                            .ok_or("decoded file size overflow")?;
+                                        Some((start, end))
+                                    } else {
+                                        decoded_size = decoded_size
+                                            .checked_add(*size as u64)
+                                            .ok_or("decoded file size overflow")?;
+                                        None
+                                    };
                                     if entry.checksum.is_some() {
                                         let offset = block_offsets.get(index).ok_or_else(|| {
                                             format!("missing data offset for block {index}")
@@ -202,7 +221,15 @@ pub fn check_archive_with_recovery_and_passwords_progress(
                                                     limits.max_uncompressed_block_size,
                                                 )?
                                             };
-                                        checksum.update(&contents);
+                                        if let Some((start, end)) = file_range {
+                                            checksum.update(
+                                                contents
+                                                    .get(start..end)
+                                                    .ok_or(crate::FramingError::InvalidSize)?,
+                                            );
+                                        } else {
+                                            checksum.update(&contents);
+                                        }
                                     }
                                 }
                                 Some(None) => all_blocks_readable = false,

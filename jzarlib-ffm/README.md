@@ -1,10 +1,11 @@
 # jzarlib-ffm
 
 `jzarlib-ffm` is the Java Foreign Function & Memory API binding to `czarlib`.
-It requires Java 25 or newer and exposes the same ten JSON operations:
-create, add, remove, join, undo, check, info, list, filesystem extract, and
-in-memory extract. See [`czarlib/README.md`](../czarlib/README.md) for all
-request fields, filters, encryption settings, and support boundaries.
+It requires Java 25 or newer and exposes the same twelve JSON operations:
+create, add, remove, join, undo, encrypt/decrypt commit ranges, check, info,
+list, filesystem extract, and in-memory extract. See
+[`czarlib/README.md`](../czarlib/README.md) for all request fields, filters,
+encryption settings, and support boundaries.
 Create and Add requests may include `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz`
 source paths; their contents are imported into the resulting ZAR using the source
 archive's internal paths.
@@ -54,5 +55,5 @@ java --enable-native-access=ALL-UNNAMED \
 
 `ZarcExample` supports `create|c`, `add|a`, `remove|r`, `join|j`, `check|k`,
 `info|i`, `list|l`, `extract|e`, and `memory`. The integration tests cover all
-ten operations, option/error handling, encryption, extraction, and concurrent
+twelve operations, option/error handling, encryption, extraction, and concurrent
 calls.

@@ -1,8 +1,8 @@
 # pyzarlib
 
 `pyzarlib` provides Python bindings to the Rust `zarlib` archive library.
-The package exposes high-level create, add, remove, join, undo, check, info, list,
-and extract operations.
+The package exposes high-level create, add, remove, join, undo, commit
+encryption/decryption, check, info, list, and extract operations.
 ZIP, 7z, TAR, TAR.GZ, and TGZ paths in `create_archive` and `add_archive` are
 imported by their internal entry paths. Encrypted ZIP/7z sources and ZIP/7z
 links are not supported. TAR symbolic links are preserved where the host
@@ -58,7 +58,7 @@ python examples/zarc.py create backup.zar src/ README.md
 zarc-py undo backup.zar 1
 zarc-py list backup.zar
 zarc-py check backup.zar
-zarc-py extract backup.zar --to restored --dry-run
+zarc-py extract backup.zar --output restored --dry-run
 ```
 
 It supports create (`c`), add (`a`), remove (`r`), join (`j`), undo (`u`), check (`k`),
@@ -163,7 +163,7 @@ zarc-py create --password secrets-aes.zar secrets/
 zarc-py create --password --aead chacha20-poly1305 secrets-chacha.zar secrets/
 zarc-py check --password secrets-chacha.zar
 zarc-py list --password secrets-chacha.zar
-zarc-py extract --password --to restored/ secrets-chacha.zar
+zarc-py extract --password --output restored/ secrets-chacha.zar
 ```
 
 The archive stores the selected AEAD in its encryption descriptor. The
@@ -173,6 +173,34 @@ password in the archive. `add_archive` can append a new encrypted commit;
 provide credentials for encrypted earlier commits when those commits need
 validation. `remove_archive` and `join_archive` still reject encrypted archives
 because encrypted stateful rewriting is not implemented.
+
+Existing commits can be transformed over an inclusive commit-ID range. The
+encryption function uses `new_password` for the resulting commits and accepts
+`password`/`passwords` for the current passwords of any already-encrypted
+commits. Decryption uses the current-password fields. Both support an optional
+`output` path (otherwise the input is replaced atomically), AEAD/scope options
+for encryption, and `strict`; when false, commits that lack a current password
+are left unchanged.
+
+```python
+pyzarlib.encrypt_archive_commits(
+    "backup.zar",
+    "00000002",
+    "00000003",
+    b"new-password",
+    output="encrypted-copy.zar",
+    aead="chacha20-poly1305",
+    passwords={"00000002": b"old-password"},
+    strict=True,
+)
+pyzarlib.decrypt_archive_commits(
+    "encrypted-copy.zar",
+    "00000002",
+    "00000003",
+    password=b"new-password",
+    strict=True,
+)
+```
 
 ### Different passwords per commit
 
@@ -265,7 +293,7 @@ print(
 
 ### Extract files
 
-Equivalent CLI: `zarc extract backup.zar --to restored`
+Equivalent CLI: `zarc extract backup.zar --output restored`
 
 ```python
 import pyzarlib
@@ -292,7 +320,7 @@ contents; earlier commits remain unchanged.
 
 ### Join a commit range
 
-Equivalent CLI: `zarc join backup.zar --from <first-id> --through <last-id>`
+Equivalent CLI: `zarc join backup.zar --from <first-id> --to <last-id>`
 
 The IDs are the eight-hex-digit commit IDs returned by `info_archive`. This
 example compacts the first two commits in physical order:
@@ -326,22 +354,29 @@ physical commit order.
   include_folders=None, exclude_folders=None)` appends a commit and returns
   warnings.
 - `remove_archive(archive, paths)` appends tombstones.
-- `join_archive(archive, from_id, through_id, *, block_size=8388608,
+- `join_archive(archive, from_id, to_id, *, block_size=8388608,
   compression_level=3)` compacts a contiguous commit range and returns
   warnings.
+- `encrypt_archive_commits(archive, from_id, to_id, new_password, *,
+  output=None, aead="aes-256-gcm", encryption_scope="header-and-data",
+  password=None, passwords=None, strict=False)` encrypts or re-encrypts an
+  inclusive range. `password` and `passwords` unlock selected commits before
+  re-encryption.
+- `decrypt_archive_commits(archive, from_id, to_id, *, output=None,
+  password=None, passwords=None, strict=False)` decrypts an inclusive range.
 - `check_archive(archive, *, recover=False, password=None)` validates the
   archive and returns commit/block/recovery counts.
 - `info_archive(archive, *, verbose=False)` returns commit size, compression,
   and optional detailed statistics.
-- `list_archive(archive, *, through=None, password=None)` returns the
+- `list_archive(archive, *, to=None, password=None)` returns the
   effective TOC as dictionaries.
-- `extract_archive(archive, destination, *, dry_run=False, through=None,
+- `extract_archive(archive, destination, *, dry_run=False, to=None,
   password=None, collision="rename", existing="error", restore_metadata=False,
   restore_symlinks=False, restore_devices=False, include_files=None,
   exclude_files=None, include_folders=None, exclude_folders=None)` extracts
   selected entries and returns the resulting plan as dictionaries. Set
   `dry_run=True` to plan without writing files.
-- `extract_archive_to_memory(archive, *, through=None, password=None,
+- `extract_archive_to_memory(archive, *, to=None, password=None,
   size_limit=None, offset=0, include_files=None, exclude_files=None,
   include_folders=None, exclude_folders=None)` returns a dictionary mapping
   archive-relative regular-file paths to `bytes`. The same `offset` is applied

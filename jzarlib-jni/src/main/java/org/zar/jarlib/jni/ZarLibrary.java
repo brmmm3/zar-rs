@@ -62,6 +62,14 @@ public final class ZarLibrary {
         return executeJson("undo_archive", requestJson);
     }
 
+    public static String encryptArchiveCommits(String requestJson) throws ZarException {
+        return executeJson("encrypt_archive_commits", requestJson);
+    }
+
+    public static String decryptArchiveCommits(String requestJson) throws ZarException {
+        return executeJson("decrypt_archive_commits", requestJson);
+    }
+
     public static String checkArchive(String requestJson) throws ZarException {
         return executeJson("check_archive", requestJson);
     }

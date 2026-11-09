@@ -16,6 +16,7 @@ use zeroize::Zeroizing;
 pub struct CreateInputOptions {
     pub save_metadata: bool,
     pub save_dates: bool,
+    pub save_user: bool,
     pub include_special_files: bool,
     pub overwrite_existing: bool,
     pub verbose: bool,
@@ -77,6 +78,7 @@ pub fn create_archive_with_password_progress(
         CreateInputOptions {
             save_metadata,
             save_dates: false,
+            save_user: false,
             include_special_files: true,
             overwrite_existing: false,
             verbose: false,
@@ -164,6 +166,7 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
     let CreateInputOptions {
         save_metadata,
         save_dates,
+        save_user,
         include_special_files,
         overwrite_existing,
         verbose,
@@ -268,7 +271,7 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
         ProgressReporter::new(Some(progress)).set_total(summary.total_bytes);
     }
     process_tree_entries(&all_tree_entries, &mut scan_context)?;
-    if changes.is_empty() {
+    if changes.is_empty() && !paths.is_empty() {
         return Err("no supported files or directories were found to archive".into());
     }
 
@@ -277,7 +280,9 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
 
     let logical_header = LogicalHeader::with_block_size(changes, options.block_size as u32)
         .with_entry_metadata(finalize_entry_metadata(entry_metadata, save_dates));
-    let group_sizes = group_size_metadata(&logical_header, &block_sizes)?;
+    let mut group_sizes = group_size_metadata(&logical_header, &block_sizes)?;
+    let username = save_user.then(current_username).transpose()?;
+    group_sizes.extend(commit_metadata(username.as_deref())?);
     let header_bytes = logical_header.with_metadata(group_sizes).encode()?;
 
     let (header, commit_header, dek) = if let (Some(dek), Some(descriptor_bytes), Some(scope)) =

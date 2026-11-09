@@ -1,6 +1,7 @@
 use super::common::*;
 use super::info::group_size_metadata;
 use super::list::load_toc;
+use super::pipeline::{BlockWorkItem, SmallFilePacker, encode_block};
 use crate::{
     ArchivePath, BlockFrame, CommitHeader, CommitValidationLimits, FileEntry, HEADER_OFFSET_SIZE,
     HeaderFrame, LogicalHeader, Toc, TocChange, TocEntry, UNENCRYPTED_DESCRIPTOR, ValidatedCommit,
@@ -9,20 +10,42 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
+use xxhash_rust::xxh64::Xxh64;
+
+fn write_joined_block(
+    data: &mut Vec<u8>,
+    block_sizes: &mut HashMap<u32, u64>,
+    block: BlockWorkItem,
+    compression_level: i32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let frame = encode_block(
+        block.block_index,
+        &block.data,
+        compression_level,
+        block.skip_compression,
+        None,
+    )?;
+    block_sizes.insert(
+        block.block_index,
+        u64::try_from(frame.payload.len()).map_err(|_| "joined block size overflow")?,
+    );
+    frame.write_to(data)?;
+    Ok(())
+}
 
 pub fn join_archive_with_encoding(
     archive: &str,
     from_id: &str,
-    through_id: &str,
+    to_id: &str,
     options: EncodingOptions,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    join_archive_with_encoding_progress(archive, from_id, through_id, options, None)
+    join_archive_with_encoding_progress(archive, from_id, to_id, options, None)
 }
 
 pub fn join_archive_with_encoding_progress(
     archive: &str,
     from_id: &str,
-    through_id: &str,
+    to_id: &str,
     mut options: EncodingOptions,
     progress: Option<&dyn Progress>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -32,7 +55,7 @@ pub fn join_archive_with_encoding_progress(
     }
     let progress = ProgressReporter::new(progress);
     let from_id = parse_commit_id(from_id)?;
-    let through_id = parse_commit_id(through_id)?;
+    let to_id = parse_commit_id(to_id)?;
     let archive_path = Path::new(archive);
     let parent = archive_path
         .parent()
@@ -82,14 +105,14 @@ pub fn join_archive_with_encoding_progress(
             .collect::<Vec<_>>()
     };
     let from_matches = matching_indices(&from_id);
-    let through_matches = matching_indices(&through_id);
-    if from_matches.len() != 1 || through_matches.len() != 1 {
+    let to_matches = matching_indices(&to_id);
+    if from_matches.len() != 1 || to_matches.len() != 1 {
         return Err("commit IDs must each identify exactly one archive commit".into());
     }
     let first = from_matches[0];
-    let last = through_matches[0];
+    let last = to_matches[0];
     if first > last {
-        return Err("--from commit must not appear after --through commit".into());
+        return Err("start commit ID must not appear after end commit ID".into());
     }
 
     let mut prefix_toc = Toc::default();
@@ -129,11 +152,31 @@ pub fn join_archive_with_encoding_progress(
                 TocChange::PutFile { path, entry } => {
                     let mut contents = Vec::new();
                     for index in &entry.block_indices {
-                        contents.extend_from_slice(
-                            blocks.get(index).ok_or_else(|| {
-                                format!("TOC references unavailable block {index}")
-                            })?,
-                        );
+                        let block = blocks
+                            .get(index)
+                            .ok_or_else(|| format!("TOC references unavailable block {index}"))?;
+                        if let Some(offset) = entry.offset_in_block {
+                            if entry.block_indices.len() != 1 {
+                                return Err(format!(
+                                    "packed file {path} must reference exactly one block"
+                                )
+                                .into());
+                            }
+                            let start = usize::try_from(offset)
+                                .map_err(|_| format!("packed file offset overflow for {path}"))?;
+                            let end = start
+                                .checked_add(
+                                    usize::try_from(entry.size)
+                                        .map_err(|_| format!("file size overflow for {path}"))?,
+                                )
+                                .filter(|&end| end <= block.len())
+                                .ok_or_else(|| {
+                                    format!("packed file range exceeds block for {path}")
+                                })?;
+                            contents.extend_from_slice(&block[start..end]);
+                        } else {
+                            contents.extend_from_slice(block);
+                        }
                     }
                     if contents.len() as u64 != entry.size {
                         return Err(format!("decoded size mismatch for {path}").into());
@@ -266,11 +309,38 @@ pub fn join_archive_with_encoding_progress(
     let mut data = Vec::new();
     let mut next_block_index = 0_u32;
     let mut block_sizes = std::collections::HashMap::<u32, u64>::new();
+    let mut small_packer = SmallFilePacker::new(options.block_size);
     for change in &mut changes {
         if let TocChange::PutFile { path, entry } = change {
             let contents = written_files
                 .get(path)
                 .ok_or_else(|| format!("missing data for joined file {path}"))?;
+            if entry.size > 8 && entry.size < options.block_size as u64 {
+                let mut hasher = Xxh64::new(0);
+                hasher.update(contents);
+                let checksum = hasher.digest();
+                let (block_index, offset_in_block, completed) = small_packer
+                    .add(contents.clone(), checksum, false, || {
+                        let index = next_block_index;
+                        next_block_index = next_block_index
+                            .checked_add(1)
+                            .ok_or_else(|| "too many joined blocks".to_owned())?;
+                        Ok(index)
+                    })
+                    .map_err(io::Error::other)?;
+                if let Some(block) = completed {
+                    write_joined_block(
+                        &mut data,
+                        &mut block_sizes,
+                        block,
+                        options.compression_level,
+                    )?;
+                }
+                *entry = FileEntry::new(entry.size, vec![block_index])?
+                    .with_block_offset(offset_in_block)
+                    .with_checksum(checksum);
+                continue;
+            }
             let mut indices = Vec::new();
             for chunk in contents.chunks(options.block_size) {
                 let index = next_block_index;
@@ -285,9 +355,18 @@ pub fn join_archive_with_encoding_progress(
             *entry = FileEntry::new(entry.size, indices)?;
         }
     }
+    if let Some(block) = small_packer.take_block().map_err(io::Error::other)? {
+        write_joined_block(
+            &mut data,
+            &mut block_sizes,
+            block,
+            options.compression_level,
+        )?;
+    }
     let logical_header = LogicalHeader::with_block_size(changes.clone(), options.block_size as u32);
     let mut group_sizes = group_size_metadata(&logical_header, &block_sizes)?;
     group_sizes.extend(custom_metadata);
+    group_sizes.extend(commit_metadata(None)?);
     let header_bytes = logical_header.with_metadata(group_sizes).encode()?;
     let data_section_size = data.len() as u64;
     let new_commit_id = next_commit_id(archive_path)?;

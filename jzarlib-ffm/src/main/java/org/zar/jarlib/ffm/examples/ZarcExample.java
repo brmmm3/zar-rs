@@ -57,12 +57,12 @@ public final class ZarcExample {
             request.append(']');
         } else if (operation.equals("join_archive")) {
             if (args.length != 6 || !args[2].equals("--from")
-                    || !args[4].equals("--through")) {
+                    || !args[4].equals("--to")) {
                 throw new IllegalArgumentException(
-                        "join requires --from ID --through ID");
+                        "join requires --from ID --to ID");
             }
             request.append(",\"from_id\":").append(json(args[3]))
-                    .append(",\"through_id\":").append(json(args[5]));
+                    .append(",\"to_id\":").append(json(args[5]));
         } else if (operation.equals("undo_archive")) {
             if (args.length != 3) {
                 throw new IllegalArgumentException("undo requires a positive commit count");
@@ -94,7 +94,7 @@ public final class ZarcExample {
         System.err.println("  create|c ARCHIVE PATH...");
         System.err.println("  add|a ARCHIVE PATH...");
         System.err.println("  remove|r ARCHIVE ARCHIVE_PATH...");
-        System.err.println("  join|j ARCHIVE --from ID --through ID");
+        System.err.println("  join|j ARCHIVE --from ID --to ID");
         System.err.println("  undo|u ARCHIVE COMMITS");
         System.err.println("  check|k ARCHIVE");
         System.err.println("  info|i ARCHIVE");

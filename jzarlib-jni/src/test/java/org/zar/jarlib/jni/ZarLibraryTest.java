@@ -74,7 +74,7 @@ final class ZarLibraryTest {
             assertTrue(ZarLibrary.listArchive("{\"archive\":" + quote(archive.toString()) + "}")
                     .contains("second.txt"));
             ZarLibrary.joinArchive("{\"archive\":" + quote(archive.toString())
-                    + ",\"from_id\":\"00000001\",\"through_id\":\"00000002\"}");
+                    + ",\"from_id\":\"00000001\",\"to_id\":\"00000002\"}");
             ZarLibrary.removeArchive("{\"archive\":" + quote(archive.toString())
                     + ",\"paths\":[" + quote(directory.getFileName() + "/second.txt") + "]}");
             assertFalse(ZarLibrary.listArchive("{\"archive\":" + quote(archive.toString()) + "}")
@@ -127,6 +127,27 @@ final class ZarLibraryTest {
                             + ",\"passwords\":{\"00000001\":\"first\","
                             + "\"00000002\":\"second\"}}");
             assertTrue(unlocked.contains("alpha.txt"));
+
+            Path transform = directory.resolve("transform.zar");
+            Path transformOutput = directory.resolve("transform-output.zar");
+            ZarLibrary.createArchive("{\"archive\":" + quote(transform.toString())
+                    + ",\"paths\":[" + quote(input.resolve("alpha.txt").toString()) + "]}");
+            ZarLibrary.addArchive("{\"archive\":" + quote(transform.toString())
+                    + ",\"paths\":[" + quote(second.toString()) + "]}");
+            ZarLibrary.encryptArchiveCommits("{\"archive\":" + quote(transform.toString())
+                    + ",\"from_id\":\"00000002\",\"to_id\":\"00000002\","
+                    + "\"output\":" + quote(transformOutput.toString())
+                    + ",\"new_password\":\"transform-password\","
+                    + "\"encryption_scope\":\"header-and-data\",\"strict\":true}");
+            assertTrue(ZarLibrary.infoArchive(
+                    "{\"archive\":" + quote(transformOutput.toString()) + "}")
+                    .contains("\"header_encrypted\":true"));
+            ZarLibrary.decryptArchiveCommits("{\"archive\":" + quote(transformOutput.toString())
+                    + ",\"from_id\":\"00000002\",\"to_id\":\"00000002\","
+                    + "\"password\":\"transform-password\",\"strict\":true}");
+            assertFalse(ZarLibrary.infoArchive(
+                    "{\"archive\":" + quote(transformOutput.toString()) + "}")
+                    .contains("\"header_encrypted\":true"));
         } finally {
             deleteTree(directory);
         }

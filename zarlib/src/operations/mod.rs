@@ -15,7 +15,11 @@ pub mod list;
 pub mod meta;
 pub mod pipeline;
 pub mod remove;
+pub mod transform;
 pub mod undo;
+
+#[cfg(test)]
+mod coverage_tests;
 
 pub use add::*;
 pub use archive_input::is_supported_import_archive;
@@ -30,4 +34,5 @@ pub use list::*;
 pub use meta::*;
 pub use pipeline::*;
 pub use remove::*;
+pub use transform::*;
 pub use undo::*;

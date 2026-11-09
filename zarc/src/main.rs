@@ -249,6 +249,16 @@ impl CliProgress {
     }
 }
 
+fn parse_overwrite_decision(answer: &str) -> OverwriteDecision {
+    match answer.trim().to_ascii_lowercase().as_str() {
+        "y" | "yes" => OverwriteDecision::Yes,
+        "a" | "always" => OverwriteDecision::Always,
+        "n" | "no" => OverwriteDecision::No,
+        "never" => OverwriteDecision::Never,
+        _ => OverwriteDecision::No,
+    }
+}
+
 fn format_summary_lines(action: &str, summary: &InputSummary) -> Vec<String> {
     let mut lines = Vec::new();
     if summary.files > 0 || summary.directories > 0 {
@@ -324,6 +334,16 @@ impl Progress for CliProgress {
     fn is_interactive(&self) -> bool {
         io::stdin().is_terminal()
     }
+    fn confirm_overwrite(
+        &self,
+        prompt: &str,
+    ) -> Result<OverwriteDecision, Box<dyn std::error::Error>> {
+        eprint!("{prompt}");
+        io::stderr().flush()?;
+        let mut answer = String::new();
+        io::stdin().read_line(&mut answer)?;
+        Ok(parse_overwrite_decision(&answer))
+    }
     fn confirm(&self, prompt: &str) -> Result<bool, Box<dyn std::error::Error>> {
         eprint!("{prompt}");
         io::stderr().flush()?;
@@ -355,6 +375,9 @@ struct InfoJsonCommit {
     header_encrypted: bool,
     data_encrypted: bool,
     encryption_algorithm: Option<&'static str>,
+    header_changes: Option<HeaderChangeStats>,
+    created_unix_millis: Option<i64>,
+    user: Option<String>,
 }
 
 fn render_info_json(commits: &[InfoJsonCommit]) -> String {
@@ -362,7 +385,7 @@ fn render_info_json(commits: &[InfoJsonCommit]) -> String {
         .iter()
         .map(|commit| {
             format!(
-                "{{\"id\":\"{}\",\"size\":{},\"header_size\":{},\"data_size\":{},\"header_encrypted\":{},\"data_encrypted\":{},\"encryption_algorithm\":{}}}",
+                "{{\"id\":\"{}\",\"size\":{},\"header_size\":{},\"data_size\":{},\"header_encrypted\":{},\"data_encrypted\":{},\"encryption_algorithm\":{},\"header_changes\":{},\"created_at\":{},\"created_unix_millis\":{},\"user\":{}}}",
                 commit.id,
                 commit.size,
                 commit.header_size,
@@ -372,6 +395,19 @@ fn render_info_json(commits: &[InfoJsonCommit]) -> String {
                 commit.encryption_algorithm.map_or_else(
                     || "null".to_owned(),
                     |value| format!("\"{value}\"")
+                ),
+                render_header_changes_json(commit.header_changes.as_ref()),
+                commit.created_unix_millis.map_or_else(
+                    || "null".to_owned(),
+                    |value| render_json_string(&format_unix_millis(value))
+                ),
+                commit.created_unix_millis.map_or_else(
+                    || "null".to_owned(),
+                    |value| value.to_string()
+                ),
+                commit.user.as_deref().map_or_else(
+                    || "null".to_owned(),
+                    render_json_string
                 )
             )
         })
@@ -381,6 +417,80 @@ fn render_info_json(commits: &[InfoJsonCommit]) -> String {
         "{{\"commit_count\":{},\"commits\":[{entries}]}}",
         commits.len()
     )
+}
+
+fn render_json_string(value: &str) -> String {
+    let mut rendered = String::from("\"");
+    for character in value.chars() {
+        match character {
+            '"' => rendered.push_str("\\\""),
+            '\\' => rendered.push_str("\\\\"),
+            '\u{08}' => rendered.push_str("\\b"),
+            '\u{0c}' => rendered.push_str("\\f"),
+            '\n' => rendered.push_str("\\n"),
+            '\r' => rendered.push_str("\\r"),
+            '\t' => rendered.push_str("\\t"),
+            character if character.is_control() => {
+                rendered.push_str(&format!("\\u{:04x}", character as u32));
+            }
+            character => rendered.push(character),
+        }
+    }
+    rendered.push('"');
+    rendered
+}
+
+fn render_header_changes_json(changes: Option<&HeaderChangeStats>) -> String {
+    let Some(changes) = changes else {
+        return "null".to_owned();
+    };
+    format!(
+        "{{\"files_added_or_updated\":{},\"directories_added_or_updated\":{},\"symlinks_added_or_updated\":{},\"named_pipes_added_or_updated\":{},\"devices_added_or_updated\":{},\"files_removed\":{},\"directories_removed\":{}}}",
+        changes.files_added_or_updated,
+        changes.directories_added_or_updated,
+        changes.symlinks_added_or_updated,
+        changes.named_pipes_added_or_updated,
+        changes.devices_added_or_updated,
+        changes.files_removed,
+        changes.directories_removed
+    )
+}
+
+fn render_header_changes(changes: Option<&HeaderChangeStats>) -> String {
+    let Some(changes) = changes else {
+        return "  header content changes: unavailable (encrypted header)\n".to_owned();
+    };
+    let rows = [
+        ("files added or updated", changes.files_added_or_updated),
+        (
+            "directories added or updated",
+            changes.directories_added_or_updated,
+        ),
+        (
+            "symlinks added or updated",
+            changes.symlinks_added_or_updated,
+        ),
+        (
+            "named pipes added or updated",
+            changes.named_pipes_added_or_updated,
+        ),
+        ("devices added or updated", changes.devices_added_or_updated),
+        ("file entries removed", changes.files_removed),
+        ("directories removed", changes.directories_removed),
+    ];
+    let mut output = String::from("  header content changes:\n");
+    let mut has_changes = false;
+    for (label, count) in rows {
+        if count == 0 {
+            continue;
+        }
+        has_changes = true;
+        output.push_str(&format!("    {label}: {count}\n"));
+    }
+    if !has_changes {
+        output.push_str("    content changes: none\n");
+    }
+    output
 }
 
 fn format_commit_summary(commit: &CommitInfo) -> String {
@@ -413,6 +523,39 @@ fn format_commit_summary(commit: &CommitInfo) -> String {
         scope,
         algorithm,
     )
+}
+
+fn render_commit_metadata(commit: &CommitInfo) -> String {
+    let mut output = String::new();
+    if let Some(created) = commit.created_unix_millis {
+        output.push_str(&format!("  created: {}\n", format_unix_millis(created)));
+    }
+    if let Some(user) = &commit.user {
+        output.push_str(&format!("  user: {user}\n"));
+    }
+    output
+}
+
+fn render_block_summaries(blocks: &[BlockInfo]) -> String {
+    let mut output = format!("  blocks: {}\n", blocks.len());
+    for block in blocks {
+        output.push_str(&format!(
+            "    block {:08x} files={} compressed={} ratio={} groups={}\n",
+            block.index,
+            block.file_count,
+            display_size(block.compressed_size),
+            block
+                .ratio_percent
+                .map(|ratio| format!("{ratio:.2}%"))
+                .unwrap_or_else(|| "n/a".to_owned()),
+            if block.file_groups.is_empty() {
+                "unavailable".to_owned()
+            } else {
+                block.file_groups.join(", ")
+            }
+        ));
+    }
+    output
 }
 
 fn display_size(size: u64) -> String {
@@ -566,7 +709,7 @@ fn parse_cli_block_size(value: &str) -> Result<usize, Box<dyn std::error::Error>
         .ok_or_else(|| format!("invalid block size `{value}`"))?;
     if !(MIN_CREATE_BLOCK_SIZE..=MAX_CREATE_BLOCK_SIZE).contains(&size) {
         return Err(format!(
-            "invalid block size: choose 64 KiB through 32 MiB or `auto` (got `{value}`)"
+            "invalid block size: choose 64 KiB to 32 MiB or `auto` (got `{value}`)"
         )
         .into());
     }
@@ -578,7 +721,7 @@ fn parse_cli_compression_level(value: &str) -> Result<i32, Box<dyn std::error::E
         .parse::<i32>()
         .map_err(|_| format!("invalid compression level `{value}`"))?;
     if !(-7..=22).contains(&level) {
-        return Err("invalid compression level: choose a value from -7 through 22".into());
+        return Err("invalid compression level: choose a value from -7 to 22".into());
     }
     Ok(level)
 }
@@ -595,6 +738,154 @@ fn cli_encoding_options(
         options.compression_level = parse_cli_compression_level(level)?;
     }
     Ok(options)
+}
+
+fn zar_output_filename(filename: &str) -> Option<String> {
+    let lowercase = filename.to_ascii_lowercase();
+    let suffix = [".tar.gz", ".tgz", ".zip", ".7z", ".tar", ".gz"]
+        .into_iter()
+        .find(|suffix| lowercase.ends_with(suffix))?;
+    Some(format!(
+        "{}.zar",
+        &filename[..filename.len() - suffix.len()]
+    ))
+}
+
+fn conversion_sources(
+    input_folder: &std::path::Path,
+    filters: &FilterSet,
+) -> Result<Vec<(std::path::PathBuf, String)>, Box<dyn std::error::Error>> {
+    let mut entries = std::fs::read_dir(input_folder)?.collect::<Result<Vec<_>, _>>()?;
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+    let mut sources = Vec::new();
+    for entry in entries {
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        let filename = entry.file_name();
+        let Some(filename) = filename.to_str() else {
+            continue;
+        };
+        let source = entry.path();
+        if !is_supported_import_archive(&source) || !filters.includes(filename, false) {
+            continue;
+        }
+        let output_filename = zar_output_filename(filename)
+            .ok_or_else(|| format!("cannot determine ZAR output name for {filename:?}"))?;
+        sources.push((source, output_filename));
+    }
+    Ok(sources)
+}
+
+fn convert_archive_folder(
+    input_folder: &std::path::Path,
+    output_folder: Option<&std::path::Path>,
+    filter: &str,
+    overwrite: bool,
+    block_size: Option<&str>,
+    compression_level: Option<&str>,
+) -> Result<u8, Box<dyn std::error::Error>> {
+    let input_folder = input_folder.canonicalize()?;
+    if !input_folder.is_dir() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotADirectory,
+            format!("input path is not a directory: {}", input_folder.display()),
+        )
+        .into());
+    }
+
+    let include_patterns = [filter.to_owned()];
+    let empty_patterns: [String; 0] = [];
+    let empty_filelists: [std::path::PathBuf; 0] = [];
+    let filters = FilterSet::from_patterns(
+        &include_patterns,
+        &empty_patterns,
+        &empty_patterns,
+        &empty_patterns,
+        &empty_filelists,
+    )?;
+
+    let sources = conversion_sources(&input_folder, &filters)?;
+
+    if sources.is_empty() {
+        eprintln!(
+            "no supported archives matched fnmatch filter `{filter}` in {}",
+            input_folder.display()
+        );
+        return Ok(1);
+    }
+
+    let output_folder = match output_folder {
+        Some(path) => {
+            std::fs::create_dir_all(path)?;
+            path.canonicalize()?
+        }
+        None => input_folder.clone(),
+    };
+    if output_folder.to_str().is_none() {
+        return Err("output folder path must be valid UTF-8".into());
+    }
+
+    let mut output_counts = std::collections::HashMap::new();
+    for (_, filename) in &sources {
+        *output_counts
+            .entry(filename.to_lowercase())
+            .or_insert(0usize) += 1;
+    }
+
+    let options = cli_encoding_options(block_size, compression_level)?;
+    let total = sources.len();
+    let mut converted = 0;
+    let mut failures = 0;
+    let mut warnings = false;
+    for (source, filename) in sources {
+        let destination = output_folder.join(&filename);
+        if output_counts[&filename.to_lowercase()] > 1 {
+            eprintln!(
+                "cannot convert {}: multiple selected archives map to {}",
+                source.display(),
+                destination.display()
+            );
+            failures += 1;
+            continue;
+        }
+        let archive = destination
+            .to_str()
+            .ok_or("output archive path must be valid UTF-8")?;
+        let paths = [source.clone()];
+        match create_archive_with_password_progress_and_special_files(
+            archive,
+            &paths,
+            false,
+            options,
+            None,
+            None,
+            CreateInputOptions {
+                overwrite_existing: overwrite,
+                ..CreateInputOptions::default()
+            },
+        ) {
+            Ok(report) => {
+                converted += 1;
+                for warning in report.warnings {
+                    eprintln!("{}: {warning}", source.display());
+                    warnings = true;
+                }
+            }
+            Err(error) => {
+                eprintln!("cannot convert {}: {error}", source.display());
+                failures += 1;
+            }
+        }
+    }
+
+    println!("Converted {converted} of {total} matching archive(s).");
+    if failures > 0 {
+        eprintln!("{failures} archive(s) failed to convert.");
+        Ok(1)
+    } else {
+        Ok(u8::from(warnings))
+    }
 }
 
 fn format_duration(duration: std::time::Duration) -> String {
@@ -626,6 +917,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             verbose,
             metadata,
             dates,
+            user,
             special_files,
             include_files,
             exclude_files,
@@ -668,6 +960,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                     input: CreateInputOptions {
                         save_metadata: metadata,
                         save_dates: dates,
+                        save_user: user,
                         include_special_files: special_files,
                         overwrite_existing: overwrite,
                         verbose,
@@ -704,6 +997,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             progress,
             metadata,
             dates,
+            user,
             special_files,
             password: encrypt,
             aead,
@@ -765,6 +1059,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                 AddInputOptions {
                     save_metadata: metadata,
                     save_dates: dates,
+                    save_user: user,
                     include_special_files: special_files,
                     strict,
                     verbose,
@@ -788,6 +1083,21 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             println!("Time: {} ({:.2} MB/s)", format_duration(elapsed), speed);
             Ok(0)
         }
+        Command::Convert {
+            input_folder,
+            output_folder,
+            filter,
+            overwrite,
+            block_size,
+            compression_level,
+        } => convert_archive_folder(
+            &input_folder,
+            output_folder.as_deref(),
+            &filter,
+            overwrite,
+            block_size.as_deref(),
+            compression_level.as_deref(),
+        ),
         Command::Remove {
             archive,
             paths,
@@ -833,7 +1143,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
         Command::Join {
             archive,
             from,
-            through,
+            to,
             progress,
             block_size,
             compression_level,
@@ -842,12 +1152,70 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             join_archive_with_encoding_progress(
                 &archive,
                 &from,
-                &through,
+                &to,
                 cli_encoding_options(block_size.as_deref(), compression_level.as_deref())?,
                 Some(&progress_callback as &dyn Progress),
             )?;
             let elapsed = start.elapsed();
             println!("Time: {}", format_duration(elapsed));
+            Ok(0)
+        }
+        Command::Encrypt {
+            archive,
+            from,
+            to,
+            output,
+            password,
+            password_for,
+            aead,
+            encryption_scope,
+            strict,
+        } => {
+            parse_commit_id(&from)?;
+            parse_commit_id(&to)?;
+            let aead = parse_content_aead(&aead)?;
+            let encryption_scope = parse_encryption_scope(&encryption_scope)?;
+            let new_password = prompt_password("New encryption password: ")?;
+            let passwords = prompt_password_set(password, &password_for)?;
+            encrypt_archive_commits(
+                &archive,
+                CommitRangeOptions {
+                    from_id: &from,
+                    to_id: &to,
+                    output: output.as_deref(),
+                    passwords: &passwords,
+                    strict,
+                },
+                new_password.as_bytes(),
+                aead,
+                encryption_scope,
+            )?;
+            println!("Commit range transformation completed.");
+            Ok(0)
+        }
+        Command::Decrypt {
+            archive,
+            from,
+            to,
+            output,
+            password,
+            password_for,
+            strict,
+        } => {
+            parse_commit_id(&from)?;
+            parse_commit_id(&to)?;
+            let passwords = prompt_password_set(password, &password_for)?;
+            decrypt_archive_commits(
+                &archive,
+                CommitRangeOptions {
+                    from_id: &from,
+                    to_id: &to,
+                    output: output.as_deref(),
+                    passwords: &passwords,
+                    strict,
+                },
+            )?;
+            println!("Commit range transformation completed.");
             Ok(0)
         }
         Command::Check {
@@ -903,29 +1271,48 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                 }
                 return Ok(0);
             }
-            let commits = info_archive(&archive, verbose)?;
+            let commits = if verbose >= 2 {
+                info_archive_with_blocks(&archive, true)?
+            } else {
+                info_archive(&archive, verbose > 0)?
+                    .into_iter()
+                    .map(|commit| CommitInfoWithBlocks {
+                        commit,
+                        blocks: Vec::new(),
+                    })
+                    .collect()
+            };
             if json {
                 let json_commits = commits
                     .iter()
-                    .map(|commit| InfoJsonCommit {
-                        id: format_commit_id(&commit.id),
-                        size: commit.size,
-                        header_size: commit.header_size,
-                        data_size: commit.data_size,
-                        header_encrypted: commit.header_encrypted,
-                        data_encrypted: commit.data_encrypted,
-                        encryption_algorithm: commit.encryption_algorithm.map(|algorithm| {
-                            match algorithm {
-                                ContentAead::Aes256Gcm => "aes-256-gcm",
-                                ContentAead::ChaCha20Poly1305 => "chacha20-poly1305",
-                            }
-                        }),
+                    .map(|info| {
+                        let commit = &info.commit;
+                        InfoJsonCommit {
+                            id: format_commit_id(&commit.id),
+                            size: commit.size,
+                            header_size: commit.header_size,
+                            data_size: commit.data_size,
+                            header_encrypted: commit.header_encrypted,
+                            data_encrypted: commit.data_encrypted,
+                            encryption_algorithm: commit.encryption_algorithm.map(|algorithm| {
+                                match algorithm {
+                                    ContentAead::Aes256Gcm => "aes-256-gcm",
+                                    ContentAead::ChaCha20Poly1305 => "chacha20-poly1305",
+                                }
+                            }),
+                            header_changes: commit.header_changes.clone(),
+                            created_unix_millis: commit.created_unix_millis,
+                            user: commit.user.clone(),
+                        }
                     })
                     .collect::<Vec<_>>();
                 println!("{}", render_info_json(&json_commits));
             } else {
-                for commit in &commits {
+                for info in &commits {
+                    let commit = &info.commit;
                     println!("{}", format_commit_summary(commit));
+                    print!("{}", render_commit_metadata(commit));
+                    print!("{}", render_header_changes(commit.header_changes.as_ref()));
                     if let Some(header) = &commit.header_compression {
                         println!(
                             "  header: compressed {}, uncompressed {}, ratio {}",
@@ -947,6 +1334,9 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                             "  detailed file statistics unavailable: commit header is encrypted"
                         );
                     }
+                    if verbose >= 2 {
+                        print!("{}", render_block_summaries(&info.blocks));
+                    }
                 }
                 println!("{} commit(s)", commits.len());
             }
@@ -960,13 +1350,31 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
         }
         Command::List {
             archive,
-            through,
+            to,
             password,
             password_for,
+            include_files,
+            exclude_files,
+            include_folders,
+            exclude_folders,
+            filelist,
         } => {
             let passwords = prompt_password_set(password, &password_for)?;
-            let toc = list_archive_with_passwords(&archive, through.as_deref(), &passwords)?;
+            let toc = list_archive_with_passwords(&archive, to.as_deref(), &passwords)?;
+            let filters = FilterSet::from_patterns(
+                &include_files,
+                &exclude_files,
+                &include_folders,
+                &exclude_folders,
+                &filelist,
+            )?;
             for (archive_path, entry) in toc.iter() {
+                if !filters.includes(
+                    archive_path.as_str(),
+                    matches!(entry, zarlib::TocEntry::Directory),
+                ) {
+                    continue;
+                }
                 match entry {
                     zarlib::TocEntry::Directory => println!("{}/", archive_path),
                     zarlib::TocEntry::File(file) => {
@@ -988,7 +1396,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
         Command::Extract {
             archive,
             output: destination,
-            through,
+            to,
             collision,
             existing,
             dry_run,
@@ -1021,7 +1429,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                 &destination,
                 ExtractionOptions {
                     dry_run,
-                    through: through.as_deref(),
+                    to: to.as_deref(),
                     collision_policy: collision,
                     existing_policy: existing,
                     restore_metadata: metadata,

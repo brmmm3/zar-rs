@@ -2,10 +2,6 @@ name: CI
 
 on:
   push:
-    branches:
-      - master
-    tags:
-      - "*.*.*"
   pull_request:
   workflow_dispatch:
 
@@ -106,13 +102,13 @@ jobs:
             info_json=$(/tmp/zarc-c i sample.zar)
             printf '%s\n' "$info_json"
             from_id=$(printf '%s' "$info_json" | jq -r '.[0].id')
-            through_id=$(printf '%s' "$info_json" | jq -r '.[1].id')
+            to_id=$(printf '%s' "$info_json" | jq -r '.[1].id')
             test "$from_id" != null
-            test "$through_id" != null
+            test "$to_id" != null
             /tmp/zarc-c l sample.zar
             /tmp/zarc-c e sample.zar restored --dry-run
             /tmp/zarc-c r sample.zar added.txt
-            /tmp/zarc-c j sample.zar --from "$from_id" --through "$through_id"
+            /tmp/zarc-c j sample.zar --from "$from_id" --to "$to_id"
           )
 
   wasizarlib:

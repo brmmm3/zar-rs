@@ -4,9 +4,10 @@
 [CXX bridge](https://cxx.rs/). It exposes the same JSON operation dispatcher as
 [`czarlib`](../czarlib/README.md), but uses `rust::Str`, `rust::String`, and
 `rust::Error` at the C++ boundary instead of manually managed C strings.
-All ten C-wrapper operations are supported: `create_archive`, `add_archive`,
-`remove_archive`, `join_archive`, `undo_archive`, `check_archive`, `info_archive`,
-`list_archive`, `extract_archive`, and `extract_archive_to_memory`. Request
+All twelve C-wrapper operations are supported: `create_archive`, `add_archive`,
+`remove_archive`, `join_archive`, `undo_archive`, `encrypt_archive_commits`,
+`decrypt_archive_commits`, `check_archive`, `info_archive`, `list_archive`,
+`extract_archive`, and `extract_archive_to_memory`. Request
 fields, validation, output shapes, password handling, filters, and archive
 semantics are shared with `czarlib`.
 Create and Add requests may include `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz`
@@ -49,7 +50,7 @@ Example commands:
 /tmp/zarc-cxx check backup.zar
 /tmp/zarc-cxx extract backup.zar restored
 /tmp/zarc-cxx remove backup.zar obsolete.txt
-/tmp/zarc-cxx join backup.zar --from 00000001 --through 00000002
+/tmp/zarc-cxx join backup.zar --from 00000001 --to 00000002
 ```
 
 The CXX include directory is part of the installed `cxx` crate. If you use a
@@ -59,9 +60,9 @@ non-default Cargo target directory, update the bridge-header path accordingly.
 
 The native C++ integration test exercises the bridge and all supported
 operations, including create/add/remove/join/undo, info/list/check, filesystem and
-in-memory extraction, filters, existing-file behavior, AES-GCM and
-ChaCha20-Poly1305 encryption, per-commit passwords, error handling, and
-concurrent calls.
+in-memory extraction, commit encryption/decryption, filters, existing-file
+behavior, AES-GCM and ChaCha20-Poly1305 encryption, per-commit passwords, error
+handling, and concurrent calls.
 
 ```sh
 cargo build -p cxxzarlib

@@ -1,6 +1,5 @@
 #![windows_subsystem = "windows"]
 
-mod file_dialog;
 mod settings;
 mod theme;
 mod ui;
@@ -8,21 +7,26 @@ mod ui;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+const WINDOW_TITLE: &str = "ZAR Archive Manager";
+
 fn main() -> eframe::Result {
     let saved = settings::Settings::load();
-    let mut app = match parse_context_args(std::env::args_os().skip(1)) {
-        Ok(Some((action, paths))) => ui::ZargApp::from_context_action(action, paths)
+    let app = match parse_context_args(std::env::args_os().skip(1)) {
+        Ok(Some((action, paths))) => ui::ZargApp::from_context_action(action, paths, &saved)
             .unwrap_or_else(|error| {
                 eprintln!("zarg: {error}");
                 std::process::exit(2);
             }),
-        Ok(None) => ui::ZargApp::default(),
+        Ok(None) => {
+            let mut app = ui::ZargApp::default();
+            app.apply_settings(&saved);
+            app
+        }
         Err(error) => {
             eprintln!("zarg: {error}");
             std::process::exit(2);
         }
     };
-    app.apply_settings(&saved);
     let icon = image::load_from_memory(include_bytes!("../assets/zarg-icon.png"))
         .expect("embedded app icon must be a valid PNG")
         .into_rgba8();
@@ -45,11 +49,14 @@ fn main() -> eframe::Result {
             }),
         ..Default::default()
     };
+    let theme_mode = saved.theme_mode;
     eframe::run_native(
-        "ZAR Archive Manager",
+        WINDOW_TITLE,
         options,
         Box::new(move |creation_context| {
-            theme::install(&creation_context.egui_ctx);
+            let controller = theme::install(&creation_context.egui_ctx, theme_mode);
+            let mut app = app;
+            app.set_theme_controller(controller);
             Ok(Box::new(app))
         }),
     )

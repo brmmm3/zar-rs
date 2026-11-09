@@ -49,6 +49,7 @@ pub enum FileGroupKind {
 pub struct FileEntry {
     pub size: u64,
     pub block_indices: Vec<u32>,
+    pub offset_in_block: Option<u32>,
     pub checksum: Option<u64>,
 }
 
@@ -66,8 +67,14 @@ impl FileEntry {
         Ok(Self {
             size,
             block_indices,
+            offset_in_block: None,
             checksum: None,
         })
+    }
+
+    pub fn with_block_offset(mut self, offset: u32) -> Self {
+        self.offset_in_block = Some(offset);
+        self
     }
 
     pub fn with_checksum(mut self, checksum: u64) -> Self {
@@ -214,6 +221,15 @@ fn apply_change(
             if (entry.size == 0) != entry.block_indices.is_empty() {
                 return Err(TocError::InvalidFileBlocks);
             }
+            if entry.offset_in_block.is_some_and(|offset| {
+                entry.size == 0
+                    || entry.block_indices.len() != 1
+                    || u64::from(offset)
+                        .checked_add(entry.size)
+                        .is_none_or(|end| end > u64::from(u32::MAX) + 1)
+            }) {
+                return Err(TocError::InvalidFileBlocks);
+            }
             let mut unique = entry.block_indices.clone();
             unique.sort_unstable();
             unique.dedup();
@@ -317,20 +333,24 @@ fn ensure_no_entry_ancestor(
     let mut parent = path.as_str();
     while let Some(separator) = parent.rfind('/') {
         parent = &parent[..separator];
-        let parent_path = ArchivePath::new(parent.to_owned()).expect("validated path prefix");
-        if entries.get(&parent_path).is_some_and(&is_blocking) {
-            return Err(TocError::FileAncestor(parent_path));
+        if entries.get(parent).is_some_and(&is_blocking) {
+            return Err(TocError::FileAncestor(
+                ArchivePath::new(parent.to_owned()).expect("validated path prefix"),
+            ));
         }
     }
     Ok(())
 }
 
 fn has_descendant(entries: &BTreeMap<ArchivePath, TocEntry>, ancestor: &ArchivePath) -> bool {
-    let upper_bound = ArchivePath::new(format!("{}/\u{10ffff}", ancestor.as_str()))
-        .expect("the upper-bound path component is valid");
+    let prefix = format!("{}/", ancestor.as_str());
     entries
-        .range(ancestor.clone()..=upper_bound)
-        .any(|(existing, _)| is_descendant(existing, ancestor))
+        .range::<str, _>((
+            std::ops::Bound::Included(prefix.as_str()),
+            std::ops::Bound::Unbounded,
+        ))
+        .next()
+        .is_some_and(|(existing, _)| existing.as_str().starts_with(&prefix))
 }
 
 fn is_descendant(candidate: &ArchivePath, ancestor: &ArchivePath) -> bool {
@@ -350,6 +370,42 @@ mod tests {
 
     fn file(size: u64, block_indices: &[u32]) -> FileEntry {
         FileEntry::new(size, block_indices.to_vec()).unwrap()
+    }
+
+    #[test]
+    fn descendant_lookup_handles_prefixes_and_unicode() {
+        let mut toc = Toc::default();
+        toc.apply_commit(&[
+            TocChange::PutFile {
+                path: path("name-else"),
+                entry: file(1, &[0]),
+            },
+            TocChange::PutDirectory { path: path("name") },
+            TocChange::PutFile {
+                path: path("name/\u{10ffff}child"),
+                entry: file(1, &[1]),
+            },
+        ])
+        .unwrap();
+        assert!(matches!(
+            toc.apply_commit(&[TocChange::PutFile {
+                path: path("name"),
+                entry: file(1, &[2]),
+            }]),
+            Err(TocError::FileHasDescendants(_))
+        ));
+        toc.apply_commit(&[TocChange::PutFile {
+            path: path("name-other"),
+            entry: file(1, &[3]),
+        }])
+        .unwrap();
+        assert!(matches!(
+            toc.apply_commit(&[TocChange::PutFile {
+                path: path("name-other/child"),
+                entry: file(1, &[4]),
+            }]),
+            Err(TocError::FileAncestor(_))
+        ));
     }
 
     #[test]

@@ -276,7 +276,7 @@ to prevent NTFS transaction log and filter driver (Windows Defender) lock serial
 @startuml
 title zarc extract — working pipeline
 start
-:Parse destination, --through, collision/existing policies, filters, and restore options;
+:Parse destination, --to, collision/existing policies, filters, and restore options;
 :Prompt for password if requested;
 :Validate policies, Ask requires interactive progress callback;
 if (Invalid policy, filter, or commit ID?) then (yes)
@@ -285,7 +285,7 @@ if (Invalid policy, filter, or commit ID?) then (yes)
 endif
 :Read archive commit chain and logical headers through selected commit;
 :Unlock header-encrypted commits when password is supplied;
-if (Header unavailable, authentication failure, or --through invalid?) then (yes)
+if (Header unavailable, authentication failure, or --to invalid?) then (yes)
   :Return error without writing;
   stop
 endif
@@ -371,7 +371,7 @@ original archive.
 @startuml
 title zarc join — working pipeline
 start
-:Parse archive, --from/--through IDs, and encoding options;
+:Parse archive, --from/--to IDs, and encoding options;
 :Resolve automatic block size if requested;
 :Parse and validate both commit IDs;
 :Check archive parent and reject encrypted commits;

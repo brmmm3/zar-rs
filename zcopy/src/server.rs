@@ -341,7 +341,7 @@ fn extract_batch(
         root,
         ExtractionOptions {
             dry_run: false,
-            through: None,
+            to: None,
             collision_policy: CollisionPolicy::Error,
             existing_policy: ExistingPolicy::Overwrite,
             restore_metadata: metadata,

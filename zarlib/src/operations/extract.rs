@@ -1,6 +1,10 @@
+use super::archive_input::{
+    ImportArchiveKind, extract_7z, extract_gzip_file, extract_tar, extract_zip, import_archive_kind,
+};
 use super::common::*;
 use super::filters::FilterSet;
 use super::list::load_toc_through_with_passwords_and_progress;
+use super::pipeline::{TreeEntryKind, filter_tree_entries, scan_tree};
 use crate::{
     ArchivePath, BlockFrame, CommitHeader, CommitValidationLimits, ContentAead, DEK_SIZE,
     DeviceKind, EntryMetadata, FileEntry, HEADER_OFFSET_SIZE, Toc, TocChange, TocEntry,
@@ -14,6 +18,7 @@ use std::fs::File;
 #[cfg(not(unix))]
 use std::fs::OpenOptions;
 use std::io::{self, BufReader, Read, Seek, SeekFrom, Write};
+use std::ops::Range;
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd};
 #[cfg(unix)]
@@ -155,7 +160,7 @@ fn validate_link_target(target: &str, destination: &Path, output_path: &Path) ->
 #[derive(Clone, Copy)]
 pub struct ExtractionOptions<'a> {
     pub dry_run: bool,
-    pub through: Option<&'a str>,
+    pub to: Option<&'a str>,
     pub collision_policy: CollisionPolicy,
     pub existing_policy: ExistingPolicy,
     pub restore_metadata: bool,
@@ -175,7 +180,7 @@ pub fn extract_archive(
         destination,
         ExtractionOptions {
             dry_run,
-            through: None,
+            to: None,
             collision_policy: CollisionPolicy::Rename,
             existing_policy: ExistingPolicy::Error,
             restore_metadata: false,
@@ -190,14 +195,14 @@ pub fn extract_archive(
 
 pub fn extract_archive_to_memory(
     archive: &str,
-    through: Option<&str>,
+    to: Option<&str>,
     password: Option<&[u8]>,
     size_limit: Option<u64>,
     offset: u64,
 ) -> Result<HashMap<String, Vec<u8>>, Box<dyn std::error::Error>> {
     extract_archive_to_memory_with_filters(
         archive,
-        through,
+        to,
         password,
         size_limit,
         offset,
@@ -207,7 +212,7 @@ pub fn extract_archive_to_memory(
 
 pub fn extract_archive_to_memory_with_filters(
     archive: &str,
-    through: Option<&str>,
+    to: Option<&str>,
     password: Option<&[u8]>,
     size_limit: Option<u64>,
     offset: u64,
@@ -215,20 +220,20 @@ pub fn extract_archive_to_memory_with_filters(
 ) -> Result<HashMap<String, Vec<u8>>, Box<dyn std::error::Error>> {
     let passwords = PasswordSet::new(password.map(<[u8]>::to_vec));
     extract_archive_to_memory_with_passwords_and_filters(
-        archive, through, &passwords, size_limit, offset, filters,
+        archive, to, &passwords, size_limit, offset, filters,
     )
 }
 
 pub fn extract_archive_to_memory_with_passwords(
     archive: &str,
-    through: Option<&str>,
+    to: Option<&str>,
     passwords: &PasswordSet,
     size_limit: Option<u64>,
     offset: u64,
 ) -> Result<HashMap<String, Vec<u8>>, Box<dyn std::error::Error>> {
     extract_archive_to_memory_with_passwords_and_filters(
         archive,
-        through,
+        to,
         passwords,
         size_limit,
         offset,
@@ -238,14 +243,14 @@ pub fn extract_archive_to_memory_with_passwords(
 
 pub fn extract_archive_to_memory_with_passwords_and_filters(
     archive: &str,
-    through: Option<&str>,
+    to: Option<&str>,
     passwords: &PasswordSet,
     size_limit: Option<u64>,
     offset: u64,
     filters: &FilterSet,
 ) -> Result<HashMap<String, Vec<u8>>, Box<dyn std::error::Error>> {
     let (toc, extraction_sources, _) =
-        load_extraction_state_with_passwords(archive, through, passwords)?;
+        load_extraction_state_with_passwords(archive, to, passwords)?;
     let toc = filters.filter_toc(&toc)?;
     let mut archive_file = File::open(archive)?;
     let mut files = HashMap::new();
@@ -276,8 +281,11 @@ pub fn extract_archive_to_memory_with_passwords_and_filters(
         let mut checksum = Xxh64::new(0);
 
         for block in &source.blocks {
+            let block_range =
+                entry_block_range(&source.entry, block.block_index, block.uncompressed_size)?;
+            let block_file_size = u64::try_from(block_range.len())?;
             let block_end = file_offset
-                .checked_add(block.uncompressed_size as u64)
+                .checked_add(block_file_size)
                 .ok_or("decoded file size overflow")?;
             if file_offset < selected_end && block_end > offset {
                 let block_contents = decode_extraction_block(&mut archive_file, block)
@@ -285,13 +293,16 @@ pub fn extract_archive_to_memory_with_passwords_and_filters(
                 if block_contents.len() != block.uncompressed_size {
                     return Err("archive block changed after extraction validation".into());
                 }
+                let file_contents = &block_contents[block_range.clone()];
                 if read_full_file {
-                    checksum.update(&block_contents);
+                    checksum.update(file_contents);
                 }
-                let start = usize::try_from(offset.saturating_sub(file_offset))
-                    .map_err(|_| "selected block offset is too large")?;
-                let end = usize::try_from(selected_end.min(block_end) - file_offset)
-                    .map_err(|_| "selected block end is too large")?;
+                let start = block_range.start
+                    + usize::try_from(offset.saturating_sub(file_offset))
+                        .map_err(|_| "selected block offset is too large")?;
+                let end = block_range.start
+                    + usize::try_from(selected_end.min(block_end) - file_offset)
+                        .map_err(|_| "selected block end is too large")?;
                 contents.extend_from_slice(&block_contents[start..end]);
             }
             file_offset = block_end;
@@ -348,9 +359,11 @@ pub fn extract_single_file(
         if contents.len() != block.uncompressed_size {
             return Err("archive block changed after extraction validation".into());
         }
-        checksum.update(&contents);
-        writer.write_all(&contents)?;
-        written += contents.len() as u64;
+        let range = entry_block_range(&source.entry, block.block_index, contents.len())?;
+        let file_contents = &contents[range];
+        checksum.update(file_contents);
+        writer.write_all(file_contents)?;
+        written += file_contents.len() as u64;
     }
     writer.flush()?;
     if written != file_entry.size {
@@ -384,7 +397,7 @@ pub fn extract_archive_with_options(
     archive: &str,
     destination: &Path,
     dry_run: bool,
-    through: Option<&str>,
+    to: Option<&str>,
     password: Option<&[u8]>,
     collision_policy: CollisionPolicy,
     existing_policy: ExistingPolicy,
@@ -394,7 +407,7 @@ pub fn extract_archive_with_options(
         destination,
         ExtractionOptions {
             dry_run,
-            through,
+            to,
             collision_policy,
             existing_policy,
             restore_metadata: false,
@@ -439,6 +452,18 @@ pub fn extract_archive_with_progress_and_filters(
     progress: Option<&dyn Progress>,
     filters: &FilterSet,
 ) -> Result<ExtractionPlan, Box<dyn std::error::Error>> {
+    if let Some(kind) = import_archive_kind(Path::new(archive)) {
+        let passwords = PasswordSet::new(password.map(<[u8]>::to_vec));
+        return extract_external_archive(
+            Path::new(archive),
+            destination,
+            options,
+            &passwords,
+            progress,
+            filters,
+            kind,
+        );
+    }
     let passwords = PasswordSet::new(password.map(<[u8]>::to_vec));
     extract_archive_with_passwords_progress_and_filters(
         archive,
@@ -450,6 +475,301 @@ pub fn extract_archive_with_progress_and_filters(
     )
 }
 
+fn extract_external_archive(
+    archive: &Path,
+    destination: &Path,
+    options: ExtractionOptions<'_>,
+    _passwords: &PasswordSet,
+    callback: Option<&dyn Progress>,
+    filters: &FilterSet,
+    kind: ImportArchiveKind,
+) -> Result<ExtractionPlan, Box<dyn std::error::Error>> {
+    if !archive.is_file() {
+        return Err(format!("input archive is not a file: {}", archive.display()).into());
+    }
+    let progress = ProgressReporter::new(callback);
+    #[cfg(not(target_os = "wasi"))]
+    let temporary = tempfile::tempdir()?;
+    #[cfg(target_os = "wasi")]
+    let temporary = {
+        let parent = destination
+            .ancestors()
+            .map(|path| {
+                if path.as_os_str().is_empty() {
+                    Path::new(".")
+                } else {
+                    path
+                }
+            })
+            .find(|path| path.is_dir())
+            .ok_or("no accessible directory for temporary extraction files")?;
+        tempfile::Builder::new()
+            .prefix(".zar-extract-")
+            .tempdir_in(parent)?
+    };
+    let temporary_root = temporary.path().canonicalize()?;
+    match kind {
+        ImportArchiveKind::Zip => extract_zip(archive, &temporary_root)?,
+        ImportArchiveKind::SevenZip => extract_7z(archive, &temporary_root)?,
+        ImportArchiveKind::Tar => extract_tar(File::open(archive)?, &temporary_root)?,
+        ImportArchiveKind::TarGz => extract_tar(
+            flate2::read::MultiGzDecoder::new(File::open(archive)?),
+            &temporary_root,
+        )?,
+        ImportArchiveKind::Gzip => extract_gzip_file(archive, &temporary_root, archive)?,
+    }
+
+    let entries = filter_tree_entries(scan_tree(&temporary_root, "")?, filters);
+    let mut toc = Toc::default();
+    let mut planned_directories: Vec<(PathBuf, Option<EntryMetadata>)> = Vec::new();
+    let mut regular_files = Vec::new();
+    let mut specials = Vec::new();
+    for entry in entries {
+        let source_archive_path = ArchivePath::new(entry.archive_path.clone())?;
+        let relative = if options.strip_top_level {
+            match source_archive_path.as_str().split_once('/') {
+                Some((_, rest)) => rest,
+                None if matches!(entry.kind, TreeEntryKind::Directory) => continue,
+                None => source_archive_path.as_str(),
+            }
+        } else {
+            source_archive_path.as_str()
+        };
+        if relative.is_empty() {
+            continue;
+        }
+        let path = ArchivePath::new(relative.to_owned())?;
+        let target = relative
+            .split('/')
+            .fold(destination.to_path_buf(), |path, component| {
+                path.join(component)
+            });
+        match entry.kind {
+            TreeEntryKind::Directory => {
+                toc.apply_commit(&[crate::TocChange::PutDirectory { path: path.clone() }])?;
+                planned_directories.push((target.clone(), None));
+            }
+            TreeEntryKind::File => {
+                toc.apply_commit(&[crate::TocChange::PutFile {
+                    path: path.clone(),
+                    entry: FileEntry::new(
+                        entry.size,
+                        if entry.size == 0 { Vec::new() } else { vec![1] },
+                    )?,
+                }])?;
+                regular_files.push((path.clone(), target.clone(), entry.source_path, entry.size));
+            }
+            TreeEntryKind::Symlink {
+                target: link_target,
+            } if options.restore_symlinks => {
+                toc.apply_commit(&[crate::TocChange::PutSymlink {
+                    path: path.clone(),
+                    target: link_target.clone(),
+                }])?;
+                specials.push((target.clone(), ExtractedSource::symlink(link_target, None)));
+            }
+            TreeEntryKind::NamedPipe if options.restore_devices => {
+                toc.apply_commit(&[crate::TocChange::PutNamedPipe { path: path.clone() }])?;
+                specials.push((target.clone(), ExtractedSource::named_pipe(None)));
+            }
+            TreeEntryKind::Device { kind, major, minor } if options.restore_devices => {
+                toc.apply_commit(&[crate::TocChange::PutDevice {
+                    path: path.clone(),
+                    kind,
+                    major,
+                    minor,
+                }])?;
+                specials.push((
+                    target.clone(),
+                    ExtractedSource::device(kind, major, minor, None),
+                ));
+            }
+            _ => continue,
+        }
+    }
+    let summary = InputSummary {
+        files: regular_files.len() as u64,
+        directories: planned_directories.len() as u64,
+        total_bytes: regular_files
+            .iter()
+            .try_fold(0_u64, |total, (_, _, _, size)| total.checked_add(*size))
+            .ok_or("archive size overflow")?,
+        ..InputSummary::default()
+    };
+    progress.extraction_summary(&summary);
+    let mut accepted_directories = Vec::new();
+    for (target, metadata) in planned_directories {
+        if target.exists() && !target.is_dir() {
+            return Err(
+                format!("destination path is not a directory: {}", target.display()).into(),
+            );
+        }
+        accepted_directories.push((target, metadata));
+    }
+    let mut accepted_files: Vec<(PathBuf, ExtractedSource)> = Vec::new();
+    let mut skipped_targets = std::collections::HashSet::new();
+    let mut overwrite_all = None;
+    for (_, target, _source_path, size) in &regular_files {
+        if options.existing_policy != ExistingPolicy::Overwrite && target.exists() {
+            match options.existing_policy {
+                ExistingPolicy::Skip => {
+                    skipped_targets.insert(target.clone());
+                    continue;
+                }
+                ExistingPolicy::Error => {
+                    return Err(
+                        format!("destination file already exists: {}", target.display()).into(),
+                    );
+                }
+                ExistingPolicy::Ask => {
+                    let decision = match overwrite_all {
+                        Some(decision) => decision,
+                        None => progress
+                            .0
+                            .ok_or("interactive confirmation is unavailable")?
+                            .confirm_overwrite(&format!(
+                                "Overwrite `{}`? [y/N/Always/Never] ",
+                                target.display()
+                            ))?,
+                    };
+                    match decision {
+                        OverwriteDecision::Yes => {}
+                        OverwriteDecision::No => {
+                            skipped_targets.insert(target.clone());
+                            continue;
+                        }
+                        OverwriteDecision::Always => overwrite_all = Some(OverwriteDecision::Yes),
+                        OverwriteDecision::Never => {
+                            overwrite_all = Some(OverwriteDecision::No);
+                            skipped_targets.insert(target.clone());
+                            continue;
+                        }
+                    }
+                }
+                ExistingPolicy::Overwrite => unreachable!(),
+            }
+        }
+        accepted_files.push((
+            target.clone(),
+            ExtractedSource {
+                entry: FileEntry::new(*size, if *size == 0 { Vec::new() } else { vec![1] })?,
+                blocks: Vec::new(),
+                metadata: None,
+                kind: ExtractedKind::File,
+            },
+        ));
+    }
+    for (target, source) in &specials {
+        validate_special_target(target, destination, &source.kind)?;
+        accepted_files.push((target.clone(), source.clone()));
+    }
+    let plan = ExtractionPlan {
+        toc,
+        directories: accepted_directories
+            .iter()
+            .map(|(path, _)| path.clone())
+            .collect(),
+        files: accepted_files
+            .iter()
+            .map(|(path, source)| (path.clone(), source.entry.clone(), source.kind.clone()))
+            .collect(),
+    };
+    if options.dry_run {
+        return Ok(plan);
+    }
+    let selected_total = accepted_files
+        .iter()
+        .filter(|(_, source)| matches!(source.kind, ExtractedKind::File))
+        .try_fold(accepted_files.len() as u64, |total, (_, source)| {
+            total.checked_add(source.entry.size)
+        })
+        .ok_or("extraction progress size overflow")?;
+    progress.reset_phase("Extracting files", selected_total.max(1));
+    let directory_paths = accepted_directories
+        .iter()
+        .map(|(path, _)| path.clone())
+        .collect::<Vec<_>>();
+    validate_destination_paths(
+        destination,
+        &directory_paths,
+        &accepted_files,
+        options.existing_policy,
+    )?;
+    create_destination_directory(destination)?;
+    let mut all_dirs = std::collections::BTreeSet::new();
+    for directory in &directory_paths {
+        all_dirs.insert(directory.clone());
+    }
+    for (target, _) in &accepted_files {
+        if let Some(parent) = target.parent() {
+            all_dirs.insert(parent.to_path_buf());
+        }
+    }
+    for directory in &all_dirs {
+        ensure_directory_no_follow(destination, directory)?;
+    }
+    for (target, source) in &specials {
+        if accepted_files
+            .iter()
+            .any(|(accepted, _)| accepted == target)
+        {
+            if let Some(parent) = target.parent() {
+                ensure_directory_no_follow(destination, parent)?;
+            }
+            create_special_entry(destination, target, &source.kind, options.existing_policy)?;
+        }
+    }
+    let copy_file = |(_, target, source_path, size): &(ArchivePath, PathBuf, PathBuf, u64)|
+     -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut input = BufReader::new(File::open(source_path)?);
+        let mut output =
+            match create_extraction_file(destination, target, options.existing_policy) {
+                Ok(output) => output,
+                Err(error)
+                    if options.existing_policy == ExistingPolicy::Skip
+                        && error.kind() == io::ErrorKind::AlreadyExists =>
+                {
+                    return Ok(());
+                }
+                Err(error) => return Err(error.into()),
+            };
+        let copied = io::copy(&mut input, &mut output)?;
+        if copied != *size {
+            return Err(format!("extracted size mismatch for {}", target.display()).into());
+        }
+        progress.inc(copied);
+        progress.inc(1);
+        Ok(())
+    };
+    let is_selected = |(_, target, _, _): &&(ArchivePath, PathBuf, PathBuf, u64)| {
+        !skipped_targets.contains(target)
+            && accepted_files.iter().any(|(accepted, source)| {
+                accepted == target && matches!(source.kind, ExtractedKind::File)
+            })
+    };
+    #[cfg(target_os = "wasi")]
+    regular_files
+        .iter()
+        .filter(is_selected)
+        .try_for_each(copy_file)
+        .map_err(extraction_worker_error)?;
+    #[cfg(not(target_os = "wasi"))]
+    {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(compression_worker_count(CREATE_BLOCK_SIZE))
+            .thread_name(|index| format!("zarc-extract-{index}"))
+            .build()?;
+        pool.install(|| {
+            regular_files
+                .par_iter()
+                .filter(is_selected)
+                .try_for_each(copy_file)
+        })
+        .map_err(extraction_worker_error)?;
+    }
+    Ok(plan)
+}
+
 pub fn extract_archive_with_passwords_progress_and_filters(
     archive: &str,
     destination: &Path,
@@ -458,6 +778,17 @@ pub fn extract_archive_with_passwords_progress_and_filters(
     progress: Option<&dyn Progress>,
     filters: &FilterSet,
 ) -> Result<ExtractionPlan, Box<dyn std::error::Error>> {
+    if let Some(kind) = import_archive_kind(Path::new(archive)) {
+        return extract_external_archive(
+            Path::new(archive),
+            destination,
+            options,
+            passwords,
+            progress,
+            filters,
+            kind,
+        );
+    }
     let mut dest_buf = destination.canonicalize().unwrap_or_else(|_| {
         if destination.is_relative() {
             std::env::current_dir()
@@ -473,7 +804,7 @@ pub fn extract_archive_with_passwords_progress_and_filters(
     let destination = dest_buf.as_path();
     let ExtractionOptions {
         dry_run,
-        through,
+        to,
         collision_policy,
         existing_policy,
         restore_metadata,
@@ -485,27 +816,20 @@ pub fn extract_archive_with_passwords_progress_and_filters(
     let archive_size = File::open(archive)?.metadata()?.len().saturating_sub(4);
     progress.start_phase("Reading archive headers", archive_size.max(1));
     let full_toc =
-        load_toc_through_with_passwords_and_progress(archive, through, passwords, Some(&progress))?;
+        load_toc_through_with_passwords_and_progress(archive, to, passwords, Some(&progress))?;
     let toc = filters.filter_toc(&full_toc)?;
     progress.reset_phase("Planning extraction", archive_size.max(1));
     let summary = summarize_toc(&toc, restore_symlinks, restore_devices)?;
     progress.extraction_summary(&summary);
     // The loader reuses the TOC built above instead of rebuilding it.
     let (_, extraction_sources, entry_metadata) = if dry_run {
-        load_extraction_state_impl(
-            archive,
-            through,
-            passwords,
-            None,
-            Some(filters),
-            Some(full_toc),
-        )?
+        load_extraction_state_impl(archive, to, passwords, None, Some(filters), Some(full_toc))?
     } else {
         progress.reset_phase("Preparing extraction", archive_size.max(1));
         progress.set_message("Validating data frames");
         load_extraction_state_impl(
             archive,
-            through,
+            to,
             passwords,
             Some(&progress),
             Some(filters),
@@ -617,6 +941,7 @@ pub fn extract_archive_with_passwords_progress_and_filters(
         accepted_directories.push((target.clone(), metadata.clone()));
     }
     let mut accepted_files = Vec::new();
+    let mut overwrite_all = None;
     for (target, source) in planned_files {
         if !matches!(source.kind, ExtractedKind::File) {
             validate_special_target(&target, destination, &source.kind)?;
@@ -633,12 +958,26 @@ pub fn extract_archive_with_passwords_progress_and_filters(
                         .into());
                     }
                     ExistingPolicy::Ask => {
-                        if !progress
-                            .0
-                            .unwrap()
-                            .confirm(&format!("Replace `{}`? [y/N] ", target.display()))?
-                        {
-                            continue;
+                        let decision = if overwrite_all == Some(OverwriteDecision::No) {
+                            OverwriteDecision::No
+                        } else if overwrite_all == Some(OverwriteDecision::Yes) {
+                            OverwriteDecision::Yes
+                        } else {
+                            progress.0.unwrap().confirm_overwrite(&format!(
+                                "Replace `{}`? [y/N/Always/Never] ",
+                                target.display()
+                            ))?
+                        };
+                        match decision {
+                            OverwriteDecision::Yes => {}
+                            OverwriteDecision::No => continue,
+                            OverwriteDecision::Always => {
+                                overwrite_all = Some(OverwriteDecision::Yes)
+                            }
+                            OverwriteDecision::Never => {
+                                overwrite_all = Some(OverwriteDecision::No);
+                                continue;
+                            }
                         }
                     }
                 }
@@ -656,12 +995,21 @@ pub fn extract_archive_with_passwords_progress_and_filters(
                     );
                 }
                 ExistingPolicy::Ask => {
-                    if !progress
-                        .0
-                        .unwrap()
-                        .confirm(&format!("Overwrite `{}`? [y/N] ", target.display()))?
-                    {
-                        continue;
+                    let decision = match overwrite_all {
+                        Some(decision) => decision,
+                        None => progress.0.unwrap().confirm_overwrite(&format!(
+                            "Overwrite `{}`? [y/N/Always/Never] ",
+                            target.display()
+                        ))?,
+                    };
+                    match decision {
+                        OverwriteDecision::Yes => {}
+                        OverwriteDecision::No => continue,
+                        OverwriteDecision::Always => overwrite_all = Some(OverwriteDecision::Yes),
+                        OverwriteDecision::Never => {
+                            overwrite_all = Some(OverwriteDecision::No);
+                            continue;
+                        }
                     }
                 }
             }
@@ -739,21 +1087,36 @@ pub fn extract_archive_with_passwords_progress_and_filters(
         )?;
         progress.inc(1);
     }
-    regular_files.sort_by_key(|(_, source)| source.blocks.first().map(|b| b.offset).unwrap_or(0));
+    regular_files.sort_by_key(|(_, source)| {
+        (
+            source.blocks.first().map(|b| b.offset).unwrap_or(0),
+            source.entry.offset_in_block.is_none(),
+        )
+    });
+    let groups: Vec<_> = regular_files
+        .chunk_by(|(_, left), (_, right)| {
+            left.entry.offset_in_block.is_some()
+                && right.entry.offset_in_block.is_some()
+                && left.blocks.first().map(|block| block.offset)
+                    == right.blocks.first().map(|block| block.offset)
+        })
+        .collect();
 
     #[cfg(target_os = "wasi")]
-    for (target, source) in regular_files {
-        let mut archive_file = File::open(archive)?;
-        extract_regular_file(
-            &mut archive_file,
-            destination,
-            &target,
-            &source,
-            existing_policy,
-            restore_metadata,
-            progress.0,
-        )
-        .map_err(extraction_worker_error)?;
+    for group in groups {
+        let mut reader = ExtractionReader::open(archive)?;
+        for (target, source) in group {
+            extract_regular_file(
+                &mut reader,
+                destination,
+                target,
+                source,
+                existing_policy,
+                restore_metadata,
+                progress.0,
+            )
+            .map_err(extraction_worker_error)?;
+        }
     }
 
     #[cfg(not(target_os = "wasi"))]
@@ -765,11 +1128,11 @@ pub fn extract_archive_with_passwords_progress_and_filters(
             .build()?;
         parallel_files
             .install(|| {
-                regular_files.into_par_iter().try_for_each_init(
-                    || File::open(archive),
-                    |archive_file, (target, source)| {
-                        let archive_file = match archive_file {
-                            Ok(archive_file) => archive_file,
+                groups.into_par_iter().try_for_each_init(
+                    || ExtractionReader::open(archive),
+                    |reader, group| {
+                        let reader = match reader {
+                            Ok(reader) => reader,
                             Err(error) => {
                                 return Err(Box::new(ExtractionFailure::wrap(io::Error::new(
                                     error.kind(),
@@ -778,15 +1141,19 @@ pub fn extract_archive_with_passwords_progress_and_filters(
                                     as Box<dyn std::error::Error + Send + Sync>);
                             }
                         };
-                        extract_regular_file(
-                            archive_file,
-                            destination,
-                            &target,
-                            &source,
-                            existing_policy,
-                            restore_metadata,
-                            progress.0,
-                        )
+                        reader.block_cache = None;
+                        for (target, source) in group {
+                            extract_regular_file(
+                                reader,
+                                destination,
+                                target,
+                                source,
+                                existing_policy,
+                                restore_metadata,
+                                progress.0,
+                            )?;
+                        }
+                        Ok(())
                     },
                 )
             })
@@ -886,8 +1253,22 @@ fn extraction_worker_error(
     Box::new(ExtractionFailure::from_send_sync(error))
 }
 
+struct ExtractionReader {
+    archive: File,
+    block_cache: Option<(u64, Vec<u8>)>,
+}
+
+impl ExtractionReader {
+    fn open(archive: &str) -> io::Result<Self> {
+        Ok(Self {
+            archive: File::open(archive)?,
+            block_cache: None,
+        })
+    }
+}
+
 fn extract_regular_file(
-    archive: &mut File,
+    reader: &mut ExtractionReader,
     destination: &Path,
     target: &Path,
     source: &ExtractedSource,
@@ -909,18 +1290,28 @@ fn extract_regular_file(
     let mut written = 0_u64;
     let mut checksum = Xxh64::new(0);
     for block in &source.blocks {
-        let contents =
-            decode_extraction_block(archive, block).map_err(ExtractionFailure::from_send_sync)?;
+        let uncached;
+        let contents = if source.entry.offset_in_block.is_some() {
+            cached_extraction_block(&mut reader.block_cache, block.offset, || {
+                decode_extraction_block(&mut reader.archive, block)
+            })?
+        } else {
+            uncached = decode_extraction_block(&mut reader.archive, block)?;
+            &uncached
+        };
         if contents.len() != block.uncompressed_size {
             return Err(Box::new(ExtractionFailure::new(
                 "archive block changed after extraction validation",
             )));
         }
-        output.write_all(&contents)?;
-        checksum.update(&contents);
-        progress.inc(contents.len() as u64);
+        let range = entry_block_range(&source.entry, block.block_index, contents.len())
+            .map_err(|error| ExtractionFailure::new(error.to_string()))?;
+        let file_contents = &contents[range];
+        output.write_all(file_contents)?;
+        checksum.update(file_contents);
+        progress.inc(file_contents.len() as u64);
         written = written
-            .checked_add(contents.len() as u64)
+            .checked_add(file_contents.len() as u64)
             .ok_or_else(|| ExtractionFailure::new("extracted file size overflow"))?;
     }
     if written != source.entry.size {
@@ -947,6 +1338,50 @@ fn extract_regular_file(
     drop(output);
     progress.inc(1);
     Ok(())
+}
+
+fn cached_extraction_block(
+    cache: &mut Option<(u64, Vec<u8>)>,
+    offset: u64,
+    decode: impl FnOnce() -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>,
+) -> Result<&[u8], Box<dyn std::error::Error + Send + Sync>> {
+    if cache
+        .as_ref()
+        .is_none_or(|(cached_offset, _)| *cached_offset != offset)
+    {
+        *cache = Some((offset, decode()?));
+    }
+    Ok(&cache.as_ref().expect("decoded block is cached").1)
+}
+
+fn entry_block_range(
+    entry: &FileEntry,
+    block_index: u32,
+    block_size: usize,
+) -> Result<Range<usize>, io::Error> {
+    let Some(offset) = entry.offset_in_block else {
+        return Ok(0..block_size);
+    };
+    if entry.block_indices.as_slice() != [block_index] {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "packed file must reference exactly one block",
+        ));
+    }
+    let start = usize::try_from(offset)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "file block offset overflow"))?;
+    let size = usize::try_from(entry.size)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "file size overflow"))?;
+    let end = start
+        .checked_add(size)
+        .filter(|&end| end <= block_size)
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "packed file range exceeds its data block",
+            )
+        })?;
+    Ok(start..end)
 }
 
 fn decode_extraction_block(
@@ -1110,51 +1545,51 @@ impl<R: Read + Seek> Seek for RelativeSeekReader<R> {
 
 pub fn load_extraction_state(
     archive: &str,
-    through: Option<&str>,
+    to: Option<&str>,
     password: Option<&[u8]>,
 ) -> Result<LoadedExtractionState, Box<dyn std::error::Error>> {
-    load_extraction_state_with_progress(archive, through, password, None)
+    load_extraction_state_with_progress(archive, to, password, None)
 }
 
 pub fn load_extraction_state_with_progress(
     archive: &str,
-    through: Option<&str>,
+    to: Option<&str>,
     password: Option<&[u8]>,
     progress: Option<&ProgressReporter<'_>>,
 ) -> Result<LoadedExtractionState, Box<dyn std::error::Error>> {
     let passwords = PasswordSet::new(password.map(<[u8]>::to_vec));
-    load_extraction_state_with_passwords_progress(archive, through, &passwords, progress)
+    load_extraction_state_with_passwords_progress(archive, to, &passwords, progress)
 }
 
 pub fn load_extraction_state_with_passwords(
     archive: &str,
-    through: Option<&str>,
+    to: Option<&str>,
     passwords: &PasswordSet,
 ) -> Result<LoadedExtractionState, Box<dyn std::error::Error>> {
-    load_extraction_state_with_passwords_progress(archive, through, passwords, None)
+    load_extraction_state_with_passwords_progress(archive, to, passwords, None)
 }
 
 pub fn load_extraction_state_with_passwords_progress(
     archive: &str,
-    through: Option<&str>,
+    to: Option<&str>,
     passwords: &PasswordSet,
     progress: Option<&ProgressReporter<'_>>,
 ) -> Result<LoadedExtractionState, Box<dyn std::error::Error>> {
-    load_extraction_state_impl(archive, through, passwords, progress, None, None)
+    load_extraction_state_impl(archive, to, passwords, progress, None, None)
 }
 
 /// Blocks that only belong to files rejected by `filters` are not read or validated.
-/// A `known_toc` for the same archive and `through` is returned as is instead of being rebuilt.
+/// A `known_toc` for the same archive and `to` is returned as is instead of being rebuilt.
 fn load_extraction_state_impl(
     archive: &str,
-    through: Option<&str>,
+    to: Option<&str>,
     passwords: &PasswordSet,
     progress: Option<&ProgressReporter<'_>>,
     filters: Option<&FilterSet>,
     known_toc: Option<Toc>,
 ) -> Result<LoadedExtractionState, Box<dyn std::error::Error>> {
     let mut file = File::open(archive)?;
-    let requested_id = through.map(parse_commit_id).transpose()?;
+    let requested_id = to.map(parse_commit_id).transpose()?;
     let rebuild_toc = known_toc.is_none();
     let mut toc = known_toc.unwrap_or_default();
     let mut file_contents = BTreeMap::<ArchivePath, ExtractedSource>::new();
@@ -1164,7 +1599,7 @@ fn load_extraction_state_impl(
     let mut progressed_header_bytes = 0_u64;
     let mut total_blocks = 0_u64;
     let mut matches = 0_u32;
-    let mut stopped_at_through = false;
+    let mut stopped_at_to = false;
     let limits = CommitValidationLimits::default();
 
     let mut header_offset = read_first_header_offset(&mut file)?;
@@ -1175,14 +1610,14 @@ fn load_extraction_state_impl(
         if matched_this_commit {
             matches += 1;
             if matches > 1 {
-                return Err("--through commit ID is ambiguous".into());
+                return Err("--to commit ID is ambiguous".into());
             }
         }
         let _commit_end = header_offset
             .checked_add(u64::from(commit_header.header_frame_size))
             .and_then(|size| size.checked_add(HEADER_OFFSET_SIZE))
             .ok_or("commit end overflow")?;
-        if stopped_at_through {
+        if stopped_at_to {
             header_offset = next_header_offset;
             continue;
         }
@@ -1284,20 +1719,6 @@ fn load_extraction_state_impl(
                 .checked_add(encoded_size)
                 .ok_or("archive offset overflow")?;
             remaining -= encoded_size;
-            if frame.is_none() {
-                blocks.insert(
-                    block_index,
-                    ExtractedBlock {
-                        offset,
-                        block_index,
-                        encoded_size,
-                        uncompressed_size: 0,
-                        commit_header: commit_header.clone(),
-                        algorithm,
-                        dek: dek.as_ref().map(|key| Zeroizing::new(**key)),
-                    },
-                );
-            }
             if let Some(frame) = frame {
                 pending_blocks.push((offset, frame));
                 if pending_blocks.len() >= workers {
@@ -1345,8 +1766,19 @@ fn load_extraction_state_impl(
                     if filters.is_some_and(|filters| !filters.includes(path.as_str(), false)) {
                         continue;
                     }
-                    let decoded_size =
-                        entry.block_indices.iter().try_fold(0_u64, |size, index| {
+                    let decoded_size = if let Some(offset) = entry.offset_in_block {
+                        if entry.block_indices.len() != 1 {
+                            None
+                        } else {
+                            blocks.get(&entry.block_indices[0]).and_then(|block| {
+                                u64::from(offset)
+                                    .checked_add(entry.size)
+                                    .filter(|&end| end <= block.uncompressed_size as u64)
+                                    .map(|_| entry.size)
+                            })
+                        }
+                    } else {
+                        Some(entry.block_indices.iter().try_fold(0_u64, |size, index| {
                             size.checked_add(
                                 blocks
                                     .get(index)
@@ -1354,10 +1786,11 @@ fn load_extraction_state_impl(
                                     .uncompressed_size as u64,
                             )
                             .ok_or("decoded file size overflow")
-                        })?;
-                    if decoded_size != entry.size {
+                        })?)
+                    };
+                    if decoded_size != Some(entry.size) {
                         return Err(format!(
-                            "decoded size mismatch for {path}: expected {} bytes, got {decoded_size}",
+                            "decoded size mismatch for {path}: expected {} bytes, got {decoded_size:?}",
                             entry.size
                         ).into());
                     }
@@ -1404,6 +1837,9 @@ fn load_extraction_state_impl(
         for change in &header.changes {
             match change {
                 TocChange::PutFile { path, entry } => {
+                    if filters.is_some_and(|filters| !filters.includes(path.as_str(), false)) {
+                        continue;
+                    }
                     let mut source_blocks = Vec::with_capacity(entry.block_indices.len());
                     for index in &entry.block_indices {
                         let block = blocks
@@ -1412,11 +1848,7 @@ fn load_extraction_state_impl(
                             .clone();
                         source_blocks.push(block);
                     }
-                    let archived_metadata = header
-                        .entry_metadata
-                        .iter()
-                        .find(|metadata| metadata.path == *path)
-                        .cloned();
+                    let archived_metadata = archived_metadata.get(path).cloned();
                     file_contents.insert(
                         path.clone(),
                         ExtractedSource {
@@ -1475,12 +1907,12 @@ fn load_extraction_state_impl(
         }
         header_offset = next_header_offset;
         if matched_this_commit {
-            stopped_at_through = true;
+            stopped_at_to = true;
         }
     }
 
     if requested_id.is_some() && matches == 0 {
-        return Err("--through commit ID was not found".into());
+        return Err("--to commit ID was not found".into());
     }
     for (path, metadata) in &archived_metadata {
         if let Some(source) = file_contents.get_mut(path) {
@@ -2204,4 +2636,33 @@ fn reject_symlink_components_cached(
         checked_dirs.insert(current.clone());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cached_extraction_block;
+    use std::cell::Cell;
+
+    #[test]
+    fn packed_block_cache_decodes_once_per_offset() {
+        let mut cache = None;
+        let calls = Cell::new(0);
+        let decode = || {
+            calls.set(calls.get() + 1);
+            Ok(vec![calls.get()])
+        };
+        assert_eq!(
+            cached_extraction_block(&mut cache, 10, decode).unwrap(),
+            [1]
+        );
+        assert_eq!(
+            cached_extraction_block(&mut cache, 10, decode).unwrap(),
+            [1]
+        );
+        assert_eq!(
+            cached_extraction_block(&mut cache, 20, decode).unwrap(),
+            [2]
+        );
+        assert_eq!(calls.get(), 2);
+    }
 }

@@ -10,6 +10,20 @@ use zarlib::{
 };
 
 #[test]
+fn overwrite_prompt_accepts_yes_no_and_all_future_choices() {
+    assert_eq!(parse_overwrite_decision("y"), OverwriteDecision::Yes);
+    assert_eq!(parse_overwrite_decision("YES"), OverwriteDecision::Yes);
+    assert_eq!(parse_overwrite_decision("a"), OverwriteDecision::Always);
+    assert_eq!(
+        parse_overwrite_decision("Always"),
+        OverwriteDecision::Always
+    );
+    assert_eq!(parse_overwrite_decision("n"), OverwriteDecision::No);
+    assert_eq!(parse_overwrite_decision("Never"), OverwriteDecision::Never);
+    assert_eq!(parse_overwrite_decision("invalid"), OverwriteDecision::No);
+}
+
+#[test]
 fn extraction_summary_is_formatted_for_cli_before_work_begins() {
     let summary = InputSummary {
         files: 2,
@@ -39,13 +53,43 @@ fn info_json_includes_commit_ids_and_framing_sizes() {
         header_encrypted: false,
         data_encrypted: false,
         encryption_algorithm: None,
+        header_changes: Some(zarlib::operations::HeaderChangeStats {
+            files_added_or_updated: 2,
+            ..zarlib::operations::HeaderChangeStats::default()
+        }),
+        created_unix_millis: Some(1_700_000_000_000),
+        user: Some("alice".to_owned()),
     }]);
 
     assert_eq!(
         json,
-        "{\"commit_count\":1,\"commits\":[{\"id\":\"00000001\",\"size\":128,\"header_size\":64,\"data_size\":64,\"header_encrypted\":false,\"data_encrypted\":false,\"encryption_algorithm\":null}]}"
+        "{\"commit_count\":1,\"commits\":[{\"id\":\"00000001\",\"size\":128,\"header_size\":64,\"data_size\":64,\"header_encrypted\":false,\"data_encrypted\":false,\"encryption_algorithm\":null,\"header_changes\":{\"files_added_or_updated\":2,\"directories_added_or_updated\":0,\"symlinks_added_or_updated\":0,\"named_pipes_added_or_updated\":0,\"devices_added_or_updated\":0,\"files_removed\":0,\"directories_removed\":0},\"created_at\":\"2023-11-14 22:13 UTC\",\"created_unix_millis\":1700000000000,\"user\":\"alice\"}]}"
     );
     assert_eq!(render_info_json(&[]), "{\"commit_count\":0,\"commits\":[]}");
+}
+
+#[test]
+fn info_renders_header_content_changes_in_normal_output() {
+    let changes = HeaderChangeStats {
+        files_added_or_updated: 3,
+        directories_added_or_updated: 1,
+        files_removed: 2,
+        ..HeaderChangeStats::default()
+    };
+
+    let rendered = render_header_changes(Some(&changes));
+    assert!(rendered.contains("files added or updated: 3"));
+    assert!(rendered.contains("directories added or updated: 1"));
+    assert!(rendered.contains("file entries removed: 2"));
+    assert!(!rendered.contains("symlinks added or updated"));
+    assert_eq!(
+        render_header_changes(Some(&HeaderChangeStats::default())),
+        "  header content changes:\n    content changes: none\n"
+    );
+    assert_eq!(
+        render_header_changes(None),
+        "  header content changes: unavailable (encrypted header)\n"
+    );
 }
 
 #[test]
@@ -58,6 +102,13 @@ fn info_commit_line_includes_uncompressed_size_and_ratio() {
 
     let commits = info_archive(archive.to_str().unwrap(), false).unwrap();
     assert_eq!(commits.len(), 1);
+    assert_eq!(
+        commits[0].header_changes,
+        Some(HeaderChangeStats {
+            files_added_or_updated: 1,
+            ..HeaderChangeStats::default()
+        })
+    );
     assert_eq!(commits[0].uncompressed_size, Some(11));
     assert_eq!(
         commits[0].ratio_percent,
@@ -95,6 +146,52 @@ fn verbose_info_renders_saved_entry_metadata() {
     assert!(
         render_commit_stats(&stats)
             .contains("saved metadata: owner (2), group (2), permissions (2), date (1)")
+    );
+}
+
+#[test]
+fn verbose_info_counts_header_content_changes() {
+    let header = LogicalHeader::new(vec![
+        TocChange::PutFile {
+            path: archive_path("file.txt"),
+            entry: FileEntry::new(1, vec![0]).unwrap(),
+        },
+        TocChange::PutDirectory {
+            path: archive_path("folder"),
+        },
+        TocChange::PutSymlink {
+            path: archive_path("link"),
+            target: "file.txt".to_owned(),
+        },
+        TocChange::PutNamedPipe {
+            path: archive_path("pipe"),
+        },
+        TocChange::PutDevice {
+            path: archive_path("device"),
+            kind: zarlib::DeviceKind::Character,
+            major: 1,
+            minor: 2,
+        },
+        TocChange::RemoveFile {
+            path: archive_path("old.txt"),
+        },
+        TocChange::RemoveDirectory {
+            path: archive_path("old-folder"),
+        },
+    ]);
+
+    let stats = summarize_commit_header_only(&header, None).unwrap();
+    assert_eq!(
+        stats.header_changes,
+        zarlib::operations::HeaderChangeStats {
+            files_added_or_updated: 1,
+            directories_added_or_updated: 1,
+            symlinks_added_or_updated: 1,
+            named_pipes_added_or_updated: 1,
+            devices_added_or_updated: 1,
+            files_removed: 1,
+            directories_removed: 1,
+        }
     );
 }
 
@@ -223,6 +320,12 @@ fn clap_parser_accepts_cli_options_and_rejects_invalid_usage() {
     );
     assert!(Cli::try_parse_from(["zarc", "create", "archive.zar", "input", "--metadata"]).is_ok());
     assert!(matches!(
+        Cli::try_parse_from(["zarc", "create", "archive.zar", "input", "--user"])
+            .unwrap()
+            .command,
+        Command::Create { user: true, .. }
+    ));
+    assert!(matches!(
         Cli::try_parse_from(["zarc", "create", "archive.zar", "input", "--overwrite"])
             .unwrap()
             .command,
@@ -247,6 +350,12 @@ fn clap_parser_accepts_cli_options_and_rejects_invalid_usage() {
         Command::Create { verbose: true, .. }
     ));
     assert!(Cli::try_parse_from(["zarc", "add", "archive.zar", "input", "--metadata"]).is_ok());
+    assert!(matches!(
+        Cli::try_parse_from(["zarc", "add", "archive.zar", "input", "--user"])
+            .unwrap()
+            .command,
+        Command::Add { user: true, .. }
+    ));
     assert!(matches!(
         Cli::try_parse_from(["zarc", "add", "archive.zar", "input", "--special-files"])
             .unwrap()
@@ -312,6 +421,29 @@ fn clap_parser_accepts_cli_options_and_rejects_invalid_usage() {
             ..
         } if include_folders == &["docs"] && exclude_files == &["*.tmp"]
     ));
+    assert!(matches!(
+        Cli::try_parse_from([
+            "zarc",
+            "list",
+            "archive.zar",
+            "--include-file",
+            "*.txt",
+            "--exclude-folder",
+            "private",
+            "--filelist",
+            "filters.txt",
+        ])
+        .unwrap()
+        .command,
+        Command::List {
+            ref include_files,
+            ref exclude_folders,
+            ref filelist,
+            ..
+        } if include_files == &["*.txt"]
+            && exclude_folders == &["private"]
+            && filelist == &[PathBuf::from("filters.txt")]
+    ));
     assert!(Cli::try_parse_from(["zarc", "extract", "archive.zar", "--metadata"]).is_ok());
     for (option, value) in [("--output", "long-output"), ("-o", "short-output")] {
         assert!(matches!(
@@ -321,10 +453,138 @@ fn clap_parser_accepts_cli_options_and_rejects_invalid_usage() {
             Command::Extract { ref output, .. } if output == value
         ));
     }
-    assert!(Cli::try_parse_from(["zarc", "extract", "archive.zar", "--to", "output"]).is_err());
+    assert!(Cli::try_parse_from(["zarc", "extract", "archive.zar", "--to", "00000001"]).is_ok());
+    assert!(
+        Cli::try_parse_from(["zarc", "extract", "archive.zar", "--through", "00000001"]).is_err()
+    );
     assert!(Cli::try_parse_from(["zarc", "info", "archive.zar", "-v"]).is_ok());
     assert!(Cli::try_parse_from(["zarc", "info", "archive.zar", "--verbose"]).is_ok());
+    for args in [
+        vec!["zarc", "info", "-vv", "archive.zar"],
+        vec!["zarc", "info", "-v", "-v", "archive.zar"],
+        vec!["zarc", "info", "--verbose", "--verbose", "archive.zar"],
+    ] {
+        assert!(matches!(
+            Cli::try_parse_from(args).unwrap().command,
+            Command::Info { verbose: 2, .. }
+        ));
+    }
     assert!(Cli::try_parse_from(["zarc", "info", "archive.zar", "--json", "--verbose"]).is_err());
+}
+
+#[test]
+fn info_json_escapes_usernames() {
+    let json = render_info_json(&[InfoJsonCommit {
+        id: "00000001".to_owned(),
+        size: 1,
+        header_size: 1,
+        data_size: 0,
+        header_encrypted: false,
+        data_encrypted: false,
+        encryption_algorithm: None,
+        header_changes: None,
+        created_unix_millis: None,
+        user: Some("a\"b".to_owned()),
+    }]);
+
+    assert!(json.contains("\"user\":\"a\\\"b\""));
+}
+
+#[test]
+fn verbose_info_renders_block_details() {
+    let output = render_block_summaries(&[BlockInfo {
+        index: 42,
+        compressed_size: 1536,
+        ratio_percent: Some(50.0),
+        file_count: 3,
+        file_groups: vec!["small files"],
+    }]);
+
+    assert!(output.contains("blocks: 1"));
+    assert!(
+        output
+            .contains("block 0000002a files=3 compressed=1.50 KiB ratio=50.00% groups=small files")
+    );
+}
+
+#[test]
+fn convert_parser_accepts_filter_output_and_overwrite_options() {
+    let cli = Cli::try_parse_from([
+        "zarc",
+        "convert",
+        "downloads",
+        "--output-folder",
+        "converted",
+        "--filter",
+        "*.tar.gz",
+        "--overwrite",
+        "--block-size",
+        "4M",
+        "--compression-level",
+        "7",
+    ])
+    .unwrap();
+
+    assert!(matches!(
+        cli.command,
+        Command::Convert {
+            ref input_folder,
+            ref output_folder,
+            ref filter,
+            overwrite: true,
+            ref block_size,
+            ref compression_level,
+        } if input_folder == &PathBuf::from("downloads")
+            && output_folder.as_ref() == Some(&PathBuf::from("converted"))
+            && filter == "*.tar.gz"
+            && block_size.as_deref() == Some("4M")
+            && compression_level.as_deref() == Some("7")
+    ));
+}
+
+#[test]
+fn conversion_output_names_replace_supported_archive_extensions() {
+    for (source, expected) in [
+        ("backup.zip", "backup.zar"),
+        ("backup.7z", "backup.zar"),
+        ("backup.tar", "backup.zar"),
+        ("backup.tar.gz", "backup.zar"),
+        ("backup.tgz", "backup.zar"),
+        ("backup.txt.gz", "backup.txt.zar"),
+        ("BACKUP.TAR.GZ", "BACKUP.zar"),
+    ] {
+        assert_eq!(zar_output_filename(source).as_deref(), Some(expected));
+    }
+    assert_eq!(zar_output_filename("backup.zipx"), None);
+}
+
+#[test]
+fn conversion_source_scan_is_top_level_and_fnmatch_filtered() {
+    let directory = TestDirectory::new();
+    for filename in ["one.zip", "two.tar.gz", "ignored.txt", "three.ZIP"] {
+        std::fs::write(directory.path().join(filename), []).unwrap();
+    }
+    let nested = directory.path().join("nested");
+    std::fs::create_dir(&nested).unwrap();
+    std::fs::write(nested.join("nested.zip"), []).unwrap();
+
+    let no_patterns: &[String] = &[];
+    let no_filelists: &[PathBuf] = &[];
+    let filters = FilterSet::from_patterns(
+        &["*.zip".to_owned()],
+        no_patterns,
+        no_patterns,
+        no_patterns,
+        no_filelists,
+    )
+    .unwrap();
+    let sources = conversion_sources(directory.path(), &filters).unwrap();
+    let filenames = sources
+        .iter()
+        .map(|(path, _)| path.file_name().unwrap().to_str().unwrap())
+        .collect::<Vec<_>>();
+
+    assert_eq!(filenames, ["one.zip"]);
 }
 
 #[test]
@@ -431,6 +691,86 @@ fn cli_accepts_encryption_scope_and_repeated_commit_password_prompts() {
 }
 
 #[test]
+fn cli_accepts_commit_encryption_and_decryption_options() {
+    let cli = Cli::try_parse_from([
+        "zarc",
+        "encrypt",
+        "archive.zar",
+        "--from",
+        "00000001",
+        "--to",
+        "00000002",
+        "--output",
+        "encrypted.zar",
+        "--password",
+        "--password-for",
+        "00000002",
+        "--aead",
+        "chacha20-poly1305",
+        "--encryption-scope",
+        "data",
+        "--strict",
+    ])
+    .unwrap();
+    assert!(matches!(
+        cli.command,
+        Command::Encrypt {
+            archive,
+            from,
+            to,
+            output,
+            password,
+            password_for,
+            aead,
+            encryption_scope,
+            strict,
+        } if archive == "archive.zar"
+            && from == "00000001"
+            && to == "00000002"
+            && output.as_deref() == Some("encrypted.zar")
+            && password
+            && password_for == ["00000002"]
+            && aead == "chacha20-poly1305"
+            && encryption_scope == "data"
+            && strict
+    ));
+
+    let cli = Cli::try_parse_from([
+        "zarc",
+        "decrypt",
+        "archive.zar",
+        "--from",
+        "00000001",
+        "--to",
+        "00000002",
+        "--password-for",
+        "00000001",
+        "-o",
+        "decrypted.zar",
+        "--strict",
+    ])
+    .unwrap();
+    assert!(matches!(
+        cli.command,
+        Command::Decrypt {
+            archive,
+            from,
+            to,
+            output,
+            password,
+            password_for,
+            strict,
+        } if archive == "archive.zar"
+            && from == "00000001"
+            && to == "00000002"
+            && output.as_deref() == Some("decrypted.zar")
+            && !password
+            && password_for == ["00000001"]
+            && strict
+    ));
+}
+
+#[test]
 fn create_help_flag_displays_detailed_help_and_usage_examples() {
     let err = Cli::try_parse_from(["zarc", "create", "-h"]).unwrap_err();
     assert_eq!(err.kind(), clap::error::ErrorKind::DisplayHelp);
@@ -445,7 +785,10 @@ fn create_help_flag_displays_detailed_help_and_usage_examples() {
 
 #[test]
 fn all_subcommands_have_detailed_help_messages() {
-    for cmd in ["add", "remove", "join", "check", "info", "list", "extract"] {
+    for cmd in [
+        "add", "remove", "join", "convert", "encrypt", "decrypt", "check", "info", "list",
+        "extract",
+    ] {
         let err = Cli::try_parse_from(["zarc", cmd, "-h"]).unwrap_err();
         assert_eq!(err.kind(), clap::error::ErrorKind::DisplayHelp);
         let output = err.to_string();
@@ -604,7 +947,7 @@ fn extract_progress_reports_summary_before_nonzero_work_and_counts_bytes() {
             &destination,
             ExtractionOptions {
                 dry_run: false,
-                through: None,
+                to: None,
                 collision_policy: CollisionPolicy::Error,
                 existing_policy: ExistingPolicy::Error,
                 restore_metadata: false,
@@ -686,7 +1029,7 @@ fn extract_summary_precedes_data_frame_validation() {
             &destination,
             ExtractionOptions {
                 dry_run: false,
-                through: None,
+                to: None,
                 collision_policy: CollisionPolicy::Error,
                 existing_policy: ExistingPolicy::Error,
                 restore_metadata: false,
@@ -812,7 +1155,7 @@ fn progress_flags_are_available_for_archive_operations() {
             "archive.zar",
             "--from",
             "00000001",
-            "--through",
+            "--to",
             "00000001",
         ],
         &["check", "archive.zar"],
@@ -827,6 +1170,34 @@ fn progress_flags_are_available_for_archive_operations() {
             assert!(Cli::try_parse_from(args).is_ok(), "{command:?} {flag}");
         }
     }
+}
+
+#[test]
+fn join_uses_to_option_instead_of_through() {
+    assert!(
+        Cli::try_parse_from([
+            "zarc",
+            "join",
+            "archive.zar",
+            "--from",
+            "00000001",
+            "--to",
+            "00000002",
+        ])
+        .is_ok()
+    );
+    assert!(
+        Cli::try_parse_from([
+            "zarc",
+            "join",
+            "archive.zar",
+            "--from",
+            "00000001",
+            "--through",
+            "00000002",
+        ])
+        .is_err()
+    );
 }
 
 #[test]
@@ -1439,7 +1810,7 @@ fn join_merges_contiguous_commits_and_preserves_following_overrides() {
     let archive = write_archive(&directory, &original);
     let prefix_id = commit_id_at(&archive, 0);
     let from = commit_id_at(&archive, 1);
-    let through = commit_id_at(&archive, 2);
+    let to = commit_id_at(&archive, 2);
     let suffix_id = commit_id_at(&archive, 3);
 
     run([
@@ -1447,8 +1818,8 @@ fn join_merges_contiguous_commits_and_preserves_following_overrides() {
         archive.to_str().unwrap().to_owned(),
         "--from".to_owned(),
         from,
-        "--through".to_owned(),
-        through,
+        "--to".to_owned(),
+        to,
         "--block-size".to_owned(),
         "64K".to_owned(),
         "--compression-level".to_owned(),
@@ -1633,8 +2004,10 @@ fn create_deduplicates_equal_files_but_never_compares_different_sizes() {
     let different_entry = entries.get("different-contents.bin").unwrap();
 
     assert_eq!(first_entry.block_indices, same_entry.block_indices);
-    assert_ne!(first_entry.block_indices, different_entry.block_indices);
-    assert_eq!(commit.block_count, 2);
+    assert_eq!(first_entry.offset_in_block, same_entry.offset_in_block);
+    assert_eq!(first_entry.block_indices, different_entry.block_indices);
+    assert_ne!(first_entry.offset_in_block, different_entry.offset_in_block);
+    assert_eq!(commit.block_count, 1);
 }
 
 #[test]
@@ -1651,7 +2024,7 @@ fn create_and_add_skip_compression_for_known_extensions_case_insensitively() {
         &[compressed, ordinary],
         false,
         EncodingOptions {
-            block_size: 64 * 1024,
+            block_size: 1024,
             compression_level: 3,
         },
     )
@@ -1689,15 +2062,19 @@ fn create_and_add_skip_compression_for_known_extensions_case_insensitively() {
 
     let compressed_entry = entries.get("archive.rar").unwrap();
     let ordinary_entry = entries.get("archive.txt").unwrap();
-    assert_eq!(compressed_entry.block_indices.len(), 1);
-    assert_eq!(ordinary_entry.block_indices.len(), 1);
-    assert_ne!(
-        flags_by_index[&compressed_entry.block_indices[0]] & zarlib::BLOCK_FLAG_UNCOMPRESSED,
-        0
+    assert_eq!(compressed_entry.block_indices.len(), 4);
+    assert_eq!(ordinary_entry.block_indices.len(), 4);
+    assert!(
+        compressed_entry
+            .block_indices
+            .iter()
+            .all(|index| flags_by_index[index] & zarlib::BLOCK_FLAG_UNCOMPRESSED != 0)
     );
-    assert_eq!(
-        flags_by_index[&ordinary_entry.block_indices[0]] & zarlib::BLOCK_FLAG_UNCOMPRESSED,
-        0
+    assert!(
+        ordinary_entry
+            .block_indices
+            .iter()
+            .all(|index| flags_by_index[index] & zarlib::BLOCK_FLAG_UNCOMPRESSED == 0)
     );
 
     let appended = directory.path().join("added.rar");
@@ -1707,7 +2084,7 @@ fn create_and_add_skip_compression_for_known_extensions_case_insensitively() {
         archive.to_str().unwrap(),
         std::slice::from_ref(&appended),
         EncodingOptions {
-            block_size: 64 * 1024,
+            block_size: 1024,
             compression_level: 3,
         },
     )
@@ -1741,9 +2118,12 @@ fn create_and_add_skip_compression_for_known_extensions_case_insensitively() {
     input
         .seek(std::io::SeekFrom::Start(second_data_start))
         .unwrap();
-    let frame = BlockFrame::read_from(&mut input, 64 * 1024).unwrap();
-    assert_eq!(frame.block_index, appended_entry.block_indices[0]);
-    assert_ne!(frame.flags & zarlib::BLOCK_FLAG_UNCOMPRESSED, 0);
+    assert_eq!(appended_entry.block_indices.len(), 4);
+    for expected_index in &appended_entry.block_indices {
+        let frame = BlockFrame::read_from(&mut input, 64 * 1024).unwrap();
+        assert_eq!(frame.block_index, *expected_index);
+        assert_ne!(frame.flags & zarlib::BLOCK_FLAG_UNCOMPRESSED, 0);
+    }
 }
 
 #[test]
@@ -1768,7 +2148,7 @@ fn create_stores_incompressible_blocks_uncompressed_and_compressible_blocks_comp
         &[incompressible, compressible],
         false,
         EncodingOptions {
-            block_size: 64 * 1024,
+            block_size: 1024,
             compression_level: 3,
         },
     )
@@ -1937,7 +2317,7 @@ fn metadata_option_saves_and_restores_file_and_directory_metadata() {
         &destination,
         ExtractionOptions {
             dry_run: false,
-            through: None,
+            to: None,
             collision_policy: CollisionPolicy::Error,
             existing_policy: ExistingPolicy::Error,
             restore_metadata: true,
@@ -2060,7 +2440,7 @@ fn create_and_extract_symlink_named_pipe_and_device_records() {
         &destination,
         ExtractionOptions {
             dry_run: false,
-            through: None,
+            to: None,
             collision_policy: CollisionPolicy::Error,
             existing_policy: ExistingPolicy::Error,
             restore_metadata: false,
@@ -2090,7 +2470,7 @@ fn create_and_extract_symlink_named_pipe_and_device_records() {
             &escaped_destination,
             ExtractionOptions {
                 dry_run: false,
-                through: None,
+                to: None,
                 collision_policy: CollisionPolicy::Error,
                 existing_policy: ExistingPolicy::Error,
                 restore_metadata: false,
@@ -2218,6 +2598,7 @@ fn create_and_extract_apply_file_and_folder_filters() {
 
     let add_filters =
         FilterSet::from_patterns(&["*.bin".to_owned()], &[], &[], &[], &[] as &[&Path]).unwrap();
+    std::fs::write(source.join("data.bin"), b"updated binary").unwrap();
     add_archive_with_encoding_progress_and_options_and_filters(
         archive.to_str().unwrap(),
         std::slice::from_ref(&source),
@@ -2244,7 +2625,7 @@ fn create_and_extract_apply_file_and_folder_filters() {
         &destination,
         ExtractionOptions {
             dry_run: false,
-            through: None,
+            to: None,
             collision_policy: CollisionPolicy::Error,
             existing_policy: ExistingPolicy::Error,
             restore_metadata: false,
@@ -2264,6 +2645,34 @@ fn create_and_extract_apply_file_and_folder_filters() {
         b"read me"
     );
     assert!(!destination.join("source/data.bin").exists());
+
+    let binary_filters =
+        FilterSet::from_patterns(&["*.bin".to_owned()], &[], &[], &[], &[] as &[&Path]).unwrap();
+    let binary_destination = directory.path().join("binary-output");
+    let plan = extract_archive_with_progress_and_filters(
+        archive.to_str().unwrap(),
+        &binary_destination,
+        ExtractionOptions {
+            dry_run: false,
+            to: None,
+            collision_policy: CollisionPolicy::Error,
+            existing_policy: ExistingPolicy::Error,
+            restore_metadata: false,
+            restore_symlinks: false,
+            restore_devices: false,
+            strip_top_level: false,
+        },
+        None,
+        None,
+        &binary_filters,
+    )
+    .unwrap();
+    assert_eq!(plan.files.len(), 1);
+    assert_eq!(
+        std::fs::read(binary_destination.join("source/data.bin")).unwrap(),
+        b"updated binary"
+    );
+    assert!(!binary_destination.join("source/readme.txt").exists());
 }
 
 #[test]
@@ -2406,6 +2815,7 @@ fn create_includes_named_pipes_only_when_special_files_are_enabled() {
         CreateInputOptions {
             save_metadata: false,
             save_dates: false,
+            save_user: false,
             include_special_files: false,
             overwrite_existing: false,
             verbose: false,
@@ -2436,6 +2846,7 @@ fn create_includes_named_pipes_only_when_special_files_are_enabled() {
         CreateInputOptions {
             save_metadata: false,
             save_dates: false,
+            save_user: false,
             include_special_files: true,
             overwrite_existing: false,
             verbose: false,
@@ -2480,6 +2891,7 @@ fn create_overwrite_replaces_existing_archive_only_after_successful_creation() {
         CreateInputOptions {
             save_metadata: false,
             save_dates: false,
+            save_user: false,
             include_special_files: true,
             overwrite_existing: true,
             verbose: false,
@@ -2699,6 +3111,35 @@ fn remove_appends_a_tombstone_for_a_file() {
 
     let toc = load_toc(&mut File::open(&archive).unwrap()).unwrap();
     assert!(toc.is_empty());
+    assert!(check_archive_with_recovery(archive.to_str().unwrap(), false, None).is_ok());
+}
+
+#[test]
+fn remove_archive_entry_uses_its_internal_path() {
+    let directory = TestDirectory::new();
+    let source_root = directory.path().join("testdata");
+    let source_file = source_root.join("linux-4.0.1/Documentation/ABI/README");
+    std::fs::create_dir_all(source_file.parent().unwrap()).unwrap();
+    std::fs::write(&source_file, b"contents").unwrap();
+    let archive = directory.path().join("kernel.zar");
+    create_archive(
+        archive.to_str().unwrap(),
+        std::slice::from_ref(&source_root),
+    )
+    .unwrap();
+
+    remove_archive_entries_with_progress(
+        archive.to_str().unwrap(),
+        &[ArchivePath::new("testdata/linux-4.0.1/Documentation/ABI/README").unwrap()],
+        None,
+    )
+    .unwrap();
+
+    let toc = load_toc(&mut File::open(&archive).unwrap()).unwrap();
+    assert!(
+        !toc.iter()
+            .any(|(path, _)| { path.as_str() == "testdata/linux-4.0.1/Documentation/ABI/README" })
+    );
     assert!(check_archive_with_recovery(archive.to_str().unwrap(), false, None).is_ok());
 }
 
@@ -3320,7 +3761,7 @@ fn explicit_error_collision_policy_rejects_case_folded_paths() {
             &destination,
             ExtractionOptions {
                 dry_run: false,
-                through: None,
+                to: None,
                 collision_policy: CollisionPolicy::Error,
                 existing_policy: ExistingPolicy::Error,
                 restore_metadata: false,
@@ -3581,4 +4022,292 @@ fn block_indices_can_be_reused_in_later_commits() {
     extract_archive(archive_path.to_str().unwrap(), &destination, false).unwrap();
 
     assert_eq!(std::fs::read(destination.join("file.txt")).unwrap(), b"new");
+}
+
+#[test]
+fn cli_archive_lifecycle_executes_commands_and_preserves_content() {
+    let directory = TestDirectory::new();
+    let input = directory.path().join("input");
+    std::fs::create_dir(&input).unwrap();
+    std::fs::write(input.join("one.txt"), b"one content").unwrap();
+    std::fs::write(input.join("ignored.bin"), b"ignored").unwrap();
+    let archive = directory.path().join("lifecycle.zar");
+    let archive = archive.to_str().unwrap();
+    let input = input.to_str().unwrap();
+    let command = |args: &[&str]| run(args.iter().map(|arg| (*arg).to_owned()));
+
+    assert_eq!(
+        command(&[
+            "create",
+            "--progress",
+            "--dates",
+            "--block-size",
+            "auto",
+            "--include-file",
+            "*.txt",
+            archive,
+            input,
+        ])
+        .unwrap(),
+        0
+    );
+    let toc = list_archive(archive, None, None).unwrap();
+    assert!(toc.get(&archive_path("input/one.txt")).is_some());
+    assert!(toc.get(&archive_path("input/ignored.bin")).is_none());
+
+    let second = directory.path().join("second.txt");
+    std::fs::write(&second, b"second content").unwrap();
+    assert_eq!(
+        command(&[
+            "add",
+            "--progress",
+            "--compression-level",
+            "1",
+            archive,
+            second.to_str().unwrap(),
+        ])
+        .unwrap(),
+        0
+    );
+    assert_eq!(info_archive(archive, false).unwrap().len(), 2);
+
+    for args in [
+        vec!["check", "--progress", archive],
+        vec!["info", archive],
+        vec!["info", "-v", archive],
+        vec!["info", "-vv", archive],
+        vec!["info", "--json", archive],
+        vec!["list", archive],
+        vec!["list", archive, "--include-file", "*.txt"],
+        vec![
+            "list",
+            archive,
+            "--to",
+            &commit_id_at(Path::new(archive), 0),
+        ],
+    ] {
+        assert_eq!(command(&args).unwrap(), 0);
+    }
+
+    let destination = directory.path().join("output");
+    let destination = destination.to_str().unwrap();
+    assert_eq!(
+        command(&[
+            "extract",
+            "--dry-run",
+            "--progress",
+            archive,
+            "--output",
+            destination,
+        ])
+        .unwrap(),
+        0
+    );
+    assert!(!Path::new(destination).exists());
+    assert_eq!(
+        command(&[
+            "extract",
+            "--progress",
+            "--existing",
+            "overwrite",
+            archive,
+            "--output",
+            destination,
+        ])
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        std::fs::read(Path::new(destination).join("input/one.txt")).unwrap(),
+        b"one content"
+    );
+    assert_eq!(
+        std::fs::read(Path::new(destination).join("second.txt")).unwrap(),
+        b"second content"
+    );
+    assert_eq!(
+        command(&["remove", "-p", archive, "second.txt"]).unwrap(),
+        0
+    );
+    assert!(
+        list_archive(archive, None, None)
+            .unwrap()
+            .get(&archive_path("second.txt"))
+            .is_none()
+    );
+    assert_eq!(command(&["undo", archive, "1"]).unwrap(), 0);
+    assert!(
+        list_archive(archive, None, None)
+            .unwrap()
+            .get(&archive_path("second.txt"))
+            .is_some()
+    );
+}
+
+#[test]
+fn cli_metadata_and_join_commands_update_archive() {
+    let directory = TestDirectory::new();
+    let input = directory.path().join("file.txt");
+    std::fs::write(&input, b"file data").unwrap();
+    let archive = directory.path().join("metadata.zar");
+    let archive = archive.to_str().unwrap();
+    let command = |args: &[&str]| run(args.iter().map(|arg| (*arg).to_owned()));
+    assert_eq!(
+        command(&["create", archive, input.to_str().unwrap()]).unwrap(),
+        0
+    );
+    assert_eq!(
+        command(&[
+            "meta",
+            archive,
+            "--set",
+            "revision=3",
+            "--set",
+            "author=Jane"
+        ])
+        .unwrap(),
+        0
+    );
+    let metadata = read_custom_metadata(archive).unwrap();
+    assert_eq!(metadata["revision"], MetadataType::I64(3));
+    assert_eq!(metadata["author"], MetadataType::String("Jane".to_owned()));
+    assert_eq!(command(&["meta", archive]).unwrap(), 0);
+    assert_eq!(command(&["info", "--meta", archive]).unwrap(), 0);
+    assert!(
+        command(&["meta", archive, "--set", "invalid"])
+            .unwrap_err()
+            .to_string()
+            .contains("expected KEY=VALUE")
+    );
+    assert_eq!(
+        command(&["meta", archive, "--remove", "author"]).unwrap(),
+        0
+    );
+    assert!(
+        !read_custom_metadata(archive)
+            .unwrap()
+            .contains_key("author")
+    );
+
+    let first = commit_id_at(Path::new(archive), 0);
+    let last = commit_id_at(Path::new(archive), 2);
+    assert_eq!(
+        command(&["join", "-p", archive, "--from", &first, "--to", &last]).unwrap(),
+        0
+    );
+    assert_eq!(info_archive(archive, false).unwrap().len(), 1);
+    assert_eq!(
+        read_custom_metadata(archive).unwrap()["revision"],
+        MetadataType::I64(3)
+    );
+}
+
+#[test]
+fn cli_convert_handles_success_conflicts_and_no_matches() {
+    const GZIP: &[u8] = &[
+        31, 139, 8, 0, 0, 0, 0, 0, 0, 3, 203, 72, 205, 201, 201, 87, 72, 43, 202, 207, 85, 72, 175,
+        202, 44, 224, 2, 0, 120, 45, 189, 120, 16, 0, 0, 0,
+    ];
+    let directory = TestDirectory::new();
+    let source = directory.path().join("sources");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::write(source.join("hello.txt.gz"), GZIP).unwrap();
+    let output = directory.path().join("converted");
+    let source = source.to_str().unwrap();
+    let output = output.to_str().unwrap();
+    let command = |args: &[&str]| run(args.iter().map(|arg| (*arg).to_owned()));
+    assert_eq!(
+        command(&[
+            "convert",
+            source,
+            "--output-folder",
+            output,
+            "--filter",
+            "*.zip"
+        ])
+        .unwrap(),
+        1
+    );
+    assert_eq!(
+        command(&[
+            "convert",
+            source,
+            "--output-folder",
+            output,
+            "--filter",
+            "*.gz"
+        ])
+        .unwrap(),
+        0
+    );
+    let converted = Path::new(output).join("hello.txt.zar");
+    let destination = directory.path().join("extracted");
+    extract_archive(converted.to_str().unwrap(), &destination, false).unwrap();
+    assert_eq!(
+        std::fs::read(destination.join("hello.txt")).unwrap(),
+        b"hello from gzip\n"
+    );
+    assert_eq!(
+        command(&["convert", source, "--output-folder", output]).unwrap(),
+        1
+    );
+    assert_eq!(
+        command(&["convert", source, "--output-folder", output, "--overwrite"]).unwrap(),
+        0
+    );
+    std::fs::write(Path::new(source).join("hello.txt.zip"), b"not a zip").unwrap();
+    assert_eq!(
+        command(&["convert", source, "--output-folder", output]).unwrap(),
+        1
+    );
+}
+
+#[test]
+fn cli_rejects_bad_options_and_commit_ids() {
+    let directory = TestDirectory::new();
+    let input = directory.path().join("file.txt");
+    std::fs::write(&input, b"content").unwrap();
+    let archive = directory.path().join("test.zar");
+    let archive = archive.to_str().unwrap();
+    let input = input.to_str().unwrap();
+    let command = |args: &[&str]| run(args.iter().map(|arg| (*arg).to_owned()));
+    assert!(command(&["create", "--block-size", "1", archive, input]).is_err());
+    assert!(command(&["create", "--compression-level", "23", archive, input]).is_err());
+    assert_eq!(command(&["create", archive, input]).unwrap(), 0);
+    assert!(command(&["create", archive, input]).is_err());
+    assert!(command(&["add", "--password-for", "invalid", archive, input]).is_err());
+    assert!(command(&["list", archive, "--password-for", "invalid"]).is_err());
+    assert!(command(&["extract", archive, "--collision", "invalid"]).is_err());
+    assert!(command(&["extract", archive, "--existing", "invalid"]).is_err());
+    assert!(command(&["encrypt", archive, "--from", "bad", "--to", "00000001"]).is_err());
+    assert!(command(&["decrypt", archive, "--from", "bad", "--to", "00000001"]).is_err());
+}
+
+#[test]
+fn cli_progress_tracks_phases_and_formats_summaries() {
+    let progress = CliProgress::new(true);
+    progress.set_total(12);
+    assert_eq!(progress.total_bytes(), 12);
+    progress.message("reading");
+    progress.advance(5);
+    assert_eq!(progress.bar().unwrap().position(), 5);
+    progress.start_phase("Planning extraction", 20);
+    assert_eq!(progress.total_bytes(), 20);
+    assert_eq!(progress.bar().unwrap().length(), Some(20));
+    progress.advance(3);
+    progress.reset_phase("Extracting", 7);
+    assert_eq!(progress.bar().unwrap().length(), Some(7));
+    progress.add_summary(&InputSummary {
+        files: 1,
+        total_bytes: 42,
+        ..InputSummary::default()
+    });
+    assert_eq!(progress.total_bytes(), 42);
+    progress.extract_summary(&InputSummary::default());
+    progress.warning("test warning");
+    let disabled = CliProgress::new(false);
+    disabled.set_total(10);
+    disabled.start_phase("disabled", 2);
+    disabled.advance(1);
+    assert!(disabled.bar().is_none());
 }

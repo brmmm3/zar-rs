@@ -39,14 +39,18 @@ Highlights:
   zarlib compressed in 4.6 s versus 19.6 s for zip, 17.5 s for tar.gz and 93 s
   for 7z, and extracted in 4.9 s versus 10.9 s for zip. Encryption costs only
   about 30% extra time. 7z produces smaller archives, at 20 times the compression time.
-  See the [benchmark overview](./doc/benchmarks/README.md) for all reports and charts.
+  See [how to run benchmarks](./doc/benchmarks/README.md#running-benchmarks)
+  and the [benchmark overview](./doc/benchmarks/README.md) for reports and charts.
   The [archive benchmark workflow](./.github/workflows/benchmark-archives.yml)
   runs on Windows, Linux, and macOS; each run uploads its generated report and
   chart from the `doc/benchmarks/` folder as workflow artifacts.
-- **ZIP, 7z, TAR, and gzip-TAR import.** Pass a `.zip`, `.7z`, `.tar`,
-  `.tar.gz`, or `.tgz` file as an input to create or add, and its contents are
-  imported under their paths in the new ZAR commit. This works through `zarlib`,
-  `zarc`, `zarg`, and the language bindings. Encrypted ZIP/7z archives and
+- **ZIP, 7z, TAR, and gzip extraction/import.** Pass a `.zip`, `.7z`, `.tar`,
+  `.tar.gz`, `.tgz`, or standalone `.gz` file to `zarc extract` to write its
+  contents directly; regular files are written in parallel. Standalone gzip
+  extraction removes the `.gz` suffix from the output filename. These formats
+  can also be passed to create or add, where their contents are imported under
+  their paths in the new ZAR commit. This works through `zarlib`, `zarc`, `zarg`,
+  and the language bindings. Encrypted ZIP/7z archives and
   ZIP/7z links are not supported. TAR symbolic links are preserved where the
   host supports them; hard links are imported as regular files. TAR paths with
   harmless `.` components are normalized; parent traversal and special entries
@@ -54,6 +58,9 @@ Highlights:
   archive timestamps are not retained; `--dates` records import-time
   filesystem timestamps instead. 7z entries using COPY, LZMA/LZMA2, BZip2,
   PPMD, DEFLATE, Brotli, LZ4, or Zstandard are supported.
+- **Batch archive conversion.** `zarc convert FOLDER` converts supported
+  archive files directly inside a folder into separate `.zar` files, with an
+  optional fnmatch filename filter and a separate output folder.
 - **Commit-based history.** `add`, `remove`, and `join` append or compact
   commits instead of rewriting the archive; the archive is published atomically,
   and the original survives any failure.

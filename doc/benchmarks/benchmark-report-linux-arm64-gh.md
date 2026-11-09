@@ -1,48 +1,59 @@
 # Linux 4.0.1 Archive Benchmark
 
-Run date: 2026-10-30T18:17:01+01:00  
-Operating system: Linux-7.2.6-070206-generic-x86_64-with-glibc2.43  
-CPU: x86_64, 8 logical cores
+Run date: 2026-11-08T21:46:17+00:00
+- Operating system: Linux-7.0.0-1017-azure-aarch64-with-glibc2.39
+- CPU: Not reported by operating system (aarch64, 2 logical cores)
+- Benchmark storage (Source and archives): HDD / rotational; model: Virtual Disk; device: sda
+- Benchmark storage (Extraction output): HDD / rotational; model: Virtual Disk; device: sda
 
-![Archive size, compression time, and extraction time charts](./benchmark-charts-linux-arm64-gh.svg)
+![Host OS, CPU and storage information, archive size, compression time, full and three-file extraction times, and separate CPU and RAM charts](./benchmark-charts-linux-arm64-gh.svg)
 
 ## Results
 
-Source: [`linux-4.0.1.tar.gz`](https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.0.1.tar.gz)  
-Uncompressed source size: 525.1 MiB  
-Regular files verified: 48,945  
+Source: [`linux-4.0.1.tar.gz`](https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.0.1.tar.gz)
+Uncompressed source size: 525.1 MiB
+Regular files verified: 48,945
 Symbolic links excluded from path/size verification: 12
 
-| Format | Encryption | Cache | Archive size | Compression | Extraction |
-|---|---:|---:|---:|---:|---:|
-| zarlib | No | hot | 152.0 MiB | 4.42 s (118.8 MiB/s) | 5.01 s (104.8 MiB/s) |
-| zarlib | Yes | hot | 153.3 MiB | 6.32 s (83.0 MiB/s) | 6.48 s (81.0 MiB/s) |
-| zip | No | hot | 151.1 MiB | 20.23 s (26.0 MiB/s) | 14.70 s (35.7 MiB/s) |
-| zip | Yes | hot | 152.4 MiB | 18.85 s (27.9 MiB/s) | 12.05 s (43.6 MiB/s) |
-| 7z | No | hot | 80.2 MiB | 74.13 s (7.1 MiB/s) | 6.69 s (78.5 MiB/s) |
-| 7z | Yes | hot | 80.2 MiB | 69.64 s (7.5 MiB/s) | 5.67 s (92.6 MiB/s) |
-| tar | No | hot | 562.7 MiB | 1.40 s (376.4 MiB/s) | 2.29 s (229.2 MiB/s) |
-| tar | Yes | hot | 562.7 MiB | 6.76 s (77.7 MiB/s) | 16.83 s (31.2 MiB/s) |
-| tar.gz | No | hot | 122.1 MiB | 15.54 s (33.8 MiB/s) | 2.72 s (192.9 MiB/s) |
-| tar.gz | Yes | hot | 122.1 MiB | 16.05 s (32.7 MiB/s) | 3.23 s (162.6 MiB/s) |
-| zarlib | No | cold | 152.0 MiB | 4.18 s (125.6 MiB/s) | 4.38 s (119.9 MiB/s) |
-| zarlib | Yes | cold | 153.3 MiB | 4.93 s (106.5 MiB/s) | 5.41 s (97.0 MiB/s) |
-| zip | No | cold | 151.1 MiB | 24.33 s (21.6 MiB/s) | 8.92 s (58.8 MiB/s) |
-| zip | Yes | cold | 152.4 MiB | 25.42 s (20.7 MiB/s) | 12.73 s (41.2 MiB/s) |
-| 7z | No | cold | 80.2 MiB | 74.86 s (7.0 MiB/s) | 5.07 s (103.6 MiB/s) |
-| 7z | Yes | cold | 80.2 MiB | 72.86 s (7.2 MiB/s) | 5.99 s (87.6 MiB/s) |
-| tar | No | cold | 562.7 MiB | 7.87 s (66.8 MiB/s) | 2.37 s (221.5 MiB/s) |
-| tar | Yes | cold | 562.7 MiB | 23.06 s (22.8 MiB/s) | 17.99 s (29.2 MiB/s) |
-| tar.gz | No | cold | 122.1 MiB | 16.18 s (32.4 MiB/s) | 3.33 s (157.7 MiB/s) |
-| tar.gz | Yes | cold | 122.1 MiB | 19.89 s (26.4 MiB/s) | 6.57 s (79.9 MiB/s) |
+| Format | Encryption | Cache | Archive size | Compression (min-max) | Extraction (min-max) | Extract 3 files (min-max) | Temp space (3 files) | CPU / RAM (compress) | CPU / RAM (extract) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| zarlib | No | hot | 114.6 MiB | 1.87-1.88 s (279.4-281.2 MiB/s) | 2.00-2.35 s (223.4-262.9 MiB/s) | 0.144-0.149 s | 0 B | 0 % / 1.4 GiB | 68 % / 1.3 GiB |
+| zarlib | Yes | hot | 114.6 MiB | 2.03-2.03 s (258.3-259.3 MiB/s) | 2.77-2.84 s (184.7-189.5 MiB/s) | 0.434-0.441 s | 0 B | 58 % / 1.5 GiB | 67 % / 1.4 GiB |
+| zip | No | hot | 151.1 MiB | 11.35-11.38 s (46.2-46.3 MiB/s) | 4.46-4.49 s (116.9-117.8 MiB/s) | 0.009-0.010 s | 0 B | 50 % / 1.2 GiB | 48 % / 1.1 GiB |
+| zip | Yes | hot | 152.4 MiB | 12.00-12.02 s (43.7-43.8 MiB/s) | 5.73-5.84 s (89.8-91.6 MiB/s) | 0.015-0.017 s | 0 B | 49 % / 1.1 GiB | 50 % / 1.0 GiB |
+| 7z | No | hot | 80.7 MiB | 140.32-150.27 s (3.5-3.7 MiB/s) | 4.53-4.67 s (112.4-116.0 MiB/s) | 3.103-3.213 s | 0 B | 64 % / 1.2 GiB | 49 % / 1.0 GiB |
+| 7z | Yes | hot | 80.7 MiB | 144.48-154.17 s (3.4-3.6 MiB/s) | 4.49-4.68 s (112.3-116.9 MiB/s) | 3.123-3.193 s | 0 B | 64 % / 1.2 GiB | 50 % / 1.0 GiB |
+| tar | No | hot | 562.7 MiB | 0.59-0.61 s (857.7-894.1 MiB/s) | 1.34-1.41 s (372.9-390.7 MiB/s) | 0.079-0.080 s | 0 B | 0 % / 0.0 GiB | 48 % / 1.0 GiB |
+| tar | Yes | hot | 562.7 MiB | 3.86-5.11 s (102.8-135.9 MiB/s) | 6.78-7.11 s (73.8-77.4 MiB/s) | 3.720-4.050 s | 0 B | 32 % / 1.6 GiB | 16 % / 1.4 GiB |
+| tar.gz | No | hot | 122.2 MiB | 12.43-12.50 s (42.0-42.3 MiB/s) | 2.63-3.01 s (174.3-199.6 MiB/s) | 2.428-2.434 s | 0 B | 52 % / 1.1 GiB | 57 % / 1.2 GiB |
+| tar.gz | Yes | hot | 122.2 MiB | 12.72-13.05 s (40.2-41.3 MiB/s) | 2.97-3.93 s (133.6-177.1 MiB/s) | 2.802-2.814 s | 0 B | 51 % / 1.2 GiB | 44 % / 1.3 GiB |
+
+"Extract 3 files" is the time to extract only `fs/btrfs/check-integrity.c`, `lib/xz/xz_dec_test.c`, `tools/perf/util/build-id.h`
+from the archive (for encrypted tar/tar.gz this includes decrypting the archive). "Temp space"
+is the peak disk usage of the results directory and the runner's temporary
+directory during that extraction minus the size of the extracted files, sampled
+every 5 ms (the maximum over all runs). Temporary files outside these
+directories (e.g. in the system temp directory) are not captured.
 
 Throughput uses the uncompressed regular-file size. Each extraction was run into
 a freshly emptied `testresults/` directory, then checked against the source tree
-for matching regular-file paths and sizes. During its 4 extraction run(s), `zarlib` renamed 48 path(s) total (12 per run) due to case-folded collisions; generated suffixes are normalized only for comparison. The results
+for matching regular-file paths and sizes. During its 2 extraction run(s), `zarlib` renamed 24 path(s) total (12 per run) due to case-folded collisions; generated suffixes are normalized only for comparison. The results
 directory was emptied again after each check. Symlink entries are excluded
 because `zarlib` currently reports and skips unsupported input symlinks. ZIP
 and tar preserve links; 7z preserves them in its archive but may skip unsafe
 relative links during extraction, as noted above.
+
+CPU utilisation and RAM consumption were sampled at 1-second intervals during
+each compression and extraction operation using `psutil`. The table shows the
+average CPU % and RAM GiB across all samples for each phase. Runtime values show
+the minimum and maximum measured time for each phase. The charts plot full
+extraction times and the times to extract the three selected files separately.
+The time-series charts plot CPU and RAM on separate axes for compression and
+extraction, with one line per archive format (solid = plain, dashed = encrypted).
+The CPU model and operating system are collected from the host. Storage details
+describe the volumes holding the source/archive files and extraction output.
+The operating system may not expose physical media behind virtual or layered
+storage; such cases are identified as unknown or non-rotational/possibly virtual.
 
 ## Method
 
@@ -52,12 +63,14 @@ relative links during extraction, as noted above.
   writing `3` to `/proc/sys/vm/drop_caches` on Linux (root required), or
   `RAMMap.exe -Et` on Windows (elevation required). Cold runs are skipped with
   a warning when the privileges are missing.
-
+- The installed 7-Zip does not support the zstd codec (only forks such as 7-Zip-zstd do); the `7z-zstd` benchmark is skipped.
 - `zarlib`: `zarc` release build, default Zstandard compression level 3;
   encrypted runs use AES-256-GCM and the default header-and-data scope.
 - `zip`: Info-ZIP recursive DEFLATE at level 6, storing symlinks as links.
   Encrypted runs use the implementation's standard ZipCrypto mode
   (legacy/weak encryption).
+- `7z-zstd`: 7z format with the Zstandard codec at level 3 (only run when the
+  installed 7-Zip supports it, e.g. 7-Zip-zstd); otherwise like `7z`.
 - `7z`: 7z format with LZMA2 at level 5. Encrypted runs use AES-256 and
   encrypted headers; symlinks are stored as links. The 7-Zip CLI accepts
   passwords only as a command-line switch; this runner generates a temporary
@@ -73,18 +86,24 @@ relative links during extraction, as noted above.
   AES-256-GCM encryption. It is decrypted before extraction. A temporary
   self-signed RSA certificate is used to wrap the CMS content key; the
   temporary private key is deleted when the benchmark exits.
-- Compression and extraction are each measured once per format/configuration.
+- Compression and extraction are measured twice per hot-cache configuration
+  and once per cold-cache configuration. The report shows the minimum and
+  maximum runtime across those runs. The runner waits 3 seconds between
+  benchmark runs; this delay is not included in the measured operation times.
   Build time, source download/extraction, and post-extraction verification are
-  excluded from the measured operation times.
+  also excluded from the measured operation times.
 
 ## Tool versions
 
+- `zarlib`: `0.9.0`
 - `cargo`: `cargo 1.99.1 (5f94df478 2026-08-27)`
 - `tar`: `tar (GNU tar) 1.35`
-- `openssl`: `OpenSSL 3.5.5 27 Jan 2026 (Library: OpenSSL 3.5.5 27 Jan 2026)`
-- `7z`: `7-Zip 26.00 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-02-12`
+- `openssl`: `OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024)`
+- `7z`: `7-Zip 23.01 (arm64) : Copyright (c) 1999-2023 Igor Pavlov : 2023-06-20`
+- `gzip`: `gzip 1.12`
 - `zip`: `This is Zip 3.0 (July 5th 2008), by Info-ZIP.`
 - `unzip`: `UnZip 6.00 of 20 April 2009, by Debian. Original by Info-ZIP.`
+- `zarc`: `zarc 0.9.0`
 
 The generated archives and temporary key material are removed after the run.
 The source archive and extracted source tree remain in `testdata/`.

@@ -25,8 +25,10 @@ def test_python_zarc_cli_aliases_cover_archive_commands(
     assert main(["k", archive]) == 0
     assert "2 commit(s)" in capsys.readouterr().out
     commit_ids = [commit["id"] for commit in pyzarlib.info_archive(archive)]
+    assert main(["list", archive, "--to", commit_ids[0]]) == 0
+    assert "added.txt" not in capsys.readouterr().out
     assert main(
-        ["j", archive, "--from", commit_ids[0], "--through", commit_ids[1]]
+        ["j", archive, "--from", commit_ids[0], "--to", commit_ids[1]]
     ) == 0
     capsys.readouterr()
 
@@ -35,7 +37,7 @@ def test_python_zarc_cli_aliases_cover_archive_commands(
     assert "input.txt" in listing
     assert "added.txt" in listing
 
-    assert main(["e", archive, "--to", "restore", "--dry-run"]) == 0
+    assert main(["e", archive, "--output", "restore", "--dry-run"]) == 0
     dry_run = capsys.readouterr().out
     assert "write restore/input.txt" in dry_run
     assert "write restore/added.txt" in dry_run
@@ -131,7 +133,7 @@ def test_python_zarc_cli_creates_and_extracts_chacha_encrypted_archive(
     assert main(["check", *password_options, "encrypted.zar"]) == 0
     assert "2 commit(s)" in capsys.readouterr().out
     assert main(
-        ["extract", *password_options, "--to", "restored", "encrypted.zar"]
+        ["extract", *password_options, "--output", "restored", "encrypted.zar"]
     ) == 0
     capsys.readouterr()
     assert Path("restored/secret.txt").read_text(encoding="utf-8") == "private"

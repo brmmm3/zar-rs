@@ -54,6 +54,7 @@ fn supported_archive_import_types_are_detected_case_insensitively() {
         "backup.tar",
         "backup.tar.gz",
         "backup.TGZ",
+        "backup.txt.gz",
     ] {
         assert!(crate::operations::is_supported_import_archive(
             std::path::Path::new(path)
@@ -62,6 +63,48 @@ fn supported_archive_import_types_are_detected_case_insensitively() {
     assert!(!crate::operations::is_supported_import_archive(
         std::path::Path::new("backup.rar")
     ));
+}
+
+#[test]
+fn commits_record_creation_time_and_optional_user() {
+    let directory = tempfile::tempdir().unwrap();
+    let first_input = directory.path().join("first.txt");
+    let second_input = directory.path().join("second.txt");
+    std::fs::write(&first_input, b"first").unwrap();
+    std::fs::write(&second_input, b"second").unwrap();
+    let archive = directory.path().join("metadata.zar");
+    let archive_name = archive.to_str().unwrap();
+
+    crate::operations::create_archive_with_password_progress_and_special_files(
+        archive_name,
+        std::slice::from_ref(&first_input),
+        false,
+        crate::operations::EncodingOptions::default(),
+        None,
+        None,
+        crate::operations::CreateInputOptions::default(),
+    )
+    .unwrap();
+    let initial_commit = crate::operations::info_archive(archive_name, false).unwrap()[0].clone();
+    assert!(initial_commit.created_unix_millis.is_some());
+    assert!(initial_commit.user.is_none());
+
+    let username = crate::operations::common::current_username().unwrap();
+    crate::operations::add_archive_with_encoding_progress_and_options(
+        archive_name,
+        std::slice::from_ref(&second_input),
+        crate::operations::EncodingOptions::default(),
+        None,
+        crate::operations::AddInputOptions {
+            save_user: true,
+            ..crate::operations::AddInputOptions::default()
+        },
+    )
+    .unwrap();
+    let commits = crate::operations::info_archive(archive_name, false).unwrap();
+    assert_eq!(commits.len(), 2);
+    assert!(commits[1].created_unix_millis.is_some());
+    assert_eq!(commits[1].user.as_deref(), Some(username.as_str()));
 }
 
 fn write_tar_with_raw_path(path: &std::path::Path, entry_name: &str, contents: &[u8]) {
@@ -115,6 +158,15 @@ fn write_zip(path: &std::path::Path, entries: &[(&str, &[u8])]) {
         archive.write_all(contents).unwrap();
     }
     archive.finish().unwrap();
+}
+
+fn write_gzip(path: &std::path::Path, contents: &[u8]) {
+    let mut encoder = flate2::write::GzEncoder::new(
+        std::fs::File::create(path).unwrap(),
+        flate2::Compression::default(),
+    );
+    encoder.write_all(contents).unwrap();
+    encoder.finish().unwrap();
 }
 
 fn write_7z(path: &std::path::Path, entries: &[(&str, &[u8])]) {
@@ -225,18 +277,22 @@ fn pipeline_groups_empty_tiny_small_and_big_files_properly() {
     let tiny1 = temp_dir.join("tiny1.bin");
     let tiny2 = temp_dir.join("tiny2.bin");
     let small = temp_dir.join("small.bin");
+    let small2 = temp_dir.join("small2.bin");
+    let small3 = temp_dir.join("small3.bin");
     let big = temp_dir.join("big.bin");
 
     std::fs::write(&empty, b"").unwrap();
     std::fs::write(&tiny1, b"1234").unwrap();
     std::fs::write(&tiny2, b"1234").unwrap();
     std::fs::write(&small, b"hello small world").unwrap(); // 17 bytes, block size 32 => SmallFile
-    std::fs::write(&big, vec![b'B'; 40]).unwrap(); // block size 16 => 3 blocks
+    std::fs::write(&small2, b"second 99").unwrap();
+    std::fs::write(&small3, b"another small one").unwrap();
+    std::fs::write(&big, vec![b'B'; 40]).unwrap(); // block size 32 => 2 blocks
 
     let archive_path = temp_dir.join("groups.zar");
     crate::operations::create_archive_with_encoding(
         archive_path.to_str().unwrap(),
-        &[empty, tiny1, tiny2, small, big],
+        &[empty, tiny1, tiny2, small, small2, small3, big],
         false,
         crate::operations::EncodingOptions {
             block_size: 32,
@@ -245,8 +301,54 @@ fn pipeline_groups_empty_tiny_small_and_big_files_properly() {
     )
     .unwrap();
 
+    let check_report =
+        crate::operations::check_archive_with_recovery(archive_path.to_str().unwrap(), false, None)
+            .unwrap();
+    assert!(check_report.logical_state_readable);
+
+    let detailed_info =
+        crate::operations::info_archive_with_blocks(archive_path.to_str().unwrap(), true).unwrap();
+    let blocks = &detailed_info[0].blocks;
+    assert_eq!(blocks.len(), 5);
+    for group in ["tiny files", "small files", "big files"] {
+        assert!(
+            blocks
+                .iter()
+                .any(|block| block.file_groups.contains(&group))
+        );
+    }
+    assert!(
+        blocks
+            .iter()
+            .all(|block| { block.compressed_size > 0 && block.ratio_percent.is_some() })
+    );
+
     let toc =
         crate::operations::load_toc_through(archive_path.to_str().unwrap(), None, None).unwrap();
+    let tiny_block_index = match toc.get(&crate::ArchivePath::new("tiny1.bin").unwrap()) {
+        Some(crate::TocEntry::File(file)) => file.block_indices[0],
+        _ => panic!("missing tiny1 entry"),
+    };
+    let small_block_index = match toc.get(&crate::ArchivePath::new("small.bin").unwrap()) {
+        Some(crate::TocEntry::File(file)) => file.block_indices[0],
+        _ => panic!("missing small entry"),
+    };
+    assert_eq!(
+        blocks
+            .iter()
+            .find(|block| block.index == tiny_block_index)
+            .unwrap()
+            .file_count,
+        2
+    );
+    assert_eq!(
+        blocks
+            .iter()
+            .find(|block| block.index == small_block_index)
+            .unwrap()
+            .file_count,
+        2
+    );
     let empty_entry = match toc.get(&crate::ArchivePath::new("empty.bin").unwrap()) {
         Some(crate::TocEntry::File(f)) => f.clone(),
         _ => panic!("missing empty entry"),
@@ -274,7 +376,27 @@ fn pipeline_groups_empty_tiny_small_and_big_files_properly() {
     };
     assert_eq!(small_entry.size, 17);
     assert_eq!(small_entry.block_indices.len(), 1);
+    assert!(small_entry.offset_in_block.is_some());
     assert!(small_entry.checksum.is_some());
+
+    let small2_entry = match toc.get(&crate::ArchivePath::new("small2.bin").unwrap()) {
+        Some(crate::TocEntry::File(f)) => f.clone(),
+        _ => panic!("missing second small entry"),
+    };
+    assert_eq!(small2_entry.size, 9);
+    assert!(small2_entry.offset_in_block.is_some());
+
+    let small3_entry = match toc.get(&crate::ArchivePath::new("small3.bin").unwrap()) {
+        Some(crate::TocEntry::File(f)) => f.clone(),
+        _ => panic!("missing third small entry"),
+    };
+    assert_eq!(small3_entry.size, 17);
+    assert!(small3_entry.offset_in_block.is_some());
+    let small_block_indices = [&small_entry, &small2_entry, &small3_entry]
+        .into_iter()
+        .map(|entry| entry.block_indices[0])
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(small_block_indices.len(), 2);
 
     let big_entry = match toc.get(&crate::ArchivePath::new("big.bin").unwrap()) {
         Some(crate::TocEntry::File(f)) => f.clone(),
@@ -283,6 +405,81 @@ fn pipeline_groups_empty_tiny_small_and_big_files_properly() {
     assert_eq!(big_entry.size, 40);
     assert_eq!(big_entry.block_indices.len(), 2); // ceil(40 / 32) = 2 blocks
     assert!(big_entry.checksum.is_some());
+
+    let extracted = crate::operations::extract_archive_to_memory(
+        archive_path.to_str().unwrap(),
+        None,
+        None,
+        None,
+        0,
+    )
+    .unwrap();
+    assert_eq!(extracted.get("small.bin").unwrap(), b"hello small world");
+    assert_eq!(extracted.get("small2.bin").unwrap(), b"second 99");
+    assert_eq!(extracted.get("small3.bin").unwrap(), b"another small one");
+    let disk_output = temp_dir.join("extracted");
+    crate::operations::extract_archive(archive_path.to_str().unwrap(), &disk_output, false)
+        .unwrap();
+    for (name, expected) in &extracted {
+        assert_eq!(std::fs::read(disk_output.join(name)).unwrap(), *expected);
+    }
+    let partial = crate::operations::extract_archive_to_memory(
+        archive_path.to_str().unwrap(),
+        None,
+        None,
+        Some(4),
+        3,
+    )
+    .unwrap();
+    assert_eq!(partial.get("small.bin").unwrap(), b"lo s");
+    assert_eq!(partial.get("small2.bin").unwrap(), b"ond ");
+    assert_eq!(partial.get("small3.bin").unwrap(), b"ther");
+
+    let single_output = temp_dir.join("single-small2.bin");
+    crate::operations::extract_single_file(
+        archive_path.to_str().unwrap(),
+        "small2.bin",
+        &single_output,
+        &crate::operations::PasswordSet::default(),
+    )
+    .unwrap();
+    assert_eq!(std::fs::read(single_output).unwrap(), b"second 99");
+
+    crate::operations::update_custom_metadata(
+        archive_path.to_str().unwrap(),
+        &[(
+            "packing-test".to_owned(),
+            crate::MetadataType::String("preserve".to_owned()),
+        )],
+        &[],
+    )
+    .unwrap();
+    let commit_ids = crate::operations::info_archive(archive_path.to_str().unwrap(), false)
+        .unwrap()
+        .iter()
+        .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+        .collect::<Vec<_>>();
+    crate::operations::join_archive_with_encoding(
+        archive_path.to_str().unwrap(),
+        &commit_ids[0],
+        commit_ids.last().unwrap(),
+        crate::operations::EncodingOptions {
+            block_size: 32,
+            compression_level: 1,
+        },
+    )
+    .unwrap();
+    let joined = crate::operations::extract_archive_to_memory(
+        archive_path.to_str().unwrap(),
+        None,
+        None,
+        None,
+        0,
+    )
+    .unwrap();
+    assert_eq!(joined.get("small.bin").unwrap(), b"hello small world");
+    assert_eq!(joined.get("small2.bin").unwrap(), b"second 99");
+    assert_eq!(joined.get("small3.bin").unwrap(), b"another small one");
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
@@ -396,6 +593,81 @@ fn add_archive_imports_zip_entries() {
     .unwrap();
     assert_eq!(contents.get("original.txt").unwrap(), b"existing");
     assert_eq!(contents.get("added/file.txt").unwrap(), b"new contents");
+}
+
+#[test]
+fn extract_zip_writes_files_in_parallel_and_preserves_paths() {
+    let directory = tempfile::tempdir().unwrap();
+    let zip_path = directory.path().join("source.zip");
+    let output = directory.path().join("output");
+    write_zip(
+        &zip_path,
+        &[("one/a.txt", b"first"), ("two/b.txt", b"second")],
+    );
+
+    crate::operations::extract_archive(zip_path.to_str().unwrap(), &output, false).unwrap();
+
+    assert_eq!(std::fs::read(output.join("one/a.txt")).unwrap(), b"first");
+    assert_eq!(std::fs::read(output.join("two/b.txt")).unwrap(), b"second");
+}
+
+#[test]
+fn extract_7z_writes_files_in_parallel() {
+    let directory = tempfile::tempdir().unwrap();
+    let sevenz_path = directory.path().join("source.7z");
+    let output = directory.path().join("output");
+    write_7z(
+        &sevenz_path,
+        &[("one.txt", b"first"), ("two.txt", b"second")],
+    );
+
+    crate::operations::extract_archive(sevenz_path.to_str().unwrap(), &output, false).unwrap();
+
+    assert_eq!(std::fs::read(output.join("one.txt")).unwrap(), b"first");
+    assert_eq!(std::fs::read(output.join("two.txt")).unwrap(), b"second");
+}
+
+#[test]
+fn extract_tar_and_tar_gz_write_entries() {
+    let directory = tempfile::tempdir().unwrap();
+    let tar_path = directory.path().join("source.tar");
+    let tar_gz_path = directory.path().join("source.tar.gz");
+    let tar_output = directory.path().join("tar-output");
+    let tar_gz_output = directory.path().join("tar-gz-output");
+    let entries = [
+        ("one/a.txt", b"first".as_slice()),
+        ("two/b.txt", b"second".as_slice()),
+    ];
+    write_tar(&tar_path, &entries, false);
+    write_tar(&tar_gz_path, &entries, true);
+
+    crate::operations::extract_archive(tar_path.to_str().unwrap(), &tar_output, false).unwrap();
+    crate::operations::extract_archive(tar_gz_path.to_str().unwrap(), &tar_gz_output, false)
+        .unwrap();
+
+    assert_eq!(
+        std::fs::read(tar_output.join("one/a.txt")).unwrap(),
+        b"first"
+    );
+    assert_eq!(
+        std::fs::read(tar_gz_output.join("two/b.txt")).unwrap(),
+        b"second"
+    );
+}
+
+#[test]
+fn extract_standalone_gzip_strips_gz_extension() {
+    let directory = tempfile::tempdir().unwrap();
+    let gzip_path = directory.path().join("payload.txt.gz");
+    let output = directory.path().join("output");
+    write_gzip(&gzip_path, b"gzip payload");
+
+    crate::operations::extract_archive(gzip_path.to_str().unwrap(), &output, false).unwrap();
+
+    assert_eq!(
+        std::fs::read(output.join("payload.txt")).unwrap(),
+        b"gzip payload"
+    );
 }
 
 #[test]

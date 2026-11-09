@@ -40,7 +40,7 @@ def _add_encoding(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--compression-level",
         type=int,
-        help="Zstandard compression level (-7 through 22; default: 3)",
+        help="Zstandard compression level (-7 to 22; default: 3)",
     )
 
 
@@ -109,7 +109,7 @@ def _parser() -> argparse.ArgumentParser:
     _add_encoding(join)
     join.add_argument("archive")
     join.add_argument("--from", dest="from_id", required=True)
-    join.add_argument("--through", required=True)
+    join.add_argument("--to", required=True)
 
     check = commands.add_parser("check", aliases=["k"], help="validate an archive")
     check.add_argument("--recover", action="store_true")
@@ -123,14 +123,14 @@ def _parser() -> argparse.ArgumentParser:
     info.add_argument("archive")
 
     listing = commands.add_parser("list", aliases=["l"], help="list archive entries")
-    listing.add_argument("--through")
+    listing.add_argument("--to")
     listing.add_argument("--password", action="store_true", help="prompt for archive password")
     listing.add_argument("--password-for", action="append", default=[], metavar="COMMIT_ID")
     listing.add_argument("archive")
 
     extract = commands.add_parser("extract", aliases=["e"], help="extract archive contents")
-    extract.add_argument("--to", default=".")
-    extract.add_argument("--through")
+    extract.add_argument("-o", "--output", default=".")
+    extract.add_argument("--to")
     extract.add_argument("--collision", choices=["rename", "first", "latest", "error"], default="rename")
     extract.add_argument("--existing", choices=["error", "overwrite", "skip"], default="error")
     extract.add_argument("--dry-run", action="store_true")
@@ -321,7 +321,7 @@ def _run(args: argparse.Namespace) -> int:
         result = join_archive(
             args.archive,
             args.from_id,
-            args.through,
+            args.to,
             **_encoding(args),
         )
         for warning in result["warnings"]:
@@ -399,7 +399,7 @@ def _run(args: argparse.Namespace) -> int:
     if command in {"list", "l"}:
         entries = list_archive(
             args.archive,
-            through=args.through,
+            to=args.to,
             passwords=_passwords(False, args.password_for)[1],
             password=_password(args.password),
         )
@@ -421,14 +421,14 @@ def _run(args: argparse.Namespace) -> int:
         return 0
 
     if command in {"extract", "e"}:
-        destination = Path(args.to)
+        destination = Path(args.output)
         display_root = destination.resolve(strict=False)
 
         plan = extract_archive(
             args.archive,
             destination,
             dry_run=args.dry_run,
-            through=args.through,
+            to=args.to,
             passwords=_passwords(False, args.password_for)[1],
             password=_password(args.password),
             collision=args.collision,

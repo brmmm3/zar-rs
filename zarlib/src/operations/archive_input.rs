@@ -14,11 +14,12 @@ pub(super) struct ScannedInputs {
 }
 
 #[derive(Clone, Copy)]
-enum ImportArchiveKind {
+pub(super) enum ImportArchiveKind {
     Zip,
     SevenZip,
     Tar,
     TarGz,
+    Gzip,
 }
 
 /// Returns whether a path has a supported archive format for importing into ZAR.
@@ -53,6 +54,7 @@ pub(super) fn scan_input_paths(
                 ImportArchiveKind::TarGz => {
                     extract_tar(MultiGzDecoder::new(File::open(&source)?), &temporary_root)?
                 }
+                ImportArchiveKind::Gzip => extract_gzip_file(&source, &temporary_root, input)?,
             }
             entries.extend(scan_tree(&temporary_root, "")?);
             temporary_roots.push(temporary_root);
@@ -73,11 +75,14 @@ pub(super) fn scan_input_paths(
     })
 }
 
-fn import_archive_kind(path: &Path) -> Option<ImportArchiveKind> {
+pub(super) fn import_archive_kind(path: &Path) -> Option<ImportArchiveKind> {
     let filename = path.file_name()?.to_str()?;
     let filename = filename.to_ascii_lowercase();
     if filename.ends_with(".tar.gz") || filename.ends_with(".tgz") {
         return Some(ImportArchiveKind::TarGz);
+    }
+    if filename.ends_with(".gz") {
+        return Some(ImportArchiveKind::Gzip);
     }
 
     let extension = path.extension()?.to_str()?;
@@ -92,7 +97,38 @@ fn import_archive_kind(path: &Path) -> Option<ImportArchiveKind> {
     }
 }
 
-fn extract_zip(source: &Path, destination: &Path) -> Result<(), Box<dyn std::error::Error>> {
+pub(super) fn extract_gzip_file(
+    source: &Path,
+    destination: &Path,
+    input: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let source_name = input
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("gzip input has no valid filename")?;
+    let output_name = source_name
+        .get(..source_name.len() - 3)
+        .filter(|name| !name.is_empty())
+        .ok_or("gzip input must have a filename before .gz")?;
+    let archive_path = ArchivePath::new(output_name.to_owned())
+        .map_err(|error| format!("invalid gzip output path {output_name:?}: {error}"))?;
+    let output_path = destination.join(archive_path.as_str());
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut decoder = MultiGzDecoder::new(File::open(source)?);
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&output_path)?;
+    io::copy(&mut decoder, &mut output)?;
+    Ok(())
+}
+
+pub(super) fn extract_zip(
+    source: &Path,
+    destination: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut archive = ZipArchive::new(File::open(source)?)?;
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index)?;
@@ -143,7 +179,10 @@ fn extract_zip(source: &Path, destination: &Path) -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-fn extract_7z(source: &Path, destination: &Path) -> Result<(), Box<dyn std::error::Error>> {
+pub(super) fn extract_7z(
+    source: &Path,
+    destination: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut archive = ArchiveReader::new(File::open(source)?, Password::empty())?;
     archive.for_each_entries(|entry, reader| {
         if entry.is_anti_item() {
@@ -208,7 +247,10 @@ fn extract_7z(source: &Path, destination: &Path) -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
-fn extract_tar<R: Read>(source: R, destination: &Path) -> Result<(), Box<dyn std::error::Error>> {
+pub(super) fn extract_tar<R: Read>(
+    source: R,
+    destination: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut archive = tar::Archive::new(source);
     let mut symbolic_links = Vec::new();
     let mut hard_links = Vec::new();

@@ -195,7 +195,7 @@ static void test_options_filters_and_atomic_failures(void) {
     czarlib_string_free(listing);
 }
 
-static void test_add_replace_remove_and_through(void) {
+static void test_add_replace_remove_and_to(void) {
     write_file("input/alpha.txt", "replaced", 8);
     write_file("input/nested/new.txt", "new", 3);
     char *added = invoke(
@@ -213,14 +213,14 @@ static void test_add_replace_remove_and_through(void) {
     REQUIRE(strstr(info, "\"id\":\"00000001\"") != NULL);
     czarlib_string_free(info);
 
-    char *through = invoke(
+    char *listing_to_commit = invoke(
         "list_archive",
-        "{\"archive\":\"sample.zar\",\"through\":\"00000001\"}");
-    REQUIRE(strstr(through, "input/nested/new.txt") == NULL);
-    czarlib_string_free(through);
+        "{\"archive\":\"sample.zar\",\"to\":\"00000001\"}");
+    REQUIRE(strstr(listing_to_commit, "input/nested/new.txt") == NULL);
+    czarlib_string_free(listing_to_commit);
     expect_error(
         "list_archive",
-        "{\"archive\":\"sample.zar\",\"through\":\"ffffffff\"}",
+        "{\"archive\":\"sample.zar\",\"to\":\"ffffffff\"}",
         "not found");
 
     copy_file("sample.zar", "sample-before-failed-remove.zar");
@@ -230,12 +230,12 @@ static void test_add_replace_remove_and_through(void) {
         "not found");
     require_same_file("sample.zar", "sample-before-failed-remove.zar");
 
-    char *through_plan = invoke(
+    char *to_plan = invoke(
         "extract_archive",
-        "{\"archive\":\"sample.zar\",\"destination\":\"through\","
-        "\"through\":\"00000001\",\"dry_run\":true}");
-    REQUIRE(strstr(through_plan, "new.txt") == NULL);
-    czarlib_string_free(through_plan);
+        "{\"archive\":\"sample.zar\",\"destination\":\"to-limit\","
+        "\"to\":\"00000001\",\"dry_run\":true}");
+    REQUIRE(strstr(to_plan, "new.txt") == NULL);
+    czarlib_string_free(to_plan);
     char *removed = invoke(
         "remove_archive",
         "{\"archive\":\"sample.zar\",\"paths\":[\"input/nested\"]}");
@@ -267,7 +267,7 @@ static void test_join_and_suffix_preservation(void) {
     response = invoke(
         "join_archive",
         "{\"archive\":\"sample.zar\",\"from_id\":\"00000003\","
-        "\"through_id\":\"00000004\"}");
+        "\"to_id\":\"00000004\"}");
     czarlib_string_free(response);
     char *after = invoke("info_archive", "{\"archive\":\"sample.zar\"}");
     REQUIRE(strstr(after, "\"id\":\"00000005\"") != NULL);
@@ -300,6 +300,47 @@ static void test_undo_retains_first_commit(void) {
         "undo_archive",
         "{\"archive\":\"undo.zar\",\"commits\":1}",
         "first commit must be retained");
+}
+
+static void test_encrypt_decrypt_commit_range(void) {
+    write_file("transform-first.txt", "first", 5);
+    write_file("transform-second.txt", "second", 6);
+    char *response = invoke(
+        "create_archive",
+        "{\"archive\":\"transform.zar\",\"paths\":[\"transform-first.txt\"]}");
+    czarlib_string_free(response);
+    response = invoke(
+        "add_archive",
+        "{\"archive\":\"transform.zar\",\"paths\":[\"transform-second.txt\"]}");
+    czarlib_string_free(response);
+    response = invoke(
+        "encrypt_archive_commits",
+        "{\"archive\":\"transform.zar\",\"from_id\":\"00000002\","
+        "\"to_id\":\"00000002\",\"output\":\"transform-copy.zar\","
+        "\"new_password\":\"new-password\",\"aead\":\"chacha20-poly1305\","
+        "\"encryption_scope\":\"header-and-data\",\"strict\":true}");
+    czarlib_string_free(response);
+
+    char *info = invoke("info_archive", "{\"archive\":\"transform-copy.zar\"}");
+    REQUIRE(strstr(info, "\"header_encrypted\":true") != NULL);
+    REQUIRE(strstr(info, "\"data_encrypted\":true") != NULL);
+    czarlib_string_free(info);
+    char *report = invoke(
+        "check_archive",
+        "{\"archive\":\"transform-copy.zar\",\"password\":\"new-password\"}");
+    REQUIRE(strstr(report, "\"commits\":2") != NULL);
+    czarlib_string_free(report);
+
+    response = invoke(
+        "decrypt_archive_commits",
+        "{\"archive\":\"transform-copy.zar\",\"from_id\":\"00000002\","
+        "\"to_id\":\"00000002\",\"password\":\"new-password\","
+        "\"strict\":true}");
+    czarlib_string_free(response);
+    info = invoke("info_archive", "{\"archive\":\"transform-copy.zar\"}");
+    REQUIRE(strstr(info, "\"header_encrypted\":true") == NULL);
+    REQUIRE(strstr(info, "\"data_encrypted\":true") == NULL);
+    czarlib_string_free(info);
 }
 
 static void test_extract_policies_memory_and_encryption(void) {
@@ -491,9 +532,10 @@ int main(void) {
     create_fixture();
     test_create_list_check_extract();
     test_options_filters_and_atomic_failures();
-    test_add_replace_remove_and_through();
+    test_add_replace_remove_and_to();
     test_join_and_suffix_preservation();
     test_undo_retains_first_commit();
+    test_encrypt_decrypt_commit_range();
     test_extract_policies_memory_and_encryption();
     test_concurrent_calls();
     puts("czarlib C API tests passed");

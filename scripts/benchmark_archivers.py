@@ -692,6 +692,7 @@ def walk_tree(root: Path) -> Iterator[tuple[Path, list[str], list[str]]]:
 def run_command(
     command: list[str], *, cwd: Path | None = None, input_data: bytes | None = None
 ) -> None:
+    print(f"Run command: {' '.join(command)}")
     result = subprocess.run(
         command,
         cwd=cwd,

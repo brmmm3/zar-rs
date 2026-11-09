@@ -92,8 +92,8 @@ public sealed class ZarLibTests : IDisposable
         var memory = ZarLibrary.ExtractArchiveToMemory(new { archive = "sample.zar" });
         AssertFile(memory, "input/alpha.txt", "replaced");
         AssertFile(memory, "input/nested/new.txt", "new");
-        Assert.DoesNotContain("input/nested/new.txt", ZarLibrary.ListArchive(new { archive = "sample.zar", through = "00000001" }));
-        ExpectError(() => ZarLibrary.ListArchive(new { archive = "sample.zar", through = "ffffffff" }), "not found");
+        Assert.DoesNotContain("input/nested/new.txt", ZarLibrary.ListArchive(new { archive = "sample.zar", to = "00000001" }));
+        ExpectError(() => ZarLibrary.ListArchive(new { archive = "sample.zar", to = "ffffffff" }), "not found");
 
         var before = File.ReadAllBytes("sample.zar");
         ExpectError(() => ZarLibrary.RemoveArchive(new { archive = "sample.zar", paths = new[] { "missing" } }), "not found");
@@ -109,7 +109,7 @@ public sealed class ZarLibTests : IDisposable
         Write("input/two.txt", "two");
         ZarLibrary.AddArchive(new { archive = "sample.zar", paths = new[] { "input/two.txt" } });
         Assert.Contains("\"id\":\"00000005\"", ZarLibrary.InfoArchive(new { archive = "sample.zar" }));
-        ZarLibrary.JoinArchive(new { archive = "sample.zar", from_id = "00000003", through_id = "00000004" });
+        ZarLibrary.JoinArchive(new { archive = "sample.zar", from_id = "00000003", to_id = "00000004" });
         listing = ZarLibrary.ListArchive(new { archive = "sample.zar" });
         Assert.Contains("input/one.txt", listing);
         Assert.Contains("input/two.txt", listing);
@@ -181,6 +181,42 @@ public sealed class ZarLibTests : IDisposable
         });
         AssertFile(memory, "input/alpha.txt", "alpha contents");
         Assert.Contains("\"data_encrypted\":true", ZarLibrary.InfoArchive(new { archive = "chacha.zar" }));
+
+        ZarLibrary.EncryptArchiveCommits(new
+        {
+            archive = "chacha.zar",
+            from_id = "00000001",
+            to_id = "00000001",
+            output = "transformed.zar",
+            new_password = "transformed-secret",
+            password = "secret",
+            aead = "chacha20-poly1305",
+            encryption_scope = "header-and-data",
+            strict = true,
+        });
+        var transformedPasswords = new Dictionary<string, string>
+        {
+            ["00000001"] = "transformed-secret",
+            ["00000002"] = "second-secret",
+        };
+        Assert.Contains("\"commits\":2", ZarLibrary.CheckArchive(new
+        {
+            archive = "transformed.zar",
+            passwords = transformedPasswords,
+        }));
+        ZarLibrary.DecryptArchiveCommits(new
+        {
+            archive = "transformed.zar",
+            from_id = "00000001",
+            to_id = "00000001",
+            password = "transformed-secret",
+            strict = true,
+        });
+        Assert.Contains("\"commits\":2", ZarLibrary.CheckArchive(new
+        {
+            archive = "transformed.zar",
+            password = "second-secret",
+        }));
     }
 
     [Fact]

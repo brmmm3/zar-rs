@@ -188,18 +188,18 @@ def test_list_and_extract_stop_at_selected_commit(
     pyzarlib.add_archive(archive, [Path("input/later.txt")])
 
     assert "input/later.txt" not in {
-        entry["path"] for entry in pyzarlib.list_archive(archive, through=original_commit)
+        entry["path"] for entry in pyzarlib.list_archive(archive, to=original_commit)
     }
     plan = pyzarlib.extract_archive(
         archive,
-        tmp_path / "through",
-        through=original_commit,
+        tmp_path / "to",
+        to=original_commit,
         dry_run=True,
     )
     assert "later.txt" not in {Path(item["path"]).name for item in plan["files"]}
 
     with pytest.raises(RuntimeError, match="not found"):
-        pyzarlib.list_archive(archive, through="ffffffff")
+        pyzarlib.list_archive(archive, to="ffffffff")
 
 
 def test_join_compacts_selected_range_and_preserves_suffix(
@@ -214,10 +214,10 @@ def test_join_compacts_selected_range_and_preserves_suffix(
     added_two.write_text("two", encoding="utf-8")
     pyzarlib.add_archive(archive, [Path("input/two.txt")])
     before = pyzarlib.info_archive(archive)
-    through = before[1]["id"]
+    to_id = before[1]["id"]
     suffix_id = before[2]["id"]
 
-    pyzarlib.join_archive(archive, first, through)
+    pyzarlib.join_archive(archive, first, to_id)
 
     after = pyzarlib.info_archive(archive)
     assert len(after) == 2
@@ -394,6 +394,54 @@ def test_commits_accept_individual_passwords_and_data_only_headers(tmp_path: Pat
     ) == {"first.txt": b"first", "second.txt": b"second"}
     with pytest.raises(RuntimeError):
         pyzarlib.extract_archive_to_memory(archive, password=b"first-password")
+
+
+def test_encrypt_and_decrypt_selected_commits(tmp_path: Path) -> None:
+    source = tmp_path / "source.txt"
+    source.write_bytes(b"transform me")
+    archive = tmp_path / "source.zar"
+    output = tmp_path / "transformed.zar"
+    pyzarlib.create_archive(archive, [source], block_size=64 * 1024)
+    commit_id = pyzarlib.info_archive(archive)[0]["id"]
+
+    pyzarlib.encrypt_archive_commits(
+        archive,
+        commit_id,
+        commit_id,
+        b"old-password",
+        encryption_scope="header",
+    )
+    pyzarlib.encrypt_archive_commits(
+        archive,
+        commit_id,
+        commit_id,
+        b"new-password",
+        output=output,
+        aead="chacha20-poly1305",
+        encryption_scope="header-and-data",
+        passwords={commit_id: b"old-password"},
+        strict=True,
+    )
+    transformed = pyzarlib.info_archive(output)[0]
+    assert transformed["header_encrypted"] is True
+    assert transformed["data_encrypted"] is True
+    assert pyzarlib.extract_archive_to_memory(
+        output,
+        password=b"new-password",
+    ) == {"source.txt": b"transform me"}
+    assert pyzarlib.info_archive(archive)[0]["header_encrypted"] is True
+
+    pyzarlib.decrypt_archive_commits(
+        output,
+        commit_id,
+        commit_id,
+        password=b"new-password",
+        strict=True,
+    )
+    decrypted = pyzarlib.info_archive(output)[0]
+    assert decrypted["header_encrypted"] is False
+    assert decrypted["data_encrypted"] is False
+    assert pyzarlib.extract_archive_to_memory(output) == {"source.txt": b"transform me"}
 
 
 def test_extension_is_safe_for_concurrent_python_threads(tmp_path: Path) -> None:

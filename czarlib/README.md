@@ -93,13 +93,15 @@ The output shapes follow the corresponding Python API:
 | `create_archive` | `archive`, `paths` | `block_size`, `compression_level`, `strict`, `overwrite`, `save_metadata`, `save_dates`, `include_special_files`, `verbose`, `password`, `aead`, `encryption_scope`, `include_files`, `exclude_files`, `include_folders`, `exclude_folders` |
 | `add_archive` | `archive`, `paths` | Same encoding, scan, and filter fields as create; `password`, `passwords`, `aead`, `encryption_scope` |
 | `remove_archive` | `archive`, `paths` | — |
-| `join_archive` | `archive`, `from_id`, `through_id` | `block_size`, `compression_level` |
+| `join_archive` | `archive`, `from_id`, `to_id` | `block_size`, `compression_level` |
 | `undo_archive` | `archive`, `commits` | — |
+| `encrypt_archive_commits` | `archive`, `from_id`, `to_id`, `new_password` | `output`, `aead`, `encryption_scope`, `password`, `passwords`, `strict` |
+| `decrypt_archive_commits` | `archive`, `from_id`, `to_id` | `output`, `password`, `passwords`, `strict` |
 | `check_archive` | `archive` | `recover`, `password`, `passwords` |
 | `info_archive` | `archive` | `verbose` |
-| `list_archive` | `archive` | `through`, `password`, `passwords` |
-| `extract_archive` | `archive`, `destination` | `dry_run`, `through`, `password`, `passwords`, `collision`, `existing`, `restore_metadata`, `restore_symlinks`, `restore_devices`, file/folder filters |
-| `extract_archive_to_memory` | `archive` | `through`, `password`, `passwords`, `size_limit`, `offset`, file/folder filters |
+| `list_archive` | `archive` | `to`, `password`, `passwords` |
+| `extract_archive` | `archive`, `destination` | `dry_run`, `to`, `password`, `passwords`, `collision`, `existing`, `restore_metadata`, `restore_symlinks`, `restore_devices`, file/folder filters |
+| `extract_archive_to_memory` | `archive` | `to`, `password`, `passwords`, `size_limit`, `offset`, file/folder filters |
 
 Supported block sizes are `0` (automatic) or 64 KiB through 32 MiB;
 compression levels are -7 through 22. Filter values are arrays of fnmatch
@@ -125,6 +127,31 @@ new commit with `"password":"new-password"` and unlock an earlier commit with
 `"passwords":{"00000001":"old-password"}`. Use the same `password` value alone
 when all encrypted commits share a password. Read operations accept this same
 shape.
+
+`encrypt_archive_commits` and `decrypt_archive_commits` transform the inclusive
+`from_id`–`to_id` range in physical commit order. Encryption uses
+`new_password` for the transformed commits; `password` and `passwords` supply
+the current passwords for commits that are already encrypted. Decryption uses
+those same current-password fields. Both operations work in place by default.
+Set `output` to write the result to another path; it must not identify the
+input archive. If an encrypted commit in the selected range has no current
+password, `strict: true` fails the operation, while the default `false` leaves
+that commit unchanged. Wrong passwords fail in either mode. Rewriting is
+staged and validated before the destination is replaced.
+
+```json
+{
+  "archive": "backup.zar",
+  "from_id": "00000002",
+  "to_id": "00000003",
+  "output": "encrypted-copy.zar",
+  "new_password": "read-from-a-secure-prompt",
+  "aead": "chacha20-poly1305",
+  "encryption_scope": "header-and-data",
+  "passwords": {"00000002": "old-commit-password"},
+  "strict": true
+}
+```
 
 ```c
 char *response = NULL;
@@ -185,7 +212,7 @@ It supports the familiar command names and aliases:
 /tmp/zarc-c check backup.zar
 /tmp/zarc-c extract backup.zar restored
 /tmp/zarc-c remove backup.zar obsolete.txt
-/tmp/zarc-c join backup.zar --from 00000001 --through 00000002
+/tmp/zarc-c join backup.zar --from 00000001 --to 00000002
 ```
 
 The examples and integration test also demonstrate overwrite, file filters,

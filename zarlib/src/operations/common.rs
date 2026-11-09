@@ -1,9 +1,9 @@
 use crate::{
     ArchivePath, CommitHeader, CommitValidationLimits, ContainerHeader, ContentAead, DEK_SIZE,
-    EncryptionDescriptor, EntryMetadata, HEADER_OFFSET_SIZE, HeaderFrame, ValidatedCommit,
-    ValidatedHeader, unwrap_dek_with_password_zeroizing,
+    EncryptionDescriptor, EntryMetadata, HEADER_OFFSET_SIZE, HeaderFrame, MetadataType,
+    ValidatedCommit, ValidatedHeader, unwrap_dek_with_password_zeroizing,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -14,6 +14,59 @@ pub const SKIP_COMPRESS_EXTENSIONS: [&str; 21] = [
     "gz", "tgz", "bz2", "tbz2", "lzo", "lz4", "lzma", "z", "snappy", "zip", "7z", "rar", "jpg",
     "jpeg", "png", "gif", "mpg", "mpeg", "avi", "mp3", "zar",
 ];
+
+pub(crate) const COMMIT_CREATED_KEY: &str = "zar.created_unix_millis";
+pub(crate) const COMMIT_USER_KEY: &str = "zar.user";
+
+pub(crate) fn commit_metadata(
+    username: Option<&str>,
+) -> Result<HashMap<String, MetadataType>, Box<dyn std::error::Error>> {
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| format!("system clock is before Unix epoch: {error}"))?
+        .as_millis();
+    let millis = i64::try_from(millis).map_err(|_| "commit timestamp is out of range")?;
+    let mut metadata = HashMap::from([(COMMIT_CREATED_KEY.to_owned(), MetadataType::I64(millis))]);
+    if let Some(username) = username {
+        metadata.insert(
+            COMMIT_USER_KEY.to_owned(),
+            MetadataType::String(username.to_owned()),
+        );
+    }
+    Ok(metadata)
+}
+
+pub(crate) fn current_username() -> Result<String, Box<dyn std::error::Error>> {
+    let username = std::env::var("USER").or_else(|_| std::env::var("USERNAME"))?;
+    if username.is_empty() {
+        return Err("current OS username is empty".into());
+    }
+    Ok(username)
+}
+
+pub fn format_unix_millis(millis: i64) -> String {
+    let seconds = millis.div_euclid(1_000);
+    let days = seconds.div_euclid(86_400);
+    let day_seconds = seconds.rem_euclid(86_400);
+    let shifted_days = days + 719_468;
+    let era = if shifted_days >= 0 {
+        shifted_days
+    } else {
+        shifted_days - 146_096
+    } / 146_097;
+    let day_of_era = shifted_days - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let mut year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    let month = month_prime + if month_prime < 10 { 3 } else { -9 };
+    year += i64::from(month <= 2);
+    let hour = day_seconds / 3_600;
+    let minute = day_seconds % 3_600 / 60;
+    format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02} UTC")
+}
 
 pub fn should_skip_compression(path: &Path) -> bool {
     path.extension()
@@ -58,6 +111,14 @@ pub struct InputSummary {
     pub total_bytes: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OverwriteDecision {
+    Yes,
+    No,
+    Always,
+    Never,
+}
+
 /// Callback receiving progress events while an archive operation runs.
 pub trait Progress: Send + Sync {
     fn message(&self, message: &str);
@@ -80,6 +141,18 @@ pub trait Progress: Send + Sync {
         false
     }
     fn warning(&self, _message: &str) {}
+    fn confirm_overwrite(
+        &self,
+        prompt: &str,
+    ) -> Result<OverwriteDecision, Box<dyn std::error::Error>> {
+        self.confirm(prompt).map(|overwrite| {
+            if overwrite {
+                OverwriteDecision::Yes
+            } else {
+                OverwriteDecision::No
+            }
+        })
+    }
     fn confirm(&self, _prompt: &str) -> Result<bool, Box<dyn std::error::Error>> {
         Err("interactive confirmation is unavailable".into())
     }

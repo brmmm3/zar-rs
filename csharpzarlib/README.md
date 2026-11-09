@@ -1,8 +1,9 @@
 # csharpzarlib
 
 C# (.NET 10) wrapper for ZAR. It P/Invokes the `czarlib` JSON C ABI and exposes
-all ten operations: create, add, remove, join, undo, check, info, list, extract and
-in-memory extract. Request and response fields are documented in
+all twelve operations: create, add, remove, join, undo, encrypt/decrypt commit
+ranges, check, info, list, extract and in-memory extract. Request and response
+fields are documented in
 [../czarlib/README.md](../czarlib/README.md).
 Create and Add requests may include `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz`
 source paths; their contents are imported into the resulting ZAR using the source
@@ -36,6 +37,9 @@ Dictionary<string, byte[]> files = ZarLibrary.ExtractArchiveToMemory(new { archi
   pointer/allocation, 3 Rust panic, 0 wrapper-side validation).
 - Calls are thread-safe. Encryption options (`password`, `passwords` per commit
   ID, `aead`, `encryption_scope`) behave as in the C wrapper.
+- `EncryptArchiveCommits` uses `new_password` for transformed commits and
+  `password`/`passwords` to unlock already-encrypted commits. `DecryptArchiveCommits`
+  uses the latter fields to unlock commits being decrypted.
 
 ## Tests and examples
 

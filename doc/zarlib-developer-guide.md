@@ -179,7 +179,7 @@ contents; earlier commits remain unchanged.
 
 ### Join a commit range
 
-Equivalent CLI: `zarc join backup.zar --from <first-id> --through <last-id>`
+Equivalent CLI: `zarc join backup.zar --from <first-id> --to <last-id>`
 
 The IDs are the eight-hex-digit commit IDs shown by `info_archive`. This example
 compacts the first two commits in physical order:
@@ -450,7 +450,7 @@ fn read_encrypted_example(password: &[u8]) -> Result<(), Box<dyn std::error::Err
         Path::new("restored"),
         ExtractionOptions {
             dry_run: false,
-            through: None,
+            to: None,
             collision_policy: CollisionPolicy::Rename,
             existing_policy: ExistingPolicy::Error,
             restore_metadata: false,
@@ -520,24 +520,6 @@ cargo test --workspace
 
 ## Archive format benchmark
 
-On Linux, run the benchmark from the workspace root with:
-
-```sh
-python3 scripts/benchmark_archivers.py
-```
-
-The runner downloads the Linux 4.0.1 source tarball to `testdata/` if needed,
-extracts it there, and measures compression and extraction with `zarlib`, ZIP,
-7z, and tar.gz, both without encryption and with encryption. It requires Rust
-and the `zip`, `unzip`, `7z`, `tar`, and `openssl` command-line tools. Encrypted
-tar.gz uses OpenSSL CMS AES-256-GCM because the tar.gz format itself has no
-encryption. Extracted output is checked against the source tree, and
-`testresults/` is emptied after every extraction. The runner waits 3 seconds
-between benchmark runs. It writes `benchmark-report-<os>-<architecture>.md` and
-`benchmark-charts-<os>-<architecture>.svg` in [`benchmarks/`](./benchmarks/).
-Both outputs record the host operating system, CPU
-model and logical-core count, and OS-reported media type, model, and device for
-the source/archive and extraction volumes. Virtual or layered storage may not
-expose its physical backing device and is reported as unknown or possibly
-virtual. Temporary archives and encryption keys are removed when the run
-finishes.
+See the [benchmark instructions](./benchmarks/README.md#running-benchmarks)
+for GUI and cross-format script usage, prerequisites, cache modes, output
+interpretation, and important cleanup warnings.

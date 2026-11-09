@@ -100,6 +100,7 @@ pub fn update_custom_metadata(
         }
         header_metadata.insert(format!("{REMOVED_KEY_PREFIX}{key}"), MetadataType::I64(1));
     }
+    header_metadata.extend(commit_metadata(None)?);
     let header_bytes = LogicalHeader::new(Vec::new())
         .with_metadata(header_metadata)
         .encode()?;

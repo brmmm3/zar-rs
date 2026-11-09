@@ -108,6 +108,14 @@ entry's modification time. Versions 5 and 6 remain readable and contain no
 stored modification time; version 7 is required to preserve dates and is not
 readable by older implementations.
 
+Logical-header version 8 adds an optional in-block offset to each file entry.
+When present, the entry must reference exactly one block; its content is the
+`size` bytes starting at that offset. This allows multiple small files to
+share a block. The offset marker and its `u32` value follow the optional file
+checksum. Version 8 is required for packed-file entries and is not readable by
+older implementations. Without an offset, the existing behavior remains:
+the file consists of the complete contents of its referenced blocks.
+
 ## Data block frame
 
 The data section is a sequence of block frames. A file entry in the logical

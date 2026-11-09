@@ -9,6 +9,8 @@ and Go functions for every C-wrapper operation:
 - `RemoveArchive`
 - `JoinArchive`
 - `UndoArchive`
+- `EncryptArchiveCommits`
+- `DecryptArchiveCommits`
 - `CheckArchive`
 - `InfoArchive`
 - `ListArchive`
@@ -107,10 +109,10 @@ go run ./examples/zarc check backup.zar
 go run ./examples/zarc extract backup.zar restored
 go run ./examples/zarc memory backup.zar
 go run ./examples/zarc remove backup.zar obsolete.txt
-go run ./examples/zarc join backup.zar --from 00000001 --through 00000002
+go run ./examples/zarc join backup.zar --from 00000001 --to 00000002
 go run ./examples/zarc undo backup.zar 1
 ```
 
-The tests cover all ten operations, filters, extraction policies, memory
+The tests cover all twelve operations, filters, extraction policies, memory
 offset/size limits, both supported AEAD algorithms, per-commit passwords,
 validation and failure cases, and concurrent calls.

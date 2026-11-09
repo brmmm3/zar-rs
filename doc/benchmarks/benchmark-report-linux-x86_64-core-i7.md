@@ -1,6 +1,6 @@
 # Linux 4.0.1 Archive Benchmark
 
-Run date: 2026-11-01T16:45:06+01:00
+Run date: 2026-11-08T23:07:18+01:00
 - Operating system: Linux-5.15.0-198-generic-x86_64-with-glibc2.35
 - CPU: Intel(R) Core(TM) i7-10700 CPU @ 2.90GHz (x86_64, 16 logical cores)
 - Benchmark storage (Source and archives): SSD / non-rotational (may be virtual); model: Not reported; device: dm-2
@@ -17,26 +17,26 @@ Symbolic links excluded from path/size verification: 12
 
 | Format | Encryption | Cache | Archive size | Compression (min-max) | Extraction (min-max) | Extract 3 files (min-max) | Temp space (3 files) | CPU / RAM (compress) | CPU / RAM (extract) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| zarlib | No | hot | 151.3 MiB | 0.92-0.92 s (568.5-569.2 MiB/s) | 1.26-1.27 s (414.7-416.7 MiB/s) | 0.189-0.192 s | 0 B | 0 % / 0.0 GiB | 0 % / 9.2 GiB |
-| zarlib | Yes | hot | 152.6 MiB | 1.08-1.09 s (481.3-486.7 MiB/s) | 1.70-1.70 s (308.6-309.0 MiB/s) | 0.399-0.405 s | 0 B | 0 % / 9.3 GiB | 22 % / 9.2 GiB |
-| zip | No | hot | 151.1 MiB | 11.13-11.16 s (47.0-47.2 MiB/s) | 3.86-3.91 s (134.4-136.1 MiB/s) | 0.007-0.007 s | 0 B | 7 % / 9.2 GiB | 6 % / 9.1 GiB |
-| zip | Yes | hot | 152.4 MiB | 11.58-11.71 s (44.8-45.4 MiB/s) | 4.94-4.96 s (105.9-106.2 MiB/s) | 0.012-0.012 s | 0 B | 6 % / 9.2 GiB | 7 % / 9.2 GiB |
-| 7z | No | hot | 81.1 MiB | 24.86-24.89 s (21.1-21.1 MiB/s) | 5.66-5.72 s (91.7-92.7 MiB/s) | 3.416-3.418 s | 0 B | 65 % / 10.7 GiB | 6 % / 9.1 GiB |
-| 7z | Yes | hot | 81.1 MiB | 24.73-25.10 s (20.9-21.2 MiB/s) | 5.82-5.91 s (88.9-90.2 MiB/s) | 3.558-3.575 s | 0 B | 63 % / 10.7 GiB | 7 % / 9.2 GiB |
-| tar | No | hot | 562.7 MiB | 0.53-0.53 s (998.5-998.8 MiB/s) | 0.92-0.92 s (569.1-573.5 MiB/s) | 0.063-0.063 s | 0 B | 0 % / 0.0 GiB | 0 % / 0.0 GiB |
-| tar | Yes | hot | 562.7 MiB | 2.05-2.31 s (226.9-256.6 MiB/s) | 2.07-2.29 s (229.1-253.1 MiB/s) | 1.396-1.765 s | 0 B | 3 % / 9.7 GiB | 8 % / 9.5 GiB |
-| tar.gz | No | hot | 122.1 MiB | 12.63-13.21 s (39.8-41.6 MiB/s) | 2.22-2.23 s (235.8-237.0 MiB/s) | 2.186-2.188 s | 0 B | 7 % / 9.2 GiB | 9 % / 9.2 GiB |
-| tar.gz | Yes | hot | 122.1 MiB | 13.15-13.26 s (39.6-39.9 MiB/s) | 2.48-2.54 s (206.9-211.5 MiB/s) | 2.479-2.490 s | 0 B | 8 % / 9.2 GiB | 9 % / 9.2 GiB |
-| zarlib | No | cold | 151.3 MiB | 1.06-1.06 s (496.7-496.7 MiB/s) | 1.43-1.43 s (367.4-367.4 MiB/s) | 0.341-0.341 s | 0 B | 9 % / 9.2 GiB | 14 % / 9.1 GiB |
-| zarlib | Yes | cold | 152.6 MiB | 1.21-1.21 s (435.7-435.7 MiB/s) | 1.87-1.87 s (281.4-281.4 MiB/s) | 0.535-0.535 s | 0 B | 13 % / 9.2 GiB | 17 % / 9.1 GiB |
-| zip | No | cold | 151.1 MiB | 17.15-17.15 s (30.6-30.6 MiB/s) | 4.23-4.23 s (124.1-124.1 MiB/s) | 0.015-0.015 s | 0 B | 5 % / 9.1 GiB | 8 % / 9.0 GiB |
-| zip | Yes | cold | 152.4 MiB | 17.60-17.60 s (29.8-29.8 MiB/s) | 5.30-5.30 s (99.0-99.0 MiB/s) | 0.020-0.020 s | 0 B | 5 % / 9.1 GiB | 7 % / 9.0 GiB |
-| 7z | No | cold | 81.1 MiB | 26.48-26.48 s (19.8-19.8 MiB/s) | 5.83-5.83 s (90.0-90.0 MiB/s) | 3.487-3.487 s | 0 B | 60 % / 10.5 GiB | 7 % / 9.0 GiB |
-| 7z | Yes | cold | 81.1 MiB | 26.98-26.98 s (19.5-19.5 MiB/s) | 5.89-5.89 s (89.1-89.1 MiB/s) | 3.577-3.577 s | 0 B | 61 % / 10.5 GiB | 7 % / 9.0 GiB |
-| tar | No | cold | 562.7 MiB | 6.99-6.99 s (75.1-75.1 MiB/s) | 1.36-1.36 s (386.8-386.8 MiB/s) | 0.840-0.840 s | 0 B | 4 % / 9.0 GiB | 5 % / 9.0 GiB |
-| tar | Yes | cold | 562.7 MiB | 10.85-10.85 s (48.4-48.4 MiB/s) | 3.11-3.11 s (168.9-168.9 MiB/s) | 2.870-2.870 s | 0 B | 4 % / 9.1 GiB | 11 % / 9.5 GiB |
-| tar.gz | No | cold | 122.1 MiB | 13.44-13.44 s (39.1-39.1 MiB/s) | 2.36-2.36 s (222.9-222.9 MiB/s) | 2.290-2.290 s | 0 B | 7 % / 9.0 GiB | 8 % / 9.0 GiB |
-| tar.gz | Yes | cold | 122.1 MiB | 14.03-14.03 s (37.4-37.4 MiB/s) | 3.39-3.39 s (155.1-155.1 MiB/s) | 3.214-3.214 s | 0 B | 7 % / 9.0 GiB | 8 % / 9.0 GiB |
+| zarlib | No | hot | 115.5 MiB | 0.86-0.86 s (610.4-611.1 MiB/s) | 0.88-1.10 s (478.4-597.3 MiB/s) | 0.124-0.129 s | 0 B | 0 % / 0.0 GiB | 0 % / 7.0 GiB |
+| zarlib | Yes | hot | 115.4 MiB | 0.96-1.00 s (524.3-545.5 MiB/s) | 1.21-1.22 s (430.2-432.8 MiB/s) | 0.345-0.354 s | 0 B | 12 % / 6.6 GiB | 19 % / 7.0 GiB |
+| zip | No | hot | 151.1 MiB | 11.01-11.05 s (47.5-47.7 MiB/s) | 3.84-3.90 s (134.7-136.9 MiB/s) | 0.007-0.007 s | 0 B | 7 % / 6.5 GiB | 7 % / 6.5 GiB |
+| zip | Yes | hot | 152.4 MiB | 11.52-11.59 s (45.3-45.6 MiB/s) | 4.96-4.97 s (105.7-105.8 MiB/s) | 0.012-0.012 s | 0 B | 7 % / 6.5 GiB | 8 % / 6.5 GiB |
+| 7z | No | hot | 81.1 MiB | 24.91-24.94 s (21.1-21.1 MiB/s) | 5.68-5.70 s (92.1-92.5 MiB/s) | 3.407-3.434 s | 0 B | 65 % / 8.1 GiB | 7 % / 6.5 GiB |
+| 7z | Yes | hot | 81.1 MiB | 24.80-24.93 s (21.1-21.2 MiB/s) | 5.83-5.86 s (89.6-90.1 MiB/s) | 3.553-3.583 s | 0 B | 65 % / 8.1 GiB | 7 % / 6.5 GiB |
+| tar | No | hot | 562.7 MiB | 0.52-0.53 s (984.9-1014.8 MiB/s) | 0.91-1.00 s (525.8-576.0 MiB/s) | 0.063-0.065 s | 0 B | 0 % / 0.0 GiB | 0 % / 0.0 GiB |
+| tar | Yes | hot | 562.7 MiB | 2.02-2.69 s (195.0-259.7 MiB/s) | 2.07-2.49 s (210.8-253.3 MiB/s) | 1.360-1.366 s | 0 B | 7 % / 7.2 GiB | 8 % / 6.8 GiB |
+| tar.gz | No | hot | 122.1 MiB | 12.76-12.79 s (41.0-41.2 MiB/s) | 2.24-2.26 s (232.0-234.4 MiB/s) | 2.170-2.222 s | 0 B | 7 % / 6.5 GiB | 10 % / 6.5 GiB |
+| tar.gz | Yes | hot | 122.1 MiB | 12.98-13.21 s (39.8-40.5 MiB/s) | 2.49-2.96 s (177.3-210.6 MiB/s) | 2.473-2.483 s | 0 B | 7 % / 6.5 GiB | 8 % / 6.5 GiB |
+| zarlib | No | cold | 115.4 MiB | 1.03-1.03 s (508.7-508.7 MiB/s) | 1.13-1.13 s (465.9-465.9 MiB/s) | 0.161-0.161 s | 0 B | 10 % / 6.8 GiB | 22 % / 6.7 GiB |
+| zarlib | Yes | cold | 115.4 MiB | 1.10-1.10 s (479.2-479.2 MiB/s) | 1.33-1.33 s (395.4-395.4 MiB/s) | 0.401-0.401 s | 0 B | 11 % / 6.8 GiB | 13 % / 6.6 GiB |
+| zip | No | cold | 151.1 MiB | 17.47-17.47 s (30.1-30.1 MiB/s) | 4.13-4.13 s (127.1-127.1 MiB/s) | 0.020-0.020 s | 0 B | 5 % / 6.4 GiB | 8 % / 6.4 GiB |
+| zip | Yes | cold | 152.4 MiB | 17.81-17.81 s (29.5-29.5 MiB/s) | 5.19-5.19 s (101.2-101.2 MiB/s) | 0.021-0.021 s | 0 B | 5 % / 6.4 GiB | 6 % / 6.4 GiB |
+| 7z | No | cold | 81.1 MiB | 26.75-26.75 s (19.6-19.6 MiB/s) | 5.78-5.78 s (90.8-90.8 MiB/s) | 3.519-3.519 s | 0 B | 60 % / 7.9 GiB | 7 % / 6.4 GiB |
+| 7z | Yes | cold | 81.1 MiB | 27.00-27.00 s (19.4-19.4 MiB/s) | 5.83-5.83 s (90.1-90.1 MiB/s) | 3.587-3.587 s | 0 B | 61 % / 7.9 GiB | 7 % / 6.4 GiB |
+| tar | No | cold | 562.7 MiB | 7.05-7.05 s (74.4-74.4 MiB/s) | 1.10-1.10 s (477.4-477.4 MiB/s) | 0.870-0.870 s | 0 B | 3 % / 6.4 GiB | 5 % / 6.3 GiB |
+| tar | Yes | cold | 562.7 MiB | 9.19-9.19 s (57.1-57.1 MiB/s) | 3.25-3.25 s (161.8-161.8 MiB/s) | 2.383-2.383 s | 0 B | 6 % / 6.6 GiB | 9 % / 6.8 GiB |
+| tar.gz | No | cold | 122.1 MiB | 13.63-13.63 s (38.5-38.5 MiB/s) | 2.47-2.47 s (212.8-212.8 MiB/s) | 2.292-2.292 s | 0 B | 8 % / 6.4 GiB | 8 % / 6.4 GiB |
+| tar.gz | Yes | cold | 122.1 MiB | 14.09-14.09 s (37.3-37.3 MiB/s) | 3.44-3.44 s (152.8-152.8 MiB/s) | 3.187-3.187 s | 0 B | 7 % / 6.4 GiB | 11 % / 6.4 GiB |
 
 "Extract 3 files" is the time to extract only `fs/btrfs/check-integrity.c`, `lib/xz/xz_dec_test.c`, `tools/perf/util/build-id.h`
 from the archive (for encrypted tar/tar.gz this includes decrypting the archive). "Temp space"
@@ -105,7 +105,7 @@ storage; such cases are identified as unknown or non-rotational/possibly virtual
 
 ## Tool versions
 
-- `zarlib`: `0.8.0`
+- `zarlib`: `0.9.0`
 - `cargo`: `cargo 1.99.1 (5f94df478 2026-08-27)`
 - `tar`: `tar (GNU tar) 1.34`
 - `openssl`: `OpenSSL 3.0.2 15 Mar 2022 (Library: OpenSSL 3.0.2 15 Mar 2022)`
@@ -113,7 +113,7 @@ storage; such cases are identified as unknown or non-rotational/possibly virtual
 - `gzip`: `gzip 1.10`
 - `zip`: `This is Zip 3.0 (July 5th 2008), by Info-ZIP.`
 - `unzip`: `UnZip 6.00 of 20 April 2009, by Debian. Original by Info-ZIP.`
-- `zarc`: `zarc 0.8.0`
+- `zarc`: `zarc 0.9.0`
 
 The generated archives and temporary key material are removed after the run.
 The source archive and extracted source tree remain in `testdata/`.

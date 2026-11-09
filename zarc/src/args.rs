@@ -59,7 +59,7 @@ pub(crate) enum Command {
             deduplicates identical contents using xxhash64 and content comparison, compresses data \
             blocks using Zstandard, and optionally encrypts block payloads and headers using AEAD \
             (AES-256-GCM or ChaCha20-Poly1305) with an Argon2id-derived key.\n\n\
-            ZIP, 7z, TAR, TAR.GZ, and TGZ input paths are imported using their internal entry paths, not stored as a single source archive. \
+            ZIP, 7z, TAR, TAR.GZ, TGZ, and GZ input paths are imported using their internal entry paths (standalone GZ files use their basename without `.gz`), not stored as a single source archive. \
             Encrypted ZIP/7z sources and ZIP/7z links are not supported. TAR symbolic links are preserved where the host supports them; hard links are imported as regular files. TAR special entries are not supported.\n\n\
             USAGE EXAMPLES:\n  \
               zarc create archive.zar docs/ src/ file.txt\n  \
@@ -68,8 +68,10 @@ pub(crate) enum Command {
               zarc create converted.zar downloaded.tar\n  \
               zarc create converted.zar downloaded.tar.gz\n  \
               zarc create converted.zar downloaded.tgz\n  \
+              zarc create converted.zar downloaded.txt.gz\n  \
               zarc create --password archive.zar secrets/\n  \
               zarc create --password --aead chacha20-poly1305 archive.zar secrets/\n  \
+              zarc create --user archive.zar docs/\n  \
               zarc create --block-size 4M --compression-level 7 archive.zar large_dataset/\n  \
               zarc create --metadata -p archive.zar /var/log/\n  \
               zarc create --special-files archive.zar /dev/\n  \
@@ -87,7 +89,7 @@ pub(crate) enum Command {
             value_name = "PATH",
             required = true,
             num_args = 1..,
-            help = "Input files, directories, or ZIP, 7z, TAR, TAR.GZ, and TGZ archives to include"
+            help = "Input files, directories, or ZIP, 7z, TAR, TAR.GZ, TGZ, and GZ archives to include"
         )]
         paths: Vec<PathBuf>,
         #[arg(
@@ -105,6 +107,8 @@ pub(crate) enum Command {
         metadata: bool,
         #[arg(long, help = "Save the modification time of each entry")]
         dates: bool,
+        #[arg(long, help = "Save the current OS username in the commit metadata")]
+        user: bool,
         #[arg(
             long,
             help = "Include named pipes and Unix device nodes found in input paths"
@@ -164,6 +168,56 @@ pub(crate) enum Command {
     },
 
     #[command(
+        about = "Convert supported archives in a folder to ZAR",
+        long_about = "Convert supported ZIP, 7z, TAR, TAR.GZ, TGZ, and GZ files in one folder into separate ZAR archives.\n\n\
+            The optional fnmatch --filter is matched against source filenames; by default all \
+            supported archive files are selected. Output filenames use the source name with its \
+            archive extension replaced by `.zar`. The output folder defaults to the input folder.\n\n\
+            USAGE EXAMPLES:\n  \
+              zarc convert downloads/\n  \
+              zarc convert downloads/ --filter '*.zip'\n  \
+              zarc convert downloads/ --output-folder converted/ --filter '*.tar.gz'\n  \
+              zarc convert downloads/ --filter '*.gz'"
+    )]
+    Convert {
+        #[arg(
+            value_name = "INPUT_FOLDER",
+            help = "Folder containing source archives"
+        )]
+        input_folder: PathBuf,
+        #[arg(
+            long = "output-folder",
+            value_name = "FOLDER",
+            help = "Destination folder (default: input folder)"
+        )]
+        output_folder: Option<PathBuf>,
+        #[arg(
+            long,
+            value_name = "PATTERN",
+            default_value = "*",
+            help = "fnmatch pattern for source filenames (default: all supported archives)"
+        )]
+        filter: String,
+        #[arg(
+            long,
+            help = "Replace existing destination archives; duplicate output names are still rejected"
+        )]
+        overwrite: bool,
+        #[arg(
+            long,
+            value_name = "SIZE",
+            help = "Block payload size (e.g. 64K, 1M, 8M) or 'auto' (default: 8M / memory budget)"
+        )]
+        block_size: Option<String>,
+        #[arg(
+            long,
+            value_name = "LEVEL",
+            help = "Zstandard compression level from -7 (fastest) to 22 (highest, default: 3)"
+        )]
+        compression_level: Option<String>,
+    },
+
+    #[command(
         alias = "a",
         about = "Append a new commit to an existing ZAR archive",
         long_about = "Append a new commit to an existing ZAR archive without rewriting earlier commits.\n\n\
@@ -182,6 +236,7 @@ pub(crate) enum Command {
               zarc add archive.zar downloaded.tar.gz\n  \
               zarc add archive.zar downloaded.tgz\n  \
               zarc add --metadata -p archive.zar updated_src/\n  \
+              zarc add --user archive.zar updated_src/\n  \
               zarc add --block-size 1M --compression-level 5 archive.zar photos/\n  \
               zarc add --special-files archive.zar /dev/\n  \
               zarc add --strict archive.zar protected-inputs/\n  \
@@ -215,6 +270,8 @@ pub(crate) enum Command {
         metadata: bool,
         #[arg(long, help = "Save the modification time of each entry")]
         dates: bool,
+        #[arg(long, help = "Save the current OS username in the commit metadata")]
+        user: bool,
         #[arg(
             long,
             help = "Include named pipes and Unix device nodes found in input paths"
@@ -359,12 +416,12 @@ pub(crate) enum Command {
     #[command(
         alias = "j",
         about = "Merge a contiguous range of commits into a single commit",
-        long_about = "Compact and merge a contiguous range of commits (--from through --through) into a single commit.\n\n\
+        long_about = "Compact and merge a contiguous range of commits from --from through --to into a single commit.\n\n\
             Eliminates intermediate file revisions and unreferenced data blocks across the specified \
             commit range, producing a more compact archive while preserving earlier and later commits.\n\n\
             USAGE EXAMPLES:\n  \
-              zarc join archive.zar --from 00000001 --through 00000004\n  \
-              zarc join archive.zar --from 00000001 --through 00000002 --block-size 2M"
+              zarc join archive.zar --from 00000001 --to 00000004\n  \
+              zarc join archive.zar --from 00000001 --to 00000002 --block-size 2M"
     )]
     Join {
         #[arg(value_name = "ARCHIVE", help = "Archive file path to compact (.zar)")]
@@ -384,7 +441,7 @@ pub(crate) enum Command {
             required = true,
             help = "Ending commit ID (8 hex digits, inclusive)"
         )]
-        through: String,
+        to: String,
         #[arg(
             long,
             value_name = "SIZE",
@@ -397,6 +454,131 @@ pub(crate) enum Command {
             help = "Zstandard compression level from -7 to 22 (default: 3)"
         )]
         compression_level: Option<String>,
+    },
+
+    #[command(
+        about = "Encrypt or re-encrypt an inclusive range of commits",
+        long_about = "Encrypt or re-encrypt commits in an inclusive commit-ID range.\n\n\
+            A new encryption password is prompted without echo. Existing encrypted commits require \
+            their current password; without --strict, commits without a current password are \
+            preserved unchanged. Use --password for a default current password or repeat \
+            --password-for for commit-specific current passwords. The archive is replaced in place \
+            unless --output specifies a different destination.\n\n\
+            USAGE EXAMPLES:\n  \
+              zarc encrypt archive.zar --from 00000001 --to 00000003\n  \
+              zarc encrypt archive.zar --from 00000001 --to 00000003 --output encrypted.zar --strict"
+    )]
+    Encrypt {
+        #[arg(value_name = "ARCHIVE", help = "Existing archive file path (.zar)")]
+        archive: String,
+        #[arg(
+            long,
+            value_name = "ID",
+            required = true,
+            help = "Starting commit ID (8 hex digits, inclusive)"
+        )]
+        from: String,
+        #[arg(
+            long,
+            value_name = "ID",
+            required = true,
+            help = "Ending commit ID (8 hex digits, inclusive)"
+        )]
+        to: String,
+        #[arg(
+            short = 'o',
+            long,
+            value_name = "FILE",
+            help = "Write the transformed archive to a different file (default: replace input)"
+        )]
+        output: Option<String>,
+        #[arg(
+            long,
+            help = "Prompt for the default current password of encrypted commits"
+        )]
+        password: bool,
+        #[arg(
+            long = "password-for",
+            value_name = "COMMIT_ID",
+            action = clap::ArgAction::Append,
+            help = "Prompt for a current password for this commit; may be repeated"
+        )]
+        password_for: Vec<String>,
+        #[arg(
+            long,
+            value_name = "ALGORITHM",
+            default_value = "aes-256-gcm",
+            value_parser = ["aes-256-gcm", "chacha20-poly1305"],
+            help = "Content encryption algorithm (default: aes-256-gcm)"
+        )]
+        aead: String,
+        #[arg(
+            long = "encryption-scope",
+            value_name = "SCOPE",
+            default_value = "header-and-data",
+            value_parser = ["data", "header", "header-and-data"],
+            help = "Encrypt data only, header only, or both (default: header-and-data)"
+        )]
+        encryption_scope: String,
+        #[arg(
+            long,
+            help = "Fail if an encrypted commit cannot be unlocked with supplied passwords"
+        )]
+        strict: bool,
+    },
+
+    #[command(
+        about = "Decrypt an inclusive range of commits",
+        long_about = "Decrypt commits in an inclusive commit-ID range.\n\n\
+            Current passwords are prompted without echo using --password for a default password \
+            or repeated --password-for options for commit-specific passwords. Without --strict, \
+            encrypted commits without a current password are preserved unchanged. The archive is \
+            replaced in place unless --output specifies a different destination.\n\n\
+            USAGE EXAMPLES:\n  \
+              zarc decrypt archive.zar --from 00000001 --to 00000003 --password --strict\n  \
+              zarc decrypt archive.zar --from 00000001 --to 00000003 --output decrypted.zar"
+    )]
+    Decrypt {
+        #[arg(value_name = "ARCHIVE", help = "Existing archive file path (.zar)")]
+        archive: String,
+        #[arg(
+            long,
+            value_name = "ID",
+            required = true,
+            help = "Starting commit ID (8 hex digits, inclusive)"
+        )]
+        from: String,
+        #[arg(
+            long,
+            value_name = "ID",
+            required = true,
+            help = "Ending commit ID (8 hex digits, inclusive)"
+        )]
+        to: String,
+        #[arg(
+            short = 'o',
+            long,
+            value_name = "FILE",
+            help = "Write the transformed archive to a different file (default: replace input)"
+        )]
+        output: Option<String>,
+        #[arg(
+            long,
+            help = "Prompt for the default password to unlock encrypted commits"
+        )]
+        password: bool,
+        #[arg(
+            long = "password-for",
+            value_name = "COMMIT_ID",
+            action = clap::ArgAction::Append,
+            help = "Prompt for a password for this commit; may be repeated"
+        )]
+        password_for: Vec<String>,
+        #[arg(
+            long,
+            help = "Fail if an encrypted commit cannot be unlocked with supplied passwords"
+        )]
+        strict: bool,
     },
 
     #[command(
@@ -437,14 +619,17 @@ pub(crate) enum Command {
 
     #[command(
         alias = "i",
-        about = "Display commit metadata, framing sizes, and deduplication stats",
-        long_about = "Display metadata, payload sizes, and compression ratios for commits in the archive.\n\n\
+        about = "Display commit changes, metadata, framing sizes, and deduplication stats",
+        long_about = "Display header content changes, metadata, payload sizes, and compression ratios for commits in the archive.\n\n\
             Reads commit headers and block-frame metadata without decompressing file contents. \
-            Supports verbose per-file-group breakdowns (empty, tiny, small, big files), counts \
-            stored symlinks and special entries, and JSON output for machine readability.\n\n\
+            Header content changes are shown for each readable commit. Use -v for per-file-group \
+            and deduplication statistics. Repeat -v to also show each \
+            block's size, compression ratio, file count, and file groups. Both levels read frame \
+            metadata without decompressing file contents. JSON output is available separately.\n\n\
             USAGE EXAMPLES:\n  \
               zarc info archive.zar\n  \
               zarc info -v archive.zar\n  \
+              zarc info -vv archive.zar\n  \
               zarc info --json archive.zar\n  \
               zarc info --meta archive.zar"
     )]
@@ -454,11 +639,15 @@ pub(crate) enum Command {
         #[arg(
             short = 'v',
             long,
+            action = clap::ArgAction::Count,
             conflicts_with = "json",
-            help = "Show per-commit file group and deduplication statistics"
+            help = "Show per-commit file group statistics; repeat to show block details"
         )]
-        verbose: bool,
-        #[arg(long, help = "Output commit metadata and framing sizes as JSON")]
+        verbose: u8,
+        #[arg(
+            long,
+            help = "Output commit changes, metadata, and framing sizes as JSON"
+        )]
         json: bool,
         #[arg(
             short = 'm',
@@ -474,10 +663,11 @@ pub(crate) enum Command {
         about = "List files and directories in the archive table of contents",
         long_about = "List files, directories, symlinks, and special entries stored in the archive.\n\n\
             Reads the logical table of contents (TOC) up to the latest commit, or up to the commit \
-            specified by --through. Does not decompress or read data payloads.\n\n\
+            specified by --to. Does not decompress or read data payloads.\n\n\
             USAGE EXAMPLES:\n  \
               zarc list archive.zar\n  \
-              zarc list archive.zar --through 00000002\n  \
+              zarc list archive.zar --to 00000002\n  \
+              zarc list archive.zar --include-file '*.txt'\n  \
               zarc list --password encrypted.zar"
     )]
     List {
@@ -488,7 +678,7 @@ pub(crate) enum Command {
             value_name = "COMMIT_ID",
             help = "List archive contents as of this commit ID (8 hex digits)"
         )]
-        through: Option<String>,
+        to: Option<String>,
         #[arg(
             long,
             help = "Prompt for a default password to unlock every encrypted commit header"
@@ -501,6 +691,16 @@ pub(crate) enum Command {
             help = "Prompt for a password to unlock this commit header; may be repeated"
         )]
         password_for: Vec<String>,
+        #[arg(long = "include-file", alias = "if", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Include matching file fnmatch patterns; may be repeated")]
+        include_files: Vec<String>,
+        #[arg(long = "exclude-file", alias = "ef", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Exclude matching file fnmatch patterns (overrides includes)")]
+        exclude_files: Vec<String>,
+        #[arg(long = "include-folder", alias = "id", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Include matching folders and their contents")]
+        include_folders: Vec<String>,
+        #[arg(long = "exclude-folder", alias = "ed", value_name = "PATTERN", action = clap::ArgAction::Append, help = "Exclude matching folders and their contents")]
+        exclude_folders: Vec<String>,
+        #[arg(long, value_name = "PATH", action = clap::ArgAction::Append, help = "Read include/exclude fnmatch patterns from a text file; prefix excluded patterns with '-'")]
+        filelist: Vec<PathBuf>,
     },
 
     #[command(
@@ -512,6 +712,8 @@ pub(crate) enum Command {
             collisions and existing files on disk.\n\n\
             USAGE EXAMPLES:\n  \
               zarc extract archive.zar --output ./extracted/\n  \
+                zarc extract source.zip --output ./unpacked/\n \
+                zarc extract source.tar.gz --output ./unpacked/\n \
               zarc extract archive.zar -o ./output/ --collision rename --existing overwrite\n  \
               zarc extract --dry-run archive.zar\n  \
               zarc extract --metadata --symlinks archive.zar\n  \
@@ -540,7 +742,7 @@ pub(crate) enum Command {
             value_name = "COMMIT_ID",
             help = "Extract archive state as of this commit ID (8 hex digits)"
         )]
-        through: Option<String>,
+        to: Option<String>,
         #[arg(
             long,
             value_name = "POLICY",
@@ -552,7 +754,7 @@ pub(crate) enum Command {
             long,
             value_name = "POLICY",
             default_value = "error",
-            help = "Policy for existing destination files: error (default), overwrite, skip, or ask"
+            help = "Policy for existing destination files: error (default), overwrite, skip, or ask (yes/no/always/never)"
         )]
         existing: String,
         #[arg(

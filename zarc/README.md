@@ -11,7 +11,8 @@ zarc --help
 zarc <command> --help
 ```
 
-Each subcommand also has a one-letter shortcut:
+One-letter shortcuts are shown in the table; `encrypt` and `decrypt` have no
+short aliases.
 
 | Command | Shortcut |
 |---|---|
@@ -20,6 +21,10 @@ Each subcommand also has a one-letter shortcut:
 | `remove` | `r` |
 | `join` | `j` |
 | `undo` | `u` |
+| `convert` | - |
+| `meta` | `m` |
+| `encrypt` | - |
+| `decrypt` | - |
 | `check` | `k` |
 | `info` | `i` |
 | `list` | `l` |
@@ -42,6 +47,7 @@ zarc create converted-tar-gz.zar downloaded.tar.gz
 zarc create converted-tgz.zar downloaded.tgz
 zarc create --block-size 4M --compression-level 7 backup.zar dataset/
 zarc create --password secrets.zar private/
+zarc create --user backup.zar docs/
 ```
 
 `create` makes a new archive and refuses to replace an existing output file by
@@ -95,17 +101,47 @@ When any include patterns are provided, unmatched files are omitted. Excludes
 always override includes. Folder rules in file lists apply to matching folders
 and their descendants.
 
+The same file, folder, and file-list filters can be used with `zarc list` to
+show only matching archive entries. For example, `zarc list backup.zar
+--include-file '*.txt' --exclude-folder private` lists matching text files
+while omitting the `private` subtree. Unlike extraction, listing does not add
+unmatched parent directories to the filtered output.
+
 The scanner deduplicates identical content within the created commit. Some
 already-compressed formats and media types are stored without another
 compression pass.
+
+### Convert a folder of archives
+
+```sh
+zarc convert downloads/
+zarc convert downloads/ --filter '*.zip'
+zarc convert downloads/ --output-folder converted/ --filter '*.tar.gz'
+zarc convert downloads/ --overwrite
+```
+
+`convert` scans only files directly inside the input folder (it does not scan
+subfolders) and converts supported ZIP, 7z, TAR, TAR.GZ, and TGZ archives into
+separate ZAR files. The fnmatch `--filter` is matched against each source
+filename and defaults to `*`; unsupported files are ignored. The destination
+folder defaults to the input folder. The source archive extension is replaced
+with `.zar`, so `backup.tar.gz` becomes `backup.zar`.
+
+Existing destination files are refused unless `--overwrite` is specified.
+When multiple selected source names map to the same output name, that collision
+is rejected even with `--overwrite`. The command continues after an individual
+conversion failure, reports each failure, and returns exit code 1 if any
+conversion fails or no supported archives match. `--block-size` and
+`--compression-level` use the same options as `create`.
 
 ### Append, remove, and compact commits
 
 ```sh
 zarc add backup.zar new-file.txt updated-docs/
+zarc add --user backup.zar source/
 zarc add --special-files backup.zar /dev/
 zarc remove backup.zar obsolete.txt old-directory/
-zarc join backup.zar --from 00000001 --through 00000004
+zarc join backup.zar --from 00000001 --to 00000004
 zarc undo backup.zar 1
 zarc meta backup.zar --set author=Jane --remove old-key
 zarc meta backup.zar
@@ -133,7 +169,7 @@ with a warning unless `--strict` is set, in which case a permission error
 fails the operation. Named pipes and Unix device nodes are skipped with
 warnings unless `--special-files` is set. Device nodes are only created during
 extraction with `extract --devices` and may require privileges.
-`join` accepts `--from`, `--through`, `--block-size`,
+`join` accepts `--from`, `--to`, `--block-size`,
 `--compression-level`, and `--progress`. The commands stage and validate the
 replacement before publishing it. These state-changing operations currently
 reject archives whose accumulated TOC depends on encrypted headers; encrypted
@@ -142,11 +178,34 @@ archive append/removal/compaction is not supported.
 can remove encrypted commits without decrypting them. It still preserves the
 first commit.
 
+### Encrypt and decrypt commit ranges
+
+```sh
+zarc encrypt backup.zar --from 00000002 --to 00000003
+zarc encrypt backup.zar --from 00000002 --to 00000003 --output encrypted-copy.zar
+zarc decrypt encrypted-copy.zar --from 00000002 --to 00000003 --password --strict
+```
+
+`encrypt` and `decrypt` transform the inclusive range of commit IDs in physical
+commit order. Without `--output`, the archive is transformed in place; when
+specified, `--output FILE` (`-o FILE`) must identify a different path.
+`encrypt` always prompts without echo for the new encryption password. It
+accepts `--aead` and `--encryption-scope` to select the algorithm and encrypted
+content.
+
+For already-encrypted commits in the range, `--password` prompts for a default
+current password and repeatable `--password-for COMMIT_ID` options prompt for
+commit-specific current passwords. Without `--strict`, selected encrypted
+commits that have no supplied current password are preserved unchanged;
+`--strict` makes a missing password an error. A supplied but incorrect password
+always fails the operation. For `decrypt`, `--password` and `--password-for`
+provide the credentials used to decrypt commits.
+
 ### Inspect and verify
 
 ```sh
 zarc list backup.zar
-zarc list backup.zar --through 00000002
+zarc list backup.zar --to 00000002
 zarc info backup.zar
 zarc info -v backup.zar
 zarc info --json backup.zar
@@ -156,13 +215,20 @@ zarc check --recover backup.zar
 ```
 
 - `list` displays the effective TOC without reading or decompressing block
-  payloads. `--through ID` shows the state after that commit.
-- `info` shows commit IDs, stored sizes, logical uncompressed file sizes, and
-  the ratio of commit size to uncompressed size. Header-encrypted commits show
-  the uncompressed size as unavailable without credentials. `-v` adds
+  payloads. `--to ID` shows the state after that commit.
+- `info` shows per-commit header content changes, commit IDs, stored sizes,
+  creation date/time, optional username, logical uncompressed file sizes, and
+  the ratio of commit size to uncompressed size. Header-encrypted commits show the uncompressed size as
+  unavailable without credentials. `-v` adds
   per-file-group compression and deduplication statistics, plus counts for
   stored symlinks, pipes, and devices; use `list` to see their paths and device
-  numbers. `--json` emits machine-readable summary data.
+  numbers. `-vv` additionally lists each block's compressed size, compression
+  ratio, file count, and file groups. Both verbose levels read frame metadata
+  without decompressing file contents. `--json` includes the header content
+  change counts, formatted creation times and Unix-millisecond timestamps, and
+  optional usernames in its
+  machine-readable summary. `create --user` and `add --user` store the current
+  OS username with the new commit; commit timestamps are always recorded.
   These statistics use frame metadata and do not verify or decompress data
   payloads.
 - `check` validates framing, readable TOC updates, block references, and
@@ -177,7 +243,7 @@ zarc check --recover backup.zar
 
 ```sh
 zarc extract backup.zar --output ./restored/
-zarc extract backup.zar -o ./restored/ --through 00000002
+zarc extract backup.zar -o ./restored/ --to 00000002
 zarc extract backup.zar --dry-run
 zarc extract backup.zar --output ./restored/ --strip-top-level
 zarc extract backup.zar --collision rename --existing skip
@@ -190,7 +256,7 @@ the selected archive state, then streams decoded blocks to files and verifies
 reconstructed file sizes.
 
 - `--dry-run`: display planned directories and files without writing them.
-- `--through ID`: extract the state as of the selected commit.
+- `--to ID`: extract the state as of the selected commit.
 - `--collision POLICY`: handle archive paths that collide when case-folded:
   `rename` (default), `first`, `latest`, `error`, or interactive `ask`.
 - `--existing POLICY`: handle files already at the destination: `error`

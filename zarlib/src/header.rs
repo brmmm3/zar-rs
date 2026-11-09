@@ -11,6 +11,7 @@ const HEADER_VERSION: u16 = 3;
 const CHECKSUM_HEADER_VERSION: u16 = 2;
 const BLOCK_SIZE_HEADER_VERSION: u16 = 1;
 const LEGACY_HEADER_VERSION: u16 = 0;
+const PACKED_FILE_HEADER_VERSION: u16 = 8;
 const RECORD_PUT_FILE: u8 = 1;
 const RECORD_PUT_DIRECTORY: u8 = 2;
 const RECORD_REMOVE_FILE: u8 = 3;
@@ -170,10 +171,15 @@ impl LogicalHeader {
         let has_checksums = self.changes.iter().any(
             |change| matches!(change, TocChange::PutFile { entry, .. } if entry.checksum.is_some()),
         );
+        let has_block_offsets = self.changes.iter().any(
+            |change| matches!(change, TocChange::PutFile { entry, .. } if entry.offset_in_block.is_some()),
+        );
         if self.block_size == Some(0) {
             return Err(LogicalHeaderError::InvalidFileEntry);
         }
-        let version = if self
+        let version = if has_block_offsets {
+            PACKED_FILE_HEADER_VERSION
+        } else if self
             .entry_metadata
             .iter()
             .any(|entry| entry.modified_unix_millis.is_some())
@@ -202,7 +208,7 @@ impl LogicalHeader {
             LEGACY_HEADER_VERSION
         };
         let prefix_size = match version {
-            METADATA_HEADER_VERSION..=ENTRY_DATE_HEADER_VERSION => METADATA_HEADER_PREFIX_SIZE,
+            METADATA_HEADER_VERSION..=PACKED_FILE_HEADER_VERSION => METADATA_HEADER_PREFIX_SIZE,
             BLOCK_SIZE_HEADER_VERSION | HEADER_VERSION => HEADER_PREFIX_SIZE,
             _ => LEGACY_HEADER_PREFIX_SIZE,
         };
@@ -213,6 +219,16 @@ impl LogicalHeader {
             return Err(LogicalHeaderError::LimitExceeded);
         }
         validate_entry_metadata(&self.changes, &self.entry_metadata, limits)?;
+        for change in &self.changes {
+            if let TocChange::PutFile { entry, .. } = change
+                && let (Some(offset), Some(block_size)) = (entry.offset_in_block, self.block_size)
+                && u64::from(offset)
+                    .checked_add(entry.size)
+                    .is_none_or(|end| end > u64::from(block_size))
+            {
+                return Err(LogicalHeaderError::InvalidFileEntry);
+            }
+        }
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&HEADER_MAGIC);
         bytes.extend_from_slice(&version.to_le_bytes());
@@ -227,6 +243,7 @@ impl LogicalHeader {
             || version == ENTRY_METADATA_HEADER_VERSION
             || version == FILE_TYPE_HEADER_VERSION
             || version == ENTRY_DATE_HEADER_VERSION
+            || version == PACKED_FILE_HEADER_VERSION
         {
             bytes.extend_from_slice(&self.block_size.unwrap_or(0).to_le_bytes());
             write_metadata(&mut bytes, &self.metadata, limits)?;
@@ -281,6 +298,15 @@ impl LogicalHeader {
                         Some(checksum) => {
                             bytes.push(1);
                             bytes.extend_from_slice(&checksum.to_le_bytes());
+                        }
+                        None => bytes.push(0),
+                    }
+                }
+                if version >= PACKED_FILE_HEADER_VERSION {
+                    match entry.offset_in_block {
+                        Some(offset) => {
+                            bytes.push(1);
+                            bytes.extend_from_slice(&offset.to_le_bytes());
                         }
                         None => bytes.push(0),
                     }
@@ -370,7 +396,7 @@ impl LogicalHeader {
                     entry_metadata,
                 )
             }
-            ENTRY_DATE_HEADER_VERSION => {
+            ENTRY_DATE_HEADER_VERSION | PACKED_FILE_HEADER_VERSION => {
                 let block_size = reader.u32()?;
                 let metadata = read_metadata(&mut reader, limits)?;
                 let entry_metadata = read_entry_metadata(&mut reader, limits, true)?;
@@ -427,6 +453,22 @@ impl LogicalHeader {
                             1 => Some(reader.u64()?),
                             _ => return Err(LogicalHeaderError::InvalidFileEntry),
                         };
+                    }
+                    if version >= PACKED_FILE_HEADER_VERSION {
+                        entry.offset_in_block = match reader.u8()? {
+                            0 => None,
+                            1 => Some(reader.u32()?),
+                            _ => return Err(LogicalHeaderError::InvalidFileEntry),
+                        };
+                        if let Some(offset) = entry.offset_in_block
+                            && (entry.block_indices.len() != 1
+                                || entry.size == 0
+                                || u64::from(offset).checked_add(entry.size).is_none_or(|end| {
+                                    block_size.is_some_and(|size| end > u64::from(size))
+                                }))
+                        {
+                            return Err(LogicalHeaderError::InvalidFileEntry);
+                        }
                     }
                     TocChange::PutFile { path, entry }
                 }
@@ -762,6 +804,13 @@ fn validate_file_entry(
     if (entry.size == 0) != entry.block_indices.is_empty()
         || entry.block_indices.len() > limits.max_block_references_per_file
         || entry.block_indices.len() > u32::MAX as usize
+        || entry.offset_in_block.is_some_and(|offset| {
+            entry.size == 0
+                || entry.block_indices.len() != 1
+                || u64::from(offset)
+                    .checked_add(entry.size)
+                    .is_none_or(|end| end > u64::from(u32::MAX) + 1)
+        })
     {
         return Err(LogicalHeaderError::InvalidFileEntry);
     }
@@ -996,6 +1045,24 @@ mod tests {
         assert_eq!(LogicalHeader::decode(&encoded).unwrap(), header);
     }
 
+    #[test]
+    fn logical_header_round_trips_packed_file_offsets() {
+        let entry = FileEntry::new(9, vec![3])
+            .unwrap()
+            .with_block_offset(12)
+            .with_checksum(42);
+        let header = LogicalHeader::with_block_size(
+            vec![TocChange::PutFile {
+                path: path("packed.bin"),
+                entry,
+            }],
+            32,
+        );
+        let encoded = header.encode().unwrap();
+        assert_eq!(&encoded[4..6], &PACKED_FILE_HEADER_VERSION.to_le_bytes());
+        assert_eq!(LogicalHeader::decode(&encoded).unwrap(), header);
+    }
+
     fn hex_bytes(value: &str) -> Vec<u8> {
         assert_eq!(value.len() % 2, 0);
         (0..value.len())
@@ -1024,10 +1091,10 @@ mod tests {
     fn rejects_unknown_version_tag_truncation_and_trailing_bytes() {
         let encoded = sample_header().encode().unwrap();
         let mut invalid_version = encoded.clone();
-        invalid_version[4] = 8;
+        invalid_version[4] = 9;
         assert!(matches!(
             LogicalHeader::decode(&invalid_version),
-            Err(LogicalHeaderError::UnsupportedVersion(8))
+            Err(LogicalHeaderError::UnsupportedVersion(9))
         ));
 
         let mut invalid_tag = encoded.clone();

@@ -11,7 +11,7 @@ use std::fs::File;
 use std::io::{self, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 #[cfg(not(target_os = "wasi"))]
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use xxhash_rust::xxh64::Xxh64;
 use zeroize::Zeroizing;
 
@@ -809,11 +809,100 @@ pub fn process_device_entry(
     Ok(())
 }
 
-#[cfg(not(target_os = "wasi"))]
 pub struct BlockWorkItem {
     pub block_index: u32,
     pub data: Vec<u8>,
     pub skip_compression: bool,
+}
+
+#[derive(Debug)]
+struct SmallFileCandidate {
+    checksum: u64,
+    block_index: u32,
+    offset_in_block: u32,
+}
+
+#[derive(Debug)]
+pub(super) struct SmallFilePacker {
+    block_size: usize,
+    data: Vec<u8>,
+    block_index: Option<u32>,
+    skip_compression: bool,
+    candidates_by_size: HashMap<u64, Vec<SmallFileCandidate>>,
+}
+
+impl SmallFilePacker {
+    pub(super) fn new(block_size: usize) -> Self {
+        Self {
+            block_size,
+            data: Vec::with_capacity(block_size),
+            block_index: None,
+            skip_compression: true,
+            candidates_by_size: HashMap::new(),
+        }
+    }
+
+    pub(super) fn add(
+        &mut self,
+        contents: Vec<u8>,
+        checksum: u64,
+        skip_compression: bool,
+        mut allocate_block_index: impl FnMut() -> Result<u32, String>,
+    ) -> Result<(u32, u32, Option<BlockWorkItem>), String> {
+        if contents.is_empty() || contents.len() >= self.block_size {
+            return Err("invalid size for packed small file".to_owned());
+        }
+        let size = contents.len() as u64;
+        if let Some(candidate) = self.candidates_by_size.get(&size).and_then(|candidates| {
+            candidates
+                .iter()
+                .find(|candidate| candidate.checksum == checksum)
+        }) {
+            return Ok((candidate.block_index, candidate.offset_in_block, None));
+        }
+
+        let mut completed = None;
+        if self.block_index.is_some()
+            && (self.data.len().saturating_add(contents.len()) > self.block_size
+                || self.skip_compression != skip_compression)
+        {
+            completed = self.take_block()?;
+        }
+        if self.block_index.is_none() {
+            self.block_index = Some(allocate_block_index()?);
+            self.skip_compression = skip_compression;
+        } else {
+            self.skip_compression &= skip_compression;
+        }
+        let block_index = self.block_index.ok_or("small-file block index missing")?;
+        let offset_in_block =
+            u32::try_from(self.data.len()).map_err(|_| "small-file block offset overflow")?;
+        self.data.extend_from_slice(&contents);
+        self.candidates_by_size
+            .entry(size)
+            .or_default()
+            .push(SmallFileCandidate {
+                checksum,
+                block_index,
+                offset_in_block,
+            });
+        Ok((block_index, offset_in_block, completed))
+    }
+
+    pub(super) fn take_block(&mut self) -> Result<Option<BlockWorkItem>, String> {
+        if self.data.is_empty() {
+            return Ok(None);
+        }
+        let block_index = self
+            .block_index
+            .take()
+            .ok_or_else(|| "small-file block index missing".to_owned())?;
+        Ok(Some(BlockWorkItem {
+            block_index,
+            data: std::mem::replace(&mut self.data, Vec::with_capacity(self.block_size)),
+            skip_compression: std::mem::replace(&mut self.skip_compression, true),
+        }))
+    }
 }
 
 #[cfg(not(target_os = "wasi"))]
@@ -973,6 +1062,8 @@ pub fn process_file_entries_parallel(
     let dedup_map = std::sync::Arc::new(std::sync::Mutex::new(
         HashMap::<u64, Vec<DedupCandidate>>::new(),
     ));
+    let small_packer =
+        std::sync::Arc::new(std::sync::Mutex::new(SmallFilePacker::new(buffer_size)));
 
     let next_block_index = AtomicU32::new(*context.next_block_index);
 
@@ -985,6 +1076,7 @@ pub fn process_file_entries_parallel(
     let read_warnings = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
 
     let reader_count = num_workers;
+    let remaining_readers = AtomicUsize::new(reader_count);
     let encryption = context.encryption.as_ref();
     let initial_expected_index = *context.next_block_index;
     let strict = context.policy.strict;
@@ -1043,6 +1135,8 @@ pub fn process_file_entries_parallel(
             let nbi = &next_block_index;
             let fr = file_results.clone();
             let warnings = read_warnings.clone();
+            let packer = small_packer.clone();
+            let remaining = &remaining_readers;
             let progress = &context.progress;
             let action = context.action;
             let save_metadata = context.save_metadata;
@@ -1195,38 +1289,32 @@ pub fn process_file_entries_parallel(
                             hasher.update(&buf);
                             hasher.digest()
                         };
-
-                        let (is_dup, indices) = {
-                            let mut map = dm.lock().unwrap();
-                            if let Some(existing) =
-                                duplicate_blocks(&map, entry.size, Some(checksum), &buf)
-                            {
-                                (true, existing)
-                            } else {
-                                let idx = nbi.fetch_add(1, Ordering::SeqCst);
-                                let indices = vec![idx];
-                                map.entry(entry.size).or_default().push(DedupCandidate {
-                                    checksum: Some(checksum),
-                                    tiny_contents: Vec::new(),
-                                    block_indices: indices.clone(),
-                                });
-                                (false, indices)
-                            }
+                        let packed = {
+                            let mut packer = packer.lock().unwrap();
+                            packer.add(buf, checksum, skip_compression, || {
+                                nbi.try_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
+                                    current.checked_add(1)
+                                })
+                                .map_err(|_| "archive has too many blocks".to_owned())
+                            })
                         };
-
-                        if !is_dup {
-                            let send_res = s_tx.send(BlockWorkItem {
-                                block_index: indices[0],
-                                data: buf,
-                                skip_compression,
-                            });
-                            if send_res.is_err() {
+                        let (block_index, offset_in_block, completed) = match packed {
+                            Ok(result) => result,
+                            Err(error) => {
+                                let _ = w_tx.send(Err(error));
                                 break;
                             }
+                        };
+                        if let Some(completed) = completed
+                            && s_tx.send(completed).is_err()
+                        {
+                            break;
                         }
 
-                        let file_entry = match FileEntry::new(entry.size, indices) {
-                            Ok(fe) => fe.with_checksum(checksum),
+                        let file_entry = match FileEntry::new(entry.size, vec![block_index]) {
+                            Ok(fe) => fe
+                                .with_block_offset(offset_in_block)
+                                .with_checksum(checksum),
                             Err(e) => {
                                 let _ = w_tx.send(Err(e.to_string()));
                                 break;
@@ -1376,6 +1464,21 @@ pub fn process_file_entries_parallel(
                         .unwrap()
                         .push((orig_index, path, file_entry, metadata));
                 }
+                if remaining.fetch_sub(1, Ordering::SeqCst) == 1 {
+                    let final_block = packer.lock().unwrap().take_block();
+                    match final_block {
+                        Ok(Some(block)) => {
+                            if s_tx.send(block).is_err() {
+                                let _ =
+                                    w_tx.send(Err("small-file worker queue is closed".to_owned()));
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            let _ = w_tx.send(Err(error));
+                        }
+                    }
+                }
             }));
         }
 
@@ -1474,6 +1577,7 @@ pub fn process_file_entries_parallel(
     let compression_level = context.options.compression_level;
     let mut next_block_index = *context.next_block_index;
     let mut candidates = HashMap::<u64, Vec<DedupCandidate>>::new();
+    let mut small_packer = SmallFilePacker::new(buffer_size);
     let mut warnings = Vec::new();
 
     for entry in entries {
@@ -1563,7 +1667,11 @@ pub fn process_file_entries_parallel(
                     });
                 (
                     FileEntry::new(entry.size, vec![index])?,
-                    vec![(index, contents)],
+                    vec![BlockWorkItem {
+                        block_index: index,
+                        data: contents,
+                        skip_compression,
+                    }],
                 )
             }
         } else if entry.size < buffer_size as u64 {
@@ -1592,31 +1700,21 @@ pub fn process_file_entries_parallel(
             hasher.update(&contents);
             let checksum = hasher.digest();
 
-            if let Some(indices) =
-                duplicate_blocks(&candidates, entry.size, Some(checksum), &contents)
-            {
-                (
-                    FileEntry::new(entry.size, indices)?.with_checksum(checksum),
-                    Vec::new(),
-                )
-            } else {
-                let index = next_block_index;
-                next_block_index = next_block_index
-                    .checked_add(1)
-                    .ok_or("archive has too many blocks")?;
-                candidates
-                    .entry(entry.size)
-                    .or_default()
-                    .push(DedupCandidate {
-                        checksum: Some(checksum),
-                        tiny_contents: Vec::new(),
-                        block_indices: vec![index],
-                    });
-                (
-                    FileEntry::new(entry.size, vec![index])?.with_checksum(checksum),
-                    vec![(index, contents)],
-                )
-            }
+            let (block_index, offset_in_block, completed) = small_packer
+                .add(contents, checksum, skip_compression, || {
+                    let index = next_block_index;
+                    next_block_index = next_block_index
+                        .checked_add(1)
+                        .ok_or_else(|| "archive has too many blocks".to_owned())?;
+                    Ok(index)
+                })
+                .map_err(io::Error::other)?;
+            (
+                FileEntry::new(entry.size, vec![block_index])?
+                    .with_block_offset(offset_in_block)
+                    .with_checksum(checksum),
+                completed.into_iter().collect(),
+            )
         } else {
             let Some(mut file) = open_input_file(entry, context.policy.strict, &mut warnings)?
             else {
@@ -1718,18 +1816,18 @@ pub fn process_file_entries_parallel(
             }
         };
 
-        for (index, contents) in new_blocks {
+        for block in new_blocks {
             {
                 let block = encode_block(
-                    index,
-                    &contents,
+                    block.block_index,
+                    &block.data,
                     compression_level,
-                    skip_compression,
+                    block.skip_compression,
                     context.encryption.as_ref(),
                 )?;
                 context
                     .block_sizes
-                    .insert(index, block.payload.len() as u64);
+                    .insert(block.block_index, block.payload.len() as u64);
                 block.write_to(context.data)?;
             }
         }
@@ -1742,6 +1840,20 @@ pub fn process_file_entries_parallel(
         if let Some(metadata) = metadata {
             context.entry_metadata.push(metadata);
         }
+    }
+
+    if let Some(block) = small_packer.take_block().map_err(io::Error::other)? {
+        let frame = encode_block(
+            block.block_index,
+            &block.data,
+            compression_level,
+            block.skip_compression,
+            context.encryption.as_ref(),
+        )?;
+        context
+            .block_sizes
+            .insert(block.block_index, frame.payload.len() as u64);
+        frame.write_to(context.data)?;
     }
 
     *context.next_block_index = next_block_index;

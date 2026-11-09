@@ -7,6 +7,42 @@
 use eframe::egui::{
     self, Color32, CornerRadius, Margin, Shadow, Stroke, Theme, ThemePreference, Visuals, vec2,
 };
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
+
+use crate::settings::ThemeMode;
+
+#[derive(Clone)]
+pub struct ThemeController {
+    mode: Arc<AtomicU8>,
+    context: egui::Context,
+}
+
+impl ThemeController {
+    pub fn set_mode(&self, mode: ThemeMode) {
+        self.mode.store(mode.as_byte(), Ordering::Relaxed);
+        apply_theme(&self.context, mode);
+    }
+}
+
+impl ThemeMode {
+    fn as_byte(self) -> u8 {
+        match self {
+            Self::System => 0,
+            Self::Light => 1,
+            Self::Dark => 2,
+        }
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    fn from_byte(value: u8) -> Self {
+        match value {
+            1 => Self::Light,
+            2 => Self::Dark,
+            _ => Self::System,
+        }
+    }
+}
 
 /// Colors of the Qt6 Fusion palette for one theme.
 struct Palette {
@@ -162,18 +198,33 @@ fn apply_styles(ctx: &egui::Context) {
     }
 }
 
-/// Installs the Fusion styles and selects the theme matching the desktop.
+fn apply_theme(ctx: &egui::Context, mode: ThemeMode) {
+    let preference = match mode {
+        ThemeMode::System => {
+            detect_system_theme().map_or(ThemePreference::System, ThemePreference::from)
+        }
+        ThemeMode::Light => ThemePreference::from(Theme::Light),
+        ThemeMode::Dark => ThemePreference::from(Theme::Dark),
+    };
+    ctx.set_theme(preference);
+}
+
+/// Installs the Fusion styles and selects the requested theme preference.
 ///
 /// Must be called before the first frame so the window never flashes in the
 /// wrong theme.
-pub fn install(ctx: &egui::Context) {
+pub fn install(ctx: &egui::Context, mode: ThemeMode) -> ThemeController {
     apply_styles(ctx);
     // Used on platforms where no system theme can be determined.
     ctx.options_mut(|options| options.fallback_theme = Theme::Light);
-    let detected = detect_system_theme();
-    ctx.set_theme(detected.map_or(ThemePreference::System, ThemePreference::from));
+    apply_theme(ctx, mode);
+    let mode_state = Arc::new(AtomicU8::new(mode.as_byte()));
     #[cfg(all(unix, not(target_os = "macos")))]
-    spawn_watcher(ctx.clone(), detected);
+    spawn_watcher(ctx.clone(), mode_state.clone(), detect_system_theme());
+    ThemeController {
+        mode: mode_state,
+        context: ctx.clone(),
+    }
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -188,13 +239,16 @@ fn detect_system_theme() -> Option<Theme> {
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn spawn_watcher(ctx: egui::Context, initial: Option<Theme>) {
+fn spawn_watcher(ctx: egui::Context, mode: Arc<AtomicU8>, initial: Option<Theme>) {
     let _ = std::thread::Builder::new()
         .name("zarg-theme".to_owned())
         .spawn(move || {
             let mut current = initial;
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(2));
+                if ThemeMode::from_byte(mode.load(Ordering::Relaxed)) != ThemeMode::System {
+                    continue;
+                }
                 if let Some(theme) = detect_system_theme()
                     && current != Some(theme)
                 {
@@ -433,7 +487,7 @@ mod tests {
     #[test]
     fn install_selects_the_detected_theme_and_styles_both_themes() {
         let ctx = egui::Context::default();
-        install(&ctx);
+        let controller = install(&ctx, ThemeMode::System);
         for theme in [Theme::Light, Theme::Dark] {
             ctx.set_theme(theme);
             ctx.run_ui(egui::RawInput::default(), |_| {})
@@ -444,5 +498,9 @@ mod tests {
                 palette(theme).highlight
             );
         }
+        controller.set_mode(ThemeMode::Dark);
+        assert_eq!(ctx.theme(), Theme::Dark);
+        controller.set_mode(ThemeMode::Light);
+        assert_eq!(ctx.theme(), Theme::Light);
     }
 }

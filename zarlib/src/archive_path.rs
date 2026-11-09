@@ -45,6 +45,12 @@ impl ArchivePath {
     }
 }
 
+impl std::borrow::Borrow<str> for ArchivePath {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
 impl TryFrom<&str> for ArchivePath {
     type Error = ArchivePathError;
 

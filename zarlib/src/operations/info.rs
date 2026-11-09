@@ -1,11 +1,12 @@
 use super::common::*;
 use crate::{
-    BlockFrame, CommitValidationLimits, ContainerHeader, ContentAead, FileEntry, FileGroupKind,
-    HEADER_OFFSET_SIZE, LogicalHeader, MetadataType, TocChange, ValidatedHeader,
+    BLOCK_FLAG_ENCRYPTED, BlockFrame, CommitValidationLimits, ContainerHeader, ContentAead,
+    FileEntry, FileGroupKind, HEADER_OFFSET_SIZE, LogicalHeader, MetadataType, TocChange,
+    ValidatedHeader,
 };
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::File;
-use std::io::{Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct HeaderCompressionStats {
@@ -23,10 +24,28 @@ pub struct CommitInfo {
     pub uncompressed_size: Option<u64>,
     pub ratio_percent: Option<f64>,
     pub header_compression: Option<HeaderCompressionStats>,
+    pub header_changes: Option<HeaderChangeStats>,
+    pub created_unix_millis: Option<i64>,
+    pub user: Option<String>,
     pub details: Option<CommitFileStats>,
     pub header_encrypted: bool,
     pub data_encrypted: bool,
     pub encryption_algorithm: Option<ContentAead>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlockInfo {
+    pub index: u32,
+    pub compressed_size: u64,
+    pub ratio_percent: Option<f64>,
+    pub file_count: u64,
+    pub file_groups: Vec<&'static str>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommitInfoWithBlocks {
+    pub commit: CommitInfo,
+    pub blocks: Vec<BlockInfo>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -40,12 +59,24 @@ pub struct FileGroupStats {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CommitFileStats {
     pub groups: BTreeMap<&'static str, FileGroupStats>,
+    pub header_changes: HeaderChangeStats,
     pub deduplicated_files: u64,
     pub deduplicated_uncompressed_size: u64,
     pub symlinks: u64,
     pub named_pipes: u64,
     pub devices: u64,
     pub entry_metadata: EntryMetadataStats,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HeaderChangeStats {
+    pub files_added_or_updated: u64,
+    pub directories_added_or_updated: u64,
+    pub symlinks_added_or_updated: u64,
+    pub named_pipes_added_or_updated: u64,
+    pub devices_added_or_updated: u64,
+    pub files_removed: u64,
+    pub directories_removed: u64,
 }
 
 /// Number of entries in a commit header that carry each kind of saved metadata.
@@ -61,16 +92,36 @@ pub fn info_archive(
     path: &str,
     verbose: bool,
 ) -> Result<Vec<CommitInfo>, Box<dyn std::error::Error>> {
+    Ok(read_archive_info(path, verbose, false)?
+        .into_iter()
+        .map(|details| details.commit)
+        .collect())
+}
+
+/// Like [`info_archive`], with per-block compression details when `verbose` is true.
+pub fn info_archive_with_blocks(
+    path: &str,
+    verbose: bool,
+) -> Result<Vec<CommitInfoWithBlocks>, Box<dyn std::error::Error>> {
+    read_archive_info(path, verbose, true)
+}
+
+fn read_archive_info(
+    path: &str,
+    verbose: bool,
+    include_block_details: bool,
+) -> Result<Vec<CommitInfoWithBlocks>, Box<dyn std::error::Error>> {
     let mut file = File::open(path)?;
     let container = ContainerHeader::read_from(&mut file)?;
     let limits = CommitValidationLimits::default();
-    let mut commits = Vec::<CommitInfo>::new();
+    let mut commits = Vec::<CommitInfoWithBlocks>::new();
     let mut header_offset = container.first_header_offset;
     while header_offset != 0 {
         let (commit_header, data_start, next_header_offset) =
             read_commit_at_offset(&mut file, header_offset, limits)?;
         let mut details = None;
         let mut header_compression = None;
+        let mut blocks = Vec::new();
         let commit_size = header_offset
             .checked_add(u64::from(commit_header.header_frame_size))
             .and_then(|size| size.checked_add(HEADER_OFFSET_SIZE))
@@ -85,6 +136,26 @@ pub fn info_archive(
             .map(uncompressed_commit_size)
             .transpose()?;
         let header_encrypted = validated.logical_header.is_none();
+        let header_changes = validated
+            .logical_header
+            .as_ref()
+            .map(summarize_header_changes);
+        let created_unix_millis = validated
+            .logical_header
+            .as_ref()
+            .and_then(|header| header.metadata.get(COMMIT_CREATED_KEY))
+            .and_then(|value| match value {
+                MetadataType::I64(value) => Some(*value),
+                _ => None,
+            });
+        let user = validated
+            .logical_header
+            .as_ref()
+            .and_then(|header| header.metadata.get(COMMIT_USER_KEY))
+            .and_then(|value| match value {
+                MetadataType::String(value) => Some(value.clone()),
+                _ => None,
+            });
         let data_encrypted = validated.encryption.is_data_encrypted();
         let content_algorithm = encryption_algorithm(&validated.encryption);
         let ratio_percent = uncompressed_size.map(|size| {
@@ -106,33 +177,57 @@ pub fn info_archive(
                     }
                 }),
             });
-            if let Some(header) = validated.logical_header.as_ref() {
+        }
+        if verbose {
+            let logical_header = validated.logical_header.as_ref();
+            if include_block_details {
+                blocks = scan_commit_blocks(
+                    &mut file,
+                    data_start,
+                    commit_header.data_section_size,
+                    logical_header,
+                    limits,
+                )?;
+            }
+            if let Some(header) = logical_header {
                 details = Some(if has_stored_group_sizes(header) {
                     summarize_commit_header_only(header, None)?
                 } else {
-                    // Archives written before group sizes were stored in the header.
-                    let block_sizes = scan_block_sizes(
-                        &mut file,
-                        data_start,
-                        commit_header.data_section_size,
-                        limits,
-                    )?;
+                    let block_sizes = if include_block_details {
+                        blocks
+                            .iter()
+                            .map(|block| (block.index, block.compressed_size))
+                            .collect::<HashMap<_, _>>()
+                    } else {
+                        scan_block_sizes(
+                            &mut file,
+                            data_start,
+                            commit_header.data_section_size,
+                            limits,
+                        )?
+                    };
                     summarize_commit_header_only(header, Some(&block_sizes))?
                 });
             }
         }
-        commits.push(CommitInfo {
-            id: commit_header.commit_id,
-            size: commit_size,
-            header_size: commit_header.header_frame_size,
-            data_size: commit_header.data_section_size,
-            uncompressed_size,
-            ratio_percent,
-            header_compression,
-            details,
-            header_encrypted,
-            data_encrypted,
-            encryption_algorithm: content_algorithm,
+        commits.push(CommitInfoWithBlocks {
+            commit: CommitInfo {
+                id: commit_header.commit_id,
+                size: commit_size,
+                header_size: commit_header.header_frame_size,
+                data_size: commit_header.data_section_size,
+                uncompressed_size,
+                ratio_percent,
+                header_compression,
+                header_changes,
+                created_unix_millis,
+                user,
+                details,
+                header_encrypted,
+                data_encrypted,
+                encryption_algorithm: content_algorithm,
+            },
+            blocks,
         });
         header_offset = next_header_offset;
     }
@@ -191,6 +286,83 @@ pub fn group_size_metadata(
         .collect()
 }
 
+fn scan_commit_blocks(
+    file: &mut File,
+    data_start: u64,
+    data_section_size: u64,
+    header: Option<&LogicalHeader>,
+    limits: CommitValidationLimits,
+) -> Result<Vec<BlockInfo>, Box<dyn std::error::Error>> {
+    let mut groups_by_block = HashMap::<u32, BTreeSet<&'static str>>::new();
+    let mut files_by_block = HashMap::<u32, u64>::new();
+    if let Some(header) = header {
+        for change in &header.changes {
+            if let TocChange::PutFile { entry, .. } = change {
+                let group = file_group_name(header, entry);
+                for &index in &entry.block_indices {
+                    groups_by_block.entry(index).or_default().insert(group);
+                    let count = files_by_block.entry(index).or_default();
+                    *count = count.checked_add(1).ok_or("block file count overflow")?;
+                }
+            }
+        }
+    }
+
+    let mut blocks = Vec::new();
+    let mut remaining = data_section_size;
+    file.seek(SeekFrom::Start(data_start))?;
+    while remaining > 0 {
+        if blocks.len() as u64 >= limits.max_blocks {
+            return Err(crate::FramingError::InvalidSize.into());
+        }
+        let (frame, consumed) = {
+            let mut limited_data = file.take(remaining);
+            let frame = BlockFrame::read_from(&mut limited_data, limits.max_frame_payload_size)?;
+            let consumed = remaining - limited_data.limit();
+            if consumed == 0 || frame.encoded_size()? as u64 != consumed {
+                return Err(crate::FramingError::InvalidSize.into());
+            }
+            (frame, consumed)
+        };
+        remaining -= consumed;
+        let uncompressed_size = if frame.flags & BLOCK_FLAG_ENCRYPTED == 0 {
+            Some(
+                u64::try_from(
+                    frame
+                        .uncompressed_at_most(limits.max_uncompressed_block_size)?
+                        .len(),
+                )
+                .map_err(|_| "block uncompressed size overflow")?,
+            )
+        } else {
+            None
+        };
+        let compressed_size =
+            u64::try_from(frame.payload.len()).map_err(|_| "block compressed size overflow")?;
+        let ratio_percent = uncompressed_size.map(|size| {
+            if size == 0 {
+                0.0
+            } else {
+                compressed_size as f64 * 100.0 / size as f64
+            }
+        });
+        blocks.push(BlockInfo {
+            index: frame.block_index,
+            compressed_size,
+            ratio_percent,
+            file_count: files_by_block
+                .remove(&frame.block_index)
+                .unwrap_or_default(),
+            file_groups: groups_by_block
+                .remove(&frame.block_index)
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+        });
+    }
+    Ok(blocks)
+}
+
 fn scan_block_sizes(
     file: &mut File,
     data_start: u64,
@@ -227,6 +399,8 @@ pub fn summarize_commit_header_only(
 ) -> Result<CommitFileStats, Box<dyn std::error::Error>> {
     let mut stats = CommitFileStats::default();
     let mut seen_files = std::collections::HashSet::new();
+    let mut counted_blocks = std::collections::HashSet::new();
+    stats.header_changes = summarize_header_changes(header);
     for entry in &header.entry_metadata {
         let counts = &mut stats.entry_metadata;
         counts.owner += u64::from(entry.owner.is_some());
@@ -254,8 +428,12 @@ pub fn summarize_commit_header_only(
         let name = file_group_name(header, entry);
         let group = stats.groups.entry(name).or_default();
         group.files += 1;
-        let is_duplicate =
-            entry.size > 0 && !seen_files.insert((entry.size, entry.block_indices.as_slice()));
+        let is_duplicate = entry.size > 0
+            && !seen_files.insert((
+                entry.size,
+                entry.block_indices.as_slice(),
+                entry.offset_in_block,
+            ));
         if is_duplicate {
             stats.deduplicated_files += 1;
             stats.deduplicated_uncompressed_size = stats
@@ -269,10 +447,12 @@ pub fn summarize_commit_header_only(
                 .ok_or("uncompressed group size overflow")?;
             if let Some(block_sizes) = block_sizes {
                 for index in &entry.block_indices {
-                    group.compressed_size = group
-                        .compressed_size
-                        .checked_add(*block_sizes.get(index).ok_or("missing block frame size")?)
-                        .ok_or("compressed group size overflow")?;
+                    if counted_blocks.insert((name, *index)) {
+                        group.compressed_size = group
+                            .compressed_size
+                            .checked_add(*block_sizes.get(index).ok_or("missing block frame size")?)
+                            .ok_or("compressed group size overflow")?;
+                    }
                 }
             }
         }
@@ -283,6 +463,26 @@ pub fn summarize_commit_header_only(
         }
     }
     Ok(stats)
+}
+
+fn summarize_header_changes(header: &LogicalHeader) -> HeaderChangeStats {
+    let mut stats = HeaderChangeStats::default();
+    for change in &header.changes {
+        record_header_change(&mut stats, change);
+    }
+    stats
+}
+
+fn record_header_change(stats: &mut HeaderChangeStats, change: &TocChange) {
+    match change {
+        TocChange::PutFile { .. } => stats.files_added_or_updated += 1,
+        TocChange::PutDirectory { .. } => stats.directories_added_or_updated += 1,
+        TocChange::PutSymlink { .. } => stats.symlinks_added_or_updated += 1,
+        TocChange::PutNamedPipe { .. } => stats.named_pipes_added_or_updated += 1,
+        TocChange::PutDevice { .. } => stats.devices_added_or_updated += 1,
+        TocChange::RemoveFile { .. } => stats.files_removed += 1,
+        TocChange::RemoveDirectory { .. } => stats.directories_removed += 1,
+    }
 }
 
 pub fn file_group_name(header: &LogicalHeader, entry: &FileEntry) -> &'static str {
@@ -307,6 +507,8 @@ pub fn summarize_commit_files(
 ) -> Result<CommitFileStats, Box<dyn std::error::Error>> {
     let mut stats = CommitFileStats::default();
     let mut seen_files = std::collections::HashSet::new();
+    let mut counted_blocks = std::collections::HashSet::new();
+    stats.header_changes = summarize_header_changes(header);
     for change in &header.changes {
         let entry = match change {
             TocChange::PutFile { entry, .. } => entry,
@@ -339,8 +541,12 @@ pub fn summarize_commit_files(
         };
         let group = stats.groups.entry(group_name).or_default();
         group.files += 1;
-        let is_duplicate =
-            entry.size > 0 && !seen_files.insert((entry.size, entry.block_indices.clone()));
+        let is_duplicate = entry.size > 0
+            && !seen_files.insert((
+                entry.size,
+                entry.block_indices.clone(),
+                entry.offset_in_block,
+            ));
         if is_duplicate {
             stats.deduplicated_files += 1;
             stats.deduplicated_uncompressed_size = stats
@@ -348,22 +554,22 @@ pub fn summarize_commit_files(
                 .checked_add(entry.size)
                 .ok_or("deduplicated size overflow")?;
         } else {
+            group.uncompressed_size = group
+                .uncompressed_size
+                .checked_add(entry.size)
+                .ok_or("uncompressed group size overflow")?;
             for index in &entry.block_indices {
                 let (compressed_size, uncompressed_size) = blocks
                     .get(index)
                     .ok_or_else(|| format!("file entry references unavailable block {index}"))?;
-                group.compressed_size = group
-                    .compressed_size
-                    .checked_add(*compressed_size)
-                    .ok_or("compressed group size overflow")?;
-                match uncompressed_size {
-                    Some(size) => {
-                        group.uncompressed_size = group
-                            .uncompressed_size
-                            .checked_add(*size)
-                            .ok_or("uncompressed group size overflow")?;
+                if counted_blocks.insert((group_name, *index)) {
+                    group.compressed_size = group
+                        .compressed_size
+                        .checked_add(*compressed_size)
+                        .ok_or("compressed group size overflow")?;
+                    if uncompressed_size.is_none() {
+                        group.has_encrypted_blocks = true;
                     }
-                    None => group.has_encrypted_blocks = true,
                 }
             }
         }

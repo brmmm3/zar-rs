@@ -6,7 +6,7 @@ const string Usage = """
       create|c ARCHIVE PATH...
       add|a ARCHIVE PATH...
       remove|r ARCHIVE ARCHIVE_PATH...
-      join|j ARCHIVE --from ID --through ID
+      join|j ARCHIVE --from ID --to ID
       undo|u ARCHIVE COMMITS
       check|k ARCHIVE
       info|i ARCHIVE
@@ -59,13 +59,13 @@ switch (operation)
         request["paths"] = rest;
         break;
     case "join_archive":
-        if (rest.Length != 4 || rest[0] != "--from" || rest[2] != "--through")
+        if (rest.Length != 4 || rest[0] != "--from" || rest[2] != "--to")
         {
             Console.Error.WriteLine(Usage);
             return 2;
         }
         request["from_id"] = rest[1];
-        request["through_id"] = rest[3];
+        request["to_id"] = rest[3];
         break;
     case "undo_archive":
         if (rest.Length != 1 || !uint.TryParse(rest[0], out var commits))

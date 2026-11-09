@@ -99,7 +99,7 @@ static void usage(const char *program) {
             "  create|c ARCHIVE PATH...\n"
             "  add|a ARCHIVE PATH...\n"
             "  remove|r ARCHIVE ARCHIVE_PATH...\n"
-            "  join|j ARCHIVE --from ID --through ID\n"
+            "  join|j ARCHIVE --from ID --to ID\n"
             "  undo|u ARCHIVE COMMITS\n"
             "  check|k ARCHIVE\n"
             "  info|i ARCHIVE\n"
@@ -142,14 +142,14 @@ int main(int argc, char **argv) {
         }
         if (!append_text(&request, "]")) valid = 0;
     } else if (!strcmp(operation, "join_archive")) {
-        if (argc != 7 || strcmp(argv[3], "--from") || strcmp(argv[5], "--through")) {
+        if (argc != 7 || strcmp(argv[3], "--from") || strcmp(argv[5], "--to")) {
             free(request.data);
             usage(argv[0]);
             return 2;
         }
         valid = valid && append_text(&request, ",\"from_id\":") &&
                 append_json_string(&request, argv[4]) &&
-                append_text(&request, ",\"through_id\":") &&
+                append_text(&request, ",\"to_id\":") &&
                 append_json_string(&request, argv[6]);
     } else if (!strcmp(operation, "undo_archive")) {
         char *end = NULL;

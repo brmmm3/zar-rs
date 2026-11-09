@@ -65,7 +65,7 @@ void usage(const char *program) {
               << "  create|c ARCHIVE PATH...\n"
               << "  add|a ARCHIVE PATH...\n"
               << "  remove|r ARCHIVE ARCHIVE_PATH...\n"
-              << "  join|j ARCHIVE --from ID --through ID\n"
+              << "  join|j ARCHIVE --from ID --to ID\n"
               << "  undo|u ARCHIVE COMMITS\n"
               << "  check|k ARCHIVE\n"
               << "  info|i ARCHIVE\n"
@@ -116,12 +116,12 @@ int main(int argc, char **argv) {
         }
     } else if (operation == "join_archive") {
         if (argc != 7 || std::string(argv[3]) != "--from" ||
-            std::string(argv[5]) != "--through") {
+            std::string(argv[5]) != "--to") {
             usage(argv[0]);
             return 2;
         }
         request += ",\"from_id\":" + json_quote(argv[4]) +
-                   ",\"through_id\":" + json_quote(argv[6]);
+                   ",\"to_id\":" + json_quote(argv[6]);
     } else if (operation == "extract_archive") {
         std::string destination = "restored";
         bool dry_run = false;

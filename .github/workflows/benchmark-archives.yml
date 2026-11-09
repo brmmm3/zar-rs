@@ -2,16 +2,6 @@ name: Archive benchmarks
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - master
-    paths:
-      - ".github/workflows/benchmark-archives.yml"
-      - "scripts/benchmark_archivers.py"
-      - "zarc/**"
-      - "zarlib/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
 
 permissions:
   contents: read

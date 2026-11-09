@@ -215,6 +215,7 @@ fn create_archive<'py>(
                     input: CreateInputOptions {
                         save_metadata,
                         save_dates,
+                        save_user: false,
                         include_special_files,
                         overwrite_existing: overwrite,
                         verbose,
@@ -302,6 +303,7 @@ fn add_archive<'py>(
             AddInputOptions {
                 save_metadata,
                 save_dates,
+                save_user: false,
                 include_special_files,
                 strict,
                 verbose,
@@ -336,7 +338,7 @@ fn undo_archive(py: Python<'_>, archive: PathBuf, commits: usize) -> PyResult<()
 #[pyo3(signature = (
     archive,
     from_id,
-    through_id,
+    to_id,
     *,
     block_size = 8388608,
     compression_level = 3
@@ -345,7 +347,7 @@ fn join_archive(
     py: Python<'_>,
     archive: PathBuf,
     from_id: String,
-    through_id: String,
+    to_id: String,
     block_size: usize,
     compression_level: i32,
 ) -> PyResult<Bound<'_, PyDict>> {
@@ -356,7 +358,7 @@ fn join_archive(
         operations::join_archive_with_encoding_progress(
             &archive,
             &from_id,
-            &through_id,
+            &to_id,
             options,
             Some(&warnings),
         )
@@ -366,6 +368,99 @@ fn join_archive(
     let result = PyDict::new(py);
     result.set_item("warnings", warnings.take())?;
     Ok(result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (
+    archive,
+    from_id,
+    to_id,
+    new_password,
+    *,
+    output = None,
+    aead = "aes-256-gcm",
+    encryption_scope = "header-and-data",
+    password = None,
+    passwords = None,
+    strict = false
+))]
+#[allow(clippy::too_many_arguments)]
+fn encrypt_archive_commits(
+    py: Python<'_>,
+    archive: PathBuf,
+    from_id: String,
+    to_id: String,
+    new_password: Vec<u8>,
+    output: Option<PathBuf>,
+    aead: &str,
+    encryption_scope: &str,
+    password: Option<Vec<u8>>,
+    passwords: Option<HashMap<String, Vec<u8>>>,
+    strict: bool,
+) -> PyResult<()> {
+    let archive = archive_string(archive)?;
+    let output = output.map(archive_string).transpose()?;
+    let aead = content_aead(aead)?;
+    let scope = parse_encryption_scope(encryption_scope)?;
+    let passwords = password_set(password, passwords)?;
+    py.detach(move || {
+        operations::encrypt_archive_commits(
+            &archive,
+            operations::CommitRangeOptions {
+                from_id: &from_id,
+                to_id: &to_id,
+                output: output.as_deref(),
+                passwords: &passwords,
+                strict,
+            },
+            &new_password,
+            aead,
+            scope,
+        )
+        .map_err(|error| error.to_string())
+    })
+    .map_err(runtime_error)
+}
+
+#[pyfunction]
+#[pyo3(signature = (
+    archive,
+    from_id,
+    to_id,
+    *,
+    output = None,
+    password = None,
+    passwords = None,
+    strict = false
+))]
+#[allow(clippy::too_many_arguments)]
+fn decrypt_archive_commits(
+    py: Python<'_>,
+    archive: PathBuf,
+    from_id: String,
+    to_id: String,
+    output: Option<PathBuf>,
+    password: Option<Vec<u8>>,
+    passwords: Option<HashMap<String, Vec<u8>>>,
+    strict: bool,
+) -> PyResult<()> {
+    let archive = archive_string(archive)?;
+    let output = output.map(archive_string).transpose()?;
+    let passwords = password_set(password, passwords)?;
+    py.detach(move || {
+        operations::decrypt_archive_commits(
+            &archive,
+            operations::CommitRangeOptions {
+                from_id: &from_id,
+                to_id: &to_id,
+                output: output.as_deref(),
+                passwords: &passwords,
+                strict,
+            },
+        )
+        .map_err(|error| error.to_string())
+    })
+    .map_err(runtime_error)
 }
 
 #[pyfunction]
@@ -403,11 +498,11 @@ fn info_archive(py: Python<'_>, archive: PathBuf, verbose: bool) -> PyResult<Bou
 }
 
 #[pyfunction]
-#[pyo3(signature = (archive, *, through = None, password = None, passwords = None))]
+#[pyo3(signature = (archive, *, to = None, password = None, passwords = None))]
 fn list_archive(
     py: Python<'_>,
     archive: PathBuf,
-    through: Option<String>,
+    to: Option<String>,
     password: Option<Vec<u8>>,
     passwords: Option<HashMap<String, Vec<u8>>>,
 ) -> PyResult<Bound<'_, PyList>> {
@@ -415,7 +510,7 @@ fn list_archive(
     let passwords = password_set(password, passwords)?;
     let toc = py
         .detach(|| {
-            operations::list_archive_with_passwords(&archive, through.as_deref(), &passwords)
+            operations::list_archive_with_passwords(&archive, to.as_deref(), &passwords)
                 .map_err(|error| error.to_string())
         })
         .map_err(runtime_error)?;
@@ -428,7 +523,7 @@ fn list_archive(
     destination,
     *,
     dry_run = false,
-    through = None,
+    to = None,
     password = None,
     passwords = None,
     collision = "rename",
@@ -447,7 +542,7 @@ fn extract_archive<'py>(
     archive: PathBuf,
     destination: PathBuf,
     dry_run: bool,
-    through: Option<String>,
+    to: Option<String>,
     password: Option<Vec<u8>>,
     passwords: Option<HashMap<String, Vec<u8>>>,
     collision: &str,
@@ -477,7 +572,7 @@ fn extract_archive<'py>(
                 &destination,
                 ExtractionOptions {
                     dry_run,
-                    through: through.as_deref(),
+                    to: to.as_deref(),
                     collision_policy,
                     existing_policy,
                     restore_metadata,
@@ -537,7 +632,7 @@ fn extract_archive<'py>(
 #[pyo3(signature = (
     archive,
     *,
-    through = None,
+    to = None,
     password = None,
     passwords = None,
     size_limit = None,
@@ -551,7 +646,7 @@ fn extract_archive<'py>(
 fn extract_archive_to_memory(
     py: Python<'_>,
     archive: PathBuf,
-    through: Option<String>,
+    to: Option<String>,
     password: Option<Vec<u8>>,
     passwords: Option<HashMap<String, Vec<u8>>>,
     size_limit: Option<u64>,
@@ -573,7 +668,7 @@ fn extract_archive_to_memory(
         .detach(|| {
             operations::extract_archive_to_memory_with_passwords_and_filters(
                 &archive,
-                through.as_deref(),
+                to.as_deref(),
                 &passwords,
                 size_limit,
                 offset,
@@ -702,6 +797,8 @@ fn _pyzarlib(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(remove_archive, module)?)?;
     module.add_function(wrap_pyfunction!(undo_archive, module)?)?;
     module.add_function(wrap_pyfunction!(join_archive, module)?)?;
+    module.add_function(wrap_pyfunction!(encrypt_archive_commits, module)?)?;
+    module.add_function(wrap_pyfunction!(decrypt_archive_commits, module)?)?;
     module.add_function(wrap_pyfunction!(check_archive, module)?)?;
     module.add_function(wrap_pyfunction!(info_archive, module)?)?;
     module.add_function(wrap_pyfunction!(list_archive, module)?)?;
