@@ -35,7 +35,9 @@ class JobFailure(Exception):
     pass
 
 
-def command(args: list[str], cwd: Path = ROOT, env: dict[str, str] | None = None) -> None:
+def command(
+    args: list[str], cwd: Path = ROOT, env: dict[str, str] | None = None
+) -> None:
     print("+", subprocess.list2cmdline(args), flush=True)
     subprocess.run(args, cwd=cwd, env=env, check=True)
 
@@ -80,7 +82,11 @@ def host_arch() -> str:
 
 def python_identity(executable: str) -> str:
     result = subprocess.run(
-        [executable, "-c", "import sys,sysconfig; print(f'{sys.version_info.major}.{sys.version_info.minor}' + ('t' if sysconfig.get_config_var('Py_GIL_DISABLED') else ''))"],
+        [
+            executable,
+            "-c",
+            "import sys,sysconfig; print(f'{sys.version_info.major}.{sys.version_info.minor}' + ('t' if sysconfig.get_config_var('Py_GIL_DISABLED') else ''))",
+        ],
         text=True,
         capture_output=True,
         check=True,
@@ -88,7 +94,9 @@ def python_identity(executable: str) -> str:
     return result.stdout.strip()
 
 
-def find_python(version: str, overrides: dict[str, str]) -> str:
+def find_python(
+    version: str, overrides: dict[str, str], require_pytest: bool = False
+) -> str:
     candidates = []
     if version in overrides:
         candidates.append(overrides[version])
@@ -103,17 +111,28 @@ def find_python(version: str, overrides: dict[str, str]) -> str:
             candidates.extend(
                 str(path / "bin" / "python")
                 for path in sorted(pyenv.iterdir(), reverse=True)
-                if path.name.startswith(prefix) and path.name.endswith(suffix)
+                if path.name.startswith(prefix)
+                and path.name.endswith(suffix)
                 and (suffix or not path.name.endswith("t"))
                 and (path / "bin" / "python").is_file()
             )
     for candidate in candidates:
         try:
             if python_identity(candidate) == version:
+                if require_pytest:
+                    subprocess.run(
+                        [candidate, "-c", "import pytest"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=True,
+                    )
                 return candidate
         except (OSError, subprocess.CalledProcessError):
             continue
-    raise JobFailure(f"Python {version} not found; supply --python {version}=/path/to/python")
+    requirement = " with pytest" if require_pytest else ""
+    raise JobFailure(
+        f"Python {version}{requirement} not found; supply --python {version}=/path/to/python"
+    )
 
 
 def c_tests() -> None:
@@ -123,19 +142,42 @@ def c_tests() -> None:
     with tempfile.TemporaryDirectory(prefix="zar-ci-c-") as temp:
         tmp = Path(temp)
         library = ROOT / "target/debug"
-        common = ["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", "czarlib/include"]
+        common = [
+            "cc",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-I",
+            "czarlib/include",
+        ]
         link = ["-L", str(library), "-lczarlib", f"-Wl,-rpath,{library}"]
         api = tmp / "czarlib-test"
         example = tmp / "zarc-c"
-        command(common + ["czarlib/tests/test_c_api.c"] + link + ["-pthread", "-o", str(api)])
+        command(
+            common
+            + ["czarlib/tests/test_c_api.c"]
+            + link
+            + ["-pthread", "-o", str(api)]
+        )
         command([str(api)])
         command(common + ["czarlib/examples/zarc.c"] + link + ["-o", str(example)])
         command([str(example), "--help"])
         (tmp / "input.txt").write_text("initial", encoding="utf-8")
         (tmp / "added.txt").write_text("added", encoding="utf-8")
-        for args in (["c", "sample.zar", "input.txt"], ["a", "sample.zar", "added.txt"], ["k", "sample.zar"]):
+        for args in (
+            ["c", "sample.zar", "input.txt"],
+            ["a", "sample.zar", "added.txt"],
+            ["k", "sample.zar"],
+        ):
             command([str(example)] + args, cwd=tmp)
-        info = subprocess.run([str(example), "i", "sample.zar"], cwd=tmp, text=True, capture_output=True, check=True)
+        info = subprocess.run(
+            [str(example), "i", "sample.zar"],
+            cwd=tmp,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
         print(info.stdout, end="")
         commits = json.loads(info.stdout)
         if len(commits) < 2 or not commits[0].get("id") or not commits[1].get("id"):
@@ -152,11 +194,30 @@ def c_tests() -> None:
 def wasi() -> None:
     require("cargo")
     require("npm")
+    require("clang")
+    if not Path("/usr/include/wasm32-wasi").is_dir():
+        raise JobFailure(
+            "WASI sysroot /usr/include/wasm32-wasi is missing; install wasi-libc"
+        )
     if not (ROOT / "wasizarlib/nodejs/node_modules").is_dir():
-        raise JobFailure("wasizarlib/nodejs/node_modules is missing; install with npm ci --include=optional")
+        raise JobFailure(
+            "wasizarlib/nodejs/node_modules is missing; install with npm ci --include=optional"
+        )
     env = os.environ.copy()
     env["CFLAGS_wasm32_wasip2"] = "-isystem /usr/include/wasm32-wasi"
-    command(["cargo", "build", "--release", "--locked", "-p", "wasizarlib", "--target", "wasm32-wasip2"], env=env)
+    command(
+        [
+            "cargo",
+            "build",
+            "--release",
+            "--locked",
+            "-p",
+            "wasizarlib",
+            "--target",
+            "wasm32-wasip2",
+        ],
+        env=env,
+    )
     node = ROOT / "wasizarlib/nodejs"
     command(["npm", "run", "build:js"], cwd=node)
     command(["npm", "test"], cwd=node)
@@ -172,7 +233,7 @@ def wasi() -> None:
 
 
 def python_tests(version: str, overrides: dict[str, str]) -> None:
-    interpreter = find_python(version, overrides)
+    interpreter = find_python(version, overrides, require_pytest=True)
     maturin = require("maturin")
     command([interpreter, "-c", "import pytest"])
     with tempfile.TemporaryDirectory(prefix="zar-ci-python-") as temp:
@@ -180,7 +241,11 @@ def python_tests(version: str, overrides: dict[str, str]) -> None:
         command([interpreter, "-m", "venv", "--system-site-packages", str(venv)])
         env = os.environ.copy()
         env["VIRTUAL_ENV"] = str(venv)
-        env["PATH"] = str(venv / ("Scripts" if os.name == "nt" else "bin")) + os.pathsep + env["PATH"]
+        env["PATH"] = (
+            str(venv / ("Scripts" if os.name == "nt" else "bin"))
+            + os.pathsep
+            + env["PATH"]
+        )
         if version.endswith("t"):
             env["PYTHON_GIL"] = "0"
         vpython = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
@@ -201,20 +266,52 @@ def java_bindings(module: str, system: str) -> None:
                 raise JobFailure("JAVA_HOME is required for the Windows JNI build")
             native = ROOT / "jzarlib-jni/target/native"
             native.mkdir(parents=True, exist_ok=True)
-            command(["cl", "/nologo", "/O2", "/W4", "/WX", "/LD", f"/I{home}/include", f"/I{home}/include/win32", f"/I{ROOT}/czarlib/include", str(ROOT / "jzarlib-jni/src/main/c/jzarlib_jni.c"), str(ROOT / "target/debug/czarlib.dll.lib"), "/link", f"/OUT:{native / 'zarlib_jni.dll'}"])
+            command(
+                [
+                    "cl",
+                    "/nologo",
+                    "/O2",
+                    "/W4",
+                    "/WX",
+                    "/LD",
+                    f"/I{home}/include",
+                    f"/I{home}/include/win32",
+                    f"/I{ROOT}/czarlib/include",
+                    str(ROOT / "jzarlib-jni/src/main/c/jzarlib_jni.c"),
+                    str(ROOT / "target/debug/czarlib.dll.lib"),
+                    "/link",
+                    f"/OUT:{native / 'zarlib_jni.dll'}",
+                ]
+            )
             copy_required(ROOT / "target/debug/czarlib.dll", native)
             env["PATH"] = str(native) + os.pathsep + env["PATH"]
         else:
             command(["sh", "./jzarlib-jni/build-native.sh"])
-    command(["mvn", "--batch-mode", "--no-transfer-progress", "verify"], cwd=ROOT / module, env=env)
+    command(
+        ["mvn", "--batch-mode", "--no-transfer-progress", "verify"],
+        cwd=ROOT / module,
+        env=env,
+    )
     with tempfile.TemporaryDirectory(prefix="zar-ci-java-") as temp:
-        runner = {"Linux": "ubuntu-latest", "Darwin": "macos-latest", "Windows": "windows-latest"}[system]
+        runner = {
+            "Linux": "ubuntu-latest",
+            "Darwin": "macos-latest",
+            "Windows": "windows-latest",
+        }[system]
         stage = Path(temp) / f"{module}-{runner}"
         copy_required(one_file(ROOT / module / "target", f"{module}-*.jar"), stage)
-        lib = {"Linux": "libczarlib.so", "Darwin": "libczarlib.dylib", "Windows": "czarlib.dll"}[system]
+        lib = {
+            "Linux": "libczarlib.so",
+            "Darwin": "libczarlib.dylib",
+            "Windows": "czarlib.dll",
+        }[system]
         copy_required(ROOT / "target/debug" / lib, stage)
         if module == "jzarlib-jni":
-            jni = {"Linux": "libzarlib_jni.so", "Darwin": "libzarlib_jni.dylib", "Windows": "zarlib_jni.dll"}[system]
+            jni = {
+                "Linux": "libzarlib_jni.so",
+                "Darwin": "libzarlib_jni.dylib",
+                "Windows": "zarlib_jni.dll",
+            }[system]
             copy_required(ROOT / module / "target/native" / jni, stage)
         DIST.mkdir(parents=True, exist_ok=True)
         copy_required(one_file(stage, "*.jar"), DIST / stage.name)
@@ -231,22 +328,49 @@ def binaries(name: str, target: str, static: bool, windows: bool) -> None:
         require("musl-gcc")
         env["RUSTFLAGS"] = "-C target-feature=+crt-static"
         env[f"CARGO_TARGET_{target.upper().replace('-', '_')}_LINKER"] = "musl-gcc"
-    command(["cargo", "build", "--release", "--bins", "--locked", "--target", target], env=env)
+    command(
+        ["cargo", "build", "--release", "--bins", "--locked", "--target", target],
+        env=env,
+    )
     with tempfile.TemporaryDirectory(prefix="zar-ci-binaries-") as temp:
         stage = Path(temp) / f"zar-rs-{name}"
         for binary in ("zarc", "zarg"):
-            copy_required(ROOT / "target" / target / "release" / (binary + (".exe" if windows else "")), stage)
-        archive_directory(stage, DIST / f"{stage.name}.{'zip' if windows else 'tar.gz'}", windows)
+            copy_required(
+                ROOT
+                / "target"
+                / target
+                / "release"
+                / (binary + (".exe" if windows else "")),
+                stage,
+            )
+        archive_directory(
+            stage, DIST / f"{stage.name}.{'zip' if windows else 'tar.gz'}", windows
+        )
 
 
 def windows_nuget(arch: str, target: str) -> None:
     require("dotnet")
-    command(["cargo", "build", "--locked", "--release", "-p", "czarlib", "--target", target])
+    command(
+        ["cargo", "build", "--locked", "--release", "-p", "czarlib", "--target", target]
+    )
     native = ROOT / "target" / target / "release/czarlib.dll"
     if not native.is_file():
         raise JobFailure(f"expected native library not found: {native}")
     with tempfile.TemporaryDirectory(prefix="zar-ci-nuget-") as temp:
-        command(["dotnet", "pack", "csharpzarlib/ZarLib/ZarLib.csproj", "--configuration", "Release", "--output", temp, f"-p:PackageId=ZarLib.{arch}", f"-p:RuntimeIdentifier=win-{arch}", f"-p:NativeLibraryPath={native}"])
+        command(
+            [
+                "dotnet",
+                "pack",
+                "csharpzarlib/ZarLib/ZarLib.csproj",
+                "--configuration",
+                "Release",
+                "--output",
+                temp,
+                f"-p:PackageId=ZarLib.{arch}",
+                f"-p:RuntimeIdentifier=win-{arch}",
+                f"-p:NativeLibraryPath={native}",
+            ]
+        )
         copy_required(one_file(Path(temp), "*.nupkg"), DIST)
 
 
@@ -254,10 +378,16 @@ def wheels(overrides: dict[str, str]) -> None:
     maturin = require("maturin")
     interpreters = [find_python(version, overrides) for version in WHEEL_VERSIONS]
     with tempfile.TemporaryDirectory(prefix="zar-ci-wheels-") as temp:
-        command([maturin, "build", "--release", "--out", temp, "--interpreter"] + interpreters, cwd=ROOT / "pyzarlib")
+        command(
+            [maturin, "build", "--release", "--out", temp, "--interpreter"]
+            + interpreters,
+            cwd=ROOT / "pyzarlib",
+        )
         files = list(Path(temp).glob("*.whl"))
         if len(files) < len(WHEEL_VERSIONS):
-            raise JobFailure(f"expected at least {len(WHEEL_VERSIONS)} wheels, found {len(files)}")
+            raise JobFailure(
+                f"expected at least {len(WHEEL_VERSIONS)} wheels, found {len(files)}"
+            )
         for wheel in files:
             copy_required(wheel, DIST)
 
@@ -278,14 +408,23 @@ class Runner:
         print(f"\nSKIP {name}: {reason}", flush=True)
 
     def run(self, name: str, action, needs: tuple[str, ...] = ()) -> None:
-        failed = [need for need in needs if self.results.get(need, ("MISSING", ""))[0] != "PASS"]
+        failed = [
+            need
+            for need in needs
+            if self.results.get(need, ("MISSING", ""))[0] != "PASS"
+        ]
         if failed:
             self.skip(name, "prerequisite job did not pass: " + ", ".join(failed))
             return
         print(f"\n=== {name} ===", flush=True)
         try:
             action()
-        except (JobFailure, OSError, subprocess.CalledProcessError, ValueError) as error:
+        except (
+            JobFailure,
+            OSError,
+            subprocess.CalledProcessError,
+            ValueError,
+        ) as error:
             self.results[name] = ("FAIL", str(error))
             print(f"FAIL {name}: {error}", file=sys.stderr, flush=True)
         else:
@@ -295,12 +434,23 @@ class Runner:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--python", action="append", default=[], metavar="VERSION=PATH", help="select an interpreter for a Python matrix entry; repeat as needed")
+    parser.add_argument(
+        "--python",
+        action="append",
+        default=[],
+        metavar="VERSION=PATH",
+        help="select an interpreter for a Python matrix entry; repeat as needed",
+    )
     args = parser.parse_args(argv)
     overrides = {}
     for value in args.python:
         version, separator, path = value.partition("=")
-        if not separator or version not in PYTHON_VERSIONS or not path or version in overrides:
+        if (
+            not separator
+            or version not in PYTHON_VERSIONS
+            or not path
+            or version in overrides
+        ):
             parser.error(f"invalid or duplicate --python: {value}")
         overrides[version] = str(Path(path).expanduser().resolve())
 
@@ -310,18 +460,57 @@ def main(argv: list[str] | None = None) -> int:
     core = ("cargo-fmt", "cargo-clippy", "cargo-test")
     if linux:
         runner.run("cargo-fmt", lambda: command(["cargo", "fmt", "--all", "--check"]))
-        runner.run("cargo-clippy", lambda: command(["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]))
+        runner.run(
+            "cargo-clippy",
+            lambda: command(
+                [
+                    "cargo",
+                    "clippy",
+                    "--workspace",
+                    "--all-targets",
+                    "--",
+                    "-D",
+                    "warnings",
+                ]
+            ),
+        )
         runner.run("cargo-test", lambda: command(["cargo", "test", "--workspace"]))
         runner.run("czarlib", c_tests)
         runner.run("wasizarlib", wasi, core)
         for version in PYTHON_VERSIONS:
-            runner.run(f"pyzarlib-{version}", lambda version=version: python_tests(version, overrides))
-        runner.run("csharp-test", lambda: (command(["cargo", "build", "--locked", "-p", "czarlib"]), command(["dotnet", "test", "csharpzarlib/ZarLib.Tests/ZarLib.Tests.csproj", "--configuration", "Release"])))
+            runner.run(
+                f"pyzarlib-{version}",
+                lambda version=version: python_tests(version, overrides),
+            )
+        runner.run(
+            "csharp-test",
+            lambda: (
+                command(["cargo", "build", "--locked", "-p", "czarlib"]),
+                command(
+                    [
+                        "dotnet",
+                        "test",
+                        "csharpzarlib/ZarLib.Tests/ZarLib.Tests.csproj",
+                        "--configuration",
+                        "Release",
+                    ]
+                ),
+            ),
+        )
     else:
-        for name in (*core, "czarlib", "wasizarlib", *(f"pyzarlib-{v}" for v in PYTHON_VERSIONS), "csharp-test"):
+        for name in (
+            *core,
+            "czarlib",
+            "wasizarlib",
+            *(f"pyzarlib-{v}" for v in PYTHON_VERSIONS),
+            "csharp-test",
+        ):
             runner.skip(name, "CI job runs on Linux")
 
-    for cs_arch, cs_target in (("x64", "x86_64-pc-windows-msvc"), ("arm64", "aarch64-pc-windows-msvc")):
+    for cs_arch, cs_target in (
+        ("x64", "x86_64-pc-windows-msvc"),
+        ("arm64", "aarch64-pc-windows-msvc"),
+    ):
         name = f"csharp-pack-windows-{cs_arch}"
         if system != "Windows" or arch != ("x86_64" if cs_arch == "x64" else "aarch64"):
             runner.skip(name, "requires matching Windows host")
@@ -340,16 +529,33 @@ def main(argv: list[str] | None = None) -> int:
         if (system, arch) != (os_name, machine):
             runner.skip(f"build-{name}", f"requires {os_name} {machine}")
         else:
-            runner.run(f"build-{name}", lambda n=name, t=target, s=static: binaries(n, t, s, system == "Windows"), core if linux else ())
+            runner.run(
+                f"build-{name}",
+                lambda n=name, t=target, s=static: binaries(
+                    n, t, s, system == "Windows"
+                ),
+                core if linux else (),
+            )
 
-    wheel_platforms = (("Linux", "x86_64"), ("Linux", "aarch64"), ("Darwin", "x86_64"), ("Darwin", "aarch64"), ("Windows", "x86_64"), ("Windows", "aarch64"))
+    wheel_platforms = (
+        ("Linux", "x86_64"),
+        ("Linux", "aarch64"),
+        ("Darwin", "x86_64"),
+        ("Darwin", "aarch64"),
+        ("Windows", "x86_64"),
+        ("Windows", "aarch64"),
+    )
     for os_name, machine in wheel_platforms:
         name = f"release-wheels-{os_name.lower()}-{machine}"
         if (system, arch) != (os_name, machine):
             runner.skip(name, f"requires {os_name} {machine}")
         else:
             # Maturin's local Linux build does not provide the action's manylinux container.
-            runner.run(name, lambda: wheels(overrides), core + tuple(f"pyzarlib-{v}" for v in PYTHON_VERSIONS) if linux else ())
+            runner.run(
+                name,
+                lambda: wheels(overrides),
+                core + tuple(f"pyzarlib-{v}" for v in PYTHON_VERSIONS) if linux else (),
+            )
     if linux:
         runner.run("release-sdist", sdist, core)
     else:
@@ -359,7 +565,9 @@ def main(argv: list[str] | None = None) -> int:
     for name, (status, reason) in runner.results.items():
         print(f"{status:4} {name}" + (f": {reason}" if reason else ""))
     print(f"Artifacts: {DIST}")
-    print("GitHub artifact reuse, uploads, and release publication are not run locally.")
+    print(
+        "GitHub artifact reuse, uploads, and release publication are not run locally."
+    )
     if linux:
         print("Linux wheels are built on the host, not in the CI manylinux container.")
     return int(any(status == "FAIL" for status, _ in runner.results.values()))

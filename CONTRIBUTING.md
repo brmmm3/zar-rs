@@ -27,6 +27,34 @@ WASI/Node.js package, and build binaries for supported platforms.
 The main workflow is [`ci.yml`](.github/workflows/ci.yml); packaging jobs are
 defined in [`packaging.yml`](.github/workflows/packaging.yml).
 
+### Running the CI workflow locally
+
+Run `python3 scripts/run_ci.py` from any directory to execute the applicable
+`ci.yml` jobs and matrix entries sequentially. The script runs the release
+builds even when the checkout is not tagged and puts produced artifacts in
+`dist/`; it never publishes a release. Existing files in `dist/` are not
+cleaned, so remove or move old artifacts separately when a clean output is needed.
+
+The script runs jobs on the current operating system and CPU architecture,
+including the matching Linux musl build. Other matrix entries are explicitly
+reported as skipped; run the script on each CI host to cover the full matrix.
+GitHub checkout, artifact reuse, uploads, and publication are not performed.
+Linux wheels are built on the host rather than in the CI manylinux container,
+so their portability may differ. Cross-host job dependencies cannot be enforced
+locally; run the Linux checks before packaging on other hosts.
+
+Install CI prerequisites beforehand, including the Rust targets and native
+libraries, Java 25 and Maven, .NET 10, Node.js 22, and maturin. The WASI Node
+package must already have its dependencies installed with `npm ci
+--include=optional`. Python 3.11–3.15 and free-threaded 3.14/3.15 each need
+pytest available; the script creates temporary virtual environments and uses
+`maturin develop` to install the local extension, but does not install missing
+tools or third-party dependencies. It detects `python3.x` on PATH and pyenv
+installations; select a specific interpreter with, for example,
+`--python 3.14t=/path/to/python`. Missing prerequisites fail the affected job
+and are listed in the summary; jobs blocked by failed dependencies are skipped.
+Any failed job gives the script a nonzero exit status.
+
 ## Pull requests
 
 1. Open an issue first for larger changes so the design can be discussed.
