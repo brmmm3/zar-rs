@@ -36,6 +36,11 @@ builds even when the checkout is not tagged and puts produced artifacts in
 cleaned, so remove or move old artifacts separately when a clean output is
 needed.
 
+If formatting or Clippy checks fail, the local runner applies available fixes
+to the working tree (including dirty or staged files) and reruns the failing
+check. The job still fails if the fix or recheck fails. Review the resulting
+changes before committing.
+
 The script runs jobs on the current operating system and CPU architecture,
 including the C++, Go, and C# bindings where their native toolchains are
 supported, release-mode binding builds, the Ruff, rumdl, and zizmor checks, and

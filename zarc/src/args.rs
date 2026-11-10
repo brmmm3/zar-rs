@@ -277,7 +277,11 @@ pub(crate) enum Command {
             help = "Include named pipes and Unix device nodes found in input paths"
         )]
         special_files: bool,
-        #[arg(long, alias = "pw", help = "Prompt for the new commit encryption password")]
+        #[arg(
+            long,
+            alias = "pw",
+            help = "Prompt for the new commit encryption password"
+        )]
         password: bool,
         #[arg(
             long,

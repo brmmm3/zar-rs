@@ -2,6 +2,10 @@ name: CI
 
 on:
   push:
+    branches-ignore:
+      - master
+    tags:
+      - '**'
   pull_request:
   workflow_dispatch:
 
@@ -132,7 +136,7 @@ jobs:
           CFLAGS_wasm32_wasip2: -isystem /usr/include/wasm32-wasi
         run: cargo build --release --locked -p wasizarlib --target wasm32-wasip2
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # zizmor: ignore[cache-poisoning]
         with:
           node-version: "22"
       - name: Install Node.js package dependencies

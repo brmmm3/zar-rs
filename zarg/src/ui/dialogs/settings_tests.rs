@@ -24,6 +24,7 @@ fn settings_tabs_show_only_their_own_fields_and_preserve_values() {
     };
     app.archive_defaults.metadata = true;
     app.archive_defaults.include_files = "*.rs".into();
+    app.dialog_sizes.insert("settings".into(), [800.0, 800.0]);
 
     let cases = [
         (

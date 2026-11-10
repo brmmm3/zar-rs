@@ -377,22 +377,37 @@ def ensure_windows_cross_toolchain(target: str) -> None:
 
 def cargo_fmt() -> None:
     ensure_cargo_component("fmt")
-    command(["cargo", "fmt", "--all", "--check"])
+    check = ["cargo", "fmt", "--all", "--check"]
+    try:
+        command(check)
+    except subprocess.CalledProcessError:
+        print("Formatting check failed; applying cargo fmt and checking again.", flush=True)
+        command(["cargo", "fmt", "--all"])
+        command(check)
 
 
 def cargo_clippy() -> None:
     ensure_cargo_component("clippy")
-    command(
-        [
-            "cargo",
-            "clippy",
-            "--workspace",
-            "--all-targets",
-            "--",
-            "-D",
-            "warnings",
-        ]
-    )
+    check = ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
+    try:
+        command(check)
+    except subprocess.CalledProcessError:
+        print("Clippy check failed; applying suggested fixes and checking again.", flush=True)
+        command(
+            [
+                "cargo",
+                "clippy",
+                "--workspace",
+                "--all-targets",
+                "--fix",
+                "--allow-dirty",
+                "--allow-staged",
+                "--",
+                "-D",
+                "warnings",
+            ]
+        )
+        command(check)
 
 
 def copy_required(source: Path, destination: Path) -> None:

@@ -91,3 +91,4 @@ fn fusion_visuals(dark: bool) -> egui::Visuals {
     // Weitere Widget-Zustände und Rahmen für die Projektversion ergänzen.
     visuals
 }
+```

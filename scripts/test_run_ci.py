@@ -1,5 +1,6 @@
 import contextlib
 import io
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -11,6 +12,65 @@ import run_ci
 
 
 class RunnerTests(unittest.TestCase):
+    def test_cargo_checks_do_not_fix_when_passing(self):
+        for action, check in (
+            (run_ci.cargo_fmt, ["cargo", "fmt", "--all", "--check"]),
+            (
+                run_ci.cargo_clippy,
+                ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
+            ),
+        ):
+            with self.subTest(action=action.__name__):
+                with (
+                    mock.patch.object(run_ci, "ensure_cargo_component"),
+                    mock.patch.object(run_ci, "command") as command,
+                ):
+                    action()
+                command.assert_called_once_with(check)
+
+    def test_failed_cargo_checks_apply_fixes_and_recheck(self):
+        cases = (
+            (
+                run_ci.cargo_fmt,
+                ["cargo", "fmt", "--all", "--check"],
+                ["cargo", "fmt", "--all"],
+            ),
+            (
+                run_ci.cargo_clippy,
+                ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
+                [
+                    "cargo", "clippy", "--workspace", "--all-targets", "--fix",
+                    "--allow-dirty", "--allow-staged", "--", "-D", "warnings",
+                ],
+            ),
+        )
+        for action, check, fix in cases:
+            with self.subTest(action=action.__name__):
+                with (
+                    mock.patch.object(run_ci, "ensure_cargo_component"),
+                    mock.patch.object(
+                        run_ci,
+                        "command",
+                        side_effect=[subprocess.CalledProcessError(1, check), None, None],
+                    ) as command,
+                ):
+                    action()
+                self.assertEqual(command.call_args_list, [mock.call(check), mock.call(fix), mock.call(check)])
+
+    def test_cargo_fix_and_recheck_failures_propagate(self):
+        for action in (run_ci.cargo_fmt, run_ci.cargo_clippy):
+            for failure_index in (1, 2):
+                with self.subTest(action=action.__name__, failure_index=failure_index):
+                    results = [subprocess.CalledProcessError(1, "check"), None, None]
+                    results[failure_index] = subprocess.CalledProcessError(1, "failure")
+                    with (
+                        mock.patch.object(run_ci, "ensure_cargo_component"),
+                        mock.patch.object(run_ci, "command", side_effect=results) as command,
+                        self.assertRaises(subprocess.CalledProcessError),
+                    ):
+                        action()
+                    self.assertEqual(command.call_count, failure_index + 1)
+
     def test_failed_prerequisite_blocks_only_dependent_jobs(self):
         runner = run_ci.Runner()
         called = []

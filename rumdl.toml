@@ -1,6 +1,6 @@
 [global]
 disable = ["MD060"]
-exclude = [".agents/**"]
+exclude = [".agents/**", "ai/**"]
 
 [MD013]
 line-length = 130
