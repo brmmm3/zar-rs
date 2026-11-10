@@ -316,7 +316,7 @@ jobs:
         if: matrix.module == 'jzarlib-jni' && runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
       - name: Build C library
-        run: cargo build --manifest-path Cargo.toml -p czarlib
+        run: cargo build --locked --manifest-path Cargo.toml --release -p czarlib
       - name: Build JNI library (Linux)
         if: matrix.module == 'jzarlib-jni' && runner.os == 'Linux'
         run: ./jzarlib-jni/build-native.sh
@@ -334,9 +334,9 @@ jobs:
           $jniHeader = Join-Path $jdkInclude 'win32'
           $cSources = Join-Path $project 'src/main/c/jzarlib_jni.c'
           $cHeaders = Join-Path $PWD 'czarlib/include'
-          $importLibrary = Join-Path $PWD 'target/debug/czarlib.dll.lib'
+          $importLibrary = Join-Path $PWD 'target/release/czarlib.dll.lib'
           cl.exe /nologo /O2 /W4 /WX /LD "/I$jdkInclude" "/I$jniHeader" "/I$cHeaders" $cSources $importLibrary /link "/OUT:$native/zarlib_jni.dll"
-          Copy-Item (Join-Path $PWD 'target/debug/czarlib.dll') $native
+          Copy-Item (Join-Path $PWD 'target/release/czarlib.dll') $native
           Add-Content -Path $env:GITHUB_PATH -Value $native
       - name: Test and package Java JAR
         working-directory: ${{ matrix.module }}
@@ -350,9 +350,9 @@ jobs:
           mkdir -p "dist/$MODULE"
           cp "$MODULE/target/$MODULE-"*.jar "dist/$MODULE/"
           if [ "$MODULE" = jzarlib-ffm ]; then
-            cp target/debug/libczarlib.so "dist/$MODULE/"
+            cp target/release/libczarlib.so "dist/$MODULE/"
           else
-            cp jzarlib-jni/target/native/libzarlib_jni.so target/debug/libczarlib.so "dist/$MODULE/"
+            cp jzarlib-jni/target/native/libzarlib_jni.so target/release/libczarlib.so "dist/$MODULE/"
           fi
       - name: Stage macOS distribution
         if: runner.os == 'macOS'
@@ -363,9 +363,9 @@ jobs:
           mkdir -p "dist/$MODULE"
           cp "$MODULE/target/$MODULE-"*.jar "dist/$MODULE/"
           if [ "$MODULE" = jzarlib-ffm ]; then
-            cp target/debug/libczarlib.dylib "dist/$MODULE/"
+            cp target/release/libczarlib.dylib "dist/$MODULE/"
           else
-            cp jzarlib-jni/target/native/libzarlib_jni.dylib target/debug/libczarlib.dylib "dist/$MODULE/"
+            cp jzarlib-jni/target/native/libzarlib_jni.dylib target/release/libczarlib.dylib "dist/$MODULE/"
           fi
       - name: Stage Windows distribution
         if: runner.os == 'Windows'
@@ -377,9 +377,9 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
           Copy-Item "$env:MODULE/target/$env:MODULE-*.jar" $dist
           if ($env:MODULE -eq 'jzarlib-ffm') {
-            Copy-Item 'target/debug/czarlib.dll' $dist
+            Copy-Item 'target/release/czarlib.dll' $dist
           } else {
-            Copy-Item 'jzarlib-jni/target/native/zarlib_jni.dll', 'target/debug/czarlib.dll' $dist
+            Copy-Item 'jzarlib-jni/target/native/zarlib_jni.dll', 'target/release/czarlib.dll' $dist
           }
       - name: Upload Java distribution
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
