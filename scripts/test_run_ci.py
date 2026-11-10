@@ -210,20 +210,28 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(command.call_args.args[0][-2:], ["--user", "ruff"])
 
     def test_binding_helpers_issue_expected_commands(self):
-        with (
-            mock.patch.object(run_ci, "ROOT", Path("/repo")),
-            mock.patch.object(run_ci, "require", side_effect=lambda name: name),
-            mock.patch.object(run_ci, "command") as command,
-        ):
-            run_ci.go_tests("Linux")
-        self.assertEqual(
-            [call.args[0] for call in command.call_args_list],
-            [
-                ["cargo", "build", "--locked", "--release", "-p", "czarlib"],
-                ["go", "test", "./..."],
-            ],
-        )
-        self.assertIn("LD_LIBRARY_PATH", command.call_args.kwargs["env"])
+        for system, variable in (("Linux", "LD_LIBRARY_PATH"), ("Darwin", "DYLD_LIBRARY_PATH")):
+            for existing in ("", "/existing"):
+                with self.subTest(system=system, existing=existing):
+                    with (
+                        mock.patch.object(run_ci, "ROOT", Path("/repo")),
+                        mock.patch.object(run_ci, "require", side_effect=lambda name: name),
+                        mock.patch.object(run_ci, "command") as command,
+                        mock.patch.dict(run_ci.os.environ, {variable: existing}),
+                    ):
+                        run_ci.go_tests(system)
+                    self.assertEqual(
+                        [call.args[0] for call in command.call_args_list],
+                        [
+                            ["cargo", "build", "--locked", "-p", "czarlib", "--target-dir", str(Path("/repo/target"))],
+                            ["go", "test", "./..."],
+                        ],
+                    )
+                    self.assertEqual(command.call_args.kwargs["cwd"], Path("/repo/gozarlib"))
+                    self.assertEqual(
+                        command.call_args.kwargs["env"][variable],
+                        str(Path("/repo/target/debug")) + (run_ci.os.pathsep + existing if existing else ""),
+                    )
 
         with (
             mock.patch.object(run_ci, "require", return_value="dotnet"),

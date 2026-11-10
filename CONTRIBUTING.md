@@ -46,6 +46,8 @@ including the C++, Go, and C# bindings where their native toolchains are
 supported, release-mode binding builds, the Ruff, rumdl, and zizmor checks, and
 the matching Linux musl build. Other matrix entries are explicitly reported as
 skipped; run the script on each CI host to cover the full matrix.
+The Go tests build the C library in `target/debug`, matching the wrapper's
+configured cgo linker and runtime search paths.
 GitHub checkout, artifact reuse, uploads, and publication are not performed.
 Linux wheels are built on the host rather than in the CI manylinux container,
 so their portability may differ. Cross-host job dependencies cannot be enforced

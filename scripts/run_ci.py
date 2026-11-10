@@ -640,11 +640,14 @@ def cxx_api_tests() -> None:
 def go_tests(system: str) -> None:
     require("go")
     require("cc")
-    command(["cargo", "build", "--locked", "--release", "-p", "czarlib"])
+    command(
+        ["cargo", "build", "--locked", "-p", "czarlib", "--target-dir", str(ROOT / "target")]
+    )
     env = os.environ.copy()
-    library_path = str(ROOT / "target/release")
+    library_path = str(ROOT / "target/debug")
     variable = "DYLD_LIBRARY_PATH" if system == "Darwin" else "LD_LIBRARY_PATH"
-    env[variable] = library_path + os.pathsep + env.get(variable, "")
+    existing_path = env.get(variable)
+    env[variable] = os.pathsep.join([library_path, existing_path]) if existing_path else library_path
     command(["go", "test", "./..."], cwd=ROOT / "gozarlib", env=env)
 
 
