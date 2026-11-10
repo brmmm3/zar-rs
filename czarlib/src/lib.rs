@@ -9,6 +9,10 @@ use zarlib::operations::{
 };
 use zarlib::{ContentAead, EncryptionScope};
 
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL_ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 struct WarningCollector(Mutex<Vec<String>>);
 
 impl WarningCollector {

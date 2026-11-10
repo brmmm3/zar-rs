@@ -13,6 +13,10 @@ pub enum ThemeMode {
     System,
     Light,
     Dark,
+    CatppuccinLatte,
+    CatppuccinFrappe,
+    CatppuccinMacchiato,
+    CatppuccinMocha,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -78,11 +82,25 @@ impl DefaultEncryptionMethod {
 }
 
 impl ThemeMode {
+    pub const ALL: [Self; 7] = [
+        Self::System,
+        Self::Light,
+        Self::Dark,
+        Self::CatppuccinLatte,
+        Self::CatppuccinFrappe,
+        Self::CatppuccinMacchiato,
+        Self::CatppuccinMocha,
+    ];
+
     pub fn label(self) -> &'static str {
         match self {
             Self::System => "System",
             Self::Light => "Light",
             Self::Dark => "Dark",
+            Self::CatppuccinLatte => "Catppuccin Latte",
+            Self::CatppuccinFrappe => "Catppuccin Frappe",
+            Self::CatppuccinMacchiato => "Catppuccin Macchiato",
+            Self::CatppuccinMocha => "Catppuccin Mocha",
         }
     }
 
@@ -91,6 +109,10 @@ impl ThemeMode {
             Self::System => "system",
             Self::Light => "light",
             Self::Dark => "dark",
+            Self::CatppuccinLatte => "catppuccin-latte",
+            Self::CatppuccinFrappe => "catppuccin-frappe",
+            Self::CatppuccinMacchiato => "catppuccin-macchiato",
+            Self::CatppuccinMocha => "catppuccin-mocha",
         }
     }
 
@@ -99,6 +121,10 @@ impl ThemeMode {
             "system" => Some(Self::System),
             "light" => Some(Self::Light),
             "dark" => Some(Self::Dark),
+            "catppuccin-latte" => Some(Self::CatppuccinLatte),
+            "catppuccin-frappe" => Some(Self::CatppuccinFrappe),
+            "catppuccin-macchiato" => Some(Self::CatppuccinMacchiato),
+            "catppuccin-mocha" => Some(Self::CatppuccinMocha),
             _ => None,
         }
     }
@@ -519,6 +545,10 @@ mod tests {
             ("system", ThemeMode::System),
             ("light", ThemeMode::Light),
             ("dark", ThemeMode::Dark),
+            ("catppuccin-latte", ThemeMode::CatppuccinLatte),
+            ("catppuccin-frappe", ThemeMode::CatppuccinFrappe),
+            ("catppuccin-macchiato", ThemeMode::CatppuccinMacchiato),
+            ("catppuccin-mocha", ThemeMode::CatppuccinMocha),
         ] {
             assert_eq!(
                 Settings::parse(&format!("theme={setting}\n")).theme_mode,

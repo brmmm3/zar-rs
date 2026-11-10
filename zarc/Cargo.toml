@@ -5,8 +5,22 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
+[features]
+default = ["mimalloc"]
+mimalloc = ["dep:mimalloc"]
+
 [dependencies]
 clap.workspace = true
 indicatif.workspace = true
 libc = "0.2"
 zarlib = { path = "../zarlib" }
+
+[target.'cfg(windows)'.dependencies]
+mimalloc = { version = "0.1", default-features = false, features = [
+    "win_direct_tls",
+], optional = true }
+
+[target.'cfg(unix)'.dependencies]
+mimalloc = { version = "0.1", default-features = false, features = [
+    "local_dynamic_tls",
+], optional = true }

@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["mimalloc"]
+mimalloc = ["dep:mimalloc"]
+
 [lib]
 name = "_pyzarlib"
 crate-type = ["cdylib"]
@@ -11,3 +15,13 @@ crate-type = ["cdylib"]
 [dependencies]
 pyo3 = { version = "0.30.1", features = ["extension-module"] }
 zarlib = { path = "../zarlib" }
+
+[target.'cfg(windows)'.dependencies]
+mimalloc = { version = "0.1", default-features = false, features = [
+    "win_direct_tls",
+], optional = true }
+
+[target.'cfg(unix)'.dependencies]
+mimalloc = { version = "0.1", default-features = false, features = [
+    "local_dynamic_tls",
+], optional = true }

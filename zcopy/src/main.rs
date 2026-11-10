@@ -10,6 +10,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL_ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use config::Settings;
 

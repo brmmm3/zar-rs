@@ -413,10 +413,22 @@ fn pipeline_groups_empty_tiny_small_and_big_files_properly() {
         Some(crate::TocEntry::File(file)) => file.block_indices[0],
         _ => panic!("missing tiny1 entry"),
     };
+    let small_block_index = match toc.get(&crate::ArchivePath::new("small.bin").unwrap()) {
+        Some(crate::TocEntry::File(file)) => file.block_indices[0],
+        _ => panic!("missing small entry"),
+    };
     assert_eq!(
         blocks
             .iter()
             .find(|block| block.index == tiny_block_index)
+            .unwrap()
+            .file_count,
+        2
+    );
+    assert_eq!(
+        blocks
+            .iter()
+            .find(|block| block.index == small_block_index)
             .unwrap()
             .file_count,
         2
@@ -469,18 +481,6 @@ fn pipeline_groups_empty_tiny_small_and_big_files_properly() {
         .map(|entry| entry.block_indices[0])
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(small_block_indices.len(), 2);
-    let mut small_block_counts = small_block_indices
-        .iter()
-        .map(|index| {
-            blocks
-                .iter()
-                .find(|block| block.index == *index)
-                .unwrap()
-                .file_count
-        })
-        .collect::<Vec<_>>();
-    small_block_counts.sort_unstable();
-    assert_eq!(small_block_counts, [1, 2]);
 
     let big_entry = match toc.get(&crate::ArchivePath::new("big.bin").unwrap()) {
         Some(crate::TocEntry::File(f)) => f.clone(),

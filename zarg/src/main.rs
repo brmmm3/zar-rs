@@ -8,6 +8,10 @@ mod ui;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL_ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 const WINDOW_TITLE: &str = "ZAR Archive Manager";
 
 fn main() -> eframe::Result {
@@ -30,7 +34,6 @@ fn main() -> eframe::Result {
             std::process::exit(2);
         }
     };
-    app.load_default_password();
     if create_default_archive {
         app.create_default_archive();
     }
@@ -67,6 +70,7 @@ fn main() -> eframe::Result {
             let controller = theme::install(&creation_context.egui_ctx, theme_mode);
             let mut app = app;
             app.set_theme_controller(controller);
+            app.load_default_password(&creation_context.egui_ctx);
             Ok(Box::new(app))
         }),
     )

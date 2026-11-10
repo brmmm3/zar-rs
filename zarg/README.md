@@ -12,6 +12,8 @@ From the workspace root:
 cargo run --release -p zarg
 ```
 
+For a release build using mimalloc, run `cargo build --release -p zarg --features mimalloc`.
+
 The installer file-manager actions use the same startup interface as
 `zarg --context ACTION -- PATH...`, where `ACTION` is `create`, `add`,
 `create-named`, `open`, `extract-here`, `extract-to`, `extract-to-folder`, or

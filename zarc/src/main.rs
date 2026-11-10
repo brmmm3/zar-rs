@@ -3,6 +3,9 @@ use std::process::ExitCode;
 mod args;
 use args::{Cli, Command};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL_ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 #[cfg(test)]

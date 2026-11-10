@@ -109,11 +109,7 @@ impl ZargApp {
                                         egui::ComboBox::from_id_salt("settings-theme")
                                             .selected_text(selected_theme.label())
                                             .show_ui(ui, |ui| {
-                                                for mode in [
-                                                    crate::settings::ThemeMode::System,
-                                                    crate::settings::ThemeMode::Light,
-                                                    crate::settings::ThemeMode::Dark,
-                                                ] {
+                                                for mode in crate::settings::ThemeMode::ALL {
                                                     ui.selectable_value(&mut selected_theme, mode, mode.label());
                                                 }
                                             });

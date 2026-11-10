@@ -784,6 +784,29 @@ fn create_help_flag_displays_detailed_help_and_usage_examples() {
 }
 
 #[test]
+fn version_and_subcommand_help_report_allocator() {
+    let version = crate::args::command_with_version_banner()
+        .try_get_matches_from(["zarc", "--version"])
+        .unwrap_err();
+    assert_eq!(version.kind(), clap::error::ErrorKind::DisplayVersion);
+    let version = version.to_string();
+    assert!(version.contains(env!("CARGO_PKG_VERSION")));
+
+    let help = crate::args::command_with_version_banner()
+        .try_get_matches_from(["zarc", "create", "--help"])
+        .unwrap_err();
+    assert_eq!(help.kind(), clap::error::ErrorKind::DisplayHelp);
+    let help = help.to_string();
+    if cfg!(feature = "mimalloc") {
+        assert!(version.contains("(mimalloc)"));
+        assert!(help.contains("(mimalloc)"));
+    } else {
+        assert!(!version.contains("(mimalloc)"));
+        assert!(!help.contains("(mimalloc)"));
+    }
+}
+
+#[test]
 fn all_subcommands_have_detailed_help_messages() {
     for cmd in [
         "add", "remove", "join", "convert", "encrypt", "decrypt", "check", "info", "list",

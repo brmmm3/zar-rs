@@ -31,6 +31,10 @@ impl ThemeMode {
             Self::System => 0,
             Self::Light => 1,
             Self::Dark => 2,
+            Self::CatppuccinLatte => 3,
+            Self::CatppuccinFrappe => 4,
+            Self::CatppuccinMacchiato => 5,
+            Self::CatppuccinMocha => 6,
         }
     }
 
@@ -39,6 +43,10 @@ impl ThemeMode {
         match value {
             1 => Self::Light,
             2 => Self::Dark,
+            3 => Self::CatppuccinLatte,
+            4 => Self::CatppuccinFrappe,
+            5 => Self::CatppuccinMacchiato,
+            6 => Self::CatppuccinMocha,
             _ => Self::System,
         }
     }
@@ -49,6 +57,7 @@ struct Palette {
     window: Color32,
     base: Color32,
     alternate_base: Color32,
+    code: Color32,
     text: Color32,
     button: Color32,
     // Fill of checkboxes, slider rails and scroll handles; must contrast with `base`.
@@ -71,6 +80,7 @@ fn palette(theme: Theme) -> Palette {
             window: Color32::from_rgb(239, 239, 239),
             base: Color32::WHITE,
             alternate_base: Color32::from_rgb(247, 247, 247),
+            code: Color32::from_rgb(247, 247, 247),
             text: Color32::BLACK,
             button: Color32::from_rgb(244, 244, 244),
             control: Color32::from_rgb(208, 208, 208),
@@ -89,6 +99,7 @@ fn palette(theme: Theme) -> Palette {
             window: Color32::from_rgb(53, 53, 53),
             base: Color32::from_rgb(35, 35, 35),
             alternate_base: Color32::from_rgb(45, 45, 45),
+            code: Color32::from_rgb(45, 45, 45),
             text: Color32::WHITE,
             button: Color32::from_rgb(62, 62, 62),
             control: Color32::from_rgb(62, 62, 62),
@@ -106,8 +117,43 @@ fn palette(theme: Theme) -> Palette {
     }
 }
 
-fn visuals(theme: Theme) -> Visuals {
-    let colors = palette(theme);
+fn color([red, green, blue, alpha]: [u8; 4]) -> Color32 {
+    Color32::from_rgba_unmultiplied(red, green, blue, alpha)
+}
+
+fn catppuccin_palette(theme: catppuccin_egui::Theme) -> Palette {
+    Palette {
+        window: color(theme.base.to_array()),
+        base: color(theme.crust.to_array()),
+        alternate_base: color(theme.surface0.to_array()),
+        code: color(theme.mantle.to_array()),
+        text: color(theme.text.to_array()),
+        button: color(theme.surface0.to_array()),
+        control: color(theme.surface0.to_array()),
+        button_hovered: color(theme.surface2.to_array()),
+        button_pressed: color(theme.surface1.to_array()),
+        button_open: color(theme.surface0.to_array()),
+        highlight: color(theme.blue.to_array()),
+        highlighted_text: color(theme.text.to_array()),
+        link: color(theme.rosewater.to_array()),
+        outline: color(theme.overlay1.to_array()),
+        separator: color(theme.overlay0.to_array()),
+        hover_tint: color(theme.surface2.to_array()),
+        pressed_tint: color(theme.surface1.to_array()),
+    }
+}
+
+fn catppuccin_theme(mode: ThemeMode) -> Option<(Theme, catppuccin_egui::Theme)> {
+    match mode {
+        ThemeMode::CatppuccinLatte => Some((Theme::Light, catppuccin_egui::LATTE)),
+        ThemeMode::CatppuccinFrappe => Some((Theme::Dark, catppuccin_egui::FRAPPE)),
+        ThemeMode::CatppuccinMacchiato => Some((Theme::Dark, catppuccin_egui::MACCHIATO)),
+        ThemeMode::CatppuccinMocha => Some((Theme::Dark, catppuccin_egui::MOCHA)),
+        _ => None,
+    }
+}
+
+fn visuals_with_palette(theme: Theme, colors: Palette) -> Visuals {
     let mut visuals = match theme {
         Theme::Light => Visuals::light(),
         Theme::Dark => Visuals::dark(),
@@ -121,7 +167,7 @@ fn visuals(theme: Theme) -> Visuals {
     visuals.window_fill = colors.window;
     visuals.extreme_bg_color = colors.base;
     visuals.faint_bg_color = colors.alternate_base;
-    visuals.code_bg_color = colors.alternate_base;
+    visuals.code_bg_color = colors.code;
     visuals.hyperlink_color = colors.link;
     visuals.window_stroke = outline;
     visuals.window_corner_radius = CornerRadius::same(3);
@@ -176,9 +222,20 @@ fn visuals(theme: Theme) -> Visuals {
     visuals
 }
 
-fn apply_styles(ctx: &egui::Context) {
+fn visuals(theme: Theme) -> Visuals {
+    visuals_with_palette(theme, palette(theme))
+}
+
+fn apply_styles(ctx: &egui::Context, mode: ThemeMode) {
+    let catppuccin = catppuccin_theme(mode);
     for theme in [Theme::Light, Theme::Dark] {
-        ctx.set_visuals_of(theme, visuals(theme));
+        let theme_visuals = catppuccin
+            .filter(|(catppuccin_base, _)| *catppuccin_base == theme)
+            .map_or_else(
+                || visuals(theme),
+                |(_, catppuccin)| visuals_with_palette(theme, catppuccin_palette(catppuccin)),
+            );
+        ctx.set_visuals_of(theme, theme_visuals);
         ctx.style_mut_of(theme, |style| {
             let spacing = &mut style.spacing;
             spacing.item_spacing = vec2(6.0, 4.0);
@@ -198,13 +255,18 @@ fn apply_styles(ctx: &egui::Context) {
     }
 }
 
-fn apply_theme(ctx: &egui::Context, mode: ThemeMode) {
+pub(crate) fn apply_theme(ctx: &egui::Context, mode: ThemeMode) {
+    apply_styles(ctx, mode);
     let preference = match mode {
         ThemeMode::System => {
             detect_system_theme().map_or(ThemePreference::System, ThemePreference::from)
         }
         ThemeMode::Light => ThemePreference::from(Theme::Light),
-        ThemeMode::Dark => ThemePreference::from(Theme::Dark),
+        ThemeMode::CatppuccinLatte => ThemePreference::from(Theme::Light),
+        ThemeMode::Dark
+        | ThemeMode::CatppuccinFrappe
+        | ThemeMode::CatppuccinMacchiato
+        | ThemeMode::CatppuccinMocha => ThemePreference::from(Theme::Dark),
     };
     ctx.set_theme(preference);
 }
@@ -214,7 +276,6 @@ fn apply_theme(ctx: &egui::Context, mode: ThemeMode) {
 /// Must be called before the first frame so the window never flashes in the
 /// wrong theme.
 pub fn install(ctx: &egui::Context, mode: ThemeMode) -> ThemeController {
-    apply_styles(ctx);
     // Used on platforms where no system theme can be determined.
     ctx.options_mut(|options| options.fallback_theme = Theme::Light);
     apply_theme(ctx, mode);
@@ -482,6 +543,55 @@ mod tests {
         assert_eq!(dark.selection.bg_fill, Color32::from_rgb(42, 130, 218));
         assert_eq!(dark.widgets.inactive.corner_radius, CornerRadius::same(2));
         assert_eq!(dark.widgets.hovered.expansion, 0.0);
+    }
+
+    #[test]
+    fn catppuccin_flavors_apply_their_palette_and_color_mode() {
+        for (mode, theme, base_theme) in [
+            (
+                ThemeMode::CatppuccinLatte,
+                catppuccin_egui::LATTE,
+                Theme::Light,
+            ),
+            (
+                ThemeMode::CatppuccinFrappe,
+                catppuccin_egui::FRAPPE,
+                Theme::Dark,
+            ),
+            (
+                ThemeMode::CatppuccinMacchiato,
+                catppuccin_egui::MACCHIATO,
+                Theme::Dark,
+            ),
+            (
+                ThemeMode::CatppuccinMocha,
+                catppuccin_egui::MOCHA,
+                Theme::Dark,
+            ),
+        ] {
+            let (selected_base, selected_theme) = catppuccin_theme(mode).unwrap();
+            assert_eq!(selected_base, base_theme);
+            assert_eq!(selected_theme, theme);
+
+            let visuals = visuals_with_palette(base_theme, catppuccin_palette(theme));
+            assert_eq!(visuals.dark_mode, base_theme == Theme::Dark);
+            assert_eq!(visuals.panel_fill, color(theme.base.to_array()));
+            assert_eq!(visuals.faint_bg_color, color(theme.surface0.to_array()));
+            assert_eq!(visuals.code_bg_color, color(theme.mantle.to_array()));
+            assert_eq!(visuals.selection.bg_fill, color(theme.blue.to_array()));
+            assert_eq!(visuals.selection.stroke.color, color(theme.text.to_array()));
+            assert_eq!(visuals.hyperlink_color, color(theme.rosewater.to_array()));
+
+            let ctx = egui::Context::default();
+            apply_theme(&ctx, mode);
+            ctx.run_ui(egui::RawInput::default(), |_| {})
+                .drop_without_applying_deltas();
+            assert_eq!(ctx.theme(), base_theme);
+            assert_eq!(
+                ctx.global_style().visuals.panel_fill,
+                color(theme.base.to_array())
+            );
+        }
     }
 
     #[test]

@@ -2,11 +2,16 @@ use std::path::PathBuf;
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 
+#[cfg(feature = "mimalloc")]
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (mimalloc)");
+#[cfg(not(feature = "mimalloc"))]
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[derive(Debug, Parser)]
 #[command(
     name = "zarc",
     about = "ZAR archive tool - high-performance deduplicating, compressing, and encrypting archiver",
-    version,
+    version = VERSION,
     author,
     disable_help_flag = true,
     help_template = "\
@@ -33,17 +38,17 @@ pub(crate) struct Cli {
     pub(crate) command: Command,
 }
 
-const BANNER: &str = concat!(
-    "zarc ",
-    env!("CARGO_PKG_VERSION"),
-    "\nCopyright (c) 2026 ",
-    env!("CARGO_PKG_AUTHORS"),
-    " - licensed under MIT OR Apache-2.0"
-);
+pub(crate) fn command_with_version_banner() -> clap::Command {
+    let banner = format!(
+        "zarc {VERSION}\nCopyright (c) 2026 {} - licensed under MIT OR Apache-2.0",
+        env!("CARGO_PKG_AUTHORS")
+    );
+    Cli::command().mut_subcommands(|sub| sub.before_help(banner.clone()))
+}
 
 /// Parses the process arguments; subcommand help also shows the version banner.
 pub(crate) fn parse_from_env() -> Result<Cli, clap::Error> {
-    let command = Cli::command().mut_subcommands(|sub| sub.before_help(BANNER));
+    let command = command_with_version_banner();
     Cli::from_arg_matches(&command.try_get_matches()?)
 }
 

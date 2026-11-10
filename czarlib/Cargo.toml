@@ -4,12 +4,26 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["mimalloc"]
+mimalloc = ["dep:mimalloc"]
+
 [lib]
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 serde_json.workspace = true
 zarlib = { path = "../zarlib" }
+
+[target.'cfg(windows)'.dependencies]
+mimalloc = { version = "0.1", default-features = false, features = [
+    "win_direct_tls",
+], optional = true }
+
+[target.'cfg(unix)'.dependencies]
+mimalloc = { version = "0.1", default-features = false, features = [
+    "local_dynamic_tls",
+], optional = true }
 
 [dev-dependencies]
 tempfile = "3"

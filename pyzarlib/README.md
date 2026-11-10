@@ -33,11 +33,20 @@ python -m pip install maturin
 maturin develop --release
 ```
 
+To use mimalloc for allocations made by the Rust extension, enable its optional
+Cargo feature:
+
+```sh
+maturin develop --release --features mimalloc
+```
+
 To build a wheel:
 
 ```sh
 maturin build --release
 ```
+
+Use `maturin build --release --features mimalloc` to build a wheel with mimalloc.
 
 For development, install the package with pytest support and run the Python API
 tests from this directory:

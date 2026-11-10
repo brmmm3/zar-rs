@@ -1,9 +1,9 @@
-; Inno Setup script for the ZAR command-line tool (zarc) and archive manager (zarg).
+; Inno Setup script for the ZAR command-line tools (zarc, zcopy) and archive manager (zarg).
 ;
 ; Build (from the repository root, after `cargo build --release --bins`):
 ;   iscc /DAppVersion=0.9.0 packaging\windows\zar-rs.iss
 ; Options:
-;   /DSourceDir=<dir>   directory containing zarc.exe and zarg.exe
+;   /DSourceDir=<dir>   directory containing zarc.exe, zarg.exe and zcopy.exe
 ;                       (default: target\release; use target\<triple>\release
 ;                       when building with --target)
 ;   /DArch=arm64        build the installer for Windows on ARM (default: x64)
@@ -34,13 +34,14 @@ DefaultDirName={autopf}\ZAR
 DefaultGroupName=ZAR
 DisableProgramGroupPage=yes
 LicenseFile=..\..\LICENSE-MIT
+SetupIconFile=..\..\zarg\assets\zarg-icon.ico
 OutputDir=..\..\dist
 OutputBaseFilename=zar-rs-{#AppVersion}-windows-{#Arch}-setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayName={#AppName} {#AppVersion}
-UninstallDisplayIcon={app}\zarg.exe
+UninstallDisplayIcon={app}\zarg-icon.ico
 ChangesEnvironment=yes
 PrivilegesRequired=admin
 #if Arch == "arm64"
@@ -55,22 +56,24 @@ ArchitecturesInstallIn64BitMode=x64compatible
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "addtopath"; Description: "Add the &zarc command-line tool to the system PATH"; GroupDescription: "Command line:"
+Name: "addtopath"; Description: "Add the &zarc and zcopy command-line tools to the system PATH"; GroupDescription: "Command line:"
 Name: "desktopicon"; Description: "Create a &desktop shortcut for the archive manager"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 
 [Files]
 Source: "{#SourceDir}\zarc.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\zarg.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\zarg\assets\application-x-zar.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\zcopy.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\zarg\assets\zarg-icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE-MIT"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE-APACHE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\zarc\README.md"; DestDir: "{app}"; DestName: "zarc-README.md"; Flags: ignoreversion
 Source: "..\..\zarg\README.md"; DestDir: "{app}"; DestName: "zarg-README.md"; Flags: ignoreversion
+Source: "..\..\zcopy\README.md"; DestDir: "{app}"; DestName: "zcopy-README.md"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\ZAR Archive Manager"; Filename: "{app}\zarg.exe"; IconFilename: "{app}\application-x-zar.ico"
-Name: "{autodesktop}\ZAR Archive Manager"; Filename: "{app}\zarg.exe"; IconFilename: "{app}\application-x-zar.ico"; Tasks: desktopicon
+Name: "{autoprograms}\ZAR Archive Manager"; Filename: "{app}\zarg.exe"; IconFilename: "{app}\zarg-icon.ico"
+Name: "{autodesktop}\ZAR Archive Manager"; Filename: "{app}\zarg.exe"; IconFilename: "{app}\zarg-icon.ico"; Tasks: desktopicon
 
 [Registry]
 Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; \
@@ -129,10 +132,10 @@ Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.Test
 Root: HKLM; Subkey: "Software\Classes\SystemFileAssociations\.zar\shell\ZAR.Test\command"; \
   ValueType: string; ValueName: ""; ValueData: """{app}\zarg.exe"" --context test -- %*"; Flags: uninsdeletekey
 Root: HKLM; Subkey: "Software\Classes\.zar\DefaultIcon"; \
-  ValueType: string; ValueName: ""; ValueData: "{app}\application-x-zar.ico"; Flags: uninsdeletekey
+  ValueType: string; ValueName: ""; ValueData: "{app}\zarg-icon.ico"; Flags: uninsdeletekey
 
 [Run]
-Filename: "{app}\zarg.exe"; Description: "Launch ZAR Archive Manager"; Flags: nowait postinstall skipifsilent unchecked
+Filename: "{app}\zarg.exe"; Description: "Launch ZAR Archive Manager"; Flags: nowait postinstall skipifsilent
 
 [Code]
 const

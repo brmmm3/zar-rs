@@ -2,6 +2,69 @@ use super::*;
 use dialogs::benchmark::{BenchmarkSettings, run_benchmark};
 
 #[test]
+fn delayed_default_password_is_applied_when_ready() {
+    let mut app = ZargApp::default();
+    let (sender, receiver) = mpsc::channel();
+    app.default_password_loading = Some(receiver);
+
+    app.poll_default_password();
+    assert!(app.default_password_loading.is_some());
+
+    sender.send(Ok(Some("saved password".to_owned()))).unwrap();
+    app.poll_default_password();
+    assert_eq!(app.default_password, "saved password");
+    assert_eq!(app.default_password_input, "saved password");
+    assert!(app.default_password_loading.is_none());
+}
+
+#[test]
+fn delayed_default_password_does_not_replace_user_input_or_status() {
+    for (input, status) in [("new password", None), ("", Some("removed"))] {
+        let mut app = ZargApp {
+            default_password_input: input.to_owned(),
+            default_password_status: status.map(str::to_owned),
+            ..Default::default()
+        };
+        let (sender, receiver) = mpsc::channel();
+        app.default_password_loading = Some(receiver);
+        sender.send(Ok(Some("old password".to_owned()))).unwrap();
+
+        app.poll_default_password();
+        assert!(app.default_password.is_empty());
+        assert_eq!(app.default_password_input, input);
+        assert_eq!(app.default_password_status.as_deref(), status);
+    }
+}
+
+#[test]
+fn delayed_default_password_reports_store_errors() {
+    let mut app = ZargApp::default();
+    let (sender, receiver) = mpsc::channel();
+    app.default_password_loading = Some(receiver);
+    sender.send(Err("store unavailable".to_owned())).unwrap();
+
+    app.poll_default_password();
+    assert!(
+        app.default_password_status
+            .unwrap()
+            .contains("store unavailable")
+    );
+}
+
+#[derive(Debug)]
+struct TestDroppedFile(std::path::PathBuf);
+
+impl egui::DroppedFile for TestDroppedFile {
+    fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+
+    fn bytes(&self) -> Result<Vec<u8>, String> {
+        std::fs::read(&self.0).map_err(|error| error.to_string())
+    }
+}
+
+#[test]
 fn save_as_default_filename_prefers_current_archive_name() {
     assert_eq!(
         default_save_as_filename("/archives/current.zar", Some("entry.txt")),
@@ -27,6 +90,26 @@ fn long_add_progress_message_keeps_path_start_and_end() {
     assert!(shortened.ends_with("VWXYZ"));
     assert!(shortened.contains("..."));
     assert!(shortened.chars().count() <= 20);
+}
+
+#[test]
+fn add_status_messages_are_limited_to_four_per_second() {
+    let start = Instant::now();
+    let mut last_update = None;
+
+    assert!(allow_status_update(&mut last_update, start));
+    assert!(!allow_status_update(
+        &mut last_update,
+        start + Duration::from_millis(249)
+    ));
+    assert!(allow_status_update(
+        &mut last_update,
+        start + Duration::from_millis(250)
+    ));
+    assert!(!allow_status_update(
+        &mut last_update,
+        start + Duration::from_millis(499)
+    ));
 }
 
 #[test]
@@ -838,6 +921,8 @@ fn change_commits_encrypt_job_writes_to_requested_archive() {
         events: events.clone(),
         answers: Arc::new(Mutex::new(answer_rx)),
         cancellation: None,
+        limit_status_updates: false,
+        last_status_update: Mutex::new(None),
     };
     let job = build_job(OperationKind::ChangeCommits, form, events.clone(), progress).unwrap();
     job().unwrap();
@@ -1527,6 +1612,36 @@ fn add_to_unsaved_new_archive_uses_working_archive() {
     assert!(!app.can_add_to_archive());
 }
 
+#[test]
+fn dropping_files_and_folders_prefills_add_form_for_current_archive() {
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("dropped.txt");
+    let folder = directory.path().join("dropped-folder");
+    std::fs::write(&file, b"dropped file").unwrap();
+    std::fs::create_dir(&folder).unwrap();
+
+    let mut app = ZargApp::default();
+    app.create_default_archive();
+    wait_for_worker(&mut app);
+    assert!(app.can_add_to_archive());
+
+    let context = egui::Context::default();
+    let input = egui::RawInput {
+        dropped_files: vec![
+            std::sync::Arc::new(TestDroppedFile(file.clone())),
+            std::sync::Arc::new(TestDroppedFile(folder.clone())),
+        ],
+        ..Default::default()
+    };
+    context
+        .run_ui(input, |ui| app.handle_dropped_files(ui.ctx()))
+        .drop_without_applying_deltas();
+
+    assert_eq!(app.operation.kind, Some(OperationKind::AddToArchive));
+    assert_eq!(app.operation.archive, app.read_archive);
+    assert_eq!(app.operation.input_paths, vec![file, folder]);
+}
+
 fn click_add_archive_action(app: &mut ZargApp) {
     let context = egui::Context::default();
     let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(500.0, 360.0));
@@ -1567,6 +1682,35 @@ fn click_add_archive_action(app: &mut ZargApp) {
             })
             .drop_without_applying_deltas();
     }
+}
+
+#[test]
+fn quitting_with_unsaved_changes_prompts_before_exiting() {
+    let mut app = ZargApp {
+        archive: "current.zar".to_owned(),
+        read_archive: "current.zar".to_owned(),
+        has_unsaved_changes: true,
+        latest_archive_empty: Some(false),
+        ..Default::default()
+    };
+
+    app.request_quit(&egui::Context::default());
+
+    assert!(app.has_unsaved_changes);
+    assert!(!app.exit_requested);
+    assert!(matches!(
+        app.pending_archive_switch,
+        Some(ArchiveSwitchAction::Quit)
+    ));
+}
+
+#[test]
+fn quitting_without_unsaved_changes_requests_exit() {
+    let mut app = ZargApp::default();
+
+    app.request_quit(&egui::Context::default());
+
+    assert!(app.exit_requested);
 }
 
 #[test]

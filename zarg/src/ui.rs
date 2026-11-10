@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use zarlib::operations::{
     self, AddInputOptions, ArchiveEntryDetails, BlockInfo, CheckReport, CollisionPolicy,
     CommitInfoWithBlocks, CreateFilterOptions, CreateInputOptions, EncodingOptions, ExistingPolicy,
@@ -653,6 +654,7 @@ enum ArchiveSwitchAction {
     New,
     OpenDialog,
     OpenPath(PathBuf, Option<String>),
+    Quit,
 }
 
 pub(super) struct ArchiveInfoView {
@@ -670,10 +672,28 @@ struct UiProgress {
     events: Sender<UiEvent>,
     answers: Arc<Mutex<Receiver<bool>>>,
     cancellation: Option<Arc<AtomicBool>>,
+    limit_status_updates: bool,
+    last_status_update: Mutex<Option<Instant>>,
+}
+
+const ADD_STATUS_UPDATE_INTERVAL: Duration = Duration::from_millis(250);
+
+fn allow_status_update(last_update: &mut Option<Instant>, now: Instant) -> bool {
+    if last_update.is_some_and(|last| now.duration_since(last) < ADD_STATUS_UPDATE_INTERVAL) {
+        return false;
+    }
+    *last_update = Some(now);
+    true
 }
 
 impl Progress for UiProgress {
     fn message(&self, message: &str) {
+        if self.limit_status_updates
+            && let Ok(mut last_update) = self.last_status_update.lock()
+            && !allow_status_update(&mut last_update, Instant::now())
+        {
+            return;
+        }
         let _ = self.events.send(UiEvent::Message(message.to_owned()));
     }
 
@@ -741,6 +761,7 @@ pub struct ZargApp {
     confirmation: Option<String>,
     pending_archive_switch: Option<ArchiveSwitchAction>,
     pending_switch_after_save: bool,
+    exit_requested: bool,
     report: Option<String>,
     warnings: Vec<String>,
     filter_text: String,
@@ -784,6 +805,7 @@ pub struct ZargApp {
     default_password_input: String,
     show_default_password: bool,
     default_password_status: Option<String>,
+    default_password_loading: Option<Receiver<Result<Option<String>, String>>>,
     theme_controller: Option<crate::theme::ThemeController>,
     opening_archive: bool,
     commit_ids: Vec<String>,
@@ -823,6 +845,7 @@ impl Default for ZargApp {
             confirmation: None,
             pending_archive_switch: None,
             pending_switch_after_save: false,
+            exit_requested: false,
             report: None,
             warnings: Vec::new(),
             filter_text: String::new(),
@@ -866,6 +889,7 @@ impl Default for ZargApp {
             default_password_input: String::new(),
             show_default_password: false,
             default_password_status: None,
+            default_password_loading: None,
             theme_controller: None,
             opening_archive: false,
             commit_ids: Vec::new(),
@@ -1063,6 +1087,17 @@ impl ZargApp {
         }
     }
 
+    fn request_quit(&mut self, context: &egui::Context) {
+        if self.busy {
+            context.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            return;
+        }
+        if self.has_unsaved_changes && self.latest_archive_empty != Some(true) {
+            context.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        }
+        self.request_archive_switch(ArchiveSwitchAction::Quit);
+    }
+
     fn check_first_commit_for_new_archive(&mut self) {
         let archive = self.read_archive.clone();
         let password = self.archive_password.clone();
@@ -1119,6 +1154,7 @@ impl ZargApp {
             ArchiveSwitchAction::OpenPath(path, password) => {
                 self.open_archive_now(path, password);
             }
+            ArchiveSwitchAction::Quit => self.exit_requested = true,
         }
     }
 
@@ -1459,6 +1495,8 @@ impl ZargApp {
             events: events_tx.clone(),
             answers: Arc::new(Mutex::new(answer_rx)),
             cancellation: cancellation.clone(),
+            limit_status_updates: kind == OperationKind::AddToArchive,
+            last_status_update: Mutex::new(None),
         };
         let archive = form
             .archive_backend
@@ -2313,7 +2351,7 @@ impl ZargApp {
                     });
                     ui.separator();
                     if icon_button(ui, &self.icons, UiIcon::Quit, "Quit", !self.busy).clicked() {
-                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                        self.request_quit(ui.ctx());
                     }
                 },
             );
@@ -2575,6 +2613,50 @@ impl ZargApp {
             return;
         }
         self.show_operation_now(kind);
+    }
+
+    fn add_dropped_paths(&mut self, paths: Vec<PathBuf>) {
+        if paths.is_empty() || self.busy {
+            return;
+        }
+        if self.read_archive.is_empty() {
+            self.status = "Open an archive before dropping files or folders to add.".to_owned();
+            return;
+        }
+        if self.imported_archive_dir.is_some() {
+            self.status = "Imported archives cannot be modified.".to_owned();
+            return;
+        }
+        if let Some(path) = paths.iter().find(|path| !path.exists()) {
+            self.status = format!("Dropped path does not exist: {}", path.display());
+            return;
+        }
+
+        if self.operation.kind != Some(OperationKind::AddToArchive) {
+            self.show_operation(OperationKind::AddToArchive);
+        }
+        if self.operation.kind != Some(OperationKind::AddToArchive) {
+            return;
+        }
+        for path in paths {
+            if !self.operation.input_paths.contains(&path) {
+                self.operation.input_paths.push(path);
+            }
+        }
+        self.operation.selected_input_paths.clear();
+        self.operation.input_selection_anchor = None;
+    }
+
+    fn handle_dropped_files(&mut self, context: &egui::Context) {
+        let paths = context.input(|input| {
+            input
+                .raw
+                .dropped_files
+                .iter()
+                .map(|file| file.path().to_path_buf())
+                .collect()
+        });
+        self.add_dropped_paths(paths);
     }
 
     fn show_operation_now(&mut self, kind: OperationKind) {
@@ -3451,8 +3533,35 @@ impl ZargApp {
         }
     }
 
-    pub fn load_default_password(&mut self) {
-        match crate::password_store::load_default_password() {
+    pub fn load_default_password(&mut self, context: &egui::Context) {
+        let (sender, receiver) = mpsc::channel();
+        self.default_password_loading = Some(receiver);
+        let context = context.clone();
+        std::thread::spawn(move || {
+            let result =
+                crate::password_store::load_default_password().map_err(|error| error.to_string());
+            let _ = sender.send(result);
+            context.request_repaint();
+        });
+    }
+
+    fn poll_default_password(&mut self) {
+        let Some(receiver) = &self.default_password_loading else {
+            return;
+        };
+        let result = match receiver.try_recv() {
+            Ok(result) => result,
+            Err(mpsc::TryRecvError::Empty) => return,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.default_password_loading = None;
+                return;
+            }
+        };
+        self.default_password_loading = None;
+        if !self.default_password_input.is_empty() || self.default_password_status.is_some() {
+            return;
+        }
+        match result {
             Ok(Some(password)) if !password.is_empty() => {
                 self.apply_default_password(password);
             }
@@ -3625,13 +3734,7 @@ impl ZargApp {
         if let Some(controller) = &self.theme_controller {
             controller.set_mode(theme_mode);
         } else {
-            context.set_theme(match theme_mode {
-                crate::settings::ThemeMode::System => egui::ThemePreference::System,
-                crate::settings::ThemeMode::Light => {
-                    egui::ThemePreference::from(egui::Theme::Light)
-                }
-                crate::settings::ThemeMode::Dark => egui::ThemePreference::from(egui::Theme::Dark),
-            });
+            crate::theme::apply_theme(context, theme_mode);
         }
     }
 }
@@ -3645,10 +3748,15 @@ impl eframe::App for ZargApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let context = ui.ctx().clone();
+        if context.input(|input| input.viewport().close_requested()) {
+            self.request_quit(&context);
+        }
         self.apply_control_size(&context);
         self.track_window_geometry(&context);
+        self.poll_default_password();
         self.poll_recent_archive_check(&context);
         self.poll_worker(&context);
+        self.handle_dropped_files(&context);
         egui::Panel::top("menus").show(ui, |ui| self.render_menus(ui));
         egui::Panel::top("toolbar").show(ui, |ui| {
             self.render_toolbar(ui);
@@ -4040,6 +4148,10 @@ impl eframe::App for ZargApp {
         self.render_file_picker_dialog(&context);
         self.render_settings_dialog(&context);
         self.update_window_title(&context);
+        if self.exit_requested {
+            self.exit_requested = false;
+            context.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
     }
 }
 

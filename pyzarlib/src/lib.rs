@@ -11,6 +11,10 @@ use zarlib::operations::{
 };
 use zarlib::{ContentAead, DeviceKind, EncryptionScope, Toc, TocEntry};
 
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL_ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 struct WarningCollector {
     warnings: Mutex<Vec<String>>,
 }
