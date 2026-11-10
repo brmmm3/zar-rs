@@ -6,8 +6,8 @@ ranges, check, info, list, extract and in-memory extract. Request and response
 fields are documented in
 [../czarlib/README.md](../czarlib/README.md).
 Create and Add requests may include `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz`
-source paths; their contents are imported into the resulting ZAR using the source
-archive's internal paths.
+source paths; their contents are imported into the resulting ZAR using the
+source archive's internal paths.
 
 ## Build the native library
 
@@ -31,15 +31,16 @@ Dictionary<string, byte[]> files = ZarLibrary.ExtractArchiveToMemory(new { archi
 
 - Requests are JSON strings or any object serializable to a JSON object (null
   properties are omitted). Responses are JSON strings.
-- `ZarLibrary.Execute(operation, request)` and `ExecuteJson(operation, json)` call
-  any operation directly.
+- `ZarLibrary.Execute(operation, request)` and `ExecuteJson(operation, json)`
+  call any operation directly.
 - Failures throw `ZarException` (`Status`: 1 request/archive error, 2 invalid
   pointer/allocation, 3 Rust panic, 0 wrapper-side validation).
 - Calls are thread-safe. Encryption options (`password`, `passwords` per commit
   ID, `aead`, `encryption_scope`) behave as in the C wrapper.
 - `EncryptArchiveCommits` uses `new_password` for transformed commits and
-  `password`/`passwords` to unlock already-encrypted commits. `DecryptArchiveCommits`
-  uses the latter fields to unlock commits being decrypted.
+  `password`/`passwords` to unlock already-encrypted commits.
+  `DecryptArchiveCommits` uses the latter fields to unlock commits being
+  decrypted.
 
 ## Tests and examples
 

@@ -2,9 +2,9 @@
 """Merge the packaged ZAR actions into the current user's Thunar config."""
 
 import os
-from pathlib import Path
 import tempfile
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 
 def main() -> None:

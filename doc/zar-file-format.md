@@ -174,6 +174,7 @@ end note
   header payload bytes. Encrypted payloads also require successful AEAD
   authentication to read.
 
-The frame definitions are implemented in [`zarlib/src/lib.rs`](../zarlib/src/lib.rs)
-and [`zarlib/src/frames.rs`](../zarlib/src/frames.rs); the logical-header
-encoding is in [`zarlib/src/header.rs`](../zarlib/src/header.rs).
+The frame definitions are implemented in
+[`zarlib/src/lib.rs`](../zarlib/src/lib.rs) and
+[`zarlib/src/frames.rs`](../zarlib/src/frames.rs); the logical-header encoding
+is in [`zarlib/src/header.rs`](../zarlib/src/header.rs).

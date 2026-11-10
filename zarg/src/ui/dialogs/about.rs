@@ -9,6 +9,7 @@ impl ZargApp {
             let icons = &self.icons;
             egui::Window::new("About zarg")
                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .constrain_to(context.content_rect())
                 .fixed_size(size)
                 .resizable(false)
                 .collapsible(false)

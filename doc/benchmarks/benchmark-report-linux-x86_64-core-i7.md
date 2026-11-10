@@ -1,19 +1,22 @@
 # Linux 4.0.1 Archive Benchmark
 
 Run date: 2026-11-08T23:07:18+01:00
+
 - Operating system: Linux-5.15.0-198-generic-x86_64-with-glibc2.35
 - CPU: Intel(R) Core(TM) i7-10700 CPU @ 2.90GHz (x86_64, 16 logical cores)
-- Benchmark storage (Source and archives): SSD / non-rotational (may be virtual); model: Not reported; device: dm-2
-- Benchmark storage (Extraction output): SSD / non-rotational (may be virtual); model: Not reported; device: dm-2
+- Benchmark storage (Source and archives): SSD / non-rotational (may be
+  virtual); model: Not reported; device: dm-2
+- Benchmark storage (Extraction output): SSD / non-rotational (may be virtual);
+  model: Not reported; device: dm-2
 
 ![Host OS, CPU and storage information, archive size, compression time, full and three-file extraction times, and separate CPU and RAM charts](./benchmark-charts-linux-x86_64-core-i7.svg)
 
 ## Results
 
-Source: [`linux-4.0.1.tar.gz`](https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.0.1.tar.gz)
-Uncompressed source size: 525.1 MiB
-Regular files verified: 48,945
-Symbolic links excluded from path/size verification: 12
+Source:
+[`linux-4.0.1.tar.gz`](https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.0.1.tar.gz)
+Uncompressed source size: 525.1 MiB Regular files verified: 48,945 Symbolic
+links excluded from path/size verification: 12
 
 | Format | Encryption | Cache | Archive size | Compression (min-max) | Extraction (min-max) | Extract 3 files (min-max) | Temp space (3 files) | CPU / RAM (compress) | CPU / RAM (extract) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -38,20 +41,23 @@ Symbolic links excluded from path/size verification: 12
 | tar.gz | No | cold | 122.1 MiB | 13.63-13.63 s (38.5-38.5 MiB/s) | 2.47-2.47 s (212.8-212.8 MiB/s) | 2.292-2.292 s | 0 B | 8 % / 6.4 GiB | 8 % / 6.4 GiB |
 | tar.gz | Yes | cold | 122.1 MiB | 14.09-14.09 s (37.3-37.3 MiB/s) | 3.44-3.44 s (152.8-152.8 MiB/s) | 3.187-3.187 s | 0 B | 7 % / 6.4 GiB | 11 % / 6.4 GiB |
 
-"Extract 3 files" is the time to extract only `fs/btrfs/check-integrity.c`, `lib/xz/xz_dec_test.c`, `tools/perf/util/build-id.h`
-from the archive (for encrypted tar/tar.gz this includes decrypting the archive). "Temp space"
-is the peak disk usage of the results directory and the runner's temporary
-directory during that extraction minus the size of the extracted files, sampled
-every 5 ms (the maximum over all runs). Temporary files outside these
-directories (e.g. in the system temp directory) are not captured.
+"Extract 3 files" is the time to extract only `fs/btrfs/check-integrity.c`,
+`lib/xz/xz_dec_test.c`, `tools/perf/util/build-id.h` from the archive (for
+encrypted tar/tar.gz this includes decrypting the archive). "Temp space" is the
+peak disk usage of the results directory and the runner's temporary directory
+during that extraction minus the size of the extracted files, sampled every 5 ms
+(the maximum over all runs). Temporary files outside these directories (e.g. in
+the system temp directory) are not captured.
 
 Throughput uses the uncompressed regular-file size. Each extraction was run into
 a freshly emptied `testresults/` directory, then checked against the source tree
-for matching regular-file paths and sizes. During its 4 extraction run(s), `zarlib` renamed 48 path(s) total (12 per run) due to case-folded collisions; generated suffixes are normalized only for comparison. The results
-directory was emptied again after each check. Symlink entries are excluded
-because `zarlib` currently reports and skips unsupported input symlinks. ZIP
-and tar preserve links; 7z preserves them in its archive but may skip unsafe
-relative links during extraction, as noted above.
+for matching regular-file paths and sizes. During its 4 extraction run(s),
+`zarlib` renamed 48 path(s) total (12 per run) due to case-folded collisions;
+generated suffixes are normalized only for comparison. The results directory was
+emptied again after each check. Symlink entries are excluded because `zarlib`
+currently reports and skips unsupported input symlinks. ZIP and tar preserve
+links; 7z preserves them in its archive but may skip unsafe relative links
+during extraction, as noted above.
 
 CPU utilisation and RAM consumption were sampled at 1-second intervals during
 each compression and extraction operation using `psutil`. The table shows the
@@ -59,11 +65,12 @@ average CPU % and RAM GiB across all samples for each phase. Runtime values show
 the minimum and maximum measured time for each phase. The charts plot full
 extraction times and the times to extract the three selected files separately.
 The time-series charts plot CPU and RAM on separate axes for compression and
-extraction, with one line per archive format (solid = plain, dashed = encrypted).
-The CPU model and operating system are collected from the host. Storage details
-describe the volumes holding the source/archive files and extraction output.
-The operating system may not expose physical media behind virtual or layered
-storage; such cases are identified as unknown or non-rotational/possibly virtual.
+extraction, with one line per archive format (solid = plain, dashed =
+encrypted). The CPU model and operating system are collected from the host.
+Storage details describe the volumes holding the source/archive files and
+extraction output. The operating system may not expose physical media behind
+virtual or layered storage; such cases are identified as unknown or
+non-rotational/possibly virtual.
 
 ## Method
 
@@ -73,7 +80,8 @@ storage; such cases are identified as unknown or non-rotational/possibly virtual
   writing `3` to `/proc/sys/vm/drop_caches` on Linux (root required), or
   `RAMMap.exe -Et` on Windows (elevation required). Cold runs are skipped with
   a warning when the privileges are missing.
-- The installed 7-Zip does not support the zstd codec (only forks such as 7-Zip-zstd do); the `7z-zstd` benchmark is skipped.
+- The installed 7-Zip does not support the zstd codec (only forks such as
+  7-Zip-zstd do); the `7z-zstd` benchmark is skipped.
 - `zarlib`: `zarc` release build, default Zstandard compression level 3;
   encrypted runs use AES-256-GCM and the default header-and-data scope.
 - `zip`: Info-ZIP recursive DEFLATE at level 6, storing symlinks as links.

@@ -277,7 +277,7 @@ pub(crate) enum Command {
             help = "Include named pipes and Unix device nodes found in input paths"
         )]
         special_files: bool,
-        #[arg(long, help = "Prompt for the new commit encryption password")]
+        #[arg(long, alias = "pw", help = "Prompt for the new commit encryption password")]
         password: bool,
         #[arg(
             long,
@@ -288,7 +288,7 @@ pub(crate) enum Command {
         )]
         aead: String,
         #[arg(
-            long = "encryption-scope",
+            long = "encryption-scope", alias = "es",
             value_name = "SCOPE",
             default_value = "header-and-data",
             value_parser = ["data", "header", "header-and-data"],
@@ -296,7 +296,7 @@ pub(crate) enum Command {
         )]
         encryption_scope: String,
         #[arg(
-            long = "password-for",
+            long = "password-for", alias = "pwf",
             value_name = "COMMIT_ID",
             action = clap::ArgAction::Append,
             help = "Prompt for a password to unlock this commit; may be repeated"
@@ -321,12 +321,14 @@ pub(crate) enum Command {
         verbose: bool,
         #[arg(
             long,
+            alias = "bs",
             value_name = "SIZE",
             help = "Block payload size (e.g. 64K, 1M, 8M) or 'auto' (default: 8M / memory budget)"
         )]
         block_size: Option<String>,
         #[arg(
             long,
+            alias = "cl",
             value_name = "LEVEL",
             help = "Zstandard compression level from -7 (fastest) to 22 (highest, default: 3)"
         )]

@@ -7,8 +7,9 @@ import getpass
 import json
 import sys
 import time
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from . import (
     add_archive,

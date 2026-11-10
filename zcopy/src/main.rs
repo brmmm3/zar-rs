@@ -29,6 +29,14 @@ struct Args {
     #[arg(short = 'c', long = "client", value_name = "HOST")]
     client: Option<String>,
 
+    /// Save the sent tree as a packed .zar file on the server
+    #[arg(long, requires = "client", conflicts_with = "unpack")]
+    pack: bool,
+
+    /// Extract the sent tree into files on the server (the default)
+    #[arg(long, requires = "client", conflicts_with = "pack")]
+    unpack: bool,
+
     /// Folder to send (client only)
     #[arg(value_name = "SOURCE", default_value = ".")]
     source: PathBuf,
@@ -122,7 +130,14 @@ fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 progress: !args.no_progress,
                 confirm: &|others| client::ask_continue(others, args.yes),
             };
-            let stats = client::run(&host, &args.source, &settings, args.temp.as_deref(), &ui)?;
+            let stats = client::run(
+                &host,
+                &args.source,
+                &settings,
+                args.temp.as_deref(),
+                args.pack && !args.unpack,
+                &ui,
+            )?;
             println!(
                 "zcopy: sent {} file(s), {} byte(s) -> {} byte(s) on the wire, {} up to date, {:.1}s",
                 stats.files,
@@ -149,11 +164,23 @@ fn main() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
+    use super::Args;
+    use clap::Parser;
     use std::fs;
     use std::path::Path;
     use std::time::{Duration, SystemTime};
 
     use crate::{client, config::Settings, net::*, scan, server::Server};
+
+    static CWD_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn pack_and_unpack_flags_are_client_only_and_mutually_exclusive() {
+        assert!(Args::try_parse_from(["zcopy", "--client", "host", "--pack"]).is_ok());
+        assert!(Args::try_parse_from(["zcopy", "--client", "host", "--unpack"]).is_ok());
+        assert!(Args::try_parse_from(["zcopy", "--pack"]).is_err());
+        assert!(Args::try_parse_from(["zcopy", "--client", "host", "--pack", "--unpack"]).is_err());
+    }
 
     fn start(root: &Path, password: Option<&str>, allow: Option<Vec<String>>) -> String {
         let server = Server::bind(
@@ -180,11 +207,21 @@ mod tests {
         settings: &Settings,
         confirm: &dyn Fn(u32) -> bool,
     ) -> Result<client::Stats, Box<dyn std::error::Error + Send + Sync>> {
+        run_client_with_mode(address, src, settings, false, confirm)
+    }
+
+    fn run_client_with_mode(
+        address: &str,
+        src: &Path,
+        settings: &Settings,
+        pack: bool,
+        confirm: &dyn Fn(u32) -> bool,
+    ) -> Result<client::Stats, Box<dyn std::error::Error + Send + Sync>> {
         let ui = client::Ui {
             progress: false,
             confirm,
         };
-        client::run(address, src, settings, None, &ui)
+        client::run(address, src, settings, None, pack, &ui)
     }
 
     fn client_settings(password: Option<&str>) -> Settings {
@@ -194,9 +231,115 @@ mod tests {
         }
     }
 
+    #[test]
+    fn pack_client_saves_a_complete_archive_on_the_server() {
+        let _cwd_test = CWD_TEST_LOCK.lock().unwrap();
+        let base = std::env::temp_dir().join(format!("zcopy-pack-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let source = base.join("packed-source");
+        let destination = base.join("destination");
+        fs::create_dir_all(&source).unwrap();
+        fs::write(source.join("first.txt"), vec![b'a'; 1 << 20]).unwrap();
+        fs::write(source.join("second.txt"), vec![b'b'; 1 << 20]).unwrap();
+        let address = start(&destination, None, None);
+
+        let stats = run_client_with_mode(
+            &address,
+            &source,
+            &Settings {
+                batch_mib: Some(1),
+                ..client_settings(None)
+            },
+            true,
+            &|_| true,
+        )
+        .unwrap();
+        let archive = destination.join("packed-source.zar");
+        assert_eq!(stats.files, 2);
+        assert!(archive.is_file());
+        assert!(!destination.join("packed-source").exists());
+
+        let extracted = base.join("verify");
+        fs::create_dir_all(&extracted).unwrap();
+        zarlib::operations::extract_archive_with_passwords_progress_and_filters(
+            archive.to_str().unwrap(),
+            &extracted,
+            zarlib::operations::ExtractionOptions {
+                dry_run: false,
+                to: None,
+                collision_policy: zarlib::operations::CollisionPolicy::Error,
+                existing_policy: zarlib::operations::ExistingPolicy::Overwrite,
+                restore_metadata: false,
+                restore_symlinks: false,
+                restore_devices: false,
+                strip_top_level: false,
+            },
+            &zarlib::operations::PasswordSet::new(None),
+            None,
+            &zarlib::operations::FilterSet::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            fs::metadata(extracted.join("packed-source/first.txt"))
+                .unwrap()
+                .len(),
+            1 << 20
+        );
+        assert_eq!(
+            fs::metadata(extracted.join("packed-source/second.txt"))
+                .unwrap()
+                .len(),
+            1 << 20
+        );
+
+        let empty_source = base.join("empty-source");
+        fs::create_dir_all(&empty_source).unwrap();
+        let stats = run_client_with_mode(
+            &address,
+            &empty_source,
+            &client_settings(None),
+            true,
+            &|_| true,
+        )
+        .unwrap();
+        assert_eq!(stats.files, 1);
+        let empty_archive = destination.join("empty-source.zar");
+        assert!(empty_archive.is_file());
+        let empty_extracted = base.join("verify-empty");
+        fs::create_dir_all(&empty_extracted).unwrap();
+        zarlib::operations::extract_archive_with_passwords_progress_and_filters(
+            empty_archive.to_str().unwrap(),
+            &empty_extracted,
+            zarlib::operations::ExtractionOptions {
+                dry_run: false,
+                to: None,
+                collision_policy: zarlib::operations::CollisionPolicy::Error,
+                existing_policy: zarlib::operations::ExistingPolicy::Overwrite,
+                restore_metadata: false,
+                restore_symlinks: false,
+                restore_devices: false,
+                strip_top_level: false,
+            },
+            &zarlib::operations::PasswordSet::new(None),
+            None,
+            &zarlib::operations::FilterSet::default(),
+        )
+        .unwrap();
+        assert!(empty_extracted.join("empty-source").is_dir());
+
+        fs::write(&archive, b"old packed archive").unwrap();
+        let stats =
+            run_client_with_mode(&address, &source, &client_settings(None), true, &|_| true)
+                .unwrap();
+        assert_eq!(stats.files, 2);
+        assert_eq!(&fs::read(&archive).unwrap()[..4], b"ZAR0");
+        fs::remove_dir_all(&base).unwrap();
+    }
+
     // One sequential test because the client changes the process directory.
     #[test]
     fn syncs_missing_and_newer_files_with_and_without_password() {
+        let _cwd_test = CWD_TEST_LOCK.lock().unwrap();
         let base = std::env::temp_dir().join(format!("zcopy-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let (src, dst) = (base.join("src"), base.join("dst"));

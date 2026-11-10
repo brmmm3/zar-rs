@@ -85,6 +85,7 @@ pub fn run(
     source: &Path,
     settings: &Settings,
     temp: Option<&Path>,
+    pack: bool,
     ui: &Ui,
 ) -> Res<Stats> {
     let _cwd = CWD_LOCK.lock().unwrap();
@@ -113,7 +114,7 @@ pub fn run(
     };
     let result = fs::create_dir_all(&work)
         .map_err(Into::into)
-        .and_then(|()| transfer(host, &work, settings, ui, &source, &prefix));
+        .and_then(|()| transfer(host, &work, settings, ui, &source, &prefix, pack));
     let _ = fs::remove_dir_all(&work);
     let _ = std::env::set_current_dir(origin);
     result
@@ -126,6 +127,7 @@ fn transfer(
     ui: &Ui,
     source: &Path,
     prefix: &str,
+    pack: bool,
 ) -> Res<Stats> {
     let has_port = if host.starts_with('[') {
         host.contains("]:")
@@ -168,16 +170,21 @@ fn transfer(
     else {
         return Err("unexpected reply from server".into());
     };
-    let remote: Vec<Entry> = reader.recv_compressed()?;
-    let remote: Tree = remote
-        .into_iter()
-        .map(|(path, size, mtime, dir)| (path, scan::Meta { size, mtime, dir }))
-        .collect();
+    let remote_entries: Vec<Entry> = reader.recv_compressed()?;
+    let remote: Tree = if pack {
+        Tree::default()
+    } else {
+        remote_entries
+            .into_iter()
+            .map(|(path, size, mtime, dir)| (path, scan::Meta { size, mtime, dir }))
+            .collect()
+    };
 
     if active_clients > 0 && !(ui.confirm)(active_clients) {
         let _ = writer.send_msg(&Msg::Proceed {
             go: false,
             source: String::new(),
+            pack,
         });
         return Err("cancelled: server has other clients connected".into());
     }
@@ -185,6 +192,7 @@ fn transfer(
     writer.send_msg(&Msg::Proceed {
         go: true,
         source: source_dir,
+        pack,
     })?;
     let wants_metadata = settings.metadata.unwrap_or(false);
     if wants_metadata && !server_metadata {
@@ -201,7 +209,12 @@ fn transfer(
         ..Stats::default()
     };
 
-    let batch_limit = settings.batch_mib.unwrap_or(512).max(1) << 20;
+    let batch_limit = if pack {
+        u64::MAX
+    } else {
+        settings.batch_mib.unwrap_or(512).max(1) << 20
+    };
+    let batch_file_limit = if pack { usize::MAX } else { MAX_BATCH_FILES };
     let mut batches: Vec<Vec<String>> = Vec::new();
     let mut batch_sizes: Vec<u64> = Vec::new();
     let (mut current, mut current_bytes) = (Vec::new(), 0u64);
@@ -210,7 +223,7 @@ fn transfer(
         stats.source_bytes += size;
         current_bytes += size;
         current.push(path);
-        if current_bytes >= batch_limit || current.len() >= MAX_BATCH_FILES {
+        if current_bytes >= batch_limit || current.len() >= batch_file_limit {
             batches.push(std::mem::take(&mut current));
             batch_sizes.push(current_bytes);
             current_bytes = 0;
@@ -219,6 +232,12 @@ fn transfer(
     if !current.is_empty() {
         batches.push(current);
         batch_sizes.push(current_bytes);
+    }
+    if pack && batches.is_empty() {
+        batches.push(vec![
+            if prefix.is_empty() { "." } else { prefix }.to_owned(),
+        ]);
+        batch_sizes.push(0);
     }
 
     let bar = make_bar(stats.source_bytes, ui.progress);
@@ -230,7 +249,16 @@ fn transfer(
             .map(|p| (p.clone(), local[p].mtime, local[p].dir))
             .collect()
     };
-    let prepared: Vec<Vec<(String, i64, bool)>> = batches.iter().map(|b| items_of(b)).collect();
+    let prepared: Vec<Vec<(String, i64, bool)>> = batches
+        .iter()
+        .map(|batch| {
+            if pack && local.is_empty() {
+                Vec::new()
+            } else {
+                items_of(batch)
+            }
+        })
+        .collect();
 
     let (queue, ready) = sync_channel::<Result<Batch, String>>(1);
     let producer = std::thread::spawn(move || {

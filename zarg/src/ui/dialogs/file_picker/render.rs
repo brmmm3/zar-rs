@@ -6,7 +6,7 @@ impl ZargApp {
         if self.file_dialog.open {
             let viewport_id = egui::ViewportId::from_hash_of("file-dialog");
             let size_key = "file-selection";
-            let size = self.dialog_size(size_key, [780.0, 400.0]);
+            let size = self.dialog_size(size_key, [850.0, 400.0]);
             let mut actual_size = None;
             let mut confirmed = false;
             let mut closed = false;
@@ -15,11 +15,11 @@ impl ZargApp {
                 viewport_id,
                 Self::centered_dialog_viewport_builder(
                     context,
+                    viewport_id,
                     "Select files and folders",
                     size,
                     true,
-                )
-                .with_min_inner_size([360.0, 300.0]),
+                ),
                 |ui, _class| {
                     ui.painter().rect_filled(
                         ui.max_rect(),

@@ -43,6 +43,9 @@ pub enum Msg {
         /// Absolute path of the folder the client is sending (for server logs).
         #[serde(default)]
         source: String,
+        /// Keep the received archive packed instead of extracting it.
+        #[serde(default)]
+        pack: bool,
     },
     /// Followed by a compressed item-list frame and `bytes` raw archive bytes.
     Batch {
@@ -228,6 +231,14 @@ mod tests {
         assert!(reflected.recv().is_err());
         let mut wrong_key = FrameReader::new(&wire[..], Some([6; 32]), DIR_CLIENT_TO_SERVER);
         assert!(wrong_key.recv().is_err());
+    }
+
+    #[test]
+    fn proceed_without_pack_field_defaults_to_unpack_mode() {
+        let message: Msg =
+            serde_json::from_str(r#"{"type":"proceed","go":true,"source":"/data/source"}"#)
+                .unwrap();
+        assert!(matches!(message, Msg::Proceed { pack: false, .. }));
     }
 
     #[test]

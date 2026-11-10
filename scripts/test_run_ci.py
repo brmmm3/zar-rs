@@ -29,6 +29,215 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(runner.results["dependent"][0], "SKIP")
         self.assertEqual(called, ["independent"])
 
+    def test_require_respects_no_install(self):
+        with (
+            mock.patch.object(run_ci, "AUTO_INSTALL_ENABLED", False),
+            mock.patch.object(run_ci.shutil, "which", return_value=None),
+            mock.patch.object(run_ci, "install_missing_tool") as install,
+            self.assertRaises(run_ci.JobFailure),
+        ):
+            run_ci.require("clang")
+        install.assert_not_called()
+
+    def test_linux_missing_tool_selects_distribution_package(self):
+        with (
+            mock.patch.object(run_ci.platform, "system", return_value="Linux"),
+            mock.patch.object(
+                run_ci.shutil,
+                "which",
+                side_effect=lambda name: "/usr/bin/apt-get" if name == "apt-get" else None,
+            ),
+            mock.patch.object(run_ci, "install_linux_packages") as install,
+        ):
+            run_ci.install_missing_tool("mvn")
+        install.assert_called_once_with(["maven"])
+
+    def test_windows_missing_tool_prefers_chocolatey(self):
+        with (
+            mock.patch.object(run_ci.platform, "system", return_value="Windows"),
+            mock.patch.object(
+                run_ci.shutil,
+                "which",
+                side_effect=lambda name: {
+                    "winget": "winget.exe",
+                    "choco": "choco.exe",
+                }.get(name),
+            ),
+            mock.patch.object(run_ci, "command") as command,
+            mock.patch.object(run_ci, "refresh_windows_path") as refresh_path,
+        ):
+            run_ci.install_missing_tool("mvn")
+        self.assertEqual(command.call_args.args[0][:3], ["choco.exe", "install", "maven"])
+        refresh_path.assert_called_once()
+
+    def test_windows_missing_tool_falls_back_to_winget(self):
+        with (
+            mock.patch.object(run_ci.platform, "system", return_value="Windows"),
+            mock.patch.object(
+                run_ci.shutil,
+                "which",
+                side_effect=lambda name: "winget.exe" if name == "winget" else None,
+            ),
+            mock.patch.object(run_ci, "command") as command,
+            mock.patch.object(run_ci, "refresh_windows_path"),
+        ):
+            run_ci.install_missing_tool("mvn")
+        self.assertIn("Apache.Maven", command.call_args.args[0])
+
+    def test_windows_python_package_prefers_chocolatey(self):
+        with (
+            mock.patch.object(run_ci.platform, "system", return_value="Windows"),
+            mock.patch.object(
+                run_ci.shutil,
+                "which",
+                side_effect=lambda name: {
+                    "winget": "winget.exe",
+                    "choco": "choco.exe",
+                }.get(name),
+            ),
+            mock.patch.object(run_ci, "command") as command,
+            mock.patch.object(run_ci, "refresh_windows_path"),
+        ):
+            run_ci.install_missing_tool("python-3.9")
+        self.assertEqual(
+            command.call_args.args[0],
+            ["choco.exe", "install", "python39", "--yes", "--no-progress"],
+        )
+
+    def test_windows_python_installs_missing_version_and_uses_launcher(self):
+        with (
+            mock.patch.object(run_ci, "AUTO_INSTALL_ENABLED", True),
+            mock.patch.object(run_ci.shutil, "which", side_effect=[None, "py.exe"]),
+            mock.patch.object(
+                run_ci.subprocess,
+                "run",
+                return_value=mock.Mock(
+                    returncode=0, stdout="C:\\Python39\\python.exe\n"
+                ),
+            ) as run,
+            mock.patch.object(run_ci, "install_missing_tool") as install,
+            mock.patch.object(run_ci, "refresh_windows_path") as refresh,
+        ):
+            executable = run_ci.windows_python("3.9")
+        self.assertEqual(executable, "C:\\Python39\\python.exe")
+        install.assert_called_once_with("python-3.9")
+        refresh.assert_called_once()
+        run.assert_called_once_with(
+            ["py.exe", "-3.9", "-c", "import sys; print(sys.executable)"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    def test_wheel_matrix_covers_all_declared_python_versions(self):
+        self.assertEqual(
+            run_ci.WHEEL_VERSIONS,
+            ("3.9", "3.10", "3.11", "3.12", "3.13", "3.14", "3.15"),
+        )
+
+    def test_ruff_installer_adds_python_user_scripts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            user_base = Path(temp) / "user"
+            scripts = user_base / ("Scripts" if run_ci.os.name == "nt" else "bin")
+            scripts.mkdir(parents=True)
+            with (
+                mock.patch.object(run_ci.subprocess, "run", return_value=mock.Mock(stdout=f"{user_base}\n")),
+                mock.patch.object(run_ci, "command") as command,
+                mock.patch.dict(run_ci.os.environ, {"PATH": ""}),
+            ):
+                run_ci.install_missing_tool("ruff")
+                self.assertIn(str(scripts), run_ci.os.environ["PATH"])
+        self.assertEqual(command.call_args.args[0][-2:], ["--user", "ruff"])
+
+    def test_binding_helpers_issue_expected_commands(self):
+        with (
+            mock.patch.object(run_ci, "ROOT", Path("/repo")),
+            mock.patch.object(run_ci, "require", side_effect=lambda name: name),
+            mock.patch.object(run_ci, "command") as command,
+        ):
+            run_ci.go_tests("Linux")
+        self.assertEqual(
+            [call.args[0] for call in command.call_args_list],
+            [
+                ["cargo", "build", "--locked", "--release", "-p", "czarlib"],
+                ["go", "test", "./..."],
+            ],
+        )
+        self.assertIn("LD_LIBRARY_PATH", command.call_args.kwargs["env"])
+
+        with (
+            mock.patch.object(run_ci, "require", return_value="dotnet"),
+            mock.patch.object(run_ci, "command") as command,
+        ):
+            run_ci.csharp_tests()
+        self.assertEqual(
+            [call.args[0] for call in command.call_args_list],
+            [
+                ["cargo", "build", "--locked", "--release", "-p", "czarlib"],
+                [
+                    "dotnet",
+                    "restore",
+                    "csharpzarlib/ZarLib.Tests/ZarLib.Tests.csproj",
+                    "--source",
+                    "https://api.nuget.org/v3/index.json",
+                ],
+                [
+                    "dotnet",
+                    "test",
+                    "csharpzarlib/ZarLib.Tests/ZarLib.Tests.csproj",
+                    "--configuration",
+                    "Release",
+                    "--no-restore",
+                ],
+            ],
+        )
+        native_name = {
+            "Windows": "czarlib.dll",
+            "Darwin": "libczarlib.dylib",
+            "Linux": "libczarlib.so",
+        }[run_ci.platform.system()]
+        self.assertEqual(
+            command.call_args_list[-1].kwargs["env"]["ZAR_LIBRARY"],
+            str(run_ci.ROOT / "target/release" / native_name),
+        )
+
+    def test_lint_helpers_run_check_modes(self):
+        with (
+            mock.patch.object(run_ci, "require", side_effect=lambda name: name),
+            mock.patch.object(run_ci, "command") as command,
+        ):
+            run_ci.ruff_check()
+            run_ci.rumdl_check()
+            run_ci.zizmor_check()
+        self.assertEqual(
+            [call.args[0] for call in command.call_args_list],
+            [
+                ["ruff", "check", "."],
+                ["rumdl", "check", "."],
+                ["zizmor", "--offline", "--min-severity=low", "."],
+            ],
+        )
+
+    def test_linux_package_install_uses_detected_manager(self):
+        with (
+            mock.patch.object(run_ci, "AUTO_INSTALL_ENABLED", True),
+            mock.patch.object(
+                run_ci.shutil,
+                "which",
+                side_effect=lambda name: "/usr/bin/apt-get" if name == "apt-get" else None,
+            ),
+            mock.patch.object(run_ci.os, "geteuid", return_value=0, create=True),
+            mock.patch.object(run_ci.subprocess, "run") as run,
+            mock.patch.object(run_ci, "command") as command,
+        ):
+            run_ci.install_linux_packages(["clang", "lld", "llvm"])
+        run.assert_called_once_with(
+            ["apt-get", "update"], env=mock.ANY, check=False
+        )
+        command.assert_called_once_with(
+            ["apt-get", "install", "-y", "clang", "lld", "llvm"], env=mock.ANY
+        )
+
     def test_linux_matrix_runs_matching_jobs_in_order(self):
         called = []
         with (
@@ -40,6 +249,12 @@ class RunnerTests(unittest.TestCase):
                 side_effect=lambda *args, **kwargs: called.append(args[0]),
             ),
             mock.patch.object(run_ci, "c_tests"),
+            mock.patch.object(run_ci, "cxx_api_tests") as cxx_api,
+            mock.patch.object(run_ci, "go_tests") as go_tests,
+            mock.patch.object(run_ci, "csharp_tests") as csharp_tests,
+            mock.patch.object(run_ci, "ruff_check") as ruff_check,
+            mock.patch.object(run_ci, "rumdl_check") as rumdl_check,
+            mock.patch.object(run_ci, "zizmor_check") as zizmor_check,
             mock.patch.object(run_ci, "wasi"),
             mock.patch.object(run_ci, "python_tests") as python_tests,
             mock.patch.object(run_ci, "java_bindings") as java,
@@ -60,12 +275,135 @@ class RunnerTests(unittest.TestCase):
         )
         self.assertEqual(
             [call.args[0] for call in binaries.call_args_list],
-            ["linux-x86_64", "linux-x86_64-static"],
+            [
+                "linux-x86_64",
+                "linux-x86_64-static",
+                "windows-x86_64",
+                "windows-aarch64",
+            ],
         )
+        self.assertTrue(
+            all(
+                call.kwargs.get("cross_windows")
+                for call in binaries.call_args_list[2:]
+            )
+        )
+        cxx_api.assert_called_once()
+        go_tests.assert_called_once_with("Linux")
+        csharp_tests.assert_called_once()
+        ruff_check.assert_called_once()
+        rumdl_check.assert_called_once()
+        zizmor_check.assert_called_once()
         self.assertEqual(called[0], ["cargo", "fmt", "--all", "--check"])
         wheels.assert_called_once()
         sdist.assert_called_once()
-        self.assertIn("SKIP build-windows-x86_64", output.getvalue())
+        self.assertNotIn("SKIP build-windows-x86_64", output.getvalue())
+
+    def test_windows_runs_core_and_c_library_jobs(self):
+        called = []
+        with (
+            mock.patch.object(run_ci.platform, "system", return_value="Windows"),
+            mock.patch.object(run_ci, "host_arch", return_value="x86_64"),
+            mock.patch.object(
+                run_ci,
+                "command",
+                side_effect=lambda *args, **kwargs: called.append(args[0]),
+            ),
+            mock.patch.object(run_ci, "c_tests") as c_tests,
+            mock.patch.object(run_ci, "cxx_api_tests"),
+            mock.patch.object(run_ci, "go_tests"),
+            mock.patch.object(run_ci, "csharp_tests"),
+            mock.patch.object(run_ci, "ruff_check"),
+            mock.patch.object(run_ci, "rumdl_check"),
+            mock.patch.object(run_ci, "zizmor_check"),
+            mock.patch.object(run_ci, "wasi"),
+            mock.patch.object(run_ci, "python_tests"),
+            mock.patch.object(run_ci, "java_bindings"),
+            mock.patch.object(run_ci, "binaries"),
+            mock.patch.object(run_ci, "wheels"),
+            mock.patch.object(run_ci, "windows_nuget"),
+            contextlib.redirect_stdout(io.StringIO()) as output,
+        ):
+            result = run_ci.main([])
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            called[:4],
+            [
+                ["cargo", "fmt", "--all", "--check"],
+                [
+                    "cargo",
+                    "clippy",
+                    "--workspace",
+                    "--all-targets",
+                    "--",
+                    "-D",
+                    "warnings",
+                ],
+                ["cargo", "test", "--workspace"],
+                ["cargo", "test", "--locked", "-p", "zcopy"],
+            ],
+        )
+        c_tests.assert_called_once_with("Windows")
+        self.assertIn(
+            ["cargo", "build", "--locked", "--release", "-p", "cxxzarlib"],
+            called,
+        )
+        self.assertIn("SKIP wasizarlib", output.getvalue())
+        self.assertNotIn("SKIP cargo-fmt", output.getvalue())
+
+    def test_windows_c_tests_build_library_and_skip_posix_harness(self):
+        with (
+            mock.patch.object(run_ci, "require") as require,
+            mock.patch.object(run_ci, "command") as command,
+            contextlib.redirect_stdout(io.StringIO()) as output,
+        ):
+            run_ci.c_tests("Windows")
+        command.assert_called_once_with(
+            ["cargo", "build", "--locked", "--release", "-p", "czarlib"]
+        )
+        require.assert_not_called()
+        self.assertIn("SKIP C API integration tests", output.getvalue())
+
+    def test_windows_cross_toolchain_installs_missing_dependencies(self):
+        with (
+            mock.patch.object(run_ci, "ensure_rustup_item") as rustup_item,
+            mock.patch.object(run_ci, "install_linux_packages") as install,
+            mock.patch.object(run_ci.shutil, "which", return_value=None),
+            mock.patch.object(run_ci, "require", side_effect=lambda name: name),
+            mock.patch.object(run_ci, "command") as command,
+        ):
+            run_ci.ensure_windows_cross_toolchain("x86_64-pc-windows-msvc")
+        self.assertEqual(
+            [call.args for call in rustup_item.call_args_list],
+            [
+                ("target", "x86_64-pc-windows-msvc"),
+                ("component", "llvm-tools"),
+            ],
+        )
+        install.assert_called_once_with(["clang", "lld", "llvm"])
+        command.assert_called_once_with(["cargo", "install", "--locked", "cargo-xwin"])
+
+    def test_missing_cargo_fmt_installs_rustfmt_component(self):
+        with (
+            mock.patch.object(
+                run_ci.subprocess, "run", return_value=mock.Mock(returncode=1)
+            ),
+            mock.patch.object(run_ci, "ensure_rustup_item") as ensure,
+        ):
+            run_ci.ensure_cargo_component("fmt")
+        ensure.assert_called_once_with("component", "rustfmt")
+
+    def test_require_installs_missing_linux_tool_and_rechecks_path(self):
+        with (
+            mock.patch.object(run_ci, "AUTO_INSTALL_ENABLED", True),
+            mock.patch.object(
+                run_ci.shutil, "which", side_effect=[None, "/usr/bin/clang"]
+            ),
+            mock.patch.object(run_ci, "install_missing_tool") as install,
+        ):
+            path = run_ci.require("clang")
+        self.assertEqual(path, "/usr/bin/clang")
+        install.assert_called_once_with("clang")
 
     def test_failure_is_reported_and_returns_nonzero(self):
         with (
@@ -75,6 +413,12 @@ class RunnerTests(unittest.TestCase):
                 run_ci, "command", side_effect=run_ci.JobFailure("unavailable")
             ),
             mock.patch.object(run_ci, "c_tests"),
+            mock.patch.object(run_ci, "cxx_api_tests"),
+            mock.patch.object(run_ci, "go_tests"),
+            mock.patch.object(run_ci, "csharp_tests"),
+            mock.patch.object(run_ci, "ruff_check"),
+            mock.patch.object(run_ci, "rumdl_check"),
+            mock.patch.object(run_ci, "zizmor_check"),
             mock.patch.object(run_ci, "python_tests"),
             mock.patch.object(run_ci, "java_bindings"),
             contextlib.redirect_stdout(io.StringIO()) as output,
@@ -89,33 +433,102 @@ class RunnerTests(unittest.TestCase):
 
     def test_python_override_must_match_requested_runtime(self):
         with mock.patch.object(run_ci, "python_identity", return_value="3.14"):
-            self.assertEqual(
-                run_ci.find_python("3.14", {"3.14": "/test/python"}), "/test/python"
-            )
+            self.assertEqual(run_ci.find_python("3.14", {"3.14": "/test/python"}), "/test/python")
             with self.assertRaises(run_ci.JobFailure):
                 run_ci.find_python("3.14t", {"3.14t": "/test/python"})
 
-    def test_python_discovery_falls_back_when_first_has_no_pytest(self):
-        with tempfile.TemporaryDirectory() as temp:
-            interpreter = Path(temp) / "versions/3.14.5/bin/python"
-            interpreter.parent.mkdir(parents=True)
-            interpreter.touch()
+    def test_pyenv_installs_missing_python_version(self):
+        prefix = str(Path(tempfile.gettempdir()) / "pyenv" / "versions" / "3.14.9")
+        calls = []
 
-            def check(args, **kwargs):
-                if args[0] == "/first/python":
-                    raise run_ci.subprocess.CalledProcessError(1, args)
-                return mock.Mock()
+        def subprocess_run(args, **kwargs):
+            calls.append(args)
+            if args[1] == "latest":
+                return mock.Mock(stdout="3.14.9\n")
+            if args[1] == "prefix" and len([call for call in calls if call[1] == "prefix"]) == 1:
+                return mock.Mock(returncode=1, stdout="")
+            return mock.Mock(returncode=0, stdout=f"{prefix}\n")
 
-            with (
-                mock.patch.dict(run_ci.os.environ, {"PYENV_ROOT": temp}),
-                mock.patch.object(run_ci.shutil, "which", return_value="/first/python"),
-                mock.patch.object(run_ci, "python_identity", return_value="3.14"),
-                mock.patch.object(run_ci.subprocess, "run", side_effect=check),
-            ):
-                self.assertEqual(
-                    run_ci.find_python("3.14", {}, require_pytest=True),
-                    str(interpreter),
-                )
+        with (
+            mock.patch.object(run_ci, "AUTO_INSTALL_ENABLED", True),
+            mock.patch.object(run_ci, "require", return_value="pyenv"),
+            mock.patch.object(run_ci.subprocess, "run", side_effect=subprocess_run),
+            mock.patch.object(run_ci, "install_linux_packages") as install,
+            mock.patch.object(run_ci, "command") as command,
+        ):
+            interpreter = run_ci.pyenv_python("3.14")
+        expected = Path(prefix) / ("python.exe" if run_ci.os.name == "nt" else "bin/python")
+        self.assertEqual(interpreter, str(expected))
+        install.assert_not_called()
+        command.assert_called_once_with(
+            ["pyenv", "install", "--skip-existing", "3.14.9"]
+        )
+
+    def test_python_tests_install_pytest_in_isolated_venv(self):
+        with (
+            mock.patch.object(run_ci, "find_python", return_value="/pyenv/python"),
+            mock.patch.object(run_ci, "require", return_value="maturin"),
+            mock.patch.object(run_ci, "command") as command,
+        ):
+            run_ci.python_tests("3.14", {})
+        commands = [call.args[0] for call in command.call_args_list]
+        pip_install = next(args for args in commands if "pip" in args)
+        self.assertEqual(pip_install[-2:], ["install", "pytest>=8"])
+
+    def test_java_version_installs_required_jdk(self):
+        javac = Path(tempfile.gettempdir()) / "jdk25" / "bin" / "javac.exe"
+        with (
+            mock.patch.object(run_ci, "AUTO_INSTALL_ENABLED", True),
+            mock.patch.object(run_ci, "require", return_value="javac21.exe"),
+            mock.patch.object(run_ci.shutil, "which", return_value=str(javac)),
+            mock.patch.object(
+                run_ci.subprocess,
+                "run",
+                side_effect=[
+                    mock.Mock(returncode=0, stdout="", stderr="javac 21.0.12"),
+                    mock.Mock(returncode=0, stdout="javac 25.0.1", stderr=""),
+                ],
+            ) as run,
+            mock.patch.object(run_ci, "install_missing_tool") as install,
+            mock.patch.object(run_ci, "refresh_windows_path") as refresh,
+            mock.patch.dict(run_ci.os.environ),
+        ):
+            run_ci.ensure_java25()
+            self.assertEqual(
+                run_ci.os.environ["JAVA_HOME"], str(javac.parent.parent.resolve())
+            )
+        install.assert_called_once_with("javac")
+        refresh.assert_called_once()
+        self.assertEqual(
+            run.call_args_list[-1].args[0], [str(javac), "-version"]
+        )
+
+    def test_windows_msvc_environment_activates_build_tools(self):
+        with (
+            mock.patch.dict(
+                run_ci.os.environ,
+                {"ProgramFiles(x86)": "C:\\Program Files (x86)"},
+            ),
+            mock.patch.object(Path, "is_file", return_value=True),
+            mock.patch.object(
+                run_ci.subprocess,
+                "run",
+                side_effect=[
+                    mock.Mock(returncode=0, stdout="C:\\VS\\BuildTools\n"),
+                    mock.Mock(
+                        returncode=0,
+                        stdout="Path=C:\\VS\\VC\\bin;C:\\Windows\\System32\nINCLUDE=C:\\VS\\include\n",
+                    ),
+                ],
+            ) as run,
+            mock.patch.object(run_ci.shutil, "which", return_value="C:\\VS\\VC\\bin\\cl.exe") as which,
+        ):
+            compiler, env = run_ci.windows_msvc_environment()
+        self.assertEqual(compiler, "C:\\VS\\VC\\bin\\cl.exe")
+        self.assertEqual(env["Path"], "C:\\VS\\VC\\bin;C:\\Windows\\System32")
+        self.assertEqual(env["INCLUDE"], "C:\\VS\\include")
+        self.assertEqual(run.call_count, 2)
+        which.assert_called_once_with("cl", path=env["Path"])
 
     def test_artifacts_contain_directory_and_file(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -141,6 +554,7 @@ class RunnerTests(unittest.TestCase):
             release.mkdir(parents=True)
             (release / "zarc").write_bytes(b"cli")
             (release / "zarg").write_bytes(b"gui")
+            (release / "zcopy").write_bytes(b"copy")
             (release / "unrelated").write_bytes(b"not packaged")
             with (
                 mock.patch.object(run_ci, "ROOT", root),
@@ -159,10 +573,51 @@ class RunnerTests(unittest.TestCase):
                         "zar-rs-linux-x86_64",
                         "zar-rs-linux-x86_64/zarc",
                         "zar-rs-linux-x86_64/zarg",
+                        "zar-rs-linux-x86_64/zcopy",
                     },
                 )
                 self.assertEqual(
                     archive.extractfile("zar-rs-linux-x86_64/zarc").read(), b"cli"
+                )
+                self.assertEqual(
+                    archive.extractfile("zar-rs-linux-x86_64/zcopy").read(), b"copy"
+                )
+
+    def test_windows_cross_binary_uses_xwin_and_packages_executables(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            release = root / "target/x86_64-pc-windows-msvc/release"
+            release.mkdir(parents=True)
+            (release / "zarc.exe").write_bytes(b"cli")
+            (release / "zarg.exe").write_bytes(b"gui")
+            (release / "zcopy.exe").write_bytes(b"copy")
+            with (
+                mock.patch.object(run_ci, "ROOT", root),
+                mock.patch.object(run_ci, "DIST", root / "dist"),
+                mock.patch.object(run_ci, "ensure_windows_cross_toolchain"),
+                mock.patch.object(run_ci, "command") as build,
+            ):
+                run_ci.binaries(
+                    "windows-x86_64",
+                    "x86_64-pc-windows-msvc",
+                    False,
+                    False,
+                    cross_windows=True,
+                )
+            self.assertEqual(
+                build.call_args.args[0][:3], ["cargo", "xwin", "build"]
+            )
+            self.assertEqual(
+                build.call_args.kwargs["env"]["XWIN_CROSS_COMPILER"], "clang-cl"
+            )
+            with zipfile.ZipFile(root / "dist/zar-rs-windows-x86_64.zip") as archive:
+                self.assertEqual(
+                    set(archive.namelist()),
+                    {
+                        "zar-rs-windows-x86_64/zarc.exe",
+                        "zar-rs-windows-x86_64/zarg.exe",
+                        "zar-rs-windows-x86_64/zcopy.exe",
+                    },
                 )
 
     def test_missing_and_ambiguous_artifacts_fail(self):

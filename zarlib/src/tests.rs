@@ -107,6 +107,90 @@ fn commits_record_creation_time_and_optional_user() {
     assert_eq!(commits[1].user.as_deref(), Some(username.as_str()));
 }
 
+#[test]
+fn add_reuses_an_empty_root_commit() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive = directory.path().join("empty.zar");
+    let input = directory.path().join("added.txt");
+    std::fs::write(&input, b"added").unwrap();
+    crate::operations::create_archive(archive.to_str().unwrap(), &[]).unwrap();
+    let original_id =
+        crate::operations::info_archive(archive.to_str().unwrap(), false).unwrap()[0].id;
+
+    crate::operations::add_archive(archive.to_str().unwrap(), &[input]).unwrap();
+
+    let commits = crate::operations::info_archive(archive.to_str().unwrap(), false).unwrap();
+    assert_eq!(commits.len(), 1);
+    assert_eq!(commits[0].id, original_id);
+    assert_eq!(
+        crate::operations::list_archive(archive.to_str().unwrap(), None, None)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn add_reuses_an_empty_non_root_tail_commit() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive = directory.path().join("archive.zar");
+    let existing = directory.path().join("existing.txt");
+    let added = directory.path().join("added.txt");
+    std::fs::write(&existing, b"existing").unwrap();
+    std::fs::write(&added, b"added").unwrap();
+    crate::operations::create_archive(archive.to_str().unwrap(), std::slice::from_ref(&existing))
+        .unwrap();
+    crate::operations::remove_archive_entries_with_progress(archive.to_str().unwrap(), &[], None)
+        .unwrap();
+    let original_commits =
+        crate::operations::info_archive(archive.to_str().unwrap(), false).unwrap();
+    let original_tail_id = original_commits[1].id;
+
+    crate::operations::add_archive(archive.to_str().unwrap(), &[added]).unwrap();
+
+    let commits = crate::operations::info_archive(archive.to_str().unwrap(), false).unwrap();
+    assert_eq!(commits.len(), 2);
+    assert_eq!(commits[1].id, original_tail_id);
+    assert_eq!(
+        crate::operations::list_archive(archive.to_str().unwrap(), None, None)
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn remove_reuses_an_empty_tail_commit() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive = directory.path().join("archive.zar");
+    let input = directory.path().join("existing.txt");
+    std::fs::write(&input, b"existing").unwrap();
+    crate::operations::create_archive(archive.to_str().unwrap(), std::slice::from_ref(&input))
+        .unwrap();
+    crate::operations::remove_archive_entries_with_progress(archive.to_str().unwrap(), &[], None)
+        .unwrap();
+    let original_commits =
+        crate::operations::info_archive(archive.to_str().unwrap(), false).unwrap();
+    let original_tail_id = original_commits[1].id;
+    let path = crate::ArchivePath::new("existing.txt").unwrap();
+
+    crate::operations::remove_archive_entries_with_progress(
+        archive.to_str().unwrap(),
+        &[path],
+        None,
+    )
+    .unwrap();
+
+    let commits = crate::operations::info_archive(archive.to_str().unwrap(), false).unwrap();
+    assert_eq!(commits.len(), 2);
+    assert_eq!(commits[1].id, original_tail_id);
+    assert!(
+        crate::operations::list_archive(archive.to_str().unwrap(), None, None)
+            .unwrap()
+            .is_empty()
+    );
+}
+
 fn write_tar_with_raw_path(path: &std::path::Path, entry_name: &str, contents: &[u8]) {
     let mut archive = tar::Builder::new(std::fs::File::create(path).unwrap());
     let mut header = tar::Header::new_gnu();

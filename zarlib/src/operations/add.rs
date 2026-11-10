@@ -9,9 +9,30 @@ use crate::{
     generate_dek, generate_nonce, wrap_dek_with_password,
 };
 use std::fs::{File, OpenOptions};
-use std::io::{self, Seek, SeekFrom, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use zeroize::Zeroizing;
+
+fn copy_with_cancellation(
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+    progress: Option<&dyn Progress>,
+) -> io::Result<u64> {
+    let progress = ProgressReporter::new(progress);
+    let mut buffer = vec![0; 128 * 1024];
+    let mut copied = 0u64;
+    loop {
+        progress.check_cancelled()?;
+        let count = reader.read(&mut buffer)?;
+        if count == 0 {
+            return Ok(copied);
+        }
+        writer.write_all(&buffer[..count])?;
+        copied = copied
+            .checked_add(count as u64)
+            .ok_or_else(|| io::Error::other("copied data size overflow"))?;
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct AddInputOptions {
@@ -154,7 +175,11 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
     let mut toc = load_toc_through_with_passwords(archive, None, passwords)?;
     let cwd = std::env::current_dir()?;
     let limits = CommitValidationLimits::default();
-    let new_commit_id = next_commit_id(archive_path)?;
+    let reusable_tail = find_reusable_empty_tail(archive_path, passwords)?;
+    let new_commit_id = match reusable_tail {
+        Some(tail) => tail.commit_id,
+        None => next_commit_id(archive_path)?,
+    };
     let id = TEMP_FILE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let unique_id = unique_temp_file_id()?;
     let stem = archive_path
@@ -218,7 +243,9 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
         action: "Adding",
         encryption: encryption_context,
     };
-    let scanned_inputs = super::archive_input::scan_input_paths(paths, &cwd, parent)?;
+    ProgressReporter::new(progress).check_cancelled()?;
+    let scanned_inputs = super::archive_input::scan_input_paths(paths, &cwd, parent, progress)?;
+    ProgressReporter::new(progress).check_cancelled()?;
     let all_tree_entries = filter_tree_entries(scanned_inputs.entries, filters);
     if let Some(progress) = progress {
         let summary = summarize_tree_entries(&all_tree_entries)?;
@@ -226,6 +253,7 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
         ProgressReporter::new(Some(progress)).set_total(summary.total_bytes);
     }
     process_tree_entries(&all_tree_entries, &mut scan_context)?;
+    ProgressReporter::new(progress).check_cancelled()?;
     if let Some(progress) = progress {
         for warning in &scan_policy.warning_messages {
             progress.warning(warning);
@@ -249,7 +277,9 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
 
     let mut existing = File::open(archive_path)?;
     let first_header_offset = read_first_header_offset(&mut existing)?;
-    let prev_last = if first_header_offset != 0 {
+    let prev_last = if reusable_tail.is_some() {
+        None
+    } else if first_header_offset != 0 {
         Some(find_last_commit(&mut existing, limits)?)
     } else {
         None
@@ -310,14 +340,25 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
         .create_new(true)
         .open(&staged_archive)?;
     cleanup.0.push(staged_archive.clone());
-    io::copy(&mut File::open(archive_path)?, &mut combined)?;
+    ProgressReporter::new(progress).check_cancelled()?;
+    let mut archive_source = File::open(archive_path)?;
+    if let Some(tail) = reusable_tail {
+        let mut limited_source = Read::by_ref(&mut archive_source).take(tail.link_position);
+        copy_with_cancellation(&mut limited_source, &mut combined, progress)?;
+    } else {
+        copy_with_cancellation(&mut archive_source, &mut combined, progress)?;
+    }
+    drop(archive_source);
     combined.write_all(&0u64.to_le_bytes())?;
-    io::copy(&mut File::open(&staged_data)?, &mut combined)?;
+    copy_with_cancellation(&mut File::open(&staged_data)?, &mut combined, progress)?;
     let new_header_offset = combined.stream_position()?;
     header.write_to(&mut combined)?;
     combined.write_all(&new_header_offset.to_le_bytes())?;
 
-    if let Some((prev_header_offset, prev_commit_header)) = prev_last {
+    if let Some(tail) = reusable_tail {
+        combined.seek(SeekFrom::Start(tail.incoming_link_position))?;
+        combined.write_all(&new_header_offset.to_le_bytes())?;
+    } else if let Some((prev_header_offset, prev_commit_header)) = prev_last {
         let next_offset_pos = prev_header_offset
             .checked_sub(prev_commit_header.data_section_size)
             .and_then(|pos| pos.checked_sub(HEADER_OFFSET_SIZE))
@@ -351,6 +392,7 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
     let first_header_offset = read_first_header_offset(&mut validation)?;
     let mut header_offset = first_header_offset;
     while header_offset != 0 {
+        ProgressReporter::new(progress).check_cancelled()?;
         let (ch, _, next_header_offset) =
             read_commit_at_offset(&mut validation, header_offset, limits)?;
         if ch.commit_id == new_commit_id {
@@ -387,6 +429,7 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
     }
     drop(commit_reader);
     drop(validation);
+    ProgressReporter::new(progress).check_cancelled()?;
     std::fs::rename(&staged_archive, archive_path)?;
     cleanup.0.retain(|path| path != &staged_archive);
     drop(cleanup);

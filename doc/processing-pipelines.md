@@ -10,9 +10,9 @@ the selected header/data encryption scope.
 ## Create
 
 `create` writes a new one-commit archive to a unique temporary file in the
-destination directory. Data block frames are streamed before the logical header frame. With
-`--password`, a new DEK and descriptor are created before scanning. The
-`--encryption-scope` choice controls whether blocks, the logical header, or
+destination directory. Data block frames are streamed before the logical header
+frame. With `--password`, a new DEK and descriptor are created before scanning.
+The `--encryption-scope` choice controls whether blocks, the logical header, or
 both are encrypted.
 
 ```plantuml
@@ -256,11 +256,12 @@ stop
 
 ## Extract
 
-Extraction first loads the effective TOC and validates the data frames needed
-to build an extraction plan. The plan retains archive offsets and decoded block
-sizes rather than file payloads. Uncompressed sizes are discovered in $\mathcal{O}(1)$
-directly from frame headers (via `zstd_safe::get_frame_content_size`), avoiding
-redundant full decompression during planning.
+Extraction first loads the effective TOC and validates the data frames needed to
+build an extraction plan. The plan retains archive offsets and decoded block
+sizes rather than file payloads. Uncompressed sizes are discovered in
+$\mathcal{O}(1)$ directly from frame headers (via
+`zstd_safe::get_frame_content_size`), avoiding redundant full decompression
+during planning.
 
 For real extraction, targets are sorted by their initial block's archive offset
 to stream data sequentially from storage without random seeks. Workers read each
@@ -269,8 +270,9 @@ than fragmented micro-reads. Directory components are deduplicated and validated
 with cached ancestor symlink checks, pre-creating all unique directories upfront
 to avoid per-file directory lock contention. Concurrency is memory-budgeted via
 `compression_worker_count(block_size)` and clamped on Windows ($\le 8$ workers)
-to prevent NTFS transaction log and filter driver (Windows Defender) lock serialization.
-`--dry-run` returns the plan without creating the destination or writing entries.
+to prevent NTFS transaction log and filter driver (Windows Defender) lock
+serialization. `--dry-run` returns the plan without creating the destination or
+writing entries.
 
 ```plantuml
 @startuml
@@ -519,9 +521,10 @@ stop
 - Password encryption is supported by create for both block data and the
   logical header. Add rejects archives containing encrypted commits and
   appends only an unencrypted commit.
-- The extraction pipeline uses $\mathcal{O}(1)$ frame header content size inspection
-  to avoid double-pass decompression during planning, streams contiguous block
-  frames via single-pass `read_exact` without micro-reads, sorts extraction targets
-  by block archive offset for monotonic sequential reading, pre-creates deduplicated
-  directory trees upfront, and bounds worker concurrency to prevent NTFS volume
-  journal and filter driver (Windows Defender) lock serialization.
+- The extraction pipeline uses $\mathcal{O}(1)$ frame header content size
+  inspection to avoid double-pass decompression during planning, streams
+  contiguous block frames via single-pass `read_exact` without micro-reads,
+  sorts extraction targets by block archive offset for monotonic sequential
+  reading, pre-creates deduplicated directory trees upfront, and bounds worker
+  concurrency to prevent NTFS volume journal and filter driver (Windows
+  Defender) lock serialization.

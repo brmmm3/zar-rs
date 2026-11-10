@@ -1,7 +1,7 @@
-from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
 import sys
 import sysconfig
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pytest
 
@@ -298,7 +298,7 @@ def test_memory_extraction_returns_full_files_and_slices(
 def test_encrypted_archive_operations_authenticate_password(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    archive = create_sample_archive(tmp_path, monkeypatch)
+    create_sample_archive(tmp_path, monkeypatch)
     encrypted = tmp_path / "encrypted.zar"
     pyzarlib.create_archive(
         encrypted,

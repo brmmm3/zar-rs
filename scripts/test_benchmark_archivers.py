@@ -31,9 +31,11 @@ def test_run_7z_extract_rejects_unexpected_errors() -> None:
     output = "\n".join(warnings + ["ERROR: Unexpected error", "Sub items Errors: 12"])
     result = subprocess.CompletedProcess([], 2, output.encode())
 
-    with patch.object(benchmark_archivers.subprocess, "run", return_value=result):
-        with pytest.raises(RuntimeError, match="7z extraction failed"):
-            benchmark_archivers.run_7z_extract(["7z"], benchmark_archivers.ROOT, 12)
+    with (
+        patch.object(benchmark_archivers.subprocess, "run", return_value=result),
+        pytest.raises(RuntimeError, match="7z extraction failed"),
+    ):
+        benchmark_archivers.run_7z_extract(["7z"], benchmark_archivers.ROOT, 12)
 
 
 def test_wait_between_benchmark_runs_sleeps_only_after_a_completed_run(

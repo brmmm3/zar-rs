@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Xunit;
 using Zar;
 
@@ -49,6 +50,16 @@ public sealed class ZarLibTests : IDisposable
         Assert.Equal(expected, Encoding.UTF8.GetString(files[path]));
     }
 
+    private static string[] PlannedFiles(string plan)
+    {
+        using var document = JsonDocument.Parse(plan);
+        return document.RootElement
+            .GetProperty("files")
+            .EnumerateArray()
+            .Select(file => file.GetProperty("path").GetString()!)
+            .ToArray();
+    }
+
     [Fact]
     public void FullArchiveOperations()
     {
@@ -70,7 +81,7 @@ public sealed class ZarLibTests : IDisposable
 
         var plan = ZarLibrary.ExtractArchive(new { archive = "sample.zar", destination = "dry", dry_run = true });
         Assert.Contains("\"dry_run\":true", plan);
-        Assert.Contains("dry/input/alpha.txt", plan);
+        Assert.Contains(Path.GetFullPath(Path.Combine("dry", "input", "alpha.txt")), PlannedFiles(plan));
         Assert.False(Directory.Exists("dry"));
         ZarLibrary.ExtractArchive(new { archive = "sample.zar", destination = "restored" });
         Assert.Equal("alpha contents", File.ReadAllText("restored/input/alpha.txt"));
@@ -123,7 +134,7 @@ public sealed class ZarLibTests : IDisposable
         Assert.Equal("replaced", File.ReadAllText("existing/input/alpha.txt"));
 
         plan = ZarLibrary.ExtractArchive(new { archive = "sample.zar", destination = "filtered-dry", dry_run = true, include_files = new[] { "*.txt" } });
-        Assert.Contains("input/alpha.txt", plan);
+        Assert.Contains(Path.GetFullPath(Path.Combine("filtered-dry", "input", "alpha.txt")), PlannedFiles(plan));
         Assert.DoesNotContain("beta.bin", plan);
         memory = ZarLibrary.ExtractArchiveToMemory(new
         {

@@ -5,7 +5,7 @@ use crate::{
 };
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use sysinfo::System;
 use zeroize::Zeroizing;
@@ -123,6 +123,9 @@ pub enum OverwriteDecision {
 pub trait Progress: Send + Sync {
     fn message(&self, message: &str);
     fn advance(&self, amount: u64);
+    fn is_cancelled(&self) -> bool {
+        false
+    }
     /// Set the operation's estimated total work in bytes.
     fn set_total(&self, _total: u64) {}
     fn start_phase(&self, message: &str, total: u64) {
@@ -158,6 +161,7 @@ pub trait Progress: Send + Sync {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct ProgressReporter<'a>(pub Option<&'a dyn Progress>);
 
 impl<'a> ProgressReporter<'a> {
@@ -205,6 +209,41 @@ impl<'a> ProgressReporter<'a> {
         if let Some(progress) = self.0 {
             progress.message(&message.into());
         }
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.0.is_some_and(|progress| progress.is_cancelled())
+    }
+
+    pub fn check_cancelled(&self) -> io::Result<()> {
+        if self.is_cancelled() {
+            Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "operation cancelled",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+pub(crate) fn copy_interruptibly<R: Read + ?Sized, W: Write + ?Sized>(
+    reader: &mut R,
+    writer: &mut W,
+    progress: &ProgressReporter<'_>,
+) -> io::Result<u64> {
+    let mut buffer = [0; 128 * 1024];
+    let mut copied = 0_u64;
+    loop {
+        progress.check_cancelled()?;
+        let count = reader.read(&mut buffer)?;
+        if count == 0 {
+            return Ok(copied);
+        }
+        writer.write_all(&buffer[..count])?;
+        copied = copied
+            .checked_add(count as u64)
+            .ok_or_else(|| io::Error::other("copied data size overflow"))?;
     }
 }
 
@@ -655,6 +694,71 @@ pub fn find_last_commit(
     file.seek(SeekFrom::Start(header_offset))?;
     let header_frame = HeaderFrame::read_from(file, limits.max_frame_payload_size)?;
     Ok((header_offset, header_frame.commit_header))
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ReusableEmptyTail {
+    pub commit_id: [u8; 4],
+    pub link_position: u64,
+    pub incoming_link_position: u64,
+    pub is_root: bool,
+}
+
+pub(crate) fn find_reusable_empty_tail(
+    archive_path: &Path,
+    passwords: &PasswordSet,
+) -> Result<Option<ReusableEmptyTail>, Box<dyn std::error::Error>> {
+    let mut file = File::open(archive_path)?;
+    let limits = CommitValidationLimits::default();
+    let first_header_offset = read_first_header_offset(&mut file)?;
+    if first_header_offset == 0 {
+        return Ok(None);
+    }
+    let (header_offset, commit_header) = find_last_commit(&mut file, limits)?;
+    let mut incoming_link_position = 4;
+    let mut current_offset = first_header_offset;
+    while current_offset != header_offset {
+        let (_, data_start, next_header_offset) =
+            read_commit_at_offset(&mut file, current_offset, limits)?;
+        if next_header_offset == 0 {
+            return Err("last archive commit is not reachable from the container header".into());
+        }
+        incoming_link_position = data_start
+            .checked_sub(HEADER_OFFSET_SIZE)
+            .ok_or("previous commit offset underflow")?;
+        current_offset = next_header_offset;
+    }
+    let (validated_header, data_start, next_header_offset) =
+        read_commit_at_offset(&mut file, header_offset, limits)?;
+    if validated_header.commit_id != commit_header.commit_id || next_header_offset != 0 {
+        return Err("last archive commit changed while checking for reuse".into());
+    }
+    if commit_header.data_section_size != 0 {
+        return Ok(None);
+    }
+    let (validated, _) =
+        read_commit_with_passwords(&mut file, commit_header.clone(), limits, passwords)?;
+    let Some(header) = validated.logical_header else {
+        return Ok(None);
+    };
+    if !header.changes.is_empty()
+        || !header.entry_metadata.is_empty()
+        || header
+            .metadata
+            .keys()
+            .any(|key| key != COMMIT_CREATED_KEY && key != COMMIT_USER_KEY)
+    {
+        return Ok(None);
+    }
+    let link_position = data_start
+        .checked_sub(HEADER_OFFSET_SIZE)
+        .ok_or("last commit offset underflow")?;
+    Ok(Some(ReusableEmptyTail {
+        commit_id: commit_header.commit_id,
+        link_position,
+        incoming_link_position,
+        is_root: first_header_offset == header_offset,
+    }))
 }
 
 pub fn ensure_archive_unencrypted(archive_path: &Path) -> Result<(), Box<dyn std::error::Error>> {

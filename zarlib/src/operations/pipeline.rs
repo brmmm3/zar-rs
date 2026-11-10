@@ -555,6 +555,7 @@ pub fn process_tree_entries(
     let mut entry_by_path: HashMap<ArchivePath, FileEntry> = HashMap::new();
 
     for entry in entries {
+        context.progress.check_cancelled()?;
         if entry.archive_path.contains('\\') {
             if context.policy.strict {
                 return Err(Box::new(StrictModeWarning));
@@ -993,6 +994,7 @@ fn checksum_file(file: &mut File, progress: &ProgressReporter<'_>) -> io::Result
     let mut buffer = vec![0u8; 128 * 1024];
     let mut total_read = 0u64;
     loop {
+        progress.check_cancelled()?;
         let count = file.read(&mut buffer)?;
         if count == 0 {
             break;
@@ -1143,6 +1145,10 @@ pub fn process_file_entries_parallel(
 
             reader_handles.push(scope.spawn(move || {
                 loop {
+                    if progress.is_cancelled() {
+                        let _ = w_tx.send(Err("operation cancelled".to_owned()));
+                        break;
+                    }
                     let next = {
                         let mut q = wq.lock().unwrap();
                         q.pop()
@@ -1407,6 +1413,10 @@ pub fn process_file_entries_parallel(
                         let mut verification_hasher = Xxh64::new(0);
                         let mut remaining = total_read;
                         for block_index in indices.iter().copied() {
+                            if progress.is_cancelled() {
+                                let _ = w_tx.send(Err("operation cancelled".to_owned()));
+                                break;
+                            }
                             let chunk_size = remaining.min(buffer_size as u64) as usize;
                             let mut chunk = vec![0u8; chunk_size];
                             if let Err(error) = file.read_exact(&mut chunk) {

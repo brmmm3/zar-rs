@@ -1,5 +1,6 @@
 #![windows_subsystem = "windows"]
 
+mod password_store;
 mod settings;
 mod theme;
 mod ui;
@@ -11,7 +12,8 @@ const WINDOW_TITLE: &str = "ZAR Archive Manager";
 
 fn main() -> eframe::Result {
     let saved = settings::Settings::load();
-    let app = match parse_context_args(std::env::args_os().skip(1)) {
+    let mut create_default_archive = false;
+    let mut app = match parse_context_args(std::env::args_os().skip(1)) {
         Ok(Some((action, paths))) => ui::ZargApp::from_context_action(action, paths, &saved)
             .unwrap_or_else(|error| {
                 eprintln!("zarg: {error}");
@@ -20,6 +22,7 @@ fn main() -> eframe::Result {
         Ok(None) => {
             let mut app = ui::ZargApp::default();
             app.apply_settings(&saved);
+            create_default_archive = true;
             app
         }
         Err(error) => {
@@ -27,12 +30,17 @@ fn main() -> eframe::Result {
             std::process::exit(2);
         }
     };
+    app.load_default_password();
+    if create_default_archive {
+        app.create_default_archive();
+    }
     let icon = image::load_from_memory(include_bytes!("../assets/zarg-icon.png"))
         .expect("embedded app icon must be a valid PNG")
         .into_rgba8();
     let (width, height) = icon.dimensions();
-    let mut viewport = eframe::egui::ViewportBuilder::default().with_inner_size([1000.0, 680.0]);
+    let mut viewport = eframe::egui::ViewportBuilder::default().with_inner_size([1200.0, 680.0]);
     if let Some(geometry) = saved.geometry_for_startup(settings::monitor_count()) {
+        let geometry = startup_geometry_at_default_zoom(geometry, saved.ui_scale);
         viewport = viewport.with_inner_size(geometry.size);
         if let Some(position) = geometry.position {
             viewport = viewport.with_position(position);
@@ -50,16 +58,33 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     let theme_mode = saved.theme_mode;
+    let ui_scale = saved.ui_scale;
     eframe::run_native(
         WINDOW_TITLE,
         options,
         Box::new(move |creation_context| {
+            creation_context.egui_ctx.set_zoom_factor(ui_scale);
             let controller = theme::install(&creation_context.egui_ctx, theme_mode);
             let mut app = app;
             app.set_theme_controller(controller);
             Ok(Box::new(app))
         }),
     )
+}
+
+fn startup_geometry_at_default_zoom(
+    geometry: settings::WindowGeometry,
+    saved_ui_scale: f32,
+) -> settings::WindowGeometry {
+    settings::WindowGeometry {
+        size: [
+            geometry.size[0] * saved_ui_scale,
+            geometry.size[1] * saved_ui_scale,
+        ],
+        position: geometry
+            .position
+            .map(|position| [position[0] * saved_ui_scale, position[1] * saved_ui_scale]),
+    }
 }
 
 fn parse_context_args(
@@ -108,6 +133,22 @@ fn parse_context_args(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_geometry_accounts_for_saved_ui_scale() {
+        let geometry = settings::WindowGeometry {
+            size: [800.0, 600.0],
+            position: Some([20.0, 30.0]),
+        };
+
+        assert_eq!(
+            startup_geometry_at_default_zoom(geometry, 1.5),
+            settings::WindowGeometry {
+                size: [1200.0, 900.0],
+                position: Some([30.0, 45.0]),
+            }
+        );
+    }
 
     fn os_args(args: &[&str]) -> Vec<OsString> {
         args.iter().map(OsString::from).collect()

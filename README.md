@@ -1,21 +1,24 @@
 # ZAR
 
-ZAR is a lightning fast archive with good compression, deduplication, history/multiple commits.
-It is written in memory-safe Rust and comes with a command-line tool, a desktop GUI, a reusable library,
-bindings for many languages, and a lightning fast network copy tool.
+ZAR is a lightning fast archive with good compression, deduplication,
+history/multiple commits. It is written in memory-safe Rust and comes with a
+command-line tool, a desktop GUI, a reusable library, bindings for many
+languages, and a lightning fast network copy tool.
 
-See the [changelog](./CHANGELOG.md) for recent project updates.
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, checks, and pull request guidance.
+See the [changelog](./CHANGELOG.md) for recent project updates. See
+[CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, checks, and pull
+request guidance.
 
 - **[`zarc`](./zarc/README.md)** is the command-line application.
 - **[`zarg`](./zarg/README.md)** is the egui desktop archive manager.
 - **[`zarlib`](./doc/zarlib-developer-guide.md)** is the reusable archive
   format and operations library.
 - **[`zcopy`](./zcopy/README.md)** copies file trees between machines over the
-  network, compressed and optionally encrypted, sending only missing or newer files.
-  `zcopy` uses the fast compression and decompression pipeline of zarlib and the data is streamed
-  over the network. There is no need to create/decompress archives anymore to copy a filetree from
-  one host do another.
+  network, compressed and optionally encrypted, sending only missing or newer
+  files. `zcopy` uses the fast compression and decompression pipeline of zarlib
+  and the data is streamed over the network. There is no need to
+  create/decompress archives anymore to copy a filetree from one host do
+  another.
 
 ## What makes ZAR different
 
@@ -34,13 +37,13 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, checks, and pull
 
 Highlights:
 
-- **Speed.** Data is split into blocks compressed in parallel with Zstandard.
-  On the Linux 4.0.1 source tree (525 MiB, 48,945 files, 8 cores, hot cache)
-  zarlib compressed in 4.6 s versus 19.6 s for zip, 17.5 s for tar.gz and 93 s
-  for 7z, and extracted in 4.9 s versus 10.9 s for zip. Encryption costs only
-  about 30% extra time. 7z produces smaller archives, at 20 times the compression time.
-  See [how to run benchmarks](./doc/benchmarks/README.md#running-benchmarks)
-  and the [benchmark overview](./doc/benchmarks/README.md) for reports and charts.
+- **Speed.** Data is split into blocks compressed in parallel with Zstandard. On
+  the Linux 4.0.1 source tree (525 MiB, 48,945 files, 8 cores, hot cache) zarlib
+  compressed in 4.6 s versus 19.6 s for zip, 17.5 s for tar.gz and 93 s for 7z,
+  and extracted in 4.9 s versus 10.9 s for zip. Encryption costs only about 30%
+  extra time. 7z produces smaller archives, at 20 times the compression time.
+  See [how to run benchmarks](./doc/benchmarks/README.md#running-benchmarks) and
+  the [benchmark overview](./doc/benchmarks/README.md) for reports and charts.
   The [archive benchmark workflow](./.github/workflows/benchmark-archives.yml)
   runs on Windows, Linux, and macOS; each run uploads its generated report and
   chart from the `doc/benchmarks/` folder as workflow artifacts.
@@ -49,15 +52,14 @@ Highlights:
   contents directly; regular files are written in parallel. Standalone gzip
   extraction removes the `.gz` suffix from the output filename. These formats
   can also be passed to create or add, where their contents are imported under
-  their paths in the new ZAR commit. This works through `zarlib`, `zarc`, `zarg`,
-  and the language bindings. Encrypted ZIP/7z archives and
-  ZIP/7z links are not supported. TAR symbolic links are preserved where the
-  host supports them; hard links are imported as regular files. TAR paths with
-  harmless `.` components are normalized; parent traversal and special entries
-  are rejected. Source
-  archive timestamps are not retained; `--dates` records import-time
-  filesystem timestamps instead. 7z entries using COPY, LZMA/LZMA2, BZip2,
-  PPMD, DEFLATE, Brotli, LZ4, or Zstandard are supported.
+  their paths in the new ZAR commit. This works through `zarlib`, `zarc`,
+  `zarg`, and the language bindings. Encrypted ZIP/7z archives and ZIP/7z links
+  are not supported. TAR symbolic links are preserved where the host supports
+  them; hard links are imported as regular files. TAR paths with harmless `.`
+  components are normalized; parent traversal and special entries are rejected.
+  Source archive timestamps are not retained; `--dates` records import-time
+  filesystem timestamps instead. 7z entries using COPY, LZMA/LZMA2, BZip2, PPMD,
+  DEFLATE, Brotli, LZ4, or Zstandard are supported.
 - **Batch archive conversion.** `zarc convert FOLDER` converts supported
   archive files directly inside a folder into separate `.zar` files, with an
   optional fnmatch filename filter and a separate output folder.
@@ -184,9 +186,10 @@ zarc check backup.zar
 zarc extract backup.zar --output ./restored/
 ```
 
-Use `zarc <command> --help` for command-specific options. See the [CLI guide](./zarc/README.md)
-for workflows, options, and limitations, and the [library developer guide](./doc/zarlib-developer-guide.md)
-to call the Rust API directly.
+Use `zarc <command> --help` for command-specific options. See the
+[CLI guide](./zarc/README.md) for workflows, options, and limitations, and the
+[library developer guide](./doc/zarlib-developer-guide.md) to call the Rust API
+directly.
 
 ## Format and safety notes
 
@@ -216,5 +219,6 @@ workspace manifests: [MIT](./LICENSE-MIT) or [Apache-2.0](./LICENSE-APACHE).
 
 ## Notes to AI use
 
-This project is a refactoring of another, fully hand written project. The whole refactoring
-with several improvments in code and documentation were done with AI.
+This project is a refactoring of another, fully hand written project. The whole
+refactoring with several improvments in code and documentation were done with
+AI.

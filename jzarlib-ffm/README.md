@@ -1,26 +1,25 @@
 # jzarlib-ffm
 
-`jzarlib-ffm` is the Java Foreign Function & Memory API binding to `czarlib`.
-It requires Java 25 or newer and exposes the same twelve JSON operations:
-create, add, remove, join, undo, encrypt/decrypt commit ranges, check, info,
-list, filesystem extract, and in-memory extract. See
+`jzarlib-ffm` is the Java Foreign Function & Memory API binding to `czarlib`. It
+requires Java 25 or newer and exposes the same twelve JSON operations: create,
+add, remove, join, undo, encrypt/decrypt commit ranges, check, info, list,
+filesystem extract, and in-memory extract. See
 [`czarlib/README.md`](../czarlib/README.md) for all request fields, filters,
-encryption settings, and support boundaries.
-Create and Add requests may include `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz`
-source paths; their contents are imported into the resulting ZAR using the source
-archive's internal paths.
+encryption settings, and support boundaries. Create and Add requests may include
+`.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz` source paths; their contents are
+imported into the resulting ZAR using the source archive's internal paths.
 
 ## Build and test
 
 Build the C ABI shared library, then run the Java tests:
 
 ```sh
-cargo build -p czarlib
+cargo build --release -p czarlib
 cd jzarlib-ffm
 mvn test
 ```
 
-By default the Java binding loads `../target/debug/libczarlib.so` on Linux
+By default the Java binding loads `../target/release/libczarlib.so` on Linux
 (or the platform-specific name) relative to the module working directory.
 Override it with `-Dzar.library=/absolute/path/to/libczarlib.so`. The test
 runtime enables native access for the FFM API.

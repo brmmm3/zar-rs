@@ -1,3 +1,4 @@
+use super::common::{Progress, ProgressReporter, copy_interruptibly};
 use super::pipeline::{TreeEntry, archive_prefix, scan_tree};
 use crate::ArchivePath;
 use flate2::read::MultiGzDecoder;
@@ -31,12 +32,15 @@ pub(super) fn scan_input_paths(
     paths: &[PathBuf],
     cwd: &Path,
     temporary_parent: &Path,
+    progress: Option<&dyn Progress>,
 ) -> Result<ScannedInputs, Box<dyn std::error::Error>> {
     let mut entries = Vec::new();
     let mut temporary_dirs = Vec::new();
     let mut temporary_roots = Vec::new();
+    let progress = ProgressReporter::new(progress);
 
     for input in paths {
+        progress.check_cancelled()?;
         let source = if input.is_absolute() {
             input.clone()
         } else {
@@ -48,20 +52,30 @@ pub(super) fn scan_input_paths(
                 .tempdir_in(temporary_parent)?;
             let temporary_root = temporary_dir.path().canonicalize()?;
             match kind {
-                ImportArchiveKind::Zip => extract_zip(&source, &temporary_root)?,
-                ImportArchiveKind::SevenZip => extract_7z(&source, &temporary_root)?,
-                ImportArchiveKind::Tar => extract_tar(File::open(&source)?, &temporary_root)?,
-                ImportArchiveKind::TarGz => {
-                    extract_tar(MultiGzDecoder::new(File::open(&source)?), &temporary_root)?
+                ImportArchiveKind::Zip => extract_zip(&source, &temporary_root, &progress)?,
+                ImportArchiveKind::SevenZip => extract_7z(&source, &temporary_root, &progress)?,
+                ImportArchiveKind::Tar => {
+                    extract_tar(File::open(&source)?, &temporary_root, &progress)?
                 }
-                ImportArchiveKind::Gzip => extract_gzip_file(&source, &temporary_root, input)?,
+                ImportArchiveKind::TarGz => extract_tar(
+                    MultiGzDecoder::new(File::open(&source)?),
+                    &temporary_root,
+                    &progress,
+                )?,
+                ImportArchiveKind::Gzip => {
+                    extract_gzip_file(&source, &temporary_root, input, &progress)?
+                }
             }
-            entries.extend(scan_tree(&temporary_root, "")?);
+            let scanned_entries = scan_tree(&temporary_root, "")?;
+            progress.check_cancelled()?;
+            entries.extend(scanned_entries);
             temporary_roots.push(temporary_root);
             temporary_dirs.push(temporary_dir);
         } else {
             let prefix = archive_prefix(input, cwd)?;
-            entries.extend(scan_tree(&source, &prefix)?.into_iter().filter(|entry| {
+            let scanned_entries = scan_tree(&source, &prefix)?;
+            progress.check_cancelled()?;
+            entries.extend(scanned_entries.into_iter().filter(|entry| {
                 !temporary_roots
                     .iter()
                     .any(|root: &PathBuf| entry.source_path.starts_with(root))
@@ -101,6 +115,7 @@ pub(super) fn extract_gzip_file(
     source: &Path,
     destination: &Path,
     input: &Path,
+    progress: &ProgressReporter<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let source_name = input
         .file_name()
@@ -121,16 +136,18 @@ pub(super) fn extract_gzip_file(
         .write(true)
         .create_new(true)
         .open(&output_path)?;
-    io::copy(&mut decoder, &mut output)?;
+    copy_interruptibly(&mut decoder, &mut output, progress)?;
     Ok(())
 }
 
 pub(super) fn extract_zip(
     source: &Path,
     destination: &Path,
+    progress: &ProgressReporter<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut archive = ZipArchive::new(File::open(source)?)?;
     for index in 0..archive.len() {
+        progress.check_cancelled()?;
         let mut entry = archive.by_index(index)?;
         let entry_name = entry.name()?.into_owned();
         let path = if entry.is_dir() {
@@ -167,7 +184,7 @@ pub(super) fn extract_zip(
                     "cannot create ZIP entry {entry_name:?} without overwriting another entry: {error}"
                 )
             })?;
-        let copied = io::copy(&mut entry, &mut output)?;
+        let copied = copy_interruptibly(&mut entry, &mut output, progress)?;
         if copied != entry.size() {
             return Err(format!(
                 "ZIP entry {entry_name:?} contained {copied} bytes, expected {}",
@@ -182,9 +199,11 @@ pub(super) fn extract_zip(
 pub(super) fn extract_7z(
     source: &Path,
     destination: &Path,
+    progress: &ProgressReporter<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut archive = ArchiveReader::new(File::open(source)?, Password::empty())?;
     archive.for_each_entries(|entry, reader| {
+        progress.check_cancelled()?;
         if entry.is_anti_item() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -231,7 +250,7 @@ pub(super) fn extract_7z(
             .write(true)
             .create_new(true)
             .open(&destination_path)?;
-        let copied = io::copy(reader, &mut output)?;
+        let copied = copy_interruptibly(reader, &mut output, progress)?;
         if copied != entry.size() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -250,11 +269,13 @@ pub(super) fn extract_7z(
 pub(super) fn extract_tar<R: Read>(
     source: R,
     destination: &Path,
+    progress: &ProgressReporter<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut archive = tar::Archive::new(source);
     let mut symbolic_links = Vec::new();
     let mut hard_links = Vec::new();
     for result in archive.entries()? {
+        progress.check_cancelled()?;
         let mut entry = result?;
         let entry_type = entry.header().entry_type();
         if entry_type.is_pax_global_extensions() {
@@ -329,7 +350,7 @@ pub(super) fn extract_tar<R: Read>(
                     "cannot create TAR entry {entry_name:?} without overwriting another entry: {error}"
                 )
             })?;
-        let copied = io::copy(&mut entry, &mut output)?;
+        let copied = copy_interruptibly(&mut entry, &mut output, progress)?;
         if copied != entry.size() {
             return Err(format!(
                 "TAR entry {entry_name:?} contained {copied} bytes, expected {}",
@@ -340,6 +361,7 @@ pub(super) fn extract_tar<R: Read>(
     }
 
     while !hard_links.is_empty() {
+        progress.check_cancelled()?;
         let mut unresolved = Vec::new();
         let mut linked_any = false;
         for (link_path, target_path, entry_name) in hard_links {
@@ -379,6 +401,7 @@ pub(super) fn extract_tar<R: Read>(
 
     symbolic_links.sort_by_key(|(link_path, _, _)| link_path.components().count());
     for (link_path, target, entry_name) in symbolic_links {
+        progress.check_cancelled()?;
         ensure_tar_parent_directories(destination, &link_path)?;
         create_tar_symlink(&target, &link_path)
             .map_err(|error| format!("cannot create TAR symbolic link {entry_name:?}: {error}"))?;

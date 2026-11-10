@@ -1,15 +1,18 @@
 use super::common::*;
 use crate::{
-    ArchivePath, BlockFrame, CommitValidationLimits, ContainerHeader, EntryMetadata, Toc,
-    TocChange, ValidatedCommit,
+    ArchivePath, BLOCK_FLAG_ENCRYPTED, BLOCK_FLAG_UNCOMPRESSED, BlockFrame, CommitValidationLimits,
+    ContainerHeader, EntryMetadata, Toc, TocChange, ValidatedCommit,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
-use std::io::{Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ArchiveEntryDetails {
+    /// Estimated using the arithmetic mean of the file's block compression ratios.
     pub compressed_size: Option<u64>,
+    /// Compressed-to-uncompressed ratio, before rounding the estimated byte count.
+    pub compression_ratio: Option<f64>,
     pub owner: Option<u32>,
     pub group: Option<u32>,
     pub permissions: Option<u32>,
@@ -21,6 +24,15 @@ pub fn list_archive_with_details(
     path: &str,
     to: Option<&str>,
     password: Option<&[u8]>,
+) -> Result<(Toc, BTreeMap<ArchivePath, ArchiveEntryDetails>), Box<dyn std::error::Error>> {
+    let passwords = PasswordSet::new(password.map(<[u8]>::to_vec));
+    list_archive_with_details_and_passwords(path, to, &passwords)
+}
+
+pub fn list_archive_with_details_and_passwords(
+    path: &str,
+    to: Option<&str>,
+    passwords: &PasswordSet,
 ) -> Result<(Toc, BTreeMap<ArchivePath, ArchiveEntryDetails>), Box<dyn std::error::Error>> {
     let mut file = File::open(path)?;
     let container = ContainerHeader::read_from(&mut file)?;
@@ -46,7 +58,7 @@ pub fn list_archive_with_details(
             continue;
         }
         file.seek(SeekFrom::Start(header_offset))?;
-        let (validated, _) = read_header_with_password(&mut file, limits, password)?;
+        let (validated, key) = read_header_with_passwords(&mut file, limits, passwords)?;
         let Some(header) = validated.logical_header else {
             return Err(
                 "cannot list an archive with a header-encrypted commit; use --password".into(),
@@ -71,8 +83,58 @@ pub fn list_archive_with_details(
             if consumed == 0 || consumed > remaining || consumed != metadata.encoded_size {
                 return Err(crate::FramingError::InvalidSize.into());
             }
+            let uncompressed_size = if metadata.flags & BLOCK_FLAG_ENCRYPTED != 0 {
+                if let Some(key) = &key {
+                    let algorithm = encryption_algorithm(&validated.encryption)
+                        .ok_or("missing encryption algorithm")?;
+                    file.seek(SeekFrom::Start(before))?;
+                    let frame = BlockFrame::read_from(&mut file, limits.max_frame_payload_size)?;
+                    Some(
+                        frame
+                            .uncompressed_encrypted(
+                                &validated.commit_header,
+                                key,
+                                algorithm,
+                                limits.max_uncompressed_block_size,
+                            )?
+                            .len() as u64,
+                    )
+                } else {
+                    None
+                }
+            } else if metadata.flags & BLOCK_FLAG_UNCOMPRESSED != 0 {
+                if metadata.payload_size as usize > limits.max_uncompressed_block_size {
+                    return Err(crate::FramingError::InvalidSize.into());
+                }
+                Some(u64::from(metadata.payload_size))
+            } else {
+                let end = file.stream_position()?;
+                file.seek(SeekFrom::Start(end - u64::from(metadata.payload_size)))?;
+                let mut prefix = [0_u8; 18];
+                let length = usize::try_from(metadata.payload_size)?.min(prefix.len());
+                file.read_exact(&mut prefix[..length])?;
+                let size = match zstd::zstd_safe::get_frame_content_size(&prefix[..length]) {
+                    Ok(Some(size)) => size,
+                    _ => {
+                        file.seek(SeekFrom::Start(before))?;
+                        let frame =
+                            BlockFrame::read_from(&mut file, limits.max_frame_payload_size)?;
+                        frame
+                            .uncompressed_at_most(limits.max_uncompressed_block_size)?
+                            .len() as u64
+                    }
+                };
+                file.seek(SeekFrom::Start(end))?;
+                if size > limits.max_uncompressed_block_size as u64 {
+                    return Err(crate::FramingError::InvalidSize.into());
+                }
+                Some(size)
+            };
             if block_sizes
-                .insert(metadata.block_index, u64::from(metadata.payload_size))
+                .insert(
+                    metadata.block_index,
+                    (u64::from(metadata.payload_size), uncompressed_size),
+                )
                 .is_some()
             {
                 return Err(crate::FramingError::InvalidSize.into());
@@ -106,7 +168,7 @@ fn apply_entry_details(
     details: &mut BTreeMap<ArchivePath, ArchiveEntryDetails>,
     changes: &[TocChange],
     metadata: &[EntryMetadata],
-    block_sizes: &HashMap<u32, u64>,
+    block_sizes: &HashMap<u32, (u64, Option<u64>)>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Later records win, matching the previous reverse linear search.
     let metadata: HashMap<&ArchivePath, &EntryMetadata> =
@@ -114,22 +176,44 @@ fn apply_entry_details(
     for change in changes {
         match change {
             TocChange::PutFile { path, entry } => {
-                let compressed_size =
-                    entry.block_indices.iter().try_fold(0_u64, |total, index| {
-                        total
-                            .checked_add(*block_sizes.get(index).ok_or("missing block frame size")?)
-                            .ok_or("file compressed size overflow")
-                    })?;
+                let mut ratios = Vec::with_capacity(entry.block_indices.len());
+                for index in &entry.block_indices {
+                    let (compressed, uncompressed) =
+                        block_sizes.get(index).ok_or("missing block frame size")?;
+                    match uncompressed {
+                        Some(0) => return Err("file references an empty block".into()),
+                        Some(size) => ratios.push(*compressed as f64 / *size as f64),
+                        None => break,
+                    }
+                }
+                let ratio = if entry.size == 0 {
+                    None
+                } else if ratios.len() == entry.block_indices.len() && !ratios.is_empty() {
+                    Some(ratios.iter().sum::<f64>() / ratios.len() as f64)
+                } else {
+                    None
+                };
+                let compressed_size = if entry.size == 0 {
+                    Some(0)
+                } else if let Some(ratio) = ratio {
+                    let estimate = (ratio * entry.size as f64).round();
+                    if !estimate.is_finite() || estimate >= u64::MAX as f64 {
+                        return Err("file compressed size overflow".into());
+                    }
+                    Some(estimate as u64)
+                } else {
+                    None
+                };
                 details.insert(
                     path.clone(),
-                    entry_details(path, &metadata, Some(compressed_size)),
+                    entry_details(path, &metadata, compressed_size, ratio),
                 );
             }
             TocChange::PutDirectory { path }
             | TocChange::PutSymlink { path, .. }
             | TocChange::PutNamedPipe { path }
             | TocChange::PutDevice { path, .. } => {
-                details.insert(path.clone(), entry_details(path, &metadata, None));
+                details.insert(path.clone(), entry_details(path, &metadata, None, None));
             }
             TocChange::RemoveFile { path } => {
                 details.remove(path);
@@ -152,10 +236,12 @@ fn entry_details(
     path: &ArchivePath,
     metadata: &HashMap<&ArchivePath, &EntryMetadata>,
     compressed_size: Option<u64>,
+    compression_ratio: Option<f64>,
 ) -> ArchiveEntryDetails {
     let entry_metadata = metadata.get(path).copied();
     ArchiveEntryDetails {
         compressed_size,
+        compression_ratio,
         owner: entry_metadata.and_then(|entry| entry.owner),
         group: entry_metadata.and_then(|entry| entry.group),
         permissions: entry_metadata.and_then(|entry| entry.permissions),
@@ -243,6 +329,9 @@ pub fn load_toc_through_with_passwords_and_progress(
 
     let mut header_offset = container.first_header_offset;
     while header_offset != 0 {
+        if let Some(progress) = progress {
+            progress.check_cancelled()?;
+        }
         let (commit_header, _data_start, next_header_offset) =
             read_commit_at_offset(&mut file, header_offset, limits)?;
         if requested_id == Some(commit_header.commit_id) {

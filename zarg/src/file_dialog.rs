@@ -1,10 +1,9 @@
 use eframe::egui;
-use std::cell::RefCell;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-use crate::ui::{UiIcon, file_icon, icon_texture};
+use crate::ui::{IconCache, UiIcon, file_icon, icon_texture};
 
 /// A custom file/folder picker dialog built with egui.
 ///
@@ -272,11 +271,7 @@ impl FileDialog {
     }
 
     /// Render the dialog. Returns `true` if the user confirmed (OK).
-    pub fn ui(
-        &mut self,
-        ui: &mut egui::Ui,
-        icon_cache: &RefCell<HashMap<UiIcon, egui::TextureHandle>>,
-    ) -> bool {
+    pub fn ui(&mut self, ui: &mut egui::Ui, icon_cache: &IconCache) -> bool {
         let mut confirmed = false;
 
         // --- Top bar: navigate up + address + go + refresh ---

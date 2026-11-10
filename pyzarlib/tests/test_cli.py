@@ -1,9 +1,10 @@
 import json
 from pathlib import Path
 
-import pyzarlib
 import pyzarlib.cli as pyzarlib_cli
 from pyzarlib.cli import main
+
+import pyzarlib
 
 
 def test_python_zarc_cli_aliases_cover_archive_commands(

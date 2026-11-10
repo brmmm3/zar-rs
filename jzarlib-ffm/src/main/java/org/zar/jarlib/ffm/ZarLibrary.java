@@ -29,7 +29,7 @@ public final class ZarLibrary {
     private static SymbolLookup loadLibrary() {
         String configured = System.getProperty("zar.library");
         Path library = configured == null || configured.isBlank()
-                ? Path.of("..", "target", "debug", System.mapLibraryName("czarlib"))
+            ? Path.of("..", "target", "release", System.mapLibraryName("czarlib"))
                         .toAbsolutePath()
                 : Path.of(configured).toAbsolutePath();
         return SymbolLookup.libraryLookup(library, LIBRARY_ARENA);

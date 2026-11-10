@@ -6,10 +6,7 @@ enum UnsavedArchiveChoice {
     Cancel,
 }
 
-fn unsaved_archive_actions(
-    ui: &mut egui::Ui,
-    icons: &RefCell<HashMap<UiIcon, egui::TextureHandle>>,
-) -> [egui::Response; 3] {
+fn unsaved_archive_actions(ui: &mut egui::Ui, icons: &IconCache) -> [egui::Response; 3] {
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         [
             icon_button(ui, icons, UiIcon::Cancel, "Cancel", true),
@@ -35,7 +32,13 @@ impl ZargApp {
         let mut choice = None;
         context.show_viewport_immediate(
             viewport_id,
-            Self::centered_dialog_viewport_builder(context, "Unsaved changes", size, false),
+            Self::centered_dialog_viewport_builder(
+                context,
+                viewport_id,
+                "Unsaved changes",
+                size,
+                false,
+            ),
             |ui, _class| {
                 ui.painter().rect_filled(
                     ui.max_rect(),
@@ -118,7 +121,13 @@ impl ZargApp {
             let mut open = true;
             context.show_viewport_immediate(
                 viewport_id,
-                Self::centered_dialog_viewport_builder(context, "Confirmation", size, false),
+                Self::centered_dialog_viewport_builder(
+                    context,
+                    viewport_id,
+                    "Confirmation",
+                    size,
+                    false,
+                ),
                 |ui, _class| {
                     ui.painter().rect_filled(
                         ui.max_rect(),
@@ -168,7 +177,7 @@ mod tests {
     #[test]
     fn unsaved_archive_actions_fit_in_dialog() {
         let context = egui::Context::default();
-        let icons = RefCell::new(HashMap::new());
+        let icons = IconCache::default();
         let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(440.0, 170.0));
         let input = egui::RawInput {
             screen_rect: Some(rect),

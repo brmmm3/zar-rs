@@ -1,7 +1,8 @@
 use eframe::egui;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use zarlib::operations::{
@@ -200,12 +201,15 @@ pub(crate) enum UiIcon {
     Info,
     Remove,
     Browse,
+    View,
+    GoUp,
     ClearInputs,
     Confirm,
     ConfirmApply,
     Cancel,
     AddFilterList,
     Folder,
+    Bookmarks,
     Drive,
     Symlink,
     Image,
@@ -229,86 +233,115 @@ pub(crate) enum UiIcon {
     Question,
 }
 
-fn icon_bytes(icon: UiIcon) -> &'static [u8] {
+#[derive(Default)]
+pub(crate) struct IconCache {
+    theme: Cell<crate::settings::IconTheme>,
+    textures: RefCell<HashMap<UiIcon, egui::TextureHandle>>,
+}
+
+impl IconCache {
+    fn set_theme(&self, theme: crate::settings::IconTheme) {
+        if self.theme.replace(theme) != theme {
+            self.textures.borrow_mut().clear();
+        }
+    }
+}
+
+fn icon_bytes(icon: UiIcon, theme: crate::settings::IconTheme) -> &'static [u8] {
+    macro_rules! themed_icon {
+        ($path:literal) => {
+            match theme {
+                crate::settings::IconTheme::Crystal => {
+                    include_bytes!(concat!("../assets/crystal/", $path)) as &'static [u8]
+                }
+                crate::settings::IconTheme::Flat => {
+                    include_bytes!(concat!("../assets/flat/", $path)) as &'static [u8]
+                }
+            }
+        };
+    }
     match icon {
         UiIcon::Application => include_bytes!("../assets/zarg-icon.png"),
-        UiIcon::NewArchive => include_bytes!("../assets/icons/actions/document-new.png"),
-        UiIcon::OpenArchive => include_bytes!("../assets/icons/actions/document-open.png"),
-        UiIcon::SaveArchive => include_bytes!("../assets/icons/actions/document-save.png"),
-        UiIcon::Quit => include_bytes!("../assets/icons/actions/application-exit.png"),
-        UiIcon::SelectAll => include_bytes!("../assets/icons/actions/edit-select-all.png"),
+        UiIcon::NewArchive => themed_icon!("actions/document-new.png"),
+        UiIcon::OpenArchive => themed_icon!("actions/document-open.png"),
+        UiIcon::SaveArchive => themed_icon!("actions/document-save.png"),
+        UiIcon::Quit => themed_icon!("actions/application-exit.png"),
+        UiIcon::SelectAll => themed_icon!("actions/edit-select-all.png"),
         UiIcon::ClearSelection | UiIcon::ClearInputs => {
-            include_bytes!("../assets/icons/actions/edit-clear.png")
+            themed_icon!("actions/edit-clear.png")
         }
-        UiIcon::Refresh => include_bytes!("../assets/icons/actions/view-refresh.png"),
+        UiIcon::Refresh => themed_icon!("actions/view-refresh.png"),
         UiIcon::ListContents => {
-            include_bytes!("../assets/icons/actions/document-preview-archive.png")
+            themed_icon!("actions/document-preview-archive.png")
         }
-        UiIcon::Tools => include_bytes!("../assets/icons/actions/tools.png"),
-        UiIcon::Configure => include_bytes!("../assets/icons/actions/configure.png"),
-        UiIcon::TestArchive => include_bytes!("../assets/icons/actions/archive-test.png"),
-        UiIcon::ChangeCommits => include_bytes!("../assets/icons/actions/change-commits.png"),
-        UiIcon::Undo => include_bytes!("../assets/icons/actions/undo.png"),
-        UiIcon::Join => include_bytes!("../assets/icons/actions/join-commits.png"),
-        UiIcon::Benchmark => include_bytes!("../assets/icons/actions/benchmark.png"),
-        UiIcon::About => include_bytes!("../assets/icons/actions/help-about.png"),
-        UiIcon::Add => include_bytes!("../assets/icons/actions/archive-insert.png"),
+        UiIcon::Tools => themed_icon!("actions/tools.png"),
+        UiIcon::Configure => themed_icon!("actions/configure.png"),
+        UiIcon::TestArchive => themed_icon!("actions/archive-test.png"),
+        UiIcon::ChangeCommits => themed_icon!("actions/change-commits.png"),
+        UiIcon::Undo => themed_icon!("actions/undo.png"),
+        UiIcon::Join => themed_icon!("actions/join-commits.png"),
+        UiIcon::Benchmark => themed_icon!("actions/benchmark.png"),
+        UiIcon::About => themed_icon!("actions/help-about.png"),
+        UiIcon::Add => themed_icon!("actions/archive-insert.png"),
         UiIcon::AddFolder => {
-            include_bytes!("../assets/icons/actions/archive-insert-directory.png")
+            themed_icon!("actions/archive-insert-directory.png")
         }
-        UiIcon::Extract => include_bytes!("../assets/icons/actions/archive-extract.png"),
-        UiIcon::OnlineHelp => include_bytes!("../assets/icons/actions/online-help.png"),
-        UiIcon::Info => include_bytes!("../assets/icons/actions/document-properties.png"),
-        UiIcon::Remove => include_bytes!("../assets/icons/actions/archive-remove.png"),
-        UiIcon::Browse => include_bytes!("../assets/icons/actions/document-open-folder.png"),
-        UiIcon::Confirm => include_bytes!("../assets/icons/actions/dialog-ok.png"),
-        UiIcon::ConfirmApply => include_bytes!("../assets/icons/actions/dialog-ok-apply.png"),
-        UiIcon::Cancel => include_bytes!("../assets/icons/actions/dialog-cancel.png"),
-        UiIcon::AddFilterList => include_bytes!("../assets/icons/actions/list-add.png"),
-        UiIcon::Folder => include_bytes!("../assets/icons/places/folder.png"),
-        UiIcon::Drive => include_bytes!("../assets/icons/devices/drive-harddisk.png"),
-        UiIcon::Symlink => include_bytes!("../assets/icons/mimetypes/emblem-symbolic-link.png"),
-        UiIcon::Image => include_bytes!("../assets/icons/mimetypes/image-x-generic.png"),
-        UiIcon::Audio => include_bytes!("../assets/icons/mimetypes/audio-x-generic.png"),
-        UiIcon::Video => include_bytes!("../assets/icons/mimetypes/video-x-generic.png"),
-        UiIcon::Archive => include_bytes!("../assets/icons/mimetypes/application-x-archive.png"),
+        UiIcon::Extract => themed_icon!("actions/archive-extract.png"),
+        UiIcon::OnlineHelp => themed_icon!("actions/online-help.png"),
+        UiIcon::Info => themed_icon!("actions/document-properties.png"),
+        UiIcon::Remove => themed_icon!("actions/archive-remove.png"),
+        UiIcon::Browse => themed_icon!("actions/document-open-folder.png"),
+        UiIcon::View => themed_icon!("actions/view.png"),
+        UiIcon::GoUp => themed_icon!("actions/go-up.png"),
+        UiIcon::Confirm => themed_icon!("actions/dialog-ok.png"),
+        UiIcon::ConfirmApply => themed_icon!("actions/dialog-ok-apply.png"),
+        UiIcon::Cancel => themed_icon!("actions/dialog-cancel.png"),
+        UiIcon::AddFilterList => themed_icon!("actions/list-add.png"),
+        UiIcon::Folder => themed_icon!("places/folder.png"),
+        UiIcon::Bookmarks => themed_icon!("places/bookmarks.png"),
+        UiIcon::Drive => themed_icon!("devices/drive-harddisk.png"),
+        UiIcon::Symlink => themed_icon!("mimetypes/emblem-symbolic-link.png"),
+        UiIcon::Image => themed_icon!("mimetypes/image-x-generic.png"),
+        UiIcon::Audio => themed_icon!("mimetypes/audio-x-generic.png"),
+        UiIcon::Video => themed_icon!("mimetypes/video-x-generic.png"),
+        UiIcon::Archive => themed_icon!("mimetypes/application-x-archive.png"),
         UiIcon::ZarArchive => include_bytes!("../assets/application-x-zar.png"),
-        UiIcon::Pdf => include_bytes!("../assets/icons/mimetypes/application-pdf.png"),
-        UiIcon::Code => include_bytes!("../assets/icons/mimetypes/text-x-csrc.png"),
-        UiIcon::Python => include_bytes!("../assets/icons/mimetypes/text-x-python.png"),
-        UiIcon::Java => include_bytes!("../assets/icons/mimetypes/text-x-java.png"),
-        UiIcon::Script => include_bytes!("../assets/icons/mimetypes/text-x-script.png"),
+        UiIcon::Pdf => themed_icon!("mimetypes/application-pdf.png"),
+        UiIcon::Code => themed_icon!("mimetypes/text-x-csrc.png"),
+        UiIcon::Python => themed_icon!("mimetypes/text-x-python.png"),
+        UiIcon::Java => themed_icon!("mimetypes/text-x-java.png"),
+        UiIcon::Script => themed_icon!("mimetypes/text-x-script.png"),
         UiIcon::JavaScript => {
-            include_bytes!("../assets/icons/mimetypes/application-x-javascript.png")
+            themed_icon!("mimetypes/application-x-javascript.png")
         }
-        UiIcon::Text => include_bytes!("../assets/icons/mimetypes/text-plain.png"),
-        UiIcon::Word => include_bytes!("../assets/icons/mimetypes/application-vnd.ms-word.png"),
+        UiIcon::Text => themed_icon!("mimetypes/text-plain.png"),
+        UiIcon::Word => themed_icon!("mimetypes/application-vnd.ms-word.png"),
         UiIcon::Spreadsheet => {
-            include_bytes!("../assets/icons/mimetypes/application-vnd.ms-excel.png")
+            themed_icon!("mimetypes/application-vnd.ms-excel.png")
         }
         UiIcon::Presentation => {
-            include_bytes!("../assets/icons/mimetypes/application-vnd.ms-powerpoint.png")
+            themed_icon!("mimetypes/application-vnd.ms-powerpoint.png")
         }
-        UiIcon::Generic => include_bytes!("../assets/icons/mimetypes/unknown.png"),
+        UiIcon::Generic => themed_icon!("mimetypes/unknown.png"),
         UiIcon::SpecialData => {
-            include_bytes!("../assets/icons/mimetypes/application-octet-stream.png")
+            themed_icon!("mimetypes/application-octet-stream.png")
         }
-        UiIcon::Error => include_bytes!("../assets/icons/actions/error.png"),
-        UiIcon::Question => include_bytes!("../assets/icons/actions/question.png"),
+        UiIcon::Error => themed_icon!("actions/error.png"),
+        UiIcon::Question => themed_icon!("actions/question.png"),
     }
 }
 
 pub(crate) fn icon_texture(
     context: &egui::Context,
-    cache: &RefCell<HashMap<UiIcon, egui::TextureHandle>>,
+    cache: &IconCache,
     icon: UiIcon,
 ) -> egui::TextureHandle {
-    if let Some(texture) = cache.borrow().get(&icon) {
+    if let Some(texture) = cache.textures.borrow().get(&icon) {
         return texture.clone();
     }
 
-    let image = image::load_from_memory(icon_bytes(icon))
-        .expect("bundled KDE icon must be a valid image")
+    let image = image::load_from_memory(icon_bytes(icon, cache.theme.get()))
+        .expect("bundled icon must be a valid image")
         .into_rgba8();
     let [width, height] = [image.width() as usize, image.height() as usize];
     let texture = context.load_texture(
@@ -316,13 +349,13 @@ pub(crate) fn icon_texture(
         egui::ColorImage::from_rgba_unmultiplied([width, height], image.as_raw()),
         egui::TextureOptions::LINEAR,
     );
-    cache.borrow_mut().insert(icon, texture.clone());
+    cache.textures.borrow_mut().insert(icon, texture.clone());
     texture
 }
 
 fn icon_button(
     ui: &mut egui::Ui,
-    cache: &RefCell<HashMap<UiIcon, egui::TextureHandle>>,
+    cache: &IconCache,
     icon: UiIcon,
     label: impl Into<egui::WidgetText>,
     enabled: bool,
@@ -378,8 +411,19 @@ pub(crate) fn file_icon(path: &str) -> UiIcon {
 }
 
 #[derive(Default)]
+struct CommitUnlock {
+    id: [u8; 4],
+    selected: bool,
+    password: String,
+}
+
+#[derive(Default)]
 pub(super) struct OperationForm {
     kind: Option<OperationKind>,
+    new_archive_tab: dialogs::operation::NewArchiveTab,
+    add_archive_tab: dialogs::operation::AddArchiveTab,
+    extract_tab: dialogs::operation::ExtractTab,
+    extract_has_encrypted_commits: bool,
     archive: String,
     archive_backend: Option<(String, String)>,
     input_paths: Vec<PathBuf>,
@@ -406,7 +450,7 @@ pub(super) struct OperationForm {
     password: String,
     password_confirm: String,
     existing_password: String,
-    existing_password_is_set: bool,
+    commit_unlocks: Vec<CommitUnlock>,
     show_password: bool,
     aead: usize,
     encryption_scope: usize,
@@ -474,6 +518,21 @@ impl OperationForm {
             .any(|(_, original, edited, remove)| *remove || original != edited)
             || self.meta_new.iter().any(|(key, _)| !key.trim().is_empty())
     }
+
+    fn unlock_passwords(&self) -> Result<PasswordSet, Box<dyn std::error::Error>> {
+        let mut passwords = PasswordSet::default();
+        for commit in &self.commit_unlocks {
+            if commit.selected {
+                if commit.password.is_empty() {
+                    return Err(
+                        "Enter a password for every selected commit on the Unlock tab.".into(),
+                    );
+                }
+                passwords.insert_for_commit(commit.id, commit.password.as_bytes().to_vec());
+            }
+        }
+        Ok(passwords)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -488,7 +547,6 @@ struct AddArchiveSettings {
     aead: usize,
     encryption_scope: usize,
     password_is_set: bool,
-    existing_password_is_set: bool,
     strict: bool,
     metadata: bool,
     dates: bool,
@@ -509,7 +567,6 @@ impl AddArchiveSettings {
             aead: form.aead,
             encryption_scope: form.encryption_scope,
             password_is_set: form.password_is_set,
-            existing_password_is_set: form.existing_password_is_set,
             strict: form.strict,
             metadata: form.metadata,
             dates: form.dates,
@@ -529,7 +586,6 @@ impl AddArchiveSettings {
         form.aead = self.aead;
         form.encryption_scope = self.encryption_scope;
         form.password_is_set = self.password_is_set;
-        form.existing_password_is_set = self.existing_password_is_set;
         form.strict = self.strict;
         form.metadata = self.metadata;
         form.dates = self.dates;
@@ -565,16 +621,31 @@ enum UiEvent {
         new_archive_settings: Option<Box<AddArchiveSettings>>,
     },
     ArchiveModified,
+    RewriteSnapshot(RewriteSnapshot),
+    RewriteUndone {
+        steps: usize,
+        dirty: bool,
+        password: Option<String>,
+    },
     EntriesRemoved(Vec<String>),
     ArchiveSaved {
         path: String,
     },
+    FirstCommitEmpty(bool),
     CommitIds(Vec<String>),
+    SelectedCommit(String),
     ArchivePath {
         path: String,
         password: Option<String>,
     },
     Finished(Result<String, String>),
+}
+
+struct RewriteSnapshot {
+    directory: tempfile::TempDir,
+    dirty: bool,
+    password: Option<String>,
+    commit_count: usize,
 }
 
 #[derive(Clone)]
@@ -598,6 +669,7 @@ type OperationBuildResult = Result<OperationJob, Box<dyn std::error::Error>>;
 struct UiProgress {
     events: Sender<UiEvent>,
     answers: Arc<Mutex<Receiver<bool>>>,
+    cancellation: Option<Arc<AtomicBool>>,
 }
 
 impl Progress for UiProgress {
@@ -607,6 +679,12 @@ impl Progress for UiProgress {
 
     fn advance(&self, amount: u64) {
         let _ = self.events.send(UiEvent::Advance(amount));
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.cancellation
+            .as_ref()
+            .is_some_and(|token| token.load(Ordering::Relaxed))
     }
 
     fn set_total(&self, total: u64) {
@@ -630,20 +708,24 @@ impl Progress for UiProgress {
 struct WorkerChannels {
     events: Receiver<UiEvent>,
     answers: Sender<bool>,
+    cancellation: Option<Arc<AtomicBool>>,
 }
 
 pub struct ZargApp {
-    icons: RefCell<HashMap<UiIcon, egui::TextureHandle>>,
+    icons: IconCache,
     archive: String,
     read_archive: String,
     displayed_window_title: Option<String>,
     imported_archive_dir: Option<tempfile::TempDir>,
     working_archive_dir: Option<tempfile::TempDir>,
+    rewrite_snapshots: Vec<RewriteSnapshot>,
     has_unsaved_changes: bool,
+    latest_archive_empty: Option<bool>,
     add_archive_settings: Option<AddArchiveSettings>,
     location: String,
     entries: Vec<(String, EntryData)>,
     entry_details: std::collections::BTreeMap<String, ArchiveEntryDetails>,
+    entry_summary: EntrySummary,
     visible_entry_indices: Vec<usize>,
     selected: BTreeSet<String>,
     selection_anchor: Option<String>,
@@ -678,6 +760,7 @@ pub struct ZargApp {
     benchmark: BenchmarkState,
     pending_recent_archive: Option<String>,
     window_geometry: Option<crate::settings::WindowGeometry>,
+    geometry_monitor_count: usize,
     dialog_sizes: HashMap<String, [f32; 2]>,
     archive_password: Option<String>,
     column_widths: HashMap<String, f32>,
@@ -689,6 +772,7 @@ pub struct ZargApp {
     structured_rows_dirty: bool,
     show_about: bool,
     show_settings: bool,
+    settings_tab: dialogs::settings::SettingsTab,
     ui_scale: f32,
     applied_ui_scale: Option<f32>,
     theme_mode: crate::settings::ThemeMode,
@@ -696,26 +780,34 @@ pub struct ZargApp {
     default_compression_level: i32,
     default_encryption_method: crate::settings::DefaultEncryptionMethod,
     archive_defaults: crate::settings::ArchiveDefaults,
+    default_password: String,
+    default_password_input: String,
+    show_default_password: bool,
+    default_password_status: Option<String>,
     theme_controller: Option<crate::theme::ThemeController>,
     opening_archive: bool,
     commit_ids: Vec<String>,
+    selected_commit: String,
     file_dialog: dialogs::file_picker::FileDialog,
 }
 
 impl Default for ZargApp {
     fn default() -> Self {
         Self {
-            icons: RefCell::new(HashMap::new()),
+            icons: IconCache::default(),
             archive: String::new(),
             read_archive: String::new(),
             displayed_window_title: None,
             imported_archive_dir: None,
             working_archive_dir: None,
+            rewrite_snapshots: Vec::new(),
             has_unsaved_changes: false,
+            latest_archive_empty: None,
             add_archive_settings: None,
             location: String::new(),
             entries: Vec::new(),
             entry_details: std::collections::BTreeMap::new(),
+            entry_summary: EntrySummary::default(),
             visible_entry_indices: Vec::new(),
             selected: BTreeSet::new(),
             selection_anchor: None,
@@ -750,6 +842,7 @@ impl Default for ZargApp {
             benchmark: BenchmarkState::default(),
             pending_recent_archive: None,
             window_geometry: None,
+            geometry_monitor_count: 0,
             dialog_sizes: HashMap::new(),
             archive_password: None,
             column_widths: HashMap::new(),
@@ -761,6 +854,7 @@ impl Default for ZargApp {
             structured_rows_dirty: false,
             show_about: false,
             show_settings: false,
+            settings_tab: dialogs::settings::SettingsTab::default(),
             ui_scale: 1.0,
             applied_ui_scale: None,
             theme_mode: crate::settings::ThemeMode::System,
@@ -768,9 +862,14 @@ impl Default for ZargApp {
             default_compression_level: 3,
             default_encryption_method: crate::settings::DefaultEncryptionMethod::Aes256Gcm,
             archive_defaults: crate::settings::ArchiveDefaults::default(),
+            default_password: String::new(),
+            default_password_input: String::new(),
+            show_default_password: false,
+            default_password_status: None,
             theme_controller: None,
             opening_archive: false,
             commit_ids: Vec::new(),
+            selected_commit: String::new(),
             file_dialog: dialogs::file_picker::FileDialog::new(),
         }
     }
@@ -785,7 +884,71 @@ enum EntryData {
     Device(String),
 }
 
+#[derive(Default)]
+struct EntrySummary {
+    compressed: Option<u64>,
+    uncompressed: Option<u64>,
+    ratio: Option<f64>,
+}
+
+impl EntrySummary {
+    fn from_entries(
+        entries: &[(String, EntryData)],
+        details: &std::collections::BTreeMap<String, ArchiveEntryDetails>,
+    ) -> Self {
+        let mut compressed = Some(0_u64);
+        let mut uncompressed = Some(0_u64);
+        let mut weighted_compressed = Some(0.0);
+        for (path, entry) in entries {
+            if let EntryData::File(size) = entry {
+                uncompressed = uncompressed.and_then(|total| total.checked_add(*size));
+                if *size == 0 {
+                    continue;
+                }
+                let detail = details.get(path);
+                compressed =
+                    compressed.and_then(|total| total.checked_add(detail?.compressed_size?));
+                weighted_compressed = weighted_compressed.and_then(|total| {
+                    let ratio = detail?.compression_ratio?;
+                    (ratio.is_finite() && ratio >= 0.0).then_some(total + ratio * *size as f64)
+                });
+            }
+        }
+        let ratio = uncompressed
+            .filter(|total| *total > 0)
+            .zip(weighted_compressed)
+            .map(|(total, compressed)| compressed / total as f64)
+            .filter(|ratio| ratio.is_finite());
+        Self {
+            compressed,
+            uncompressed,
+            ratio,
+        }
+    }
+
+    fn display(&self, entries: usize, commits: usize) -> String {
+        let size = |bytes: Option<u64>| bytes.map(display_size).unwrap_or_else(|| "—".to_owned());
+        let ratio = self
+            .ratio
+            .map(|ratio| format!("{:.1}%", ratio * 100.0))
+            .unwrap_or_else(|| "—".to_owned());
+        format!(
+            "{entries} {} | Compressed: {} | Uncompressed: {} | Ratio: {ratio} | {commits} {}",
+            if entries == 1 { "entry" } else { "entries" },
+            size(self.compressed),
+            size(self.uncompressed),
+            if commits == 1 { "commit" } else { "commits" },
+        )
+    }
+}
+
 impl ZargApp {
+    pub fn create_default_archive(&mut self) {
+        let mut form = self.new_operation_form(OperationKind::NewArchive, "");
+        form.password_is_set = false;
+        self.start_operation(form);
+    }
+
     pub fn from_context_action(
         action: ContextAction,
         paths: Vec<PathBuf>,
@@ -835,23 +998,27 @@ impl ZargApp {
                 match action {
                     ContextAction::Open => app.open_archive(PathBuf::from(&archive), None),
                     ContextAction::ExtractHere => {
-                        let mut form =
-                            app.new_operation_form(OperationKind::ExtractArchive, &archive);
-                        form.destination = PathBuf::from(&archive)
-                            .parent()
-                            .unwrap_or_else(|| std::path::Path::new("."))
-                            .to_string_lossy()
-                            .into_owned();
+                        let form = app.new_operation_form(OperationKind::ExtractArchive, &archive);
                         app.start_operation(form);
                     }
                     ContextAction::ExtractTo => {
                         app.operation =
                             app.new_operation_form(OperationKind::ExtractArchive, &archive);
-                        app.operation.destination = PathBuf::from(&archive)
-                            .parent()
-                            .unwrap_or_else(|| std::path::Path::new("."))
-                            .to_string_lossy()
-                            .into_owned();
+                        if !operations::is_supported_import_archive(Path::new(&archive)) {
+                            let commits =
+                                operations::info_archive(&archive, false).map_err(|error| {
+                                    format!("Cannot inspect archive commits: {error}")
+                                })?;
+                            app.operation.extract_has_encrypted_commits = commits
+                                .iter()
+                                .any(|commit| commit.header_encrypted || commit.data_encrypted);
+                            app.operation.commit_ids = commits
+                                .iter()
+                                .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                                .collect();
+                            app.operation.to =
+                                app.operation.commit_ids.last().cloned().unwrap_or_default();
+                        }
                     }
                     ContextAction::ExtractToFolder => {
                         let destination =
@@ -883,12 +1050,51 @@ impl ZargApp {
         if self.busy {
             return;
         }
-        if self.has_unsaved_changes {
+        if self.has_unsaved_changes
+            && self.latest_archive_empty != Some(true)
+            && matches!(action, ArchiveSwitchAction::New)
+        {
+            self.check_first_commit_for_new_archive();
+        } else if self.has_unsaved_changes && self.latest_archive_empty != Some(true) {
             self.pending_archive_switch = Some(action);
             self.pending_switch_after_save = false;
         } else {
             self.execute_archive_switch(action);
         }
+    }
+
+    fn check_first_commit_for_new_archive(&mut self) {
+        let archive = self.read_archive.clone();
+        let password = self.archive_password.clone();
+        let (events_tx, events_rx) = mpsc::channel();
+        let (answer_tx, _answer_rx) = mpsc::channel();
+        self.begin_worker(events_rx, answer_tx, "Checking first commit");
+        self.status = "Checking first commit before creating a new archive.".to_owned();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<bool, String> {
+                let commits =
+                    operations::info_archive(&archive, false).map_err(|error| error.to_string())?;
+                let first = commits.first().ok_or("Archive has no commits.")?;
+                let id = format!("{:08x}", u32::from_le_bytes(first.id));
+                let toc = operations::list_archive(
+                    &archive,
+                    Some(&id),
+                    password.as_deref().map(str::as_bytes),
+                )
+                .map_err(|error| error.to_string())?;
+                Ok(toc.is_empty())
+            })();
+            match result {
+                Ok(empty) => {
+                    let _ = events_tx.send(UiEvent::FirstCommitEmpty(empty));
+                    finish_with_events(events_tx, Ok("First commit checked.".to_owned()));
+                }
+                Err(error) => finish_with_events(
+                    events_tx,
+                    Err(format!("Cannot check the first archive commit: {error}")),
+                ),
+            }
+        });
     }
 
     fn execute_archive_switch(&mut self, action: ArchiveSwitchAction) {
@@ -917,15 +1123,7 @@ impl ZargApp {
     }
 
     fn open_archive(&mut self, path: PathBuf, password: Option<String>) {
-        if self.busy {
-            return;
-        }
-        if self.has_unsaved_changes {
-            self.pending_archive_switch = Some(ArchiveSwitchAction::OpenPath(path, password));
-            self.pending_switch_after_save = false;
-        } else {
-            self.open_archive_now(path, password);
-        }
+        self.request_archive_switch(ArchiveSwitchAction::OpenPath(path, password));
     }
 
     fn open_archive_now(&mut self, path: PathBuf, password: Option<String>) {
@@ -935,9 +1133,12 @@ impl ZargApp {
         }
         let archive = path.to_string_lossy().into_owned();
         self.commit_ids.clear();
+        self.selected_commit.clear();
+        self.latest_archive_empty = None;
         let opened_archive = archive.clone();
         self.imported_archive_dir = None;
         self.working_archive_dir = None;
+        self.rewrite_snapshots.clear();
         self.has_unsaved_changes = false;
         self.read_archive.clone_from(&archive);
         self.pending_recent_archive = Some(archive.clone());
@@ -1006,12 +1207,20 @@ impl ZargApp {
                     });
                 }
             }
-            if !is_imported && let Ok(commits) = operations::info_archive(&archive_to_read, false) {
-                let ids = commits
-                    .iter()
-                    .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
-                    .collect();
-                let _ = events_tx.send(UiEvent::CommitIds(ids));
+            match operations::info_archive(&archive_to_read, false) {
+                Ok(commits) => {
+                    let ids = commits
+                        .iter()
+                        .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                        .collect();
+                    let _ = events_tx.send(UiEvent::CommitIds(ids));
+                }
+                Err(error) => {
+                    let error = format!("Cannot read archive commits: {error}");
+                    let _ = events_tx.send(UiEvent::Loaded(Err(error.clone())));
+                    finish_with_events(events_tx, Err(error));
+                    return;
+                }
             }
             let result = operations::list_archive_with_details(
                 &archive_to_read,
@@ -1022,6 +1231,7 @@ impl ZargApp {
             match result {
                 Ok(toc) => {
                     let count = toc.0.len();
+                    let _ = events_tx.send(UiEvent::SelectedCommit(String::new()));
                     let _ = events_tx.send(UiEvent::Loaded(Ok(toc)));
                     let summary = if is_imported {
                         format!("{count} entries loaded (read-only archive)")
@@ -1049,9 +1259,12 @@ impl ZargApp {
         self.location.clear();
         self.imported_archive_dir = None;
         self.working_archive_dir = None;
+        self.rewrite_snapshots.clear();
         self.has_unsaved_changes = false;
+        self.latest_archive_empty = None;
         self.archive_password = None;
         self.commit_ids.clear();
+        self.selected_commit.clear();
         self.selected.clear();
         self.selection_anchor = None;
         self.set_entries(Toc::default(), Default::default());
@@ -1072,13 +1285,27 @@ impl ZargApp {
     }
 
     fn begin_worker(&mut self, events: Receiver<UiEvent>, answers: Sender<bool>, message: &str) {
+        self.begin_worker_with_cancellation(events, answers, message, None);
+    }
+
+    fn begin_worker_with_cancellation(
+        &mut self,
+        events: Receiver<UiEvent>,
+        answers: Sender<bool>,
+        message: &str,
+        cancellation: Option<Arc<AtomicBool>>,
+    ) {
         self.busy = true;
         self.progress = 0.0;
         self.progress_done = 0;
         self.progress_total = 0;
         self.progress_known = false;
         self.progress_message = message.to_owned();
-        self.worker = Some(WorkerChannels { events, answers });
+        self.worker = Some(WorkerChannels {
+            events,
+            answers,
+            cancellation,
+        });
     }
 
     fn start_operation(&mut self, mut form: OperationForm) {
@@ -1129,15 +1356,55 @@ impl ZargApp {
                 return;
             }
         }
-        if kind == OperationKind::AddToArchive
-            && form.existing_password_is_set
-            && form.existing_password.is_empty()
-        {
-            self.status = "Enter the password for existing commits.".to_owned();
-            return;
-        }
+        let mut add_refresh_passwords = if kind == OperationKind::AddToArchive {
+            match form.unlock_passwords() {
+                Ok(passwords) => Some(passwords),
+                Err(error) => {
+                    self.status = error.to_string();
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+        let add_new_password = (kind == OperationKind::AddToArchive && form.password_is_set)
+            .then(|| form.password.as_bytes().to_vec());
 
         let logical_archive = form.archive.clone();
+        let output = match kind {
+            OperationKind::JoinCommits => form.join_output.trim(),
+            OperationKind::ChangeCommits => form.transform_output.trim(),
+            _ => "",
+        };
+        let explicit_output = !output.is_empty();
+        if explicit_output {
+            let destination = std::fs::canonicalize(output).ok();
+            if output == form.archive
+                || output == self.archive
+                || output == self.read_archive
+                || destination.as_ref().is_some_and(|destination| {
+                    [&form.archive, &self.archive, &self.read_archive]
+                        .iter()
+                        .any(|source| {
+                            std::fs::canonicalize(source).ok().as_ref() == Some(destination)
+                        })
+                })
+            {
+                self.status =
+                    "Write to must be a different archive; leave it empty for an in-place change."
+                        .to_owned();
+                return;
+            }
+        }
+        let changes_archive = match kind {
+            OperationKind::NewArchive
+            | OperationKind::AddToArchive
+            | OperationKind::RemoveEntries
+            | OperationKind::UndoCommits
+            | OperationKind::CustomMetadata => true,
+            OperationKind::JoinCommits | OperationKind::ChangeCommits => !explicit_output,
+            _ => false,
+        };
         let mut new_working_archive = None;
         if kind == OperationKind::NewArchive {
             match tempfile::Builder::new()
@@ -1154,7 +1421,8 @@ impl ZargApp {
                     return;
                 }
             }
-        } else if form.archive == self.archive
+        } else if changes_archive
+            && form.archive == self.archive
             && !self.archive.is_empty()
             && self.imported_archive_dir.is_none()
             && self.working_archive_dir.is_none()
@@ -1180,18 +1448,17 @@ impl ZargApp {
             }
         }
 
-        if kind == OperationKind::JoinCommits && form.join_output.trim() == logical_archive {
-            form.join_output.clear();
-        }
-        if kind == OperationKind::ChangeCommits && form.transform_output.trim() == logical_archive {
-            form.transform_output.clear();
-        }
-
         let (events_tx, events_rx) = mpsc::channel();
         let (answer_tx, answer_rx) = mpsc::channel();
+        let cancellation = matches!(
+            kind,
+            OperationKind::NewArchive | OperationKind::AddToArchive | OperationKind::ExtractArchive
+        )
+        .then(|| Arc::new(AtomicBool::new(false)));
         let progress = UiProgress {
             events: events_tx.clone(),
             answers: Arc::new(Mutex::new(answer_rx)),
+            cancellation: cancellation.clone(),
         };
         let archive = form
             .archive_backend
@@ -1210,7 +1477,30 @@ impl ZargApp {
                 }
             });
         form.archive.clone_from(&archive);
-        let refresh_password = if kind == OperationKind::UndoCommits {
+        if kind == OperationKind::UndoCommits
+            && (form.undo_commits == 0 || form.undo_commits > self.maximum_undo_steps())
+        {
+            self.status = "Choose a valid number of undo steps.".to_owned();
+            return;
+        }
+        let undo_snapshots =
+            if kind == OperationKind::UndoCommits && !self.rewrite_snapshots.is_empty() {
+                let count = form.undo_commits.min(self.rewrite_snapshots.len());
+                let snapshot = &self.rewrite_snapshots[self.rewrite_snapshots.len() - count];
+                Some((
+                    count,
+                    snapshot.directory.path().join("before.zar"),
+                    snapshot.dirty,
+                    snapshot.password.clone(),
+                    form.undo_commits - count,
+                ))
+            } else {
+                None
+            };
+        let restoring_snapshot = undo_snapshots.is_some();
+        let refresh_password = if let Some((_, _, _, password, _)) = &undo_snapshots {
+            password.clone()
+        } else if kind == OperationKind::UndoCommits || explicit_output {
             self.archive_password.clone()
         } else if kind == OperationKind::ChangeCommits {
             match form.transform_action {
@@ -1219,54 +1509,116 @@ impl ZargApp {
                 _ => Some(form.password.clone()),
             }
         } else {
-            (kind == OperationKind::AddToArchive && form.existing_password_is_set)
-                .then(|| form.existing_password.clone())
+            form.commit_unlocks
+                .iter()
+                .find(|commit| kind == OperationKind::AddToArchive && commit.selected)
+                .map(|commit| commit.password.clone())
                 .or_else(|| form.password_is_set.then(|| form.password.clone()))
+                .or_else(|| {
+                    (kind != OperationKind::NewArchive)
+                        .then(|| self.archive_password.clone())
+                        .flatten()
+                })
         };
-        if kind == OperationKind::ChangeCommits {
-            self.archive_password = refresh_password.clone();
-        } else if let Some(password) = &refresh_password {
-            self.archive_password = Some(password.clone());
-        }
-        let refresh_archive =
-            if kind == OperationKind::ChangeCommits && !form.transform_output.trim().is_empty() {
-                form.transform_output.trim().to_owned()
-            } else {
-                archive.clone()
-            };
-        let refresh_to = (kind == OperationKind::ListArchive && !form.to.trim().is_empty())
-            .then(|| form.to.clone());
-        let refresh_commit_ids = matches!(
-            kind,
-            OperationKind::NewArchive | OperationKind::UndoCommits | OperationKind::ChangeCommits
-        );
+        let refresh_archive = archive.clone();
         let is_encryption_transform = kind == OperationKind::ChangeCommits;
-        let changes_archive = match kind {
-            OperationKind::NewArchive
-            | OperationKind::AddToArchive
-            | OperationKind::RemoveEntries
-            | OperationKind::UndoCommits
-            | OperationKind::CustomMetadata => true,
-            OperationKind::JoinCommits => form.join_output.trim().is_empty(),
-            OperationKind::ChangeCommits => form.transform_output.trim().is_empty(),
-            _ => false,
+        let refresh_commit_ids = changes_archive;
+        let take_snapshot = changes_archive
+            && kind != OperationKind::NewArchive
+            && kind != OperationKind::UndoCommits
+            && (matches!(
+                kind,
+                OperationKind::JoinCommits | OperationKind::ChangeCommits
+            ) || !self.rewrite_snapshots.is_empty());
+        let snapshot_dirty = self.has_unsaved_changes;
+        let snapshot_password = self.archive_password.clone();
+        let snapshot_commit_count = self.commit_ids.len();
+        let refresh_to = if kind == OperationKind::ListArchive {
+            (!form.to.trim().is_empty()).then(|| form.to.clone())
+        } else if !refresh_commit_ids && !self.selected_commit.is_empty() {
+            Some(self.selected_commit.clone())
+        } else {
+            None
         };
-        let saves_transform_output =
-            kind == OperationKind::ChangeCommits && refresh_archive != archive;
-        let refresh_removed_paths =
-            (kind == OperationKind::RemoveEntries).then(|| lines(&form.remove_text));
-        let result = match build_job(kind, form, events_tx.clone(), progress) {
-            Ok(job) => job,
-            Err(error) => {
-                self.status = error.to_string();
-                return;
-            }
-        };
-        self.begin_worker(events_rx, answer_tx, kind.title());
+        let refresh_removed_paths = (kind == OperationKind::RemoveEntries
+            && self.commit_ids.last() == Some(&self.selected_commit)
+            && self.latest_archive_empty.is_some())
+        .then(|| lines(&form.remove_text));
+        let result =
+            match if let Some((steps, source, dirty, password, additional)) = undo_snapshots {
+                let target = archive.clone();
+                let events = events_tx.clone();
+                Ok(Box::new(move || {
+                    let directory = tempfile::tempdir().map_err(|error| error.to_string())?;
+                    let candidate = directory.path().join("undo.zar");
+                    std::fs::copy(source, &candidate)
+                        .map_err(|error| format!("Cannot prepare undo: {error}"))?;
+                    if additional > 0 {
+                        operations::undo_archive(&candidate.to_string_lossy(), additional)
+                            .map_err(|error| error.to_string())?;
+                    }
+                    save_archive_copy(&candidate.to_string_lossy(), &target)?;
+                    let _ = events.send(UiEvent::RewriteUndone {
+                        steps,
+                        dirty: dirty || additional > 0,
+                        password,
+                    });
+                    Ok(format!("Undid {} step(s)", steps + additional))
+                }) as OperationJob)
+            } else {
+                build_job(kind, form, events_tx.clone(), progress)
+            } {
+                Ok(job) => job,
+                Err(error) => {
+                    self.status = error.to_string();
+                    return;
+                }
+            };
+        self.begin_worker_with_cancellation(events_rx, answer_tx, kind.title(), cancellation);
         self.report = None;
         self.warnings.clear();
         std::thread::spawn(move || {
-            let mut outcome = result();
+            let snapshot = if take_snapshot {
+                Some((|| {
+                    let directory = tempfile::tempdir()
+                        .map_err(|error| format!("Cannot prepare undo: {error}"))?;
+                    std::fs::copy(&archive, directory.path().join("before.zar"))
+                        .map_err(|error| format!("Cannot prepare undo: {error}"))?;
+                    Ok::<_, String>(RewriteSnapshot {
+                        directory,
+                        dirty: snapshot_dirty,
+                        password: snapshot_password,
+                        commit_count: snapshot_commit_count,
+                    })
+                })())
+            } else {
+                None
+            };
+            let mut outcome = match snapshot {
+                Some(Ok(snapshot)) => match result() {
+                    Ok(summary) => {
+                        let _ = events_tx.send(UiEvent::RewriteSnapshot(snapshot));
+                        Ok(summary)
+                    }
+                    Err(error) => {
+                        match save_archive_copy(
+                            &snapshot
+                                .directory
+                                .path()
+                                .join("before.zar")
+                                .to_string_lossy(),
+                            &archive,
+                        ) {
+                            Ok(()) => Err(error),
+                            Err(restore_error) => Err(format!(
+                                "{error}; cannot restore the working archive: {restore_error}"
+                            )),
+                        }
+                    }
+                },
+                Some(Err(error)) => Err(error),
+                None => result(),
+            };
             if outcome.is_ok() {
                 if let Some((directory, path)) = new_working_archive {
                     let _ = events_tx.send(UiEvent::WorkingArchive {
@@ -1276,7 +1628,7 @@ impl ZargApp {
                         dirty: true,
                         new_archive_settings,
                     });
-                } else if changes_archive && !saves_transform_output {
+                } else if changes_archive && !restoring_snapshot {
                     let _ = events_tx.send(UiEvent::ArchiveModified);
                 }
             }
@@ -1288,6 +1640,18 @@ impl ZargApp {
                 });
                 match operations::info_archive(&refresh_archive, false) {
                     Ok(commits) => {
+                        if let (Some(passwords), Some(password)) =
+                            (&mut add_refresh_passwords, add_new_password)
+                        {
+                            let Some(commit) = commits.last() else {
+                                finish_with_events(
+                                    events_tx,
+                                    Err("Operation completed, but archive refresh failed: no commits found".to_owned()),
+                                );
+                                return;
+                            };
+                            passwords.insert_for_commit(commit.id, password);
+                        }
                         let ids = commits
                             .iter()
                             .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
@@ -1299,8 +1663,10 @@ impl ZargApp {
                             "{} completed, but commit refresh failed: {error}",
                             if is_encryption_transform {
                                 "Encryption transform"
+                            } else if kind == OperationKind::AddToArchive {
+                                "Add"
                             } else {
-                                "Undo"
+                                kind.title()
                             }
                         ));
                     }
@@ -1310,6 +1676,7 @@ impl ZargApp {
                 && let Some(paths) = refresh_removed_paths
             {
                 let _ = events_tx.send(UiEvent::EntriesRemoved(paths));
+                let _ = events_tx.send(UiEvent::SelectedCommit(String::new()));
             } else if outcome.is_ok() {
                 let list_password =
                     if kind == OperationKind::ChangeCommits && refresh_password.is_none() {
@@ -1317,12 +1684,24 @@ impl ZargApp {
                     } else {
                         refresh_password.as_deref().map(str::as_bytes)
                     };
-                match operations::list_archive_with_details(
-                    &refresh_archive,
-                    refresh_to.as_deref(),
-                    list_password,
-                ) {
+                let result = if let Some(passwords) = &mut add_refresh_passwords {
+                    operations::list_archive_with_details_and_passwords(
+                        &refresh_archive,
+                        refresh_to.as_deref(),
+                        passwords,
+                    )
+                } else {
+                    operations::list_archive_with_details(
+                        &refresh_archive,
+                        refresh_to.as_deref(),
+                        list_password,
+                    )
+                };
+                match result {
                     Ok(toc) => {
+                        let _ = events_tx.send(UiEvent::SelectedCommit(
+                            refresh_to.clone().unwrap_or_default(),
+                        ));
                         let _ = events_tx.send(UiEvent::Loaded(Ok(toc)));
                     }
                     Err(error) => {
@@ -1346,6 +1725,7 @@ impl ZargApp {
         if !is_file || self.busy {
             return;
         }
+
         let (events_tx, events_rx) = mpsc::channel();
         let (answer_tx, _answer_rx) = mpsc::channel();
         self.begin_worker(events_rx, answer_tx, "Extracting file");
@@ -1353,9 +1733,38 @@ impl ZargApp {
         self.warnings.clear();
         let archive = self.read_archive.clone();
         let password = self.archive_password.clone();
+        let to = (!self.selected_commit.is_empty()).then(|| self.selected_commit.clone());
         std::thread::spawn(move || {
-            let outcome = extract_and_open(&archive, &path, password.as_deref());
+            let outcome = extract_and_open(&archive, &path, password.as_deref(), to.as_deref());
             finish_with_events(events_tx, outcome);
+        });
+    }
+
+    fn select_commit(&mut self, id: String) {
+        if self.busy || id == self.selected_commit || !self.commit_ids.contains(&id) {
+            return;
+        }
+        let archive = self.read_archive.clone();
+        let password = self.archive_password.clone();
+        let (events_tx, events_rx) = mpsc::channel();
+        let (answer_tx, answer_rx) = mpsc::channel();
+        drop(answer_rx);
+        self.begin_worker(events_rx, answer_tx, "Reading commit");
+        self.report = None;
+        std::thread::spawn(move || {
+            match operations::list_archive_with_details(
+                &archive,
+                Some(&id),
+                password.as_deref().map(str::as_bytes),
+            ) {
+                Ok(toc) => {
+                    let count = toc.0.len();
+                    let _ = events_tx.send(UiEvent::SelectedCommit(id));
+                    let _ = events_tx.send(UiEvent::Loaded(Ok(toc)));
+                    finish_with_events(events_tx, Ok(format!("{count} entries loaded")));
+                }
+                Err(error) => finish_with_events(events_tx, Err(error.to_string())),
+            }
         });
     }
 
@@ -1396,6 +1805,13 @@ impl ZargApp {
                 }
                 UiEvent::Confirm(prompt) => self.confirmation = Some(prompt),
                 UiEvent::CommitIds(ids) => self.commit_ids = ids,
+                UiEvent::SelectedCommit(id) => {
+                    self.selected_commit = if id.is_empty() {
+                        self.commit_ids.last().cloned().unwrap_or_default()
+                    } else {
+                        id
+                    };
+                }
                 UiEvent::ArchivePath { path, password } => {
                     if path != self.read_archive {
                         self.archive.clone_from(&path);
@@ -1424,8 +1840,11 @@ impl ZargApp {
                         self.add_archive_settings = new_archive_settings.map(|settings| *settings);
                     }
                     if dirty && logical_path.is_empty() {
+                        self.rewrite_snapshots.clear();
                         self.set_entries(Toc::default(), Default::default());
+                        self.latest_archive_empty = None;
                         self.commit_ids.clear();
+                        self.selected_commit.clear();
                     }
                     self.archive.clone_from(&logical_path);
                     self.location = logical_path;
@@ -1434,18 +1853,41 @@ impl ZargApp {
                     self.imported_archive_dir = None;
                     self.has_unsaved_changes = dirty;
                 }
-                UiEvent::ArchiveModified => self.has_unsaved_changes = true,
-                UiEvent::EntriesRemoved(paths) => self.remove_entries(&paths),
+                UiEvent::ArchiveModified => {
+                    self.has_unsaved_changes = true;
+                    self.latest_archive_empty = None;
+                }
+                UiEvent::RewriteSnapshot(snapshot) => self.rewrite_snapshots.push(snapshot),
+                UiEvent::RewriteUndone {
+                    steps,
+                    dirty,
+                    password,
+                } => {
+                    self.rewrite_snapshots
+                        .truncate(self.rewrite_snapshots.len() - steps);
+                    self.has_unsaved_changes = dirty;
+                    self.archive_password = password;
+                    self.latest_archive_empty = None;
+                }
+                UiEvent::FirstCommitEmpty(empty) => {
+                    if empty {
+                        self.execute_archive_switch(ArchiveSwitchAction::New);
+                    } else {
+                        self.pending_archive_switch = Some(ArchiveSwitchAction::New);
+                        self.pending_switch_after_save = false;
+                    }
+                }
+                UiEvent::EntriesRemoved(paths) => {
+                    self.remove_entries(&paths);
+                    self.latest_archive_empty = Some(self.entries.is_empty());
+                }
                 UiEvent::ArchiveSaved { path } => {
                     self.archive.clone_from(&path);
-                    if self.working_archive_dir.is_none() {
-                        self.read_archive.clone_from(&path);
-                    }
+                    self.read_archive.clone_from(&path);
                     self.location = path;
-                    if self.imported_archive_dir.is_some() {
-                        self.imported_archive_dir = None;
-                        self.working_archive_dir = None;
-                    }
+                    self.imported_archive_dir = None;
+                    self.working_archive_dir = None;
+                    self.rewrite_snapshots.clear();
                     self.has_unsaved_changes = false;
                 }
                 UiEvent::Loaded(result) => match result {
@@ -1453,6 +1895,9 @@ impl ZargApp {
                         self.opening_archive = false;
                         if let Some(archive) = self.pending_recent_archive.take() {
                             remember_recent_archive(&mut self.recent_archives, &archive);
+                        }
+                        if self.commit_ids.last() == Some(&self.selected_commit) {
+                            self.latest_archive_empty = Some(toc.is_empty());
                         }
                         self.set_entries(toc, details);
                     }
@@ -1473,6 +1918,11 @@ impl ZargApp {
                     }
                 },
                 UiEvent::Finished(result) => {
+                    let cancellation_requested = self
+                        .worker
+                        .as_ref()
+                        .and_then(|worker| worker.cancellation.as_ref())
+                        .is_some_and(|token| token.load(Ordering::Relaxed));
                     self.busy = false;
                     self.worker = None;
                     let switch_after_save = self.pending_switch_after_save;
@@ -1490,8 +1940,13 @@ impl ZargApp {
                             if switch_after_save {
                                 self.pending_archive_switch = None;
                             }
-                            self.status = error.clone();
-                            self.report = Some(error);
+                            if cancellation_requested && error.contains("operation cancelled") {
+                                self.status = "Operation cancelled".to_owned();
+                                self.report = None;
+                            } else {
+                                self.status = error.clone();
+                                self.report = Some(error);
+                            }
                         }
                     }
                     context.request_repaint();
@@ -1562,6 +2017,7 @@ impl ZargApp {
             .values()
             .any(|details| details.modified_unix_millis.is_some());
         self.entries.sort_by(|left, right| left.0.cmp(&right.0));
+        self.entry_summary = EntrySummary::from_entries(&self.entries, &self.entry_details);
         self.rebuild_visible_entry_indices();
         self.structured_rows_dirty = true;
     }
@@ -1578,6 +2034,7 @@ impl ZargApp {
         self.entries.retain(|(entry, _)| !is_removed(entry));
         self.entry_details
             .retain(|entry, _| !is_removed(entry.as_str()));
+        self.entry_summary = EntrySummary::from_entries(&self.entries, &self.entry_details);
         self.selected.retain(|entry| !is_removed(entry));
         if self
             .selection_anchor
@@ -1650,7 +2107,9 @@ impl ZargApp {
     }
 
     fn choose_input_paths(&mut self) {
-        self.file_dialog.open_for_selection();
+        let last_selected_path = self.operation.input_paths.last().cloned();
+        self.file_dialog
+            .open_for_selection(last_selected_path.as_deref());
     }
 
     fn choose_archive(&mut self, save: bool) {
@@ -1666,7 +2125,7 @@ impl ZargApp {
     }
 
     fn save_archive(&mut self) -> bool {
-        if self.has_unsaved_changes && !self.busy {
+        if self.has_unsaved_changes && self.can_save_archive_as() {
             if self.archive.is_empty() {
                 return self.save_archive_as();
             } else {
@@ -1677,21 +2136,49 @@ impl ZargApp {
     }
 
     fn save_archive_as(&mut self) -> bool {
-        if self.read_archive.is_empty() || self.busy {
+        if !self.can_save_archive_as() {
             return false;
         }
-        if let Some(path) = rfd::FileDialog::new()
-            .add_filter("ZAR archive", &["zar"])
-            .save_file()
-        {
+        let mut dialog = rfd::FileDialog::new().add_filter("ZAR archive", &["zar"]);
+        if let Some(file_name) = default_save_as_filename(
+            &self.archive,
+            self.entries.first().map(|(path, _)| path.as_str()),
+        ) {
+            dialog = dialog.set_file_name(file_name);
+        }
+        if let Some(path) = dialog.save_file() {
             return self.save_archive_to(path.to_string_lossy().into_owned());
         }
         false
     }
 
     fn save_archive_to(&mut self, path: String) -> bool {
-        if self.read_archive.is_empty() || self.busy {
+        if !self.can_save_archive_as() {
             return false;
+        }
+        let parent = Path::new(&path)
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        if let Ok(parent) = std::fs::canonicalize(parent) {
+            let temporary_dirs = self
+                .working_archive_dir
+                .iter()
+                .chain(self.imported_archive_dir.iter())
+                .map(tempfile::TempDir::path)
+                .chain(
+                    self.rewrite_snapshots
+                        .iter()
+                        .map(|snapshot| snapshot.directory.path()),
+                );
+            if temporary_dirs
+                .filter_map(|directory| std::fs::canonicalize(directory).ok())
+                .any(|directory| parent.starts_with(directory))
+            {
+                self.status =
+                    "Choose a destination outside the temporary archive storage.".to_owned();
+                return false;
+            }
         }
         let source = self.read_archive.clone();
         let (events_tx, events_rx) = mpsc::channel();
@@ -1712,6 +2199,24 @@ impl ZargApp {
 
     fn can_add_to_archive(&self) -> bool {
         !self.busy && !self.read_archive.is_empty() && self.imported_archive_dir.is_none()
+    }
+
+    fn maximum_undo_steps(&self) -> usize {
+        self.rewrite_snapshots.first().map_or_else(
+            || self.commit_ids.len().saturating_sub(1),
+            |first| self.rewrite_snapshots.len() + first.commit_count.saturating_sub(1),
+        )
+    }
+
+    fn can_undo(&self) -> bool {
+        !self.busy
+            && self.has_current_archive()
+            && self.maximum_undo_steps() > 0
+            && self.imported_archive_dir.is_none()
+    }
+
+    fn can_save_archive_as(&self) -> bool {
+        !self.busy && !self.read_archive.is_empty() && self.latest_archive_empty != Some(true)
     }
 
     fn has_current_archive(&self) -> bool {
@@ -1767,7 +2272,7 @@ impl ZargApp {
                         &self.icons,
                         UiIcon::SaveArchive,
                         "Save archive",
-                        self.has_unsaved_changes && !self.busy,
+                        self.has_unsaved_changes && self.can_save_archive_as(),
                     )
                     .clicked()
                     {
@@ -1779,7 +2284,7 @@ impl ZargApp {
                         &self.icons,
                         UiIcon::SaveArchive,
                         "Save as...",
-                        !self.read_archive.is_empty() && !self.busy,
+                        self.can_save_archive_as(),
                     )
                     .clicked()
                     {
@@ -1866,7 +2371,7 @@ impl ZargApp {
             );
             icon_menu_button(
                 ui,
-                icon_texture(ui.ctx(), &self.icons, UiIcon::Refresh),
+                icon_texture(ui.ctx(), &self.icons, UiIcon::View),
                 "View",
                 |ui| {
                     for (view, label) in [
@@ -1940,7 +2445,7 @@ impl ZargApp {
                         &self.icons,
                         UiIcon::ChangeCommits,
                         "Change commits",
-                        !self.busy && !self.archive.is_empty() && !is_imported_archive,
+                        !self.busy && self.has_current_archive() && !is_imported_archive,
                     )
                     .clicked()
                     {
@@ -1953,7 +2458,7 @@ impl ZargApp {
                         UiIcon::Join,
                         "Join commits",
                         !self.busy
-                            && !self.archive.is_empty()
+                            && self.has_current_archive()
                             && self.commit_ids.len() > 1
                             && !is_imported_archive,
                     )
@@ -1962,17 +2467,7 @@ impl ZargApp {
                         self.show_operation(OperationKind::JoinCommits);
                         ui.close();
                     }
-                    if icon_button(
-                        ui,
-                        &self.icons,
-                        UiIcon::Undo,
-                        "Undo commits",
-                        !self.busy
-                            && !self.archive.is_empty()
-                            && self.commit_ids.len() > 1
-                            && !is_imported_archive,
-                    )
-                    .clicked()
+                    if icon_button(ui, &self.icons, UiIcon::Undo, "Undo", self.can_undo()).clicked()
                     {
                         self.show_operation(OperationKind::UndoCommits);
                         ui.close();
@@ -2034,8 +2529,24 @@ impl ZargApp {
 
     fn new_operation_form(&self, kind: OperationKind, archive: &str) -> OperationForm {
         let mut form = OperationForm::new(kind, archive);
+        if kind == OperationKind::ExtractArchive {
+            form.destination = Path::new(archive)
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."))
+                .to_string_lossy()
+                .into_owned();
+        }
         form.block_size.clone_from(&self.default_block_size);
         form.compression_level = self.default_compression_level.to_string();
+        if matches!(
+            kind,
+            OperationKind::NewArchive | OperationKind::AddToArchive
+        ) {
+            form.password.clone_from(&self.default_password);
+            form.password_confirm.clone_from(&self.default_password);
+            form.password_is_set = !form.password.is_empty();
+        }
         form.aead = match self.default_encryption_method {
             crate::settings::DefaultEncryptionMethod::Aes256Gcm => 0,
             crate::settings::DefaultEncryptionMethod::ChaCha20Poly1305 => 1,
@@ -2070,16 +2581,50 @@ impl ZargApp {
         self.remember_add_archive_settings();
         let archive = if kind == OperationKind::NewArchive {
             String::new()
-        } else if kind == OperationKind::AddToArchive && self.archive.is_empty() {
+        } else if self.archive.is_empty() {
             self.read_archive.clone()
         } else {
             self.archive.clone()
         };
+        let encrypted_commits = if matches!(
+            kind,
+            OperationKind::AddToArchive | OperationKind::ExtractArchive
+        ) {
+            let path = if self.read_archive.is_empty() {
+                &archive
+            } else {
+                &self.read_archive
+            };
+            match operations::info_archive(path, false) {
+                Ok(commits) => commits
+                    .into_iter()
+                    .filter(|commit| commit.header_encrypted || commit.data_encrypted)
+                    .map(|commit| CommitUnlock {
+                        id: commit.id,
+                        ..Default::default()
+                    })
+                    .collect(),
+                Err(error) => {
+                    self.status = format!("Cannot inspect archive commits: {error}");
+                    return;
+                }
+            }
+        } else {
+            Vec::new()
+        };
         self.operation = self.new_operation_form(kind, &archive);
+        if kind == OperationKind::ExtractArchive && self.archive.is_empty() {
+            self.operation.destination = ".".to_owned();
+        }
+        self.operation.extract_has_encrypted_commits = !encrypted_commits.is_empty();
+        self.operation.commit_unlocks = encrypted_commits;
         if kind == OperationKind::AddToArchive
             && let Some(settings) = &self.add_archive_settings
         {
             settings.apply_to(&mut self.operation);
+            if !self.operation.password.is_empty() {
+                self.operation.password_is_set = true;
+            }
         }
         if self.imported_archive_dir.is_some()
             && matches!(
@@ -2095,7 +2640,7 @@ impl ZargApp {
             OperationKind::ListArchive | OperationKind::ExtractArchive
         ) {
             self.operation.commit_ids.clone_from(&self.commit_ids);
-            self.operation.to = self.commit_ids.last().cloned().unwrap_or_default();
+            self.operation.to.clone_from(&self.selected_commit);
         }
         if kind == OperationKind::CustomMetadata {
             match operations::read_custom_metadata(&self.read_archive) {
@@ -2126,7 +2671,6 @@ impl ZargApp {
             self.operation.from_id = self.commit_ids.first().cloned().unwrap_or_default();
             self.operation.to_id = self.commit_ids.last().cloned().unwrap_or_default();
             self.operation.existing_password = self.archive_password.clone().unwrap_or_default();
-            self.operation.existing_password_is_set = !self.operation.existing_password.is_empty();
             self.operation.transform_strict = true;
         }
     }
@@ -2168,6 +2712,7 @@ impl ZargApp {
                 !self.busy
                     && !self.archive.is_empty()
                     && !self.selected.is_empty()
+                    && self.commit_ids.last() == Some(&self.selected_commit)
                     && self.imported_archive_dir.is_none(),
             )
             .clicked()
@@ -2242,23 +2787,127 @@ impl ZargApp {
 
     pub(super) fn centered_dialog_viewport_builder(
         context: &egui::Context,
+        viewport_id: egui::ViewportId,
         title: &str,
         inner_size: [f32; 2],
         resizable: bool,
     ) -> egui::ViewportBuilder {
-        let builder = egui::ViewportBuilder::default()
+        let viewport_exists = context.input(|input| input.raw.viewports.contains_key(&viewport_id));
+        let parent_rect = context
+            .input(|input| input.viewport().outer_rect)
+            .unwrap_or_else(|| context.content_rect());
+        let requested_inner_size = egui::vec2(inner_size[0], inner_size[1]);
+        let (inner_size, max_inner_size, position) =
+            if let Some(monitor_rect) = Self::dialog_monitor_rect(context, parent_rect) {
+                let (inner_size, max_inner_size, position) = Self::clamp_dialog_placement(
+                    parent_rect.center(),
+                    monitor_rect,
+                    requested_inner_size,
+                );
+                (inner_size, Some(max_inner_size), position)
+            } else {
+                (
+                    requested_inner_size,
+                    None,
+                    parent_rect.center() - requested_inner_size * 0.5,
+                )
+            };
+        let pixels_per_point = context.pixels_per_point();
+        let inner_size = egui::vec2(
+            Self::snap_to_device_pixel(inner_size.x, pixels_per_point),
+            Self::snap_to_device_pixel(inner_size.y, pixels_per_point),
+        );
+        let max_inner_size = max_inner_size.map(|size| {
+            egui::vec2(
+                Self::snap_to_device_pixel(size.x, pixels_per_point),
+                Self::snap_to_device_pixel(size.y, pixels_per_point),
+            )
+        });
+        let position = egui::pos2(
+            Self::snap_to_device_pixel(position.x, pixels_per_point),
+            Self::snap_to_device_pixel(position.y, pixels_per_point),
+        );
+
+        let mut builder = egui::ViewportBuilder::default()
             .with_title(title)
             .with_inner_size(inner_size)
-            .with_resizable(resizable);
-        context
-            .input(|input| input.viewport().outer_rect)
-            .map(|parent_rect| {
-                let size = egui::vec2(inner_size[0], inner_size[1]);
-                builder
-                    .clone()
-                    .with_position(parent_rect.center() - size * 0.5)
-            })
-            .unwrap_or(builder)
+            .with_resizable(resizable)
+            .with_clamp_size_to_monitor_size(true);
+        if !viewport_exists {
+            builder = builder.with_position(position);
+        }
+        if let Some(max_inner_size) = max_inner_size {
+            builder = builder.with_max_inner_size(max_inner_size);
+        }
+        builder
+    }
+
+    fn snap_to_device_pixel(value: f32, pixels_per_point: f32) -> f32 {
+        if pixels_per_point.is_finite() && pixels_per_point > 0.0 {
+            (value * pixels_per_point).round() / pixels_per_point
+        } else {
+            value
+        }
+    }
+
+    #[cfg(not(all(target_os = "linux", target_env = "musl")))]
+    fn dialog_monitor_rect(context: &egui::Context, parent_rect: egui::Rect) -> Option<egui::Rect> {
+        let zoom_factor = context.zoom_factor();
+        #[cfg(target_os = "windows")]
+        let native_pixels_per_point = context
+            .input(|input| input.viewport().native_pixels_per_point)
+            .unwrap_or(1.0);
+        #[cfg(target_os = "windows")]
+        let (display_point, points_per_display_unit) = {
+            let scale = (native_pixels_per_point * zoom_factor).max(f32::EPSILON);
+            (parent_rect.center() * scale, 1.0 / scale)
+        };
+        #[cfg(not(target_os = "windows"))]
+        let (display_point, points_per_display_unit) =
+            (parent_rect.center() * zoom_factor, zoom_factor);
+
+        let display = display_info::DisplayInfo::from_point(
+            display_point.x.round() as i32,
+            display_point.y.round() as i32,
+        )
+        .ok()?;
+        Some(egui::Rect::from_min_size(
+            egui::pos2(display.x as f32, display.y as f32) * points_per_display_unit,
+            egui::vec2(display.width as f32, display.height as f32) * points_per_display_unit,
+        ))
+    }
+
+    #[cfg(all(target_os = "linux", target_env = "musl"))]
+    fn dialog_monitor_rect(
+        _context: &egui::Context,
+        _parent_rect: egui::Rect,
+    ) -> Option<egui::Rect> {
+        None
+    }
+
+    fn clamp_dialog_placement(
+        parent_center: egui::Pos2,
+        monitor_rect: egui::Rect,
+        requested_inner_size: egui::Vec2,
+    ) -> (egui::Vec2, egui::Vec2, egui::Pos2) {
+        let margin = egui::vec2(8.0, 8.0);
+        let window_chrome = egui::vec2(16.0, 48.0);
+        let max_inner_size =
+            (monitor_rect.size() - window_chrome - margin * 2.0).max(egui::Vec2::splat(1.0));
+        let inner_size = requested_inner_size.min(max_inner_size);
+        let outer_size = inner_size + window_chrome;
+        let min_position = monitor_rect.min + margin;
+        let max_position = egui::pos2(
+            (monitor_rect.max.x - margin.x - outer_size.x).max(min_position.x),
+            (monitor_rect.max.y - margin.y - outer_size.y).max(min_position.y),
+        );
+        let requested_position = parent_center - outer_size * 0.5;
+        let position = egui::pos2(
+            requested_position.x.clamp(min_position.x, max_position.x),
+            requested_position.y.clamp(min_position.y, max_position.y),
+        );
+
+        (inner_size, max_inner_size, position)
     }
 
     fn render_icon_archive_list(&mut self, ui: &mut egui::Ui, context: &egui::Context) {
@@ -2786,7 +3435,39 @@ impl SortBy {
 }
 
 impl ZargApp {
+    fn apply_default_password(&mut self, password: String) {
+        self.default_password.clone_from(&password);
+        self.default_password_input = password;
+        if matches!(
+            self.operation.kind,
+            Some(OperationKind::NewArchive | OperationKind::AddToArchive)
+        ) && self.operation.password.is_empty()
+        {
+            self.operation.password.clone_from(&self.default_password);
+            self.operation
+                .password_confirm
+                .clone_from(&self.default_password);
+            self.operation.password_is_set = true;
+        }
+    }
+
+    pub fn load_default_password(&mut self) {
+        match crate::password_store::load_default_password() {
+            Ok(Some(password)) if !password.is_empty() => {
+                self.apply_default_password(password);
+            }
+            Ok(Some(_)) | Ok(None) => {}
+            Err(error) => {
+                self.default_password_status = Some(format!(
+                    "Could not load default password from the OS password safe: {error}"
+                ));
+            }
+        }
+    }
+
     pub fn apply_settings(&mut self, settings: &crate::settings::Settings) {
+        self.geometry_monitor_count = crate::settings::monitor_count();
+        self.window_geometry = settings.geometry_for_startup(self.geometry_monitor_count);
         if let Some(view) = ArchiveView::from_setting(&settings.view) {
             self.archive_view = view;
         }
@@ -2800,6 +3481,7 @@ impl ZargApp {
             .take(MAX_RECENT_ARCHIVES)
             .cloned()
             .collect();
+        self.file_dialog.set_bookmarks(&settings.bookmarks);
         self.start_recent_archive_check();
         self.dialog_sizes = settings
             .dialog_sizes
@@ -2813,6 +3495,7 @@ impl ZargApp {
             .collect();
         self.ui_scale = settings.ui_scale;
         self.theme_mode = settings.theme_mode;
+        self.icons.set_theme(settings.icon_theme);
         self.default_block_size
             .clone_from(&settings.default_block_size);
         self.default_compression_level = settings.default_compression_level;
@@ -2858,24 +3541,39 @@ impl ZargApp {
     }
 
     fn current_settings(&self) -> crate::settings::Settings {
+        self.current_settings_with_monitor_count(crate::settings::monitor_count())
+    }
+
+    fn current_settings_with_monitor_count(
+        &self,
+        monitor_count: usize,
+    ) -> crate::settings::Settings {
+        let window = self.window_geometry.map(|mut geometry| {
+            if monitor_count == 0 || monitor_count != self.geometry_monitor_count {
+                geometry.position = None;
+            }
+            geometry
+        });
         crate::settings::Settings {
-            window: self.window_geometry,
+            window,
             dialog_sizes: self
                 .dialog_sizes
                 .iter()
                 .map(|(key, size)| (key.clone(), *size))
                 .collect(),
-            monitor_count: crate::settings::monitor_count(),
+            monitor_count,
             view: self.archive_view.as_setting().to_owned(),
             sort: self.sort_by.as_setting().to_owned(),
             sort_reversed: self.sort_reversed,
             ui_scale: self.ui_scale,
             theme_mode: self.theme_mode,
+            icon_theme: self.icons.theme.get(),
             default_block_size: self.default_block_size.clone(),
             default_compression_level: self.default_compression_level,
             default_encryption_method: self.default_encryption_method,
             archive_defaults: self.archive_defaults.clone(),
             recent_archives: self.recent_archives.clone(),
+            bookmarks: self.file_dialog.bookmarks().to_vec(),
             column_widths: self
                 .column_widths
                 .iter()
@@ -2885,19 +3583,27 @@ impl ZargApp {
     }
 
     fn track_window_geometry(&mut self, context: &egui::Context) {
-        let (inner, outer, normal) = context.input(|input| {
+        let (size, outer, normal) = context.input(|input| {
             let viewport = input.viewport();
             (
-                viewport.inner_rect,
+                viewport
+                    .inner_rect
+                    .or(input.raw.screen_rect)
+                    .map(|rect| rect.size()),
                 viewport.outer_rect,
                 !viewport.maximized.unwrap_or(false)
                     && !viewport.minimized.unwrap_or(false)
                     && !viewport.fullscreen.unwrap_or(false),
             )
         });
-        if let (true, Some(inner)) = (normal, inner) {
+        if let (true, Some(size)) = (normal, size)
+            && size.x.is_finite()
+            && size.y.is_finite()
+            && size.x >= 100.0
+            && size.y >= 100.0
+        {
             self.window_geometry = Some(crate::settings::WindowGeometry {
-                size: [inner.width(), inner.height()],
+                size: [size.x, size.y],
                 position: outer.map(|outer| [outer.min.x, outer.min.y]),
             });
         }
@@ -2932,7 +3638,9 @@ impl ZargApp {
 
 impl eframe::App for ZargApp {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        self.current_settings().save();
+        if let Err(error) = self.current_settings().save() {
+            eprintln!("zarg: could not save settings: {error}");
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -2958,6 +3666,7 @@ impl eframe::App for ZargApp {
                     self.open_dialog();
                 }
                 if self.has_unsaved_changes
+                    && self.latest_archive_empty != Some(true)
                     && icon_button(ui, &self.icons, UiIcon::SaveArchive, "Save", !self.busy)
                         .clicked()
                 {
@@ -2969,6 +3678,21 @@ impl eframe::App for ZargApp {
                     |ui| {
                         if self.has_current_archive() {
                             ui.label(format!("{} entries", self.entries.len()));
+                            if !self.commit_ids.is_empty() {
+                                let mut choice = self.selected_commit.clone();
+                                ui.add_enabled_ui(!self.busy, |ui| {
+                                    egui::ComboBox::from_id_salt("main_commit_selector")
+                                        .selected_text(&choice)
+                                        .show_ui(ui, |ui| {
+                                            for id in &self.commit_ids {
+                                                ui.selectable_value(&mut choice, id.clone(), id);
+                                            }
+                                        });
+                                });
+                                if choice != self.selected_commit {
+                                    self.select_commit(choice);
+                                }
+                            }
                         }
                         ui.add_enabled_ui(false, |ui| {
                             ui.add_sized(
@@ -2983,15 +3707,85 @@ impl eframe::App for ZargApp {
         });
         egui::Panel::bottom("status").show(ui, |ui| {
             if self.busy {
+                let cancellation = self
+                    .worker
+                    .as_ref()
+                    .and_then(|worker| worker.cancellation.as_ref())
+                    .cloned();
+                let show_progress = self.progress_known || cancellation.is_some();
                 ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.label(&self.progress_message);
-                    if self.progress_known {
-                        ui.add(egui::ProgressBar::new(self.progress).desired_width(200.0));
+                    let spacing = ui.spacing().item_spacing.x;
+                    let progress_width = if show_progress { 200.0 } else { 0.0 };
+                    let cancel_width = if cancellation.is_some() { 88.0 } else { 0.0 };
+                    let following_widgets =
+                        1 + usize::from(show_progress) + usize::from(cancellation.is_some());
+                    let message_width = (ui.available_width()
+                        - progress_width
+                        - cancel_width
+                        - spacing * following_widgets as f32)
+                        .max(0.0);
+                    let message = if cancellation.is_some() {
+                        let font = egui::TextStyle::Body.resolve(ui.style());
+                        truncate_adding_message(&self.progress_message, message_width, |text| {
+                            ui.painter()
+                                .layout_no_wrap(
+                                    text.to_owned(),
+                                    font.clone(),
+                                    ui.visuals().text_color(),
+                                )
+                                .size()
+                                .x
+                        })
+                    } else {
+                        self.progress_message.clone()
+                    };
+                    ui.add_sized(
+                        [message_width, ui.spacing().interact_size.y],
+                        egui::Label::new(message)
+                            .truncate()
+                            .halign(egui::Align::Min),
+                    )
+                    .on_hover_text(&self.progress_message);
+                    if show_progress {
+                        ui.add(egui::ProgressBar::new(self.progress).desired_width(progress_width));
+                    }
+                    if let Some(token) = cancellation {
+                        let texture = icon_texture(ui.ctx(), &self.icons, UiIcon::Cancel);
+                        let cancel = ui.add_enabled(
+                            !token.load(Ordering::Relaxed),
+                            egui::Button::image_and_text(
+                                egui::Image::new(&texture)
+                                    .fit_to_exact_size(egui::vec2(16.0, 16.0)),
+                                "Cancel",
+                            )
+                            .min_size(egui::vec2(cancel_width, 0.0)),
+                        );
+                        if cancel.clicked() {
+                            token.store(true, Ordering::Relaxed);
+                        }
                     }
                 });
+            } else if self.info_loading.is_some() {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(&self.status);
+                });
             } else {
-                ui.label(&self.status);
+                if self.has_current_archive() {
+                    let summary = self.entry_summary.display(self.entries.len(), self.commit_ids.len());
+                    ui.horizontal(|ui| {
+                        ui.label(summary).on_hover_text(
+                            "Sizes are estimated for files in the selected commit view; commit count is for the whole archive.",
+                        );
+                        if !self.status.is_empty() {
+                            ui.separator();
+                            ui.label(&self.status);
+                        }
+                    });
+                } else {
+                    ui.label(&self.status);
+                }
             }
         });
         // Fusion draws item views on the Base color rather than the window color.
@@ -3170,29 +3964,9 @@ impl eframe::App for ZargApp {
                                     let details = self.entry_details.get(path);
                                     let (compressed, uncompressed, ratio, kind) = match data {
                                         EntryData::File(size) => {
-                                            let compressed_size =
-                                                details.and_then(|details| details.compressed_size);
-                                            let ratio = compressed_size
-                                                .map(|compressed| {
-                                                    if *size == 0 {
-                                                        "—".to_owned()
-                                                    } else {
-                                                        format!(
-                                                            "{:.1}%",
-                                                            compressed as f64 * 100.0
-                                                                / *size as f64
-                                                        )
-                                                    }
-                                                })
-                                                .unwrap_or_else(|| "—".to_owned());
-                                            (
-                                                compressed_size
-                                                    .map(display_size)
-                                                    .unwrap_or_else(|| "—".to_owned()),
-                                                display_size(*size),
-                                                ratio,
-                                                "File",
-                                            )
+                                            let (compressed, uncompressed, ratio) =
+                                                file_size_columns(*size, details);
+                                            (compressed, uncompressed, ratio, "File")
                                         }
                                         EntryData::Directory => (
                                             "—".to_owned(),
@@ -3267,6 +4041,21 @@ impl eframe::App for ZargApp {
         self.render_settings_dialog(&context);
         self.update_window_title(&context);
     }
+}
+
+fn file_size_columns(size: u64, details: Option<&ArchiveEntryDetails>) -> (String, String, String) {
+    let compressed = details.and_then(|details| details.compressed_size);
+    let ratio = details
+        .and_then(|details| details.compression_ratio)
+        .map(|ratio| format!("{:.1}%", ratio * 100.0))
+        .unwrap_or_else(|| "—".to_owned());
+    (
+        compressed
+            .map(display_size)
+            .unwrap_or_else(|| "—".to_owned()),
+        display_size(size),
+        ratio,
+    )
 }
 
 fn invert_selection(selected: &BTreeSet<String>, visible: &[String]) -> BTreeSet<String> {
@@ -3420,6 +4209,7 @@ fn build_job(
             }
             let options = form.encoding()?;
             let filters = form.filters()?;
+            let passwords = form.unlock_passwords()?;
             let paths = form.input_paths;
             let input = AddInputOptions {
                 save_metadata: form.metadata,
@@ -3436,10 +4226,6 @@ fn build_job(
                 EncryptionScope::Data,
                 EncryptionScope::Header,
             ][form.encryption_scope.min(2)];
-            let existing_password = form
-                .existing_password_is_set
-                .then(|| form.existing_password.as_bytes().to_vec());
-            let passwords = PasswordSet::new(existing_password.or_else(|| new_password.clone()));
             Box::new(move || {
                 let encryption = new_password
                     .as_deref()
@@ -3514,7 +4300,7 @@ fn build_job(
             let commits = form.undo_commits;
             Box::new(move || {
                 operations::undo_archive(&archive, commits)
-                    .map(|()| format!("Undid {commits} trailing commit(s)"))
+                    .map(|()| format!("Removed {commits} trailing commit(s)"))
                     .map_err(|error| error.to_string())
             })
         }
@@ -3524,31 +4310,43 @@ fn build_job(
             let to = form.to_id;
             let output = form.join_output.trim().to_owned();
             Box::new(move || {
-                // Joining rewrites in place, so work on a copy to keep the original.
-                let target = if output.is_empty() || output == archive {
-                    archive.clone()
+                let temporary = if output.is_empty() {
+                    None
                 } else {
-                    std::fs::copy(&archive, &output)
-                        .map_err(|error| format!("cannot write {output}: {error}"))?;
-                    output.clone()
+                    if output == archive {
+                        return Err("Write to must be a different archive.".to_owned());
+                    }
+                    let parent = Path::new(&output)
+                        .parent()
+                        .filter(|parent| !parent.as_os_str().is_empty())
+                        .unwrap_or_else(|| Path::new("."));
+                    let temporary = tempfile::NamedTempFile::new_in(parent)
+                        .map_err(|error| format!("Cannot prepare output {output}: {error}"))?;
+                    std::fs::copy(&archive, temporary.path())
+                        .map_err(|error| format!("Cannot prepare output {output}: {error}"))?;
+                    Some(temporary)
                 };
-                let result = operations::join_archive_with_encoding_progress(
+                let target = temporary.as_ref().map_or_else(
+                    || archive.clone(),
+                    |file| file.path().to_string_lossy().into_owned(),
+                );
+                operations::join_archive_with_encoding_progress(
                     &target,
                     &from,
                     &to,
                     options,
                     Some(progress.as_ref()),
-                );
-                if let Err(error) = result {
-                    if target != archive {
-                        let _ = std::fs::remove_file(&target);
-                    }
-                    return Err(error.to_string());
+                )
+                .map_err(|error| error.to_string())?;
+                if let Some(temporary) = temporary {
+                    temporary
+                        .persist(&output)
+                        .map_err(|error| format!("Cannot save output {output}: {}", error.error))?;
                 }
-                Ok(if target == archive {
+                Ok(if output.is_empty() {
                     format!("Joined commits {from} to {to}")
                 } else {
-                    format!("Joined commits {from} to {to} into {target}")
+                    format!("Joined commits {from} to {to} into {output}")
                 })
             })
         }
@@ -3577,12 +4375,6 @@ fn build_job(
             let encrypt = action != 1;
             let change_only = action == 2;
             let result_archive = output.clone().unwrap_or_else(|| archive.clone());
-            let result_password = if encrypt {
-                Some(String::from_utf8_lossy(&new_password).into_owned())
-            } else {
-                None
-            };
-            let events = _events;
             Box::new(move || {
                 if change_only {
                     let range = operations::CommitRangeOptions {
@@ -3622,10 +4414,6 @@ fn build_job(
                             .map_err(|error| error.to_string())?;
                     }
                 }
-                let _ = events.send(UiEvent::ArchivePath {
-                    path: result_archive.clone(),
-                    password: result_password,
-                });
                 Ok(if change_only {
                     format!("Changed encryption for commits {from} to {to} in {result_archive}")
                 } else if encrypt {
@@ -3685,8 +4473,16 @@ fn build_job(
                         .join("imported.zar")
                         .to_string_lossy()
                         .into_owned();
-                    operations::create_archive(&imported_path, &[PathBuf::from(&archive)])
-                        .map_err(|error| error.to_string())?;
+                    operations::create_archive_with_password_progress(
+                        &imported_path,
+                        &[PathBuf::from(&archive)],
+                        false,
+                        operations::EncodingOptions::default(),
+                        None,
+                        Some(progress.as_ref()),
+                        false,
+                    )
+                    .map_err(|error| error.to_string())?;
                     imported_path
                 } else {
                     archive.clone()
@@ -3748,7 +4544,12 @@ fn build_job(
     Ok(job)
 }
 
-fn extract_and_open(archive: &str, path: &str, password: Option<&str>) -> Result<String, String> {
+fn extract_and_open(
+    archive: &str,
+    path: &str,
+    password: Option<&str>,
+    to: Option<&str>,
+) -> Result<String, String> {
     let unique = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_nanos());
@@ -3756,7 +4557,7 @@ fn extract_and_open(archive: &str, path: &str, password: Option<&str>) -> Result
     std::fs::create_dir_all(&target).map_err(|error| error.to_string())?;
     target.push(path.rsplit('/').next().unwrap_or(path));
     let passwords = PasswordSet::new(password.map(|password| password.as_bytes().to_vec()));
-    operations::extract_single_file(archive, path, &target, &passwords)
+    operations::extract_single_file_through(archive, path, &target, &passwords, to)
         .map_err(|error| error.to_string())?;
     open_with_default_program(&target)?;
     Ok(format!("Opened {path}"))
@@ -3925,12 +4726,10 @@ fn sort_key(
             String::new(),
         ),
         SortBy::Ratio => (
-            match (data, details.get(path).and_then(|d| d.compressed_size)) {
-                (EntryData::File(size), Some(compressed)) if *size > 0 => {
-                    Some(i128::from(compressed) * 1_000_000 / i128::from(*size))
-                }
-                _ => None,
-            },
+            details
+                .get(path)
+                .and_then(|details| details.compression_ratio)
+                .map(|ratio| (ratio * 1_000_000.0) as i128),
             String::new(),
         ),
         SortBy::Type => (Some(0), entry_type_key(path, data)),
@@ -4263,6 +5062,54 @@ fn display_size(bytes: u64) -> String {
     }
 }
 
+fn truncate_adding_message(message: &str, max_width: f32, measure: impl Fn(&str) -> f32) -> String {
+    let Some(path) = message.strip_prefix("Adding ") else {
+        return message.to_owned();
+    };
+    if measure(message) <= max_width {
+        return message.to_owned();
+    }
+
+    let path_chars: Vec<char> = path.chars().collect();
+    let mut low = 0;
+    let mut high = path_chars.len();
+    let mut best = "Adding ...".to_owned();
+    while low <= high {
+        let kept_chars = low + (high - low) / 2;
+        let start_chars = kept_chars.div_ceil(2);
+        let end_chars = kept_chars / 2;
+        let start: String = path_chars.iter().take(start_chars).collect();
+        let end: String = path_chars
+            .iter()
+            .skip(path_chars.len() - end_chars)
+            .collect();
+        let candidate = format!("Adding {start}...{end}");
+        if measure(&candidate) <= max_width {
+            best = candidate;
+            low = kept_chars + 1;
+        } else if kept_chars == 0 {
+            break;
+        } else {
+            high = kept_chars - 1;
+        }
+    }
+    best
+}
+
+fn default_save_as_filename(current_archive: &str, first_entry: Option<&str>) -> Option<String> {
+    Path::new(current_archive)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .or_else(|| {
+            first_entry
+                .and_then(|path| Path::new(path).file_stem())
+                .and_then(|name| name.to_str())
+                .filter(|name| !name.is_empty())
+        })
+        .map(str::to_owned)
+}
+
 fn check_summary(report: &CheckReport) -> String {
     let mut summary = format!(
         "Validated {} commit(s); checked {} unencrypted block(s); {} encrypted block(s) not content-checked; {} recovery gap(s).",
@@ -4276,1142 +5123,4 @@ fn check_summary(report: &CheckReport) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use dialogs::benchmark::{BenchmarkSettings, run_benchmark};
-
-    #[test]
-    fn window_title_tracks_logical_archive_and_resets() {
-        let mut app = ZargApp::default();
-        let context = egui::Context::default();
-        let title_commands = |app: &mut ZargApp| {
-            let output = context.run_ui(egui::RawInput::default(), |ui| {
-                app.update_window_title(ui.ctx());
-            });
-            let commands = output.viewport_output[&egui::ViewportId::ROOT]
-                .commands
-                .iter()
-                .filter_map(|command| match command {
-                    egui::ViewportCommand::Title(title) => Some(title.clone()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
-            output.drop_without_applying_deltas();
-            commands
-        };
-        assert_eq!(title_commands(&mut app), ["ZAR Archive Manager"]);
-        assert!(title_commands(&mut app).is_empty());
-        app.archive = "/archives/a file.zar".to_owned();
-        app.read_archive = "/tmp/working.zar".to_owned();
-        assert_eq!(
-            title_commands(&mut app),
-            ["ZAR Archive Manager - a file.zar"]
-        );
-        app.archive = "/archives/import.zip".to_owned();
-        assert_eq!(
-            title_commands(&mut app),
-            ["ZAR Archive Manager - import.zip"]
-        );
-        app.archive = "/archives/saved.zar".to_owned();
-        assert_eq!(
-            title_commands(&mut app),
-            ["ZAR Archive Manager - saved.zar"]
-        );
-        app.discard_current_archive();
-        assert_eq!(title_commands(&mut app), ["ZAR Archive Manager"]);
-        app.read_archive = "/tmp/unsaved.zar".to_owned();
-        assert!(title_commands(&mut app).is_empty());
-    }
-
-    #[test]
-    fn metadata_changes_require_an_edited_pair() {
-        let mut form = OperationForm::new(OperationKind::CustomMetadata, "");
-        assert!(!form.has_metadata_changes());
-
-        form.meta_new.push(("key".to_owned(), String::new()));
-        assert!(form.has_metadata_changes());
-        form.meta_new.clear();
-
-        form.meta_items
-            .push(("key".to_owned(), "old".to_owned(), "old".to_owned(), false));
-        assert!(!form.has_metadata_changes());
-        form.meta_items[0].2 = "new".to_owned();
-        assert!(form.has_metadata_changes());
-        form.meta_items[0].2 = "old".to_owned();
-        form.meta_items[0].3 = true;
-        assert!(form.has_metadata_changes());
-    }
-
-    #[test]
-    fn join_requires_to_commit_after_from_commit() {
-        let commits = vec!["first".to_owned(), "middle".to_owned(), "last".to_owned()];
-        assert!(join_range_is_valid(&commits, "first", "middle"));
-        assert!(join_range_is_valid(&commits, "first", "last"));
-        assert!(!join_range_is_valid(&commits, "middle", "middle"));
-        assert!(!join_range_is_valid(&commits, "last", "first"));
-        assert!(!join_range_is_valid(&commits, "missing", "last"));
-    }
-
-    #[test]
-    fn encryption_transform_ranges_allow_one_or_more_commits_and_reject_bad_ranges() {
-        let commits = vec!["first".to_owned(), "middle".to_owned(), "last".to_owned()];
-        assert!(commit_range_is_valid(&commits, "first", "first"));
-        assert!(commit_range_is_valid(&commits, "first", "last"));
-        assert!(!commit_range_is_valid(&commits, "last", "first"));
-        assert!(!commit_range_is_valid(&commits, "missing", "last"));
-    }
-
-    #[test]
-    fn encryption_operation_forms_prefill_commit_range_and_password() {
-        let mut app = ZargApp {
-            archive: "archive.zar".to_owned(),
-            commit_ids: vec!["00000001".to_owned(), "00000002".to_owned()],
-            archive_password: Some("existing password".to_owned()),
-            ..ZargApp::default()
-        };
-
-        app.show_operation(OperationKind::ChangeCommits);
-
-        assert_eq!(app.operation.from_id, "00000001");
-        assert_eq!(app.operation.to_id, "00000002");
-        assert_eq!(app.operation.existing_password, "existing password");
-        assert!(app.operation.transform_strict);
-    }
-
-    #[test]
-    fn archive_operation_forms_use_saved_defaults_without_enabling_encryption() {
-        let settings = crate::settings::Settings {
-            default_block_size: "16M".to_owned(),
-            default_compression_level: 9,
-            default_encryption_method: crate::settings::DefaultEncryptionMethod::ChaCha20Poly1305,
-            archive_defaults: crate::settings::ArchiveDefaults {
-                metadata: true,
-                dates: true,
-                special_files: true,
-                strict: true,
-                save_user: true,
-                include_files: "*.rs\n*.txt".to_owned(),
-                exclude_files: "*.tmp".to_owned(),
-                include_folders: "src/**".to_owned(),
-                exclude_folders: "target".to_owned(),
-            },
-            ..crate::settings::Settings::default()
-        };
-        let mut app = ZargApp::default();
-        app.apply_settings(&settings);
-
-        for kind in [OperationKind::NewArchive, OperationKind::AddToArchive] {
-            app.show_operation(kind);
-            assert_eq!(app.operation.block_size, "16M");
-            assert_eq!(app.operation.compression_level, "9");
-            assert_eq!(app.operation.aead, 1);
-            assert!(!app.operation.password_is_set);
-            assert!(
-                app.operation.metadata
-                    && app.operation.dates
-                    && app.operation.special_files
-                    && app.operation.strict
-            );
-            assert_eq!(app.operation.save_user, kind == OperationKind::NewArchive);
-            assert_eq!(app.operation.include_files, "*.rs\n*.txt");
-            assert_eq!(app.operation.exclude_files, "*.tmp");
-            assert_eq!(app.operation.include_folders, "src/**");
-            assert_eq!(app.operation.exclude_folders, "target");
-            let filters = app.operation.filters().unwrap();
-            assert!(filters.includes("src/main.rs", false));
-            assert!(!filters.includes("src/cache.tmp", false));
-            assert!(!filters.includes("target/main.rs", false));
-        }
-        let extract = app.new_operation_form(OperationKind::ExtractArchive, "archive.zar");
-        assert!(extract.include_files.is_empty());
-        assert!(!extract.metadata);
-        assert_eq!(
-            app.current_settings().archive_defaults,
-            settings.archive_defaults
-        );
-    }
-
-    #[test]
-    fn new_archive_seeds_add_settings_and_later_dialogs_remember_edits() {
-        let directory = tempfile::tempdir().unwrap();
-        let mut app = ZargApp {
-            default_block_size: "16M".to_owned(),
-            default_compression_level: 9,
-            ..Default::default()
-        };
-        app.archive_defaults.include_files = "*.rs".to_owned();
-        app.show_operation(OperationKind::NewArchive);
-        assert_eq!(app.operation.block_size, "16M");
-        assert_eq!(app.operation.compression_level, "9");
-        assert_eq!(app.operation.include_files, "*.rs");
-
-        app.operation.block_size = "4M".to_owned();
-        app.operation.compression_level = "5".to_owned();
-        app.operation.metadata = true;
-        app.operation.dates = true;
-        app.operation.special_files = true;
-        app.operation.strict = true;
-        app.operation.verbose = true;
-        app.operation.aead = 1;
-        app.operation.encryption_scope = 1;
-        app.operation.include_files = "*.txt".to_owned();
-        app.operation.exclude_files = "*.tmp".to_owned();
-        app.operation.include_folders = "src/**".to_owned();
-        app.operation.exclude_folders = "target".to_owned();
-        let expected = AddArchiveSettings::from_form(&app.operation);
-        let form = std::mem::take(&mut app.operation);
-        app.start_operation(form);
-        wait_for_worker(&mut app);
-        assert!(app.report.is_none(), "{:?}", app.report);
-
-        app.show_operation(OperationKind::AddToArchive);
-        assert_eq!(AddArchiveSettings::from_form(&app.operation), expected);
-        app.operation.block_size = "2M".to_owned();
-        app.operation
-            .filelists
-            .push(directory.path().join("filters.txt"));
-        app.operation
-            .input_paths
-            .push(directory.path().join("input.txt"));
-        app.operation.password_is_set = true;
-        app.operation.password = "secret".to_owned();
-        app.operation.password_confirm = "secret".to_owned();
-        app.operation.existing_password_is_set = true;
-        app.operation.existing_password = "old secret".to_owned();
-        let remembered = AddArchiveSettings::from_form(&app.operation);
-        app.close_operation();
-
-        app.show_operation(OperationKind::AddToArchive);
-        assert_eq!(AddArchiveSettings::from_form(&app.operation), remembered);
-        assert!(app.operation.input_paths.is_empty());
-        assert!(app.operation.password.is_empty());
-        assert!(app.operation.password_confirm.is_empty());
-        assert!(app.operation.existing_password.is_empty());
-
-        app.show_operation_now(OperationKind::NewArchive);
-        assert_eq!(app.operation.block_size, "16M");
-        assert_eq!(app.operation.include_files, "*.rs");
-        app.close_operation();
-        app.show_operation(OperationKind::AddToArchive);
-        assert_eq!(AddArchiveSettings::from_form(&app.operation), remembered);
-    }
-
-    #[test]
-    fn archive_switches_reset_session_settings_only_on_successful_creation() {
-        let directory = tempfile::tempdir().unwrap();
-        let input = directory.path().join("input.txt");
-        let archive = directory.path().join("opened.zar");
-        std::fs::write(&input, b"contents").unwrap();
-        operations::create_archive(archive.to_str().unwrap(), &[input]).unwrap();
-
-        let mut app = ZargApp {
-            default_compression_level: 8,
-            ..Default::default()
-        };
-        let mut first = app.new_operation_form(OperationKind::NewArchive, "");
-        first.compression_level = "4".to_owned();
-        app.start_operation(first);
-        wait_for_worker(&mut app);
-        app.show_operation(OperationKind::AddToArchive);
-        assert_eq!(app.operation.compression_level, "4");
-        app.operation.compression_level = "6".to_owned();
-        app.close_operation();
-
-        let mut failed = app.new_operation_form(OperationKind::NewArchive, "");
-        failed.block_size = "invalid".to_owned();
-        app.start_operation(failed);
-        if app.busy {
-            wait_for_worker(&mut app);
-        }
-        app.show_operation(OperationKind::AddToArchive);
-        assert_eq!(app.operation.compression_level, "6");
-
-        // A successful new archive starts a fresh session even if another form was open.
-        app.close_operation();
-        let mut second = app.new_operation_form(OperationKind::NewArchive, "");
-        second.compression_level = "2".to_owned();
-        app.start_operation(second);
-        wait_for_worker(&mut app);
-        app.show_operation(OperationKind::AddToArchive);
-        assert_eq!(app.operation.compression_level, "2");
-
-        app.open_archive_now(archive, None);
-        wait_for_worker(&mut app);
-        assert!(app.operation.kind.is_none());
-        app.show_operation(OperationKind::AddToArchive);
-        assert_eq!(app.operation.compression_level, "8");
-        app.operation.compression_level = "3".to_owned();
-        app.close_operation();
-        app.show_operation(OperationKind::AddToArchive);
-        assert_eq!(app.operation.compression_level, "3");
-        app.discard_current_archive();
-        assert!(app.add_archive_settings.is_none());
-    }
-
-    #[test]
-    fn context_created_archive_seeds_add_settings_from_global_defaults() {
-        let directory = tempfile::tempdir().unwrap();
-        let input = directory.path().join("input.txt");
-        std::fs::write(&input, b"contents").unwrap();
-        let settings = crate::settings::Settings {
-            default_compression_level: 6,
-            ..Default::default()
-        };
-        let mut app =
-            ZargApp::from_context_action(ContextAction::CreateNamed, vec![input], &settings)
-                .unwrap();
-        wait_for_worker(&mut app);
-        assert!(app.report.is_none(), "{:?}", app.report);
-        app.show_operation(OperationKind::AddToArchive);
-        assert_eq!(app.operation.compression_level, "6");
-    }
-
-    #[test]
-    fn new_encrypted_archive_add_requires_reentering_password() {
-        let directory = tempfile::tempdir().unwrap();
-        let input = directory.path().join("input.txt");
-        std::fs::write(&input, b"contents").unwrap();
-        let mut app = ZargApp::default();
-        let mut form = app.new_operation_form(OperationKind::NewArchive, "");
-        form.password_is_set = true;
-        form.password = "GoodPassword9!".to_owned();
-        form.password_confirm = form.password.clone();
-        form.aead = 1;
-        app.start_operation(form);
-        wait_for_worker(&mut app);
-        assert!(app.report.is_none(), "{:?}", app.report);
-
-        app.show_operation(OperationKind::AddToArchive);
-        assert!(app.operation.password_is_set);
-        assert_eq!(app.operation.aead, 1);
-        assert!(app.operation.password.is_empty());
-        assert!(app.operation.password_confirm.is_empty());
-        app.operation.input_paths.push(input);
-        app.operation.password = "GoodPassword9!".to_owned();
-        app.operation.password_confirm = app.operation.password.clone();
-        click_add_archive_action(&mut app);
-        wait_for_worker(&mut app);
-        assert!(app.report.is_none(), "{:?}", app.report);
-        assert!(app.entries.iter().any(|(path, _)| path == "input.txt"));
-    }
-
-    #[test]
-    fn change_commits_encrypt_job_writes_to_requested_archive() {
-        let directory = tempfile::tempdir().unwrap();
-        let source = directory.path().join("source.txt");
-        let archive = directory.path().join("source.zar");
-        let output = directory.path().join("encrypted.zar");
-        std::fs::write(&source, b"secret contents").unwrap();
-        operations::create_archive(archive.to_str().unwrap(), &[source]).unwrap();
-        let commits = operations::info_archive(archive.to_str().unwrap(), false).unwrap();
-        let commit_id = format!("{:08x}", u32::from_le_bytes(commits[0].id));
-
-        let mut form = OperationForm::new(OperationKind::ChangeCommits, archive.to_str().unwrap());
-        form.commit_ids = vec![commit_id.clone()];
-        form.from_id.clone_from(&commit_id);
-        form.to_id.clone_from(&commit_id);
-        form.transform_output = output.to_string_lossy().into_owned();
-        form.password = "GoodPassword9!".to_owned();
-        form.password_confirm = form.password.clone();
-        form.transform_strict = true;
-        form.transform_action = 0;
-        let (events, event_rx) = mpsc::channel();
-        let (_answers, answer_rx) = mpsc::channel();
-        let progress = UiProgress {
-            events: events.clone(),
-            answers: Arc::new(Mutex::new(answer_rx)),
-        };
-        let job = build_job(OperationKind::ChangeCommits, form, events.clone(), progress).unwrap();
-        job().unwrap();
-
-        assert!(!commits[0].header_encrypted);
-        let encrypted = operations::info_archive(output.to_str().unwrap(), false).unwrap();
-        assert!(encrypted[0].header_encrypted);
-        assert!(encrypted[0].data_encrypted);
-        let password_set = PasswordSet::new(Some(b"GoodPassword9!".to_vec()));
-        operations::list_archive_with_passwords(output.to_str().unwrap(), None, &password_set)
-            .unwrap();
-        assert!(
-            matches!(event_rx.try_recv().unwrap(), UiEvent::ArchivePath { path, password: Some(ref value) } if path == output.to_string_lossy() && value == "GoodPassword9!")
-        );
-    }
-
-    #[test]
-    fn archive_contents_default_to_normal_view() {
-        assert_eq!(ArchiveView::default(), ArchiveView::Normal);
-    }
-
-    #[test]
-    fn destination_path_requires_existing_directory_or_parent() {
-        let directory =
-            std::env::temp_dir().join(format!("zarg-destination-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&directory);
-        std::fs::create_dir_all(&directory).unwrap();
-        assert!(valid_destination_path(directory.to_str().unwrap()));
-        assert!(valid_destination_path(
-            directory.join("new-output").to_str().unwrap()
-        ));
-        assert!(valid_destination_path(
-            directory.join("missing-parent/output").to_str().unwrap()
-        ));
-        let file = directory.join("existing-file");
-        std::fs::write(&file, b"test").unwrap();
-        assert!(!valid_destination_path(file.to_str().unwrap()));
-        assert!(!valid_destination_path(""));
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
-    fn named_archive_uses_selected_item_stem_and_parent() {
-        let parent = std::env::temp_dir();
-        assert_eq!(
-            named_archive_path(&parent.join("a file.txt")).unwrap(),
-            parent.join("a file.zar")
-        );
-        assert_eq!(
-            named_archive_path(std::path::Path::new("relative-folder")).unwrap(),
-            PathBuf::from("relative-folder.zar")
-        );
-    }
-
-    #[test]
-    fn archive_folder_destination_uses_archive_name_and_parent() {
-        let parent = std::env::temp_dir();
-        assert_eq!(
-            archive_folder_destination(&parent.join("foo.zar")).unwrap(),
-            parent.join("foo")
-        );
-        assert_eq!(
-            archive_folder_destination(std::path::Path::new("foo.zar")).unwrap(),
-            PathBuf::from("foo")
-        );
-    }
-
-    #[test]
-    fn saving_archive_copies_staged_contents_and_replaces_target() {
-        let directory = tempfile::tempdir().unwrap();
-        let source = directory.path().join("working.zar");
-        let target = directory.path().join("archive.zar");
-        std::fs::write(&source, b"updated archive").unwrap();
-        std::fs::write(&target, b"old archive").unwrap();
-
-        save_archive_copy(source.to_str().unwrap(), target.to_str().unwrap()).unwrap();
-
-        assert_eq!(std::fs::read(target).unwrap(), b"updated archive");
-    }
-
-    #[test]
-    fn archive_modifications_are_staged_until_saved() {
-        let directory = tempfile::tempdir().unwrap();
-        let original_file = directory.path().join("original.txt");
-        let added_file = directory.path().join("added.txt");
-        let archive = directory.path().join("archive.zar");
-        std::fs::write(&original_file, b"original").unwrap();
-        std::fs::write(&added_file, b"added").unwrap();
-        operations::create_archive(archive.to_str().unwrap(), &[original_file]).unwrap();
-
-        let mut app = ZargApp::default();
-        assert!(!app.can_add_to_archive());
-        assert!(!app.has_current_archive());
-        app.open_archive(archive.clone(), None);
-        wait_for_worker(&mut app);
-        assert!(app.can_add_to_archive());
-        assert!(app.has_current_archive());
-        assert_ne!(app.read_archive, archive.to_string_lossy());
-        assert!(!app.has_unsaved_changes);
-
-        app.show_operation(OperationKind::AddToArchive);
-        app.operation.input_paths.push(added_file);
-        click_add_archive_action(&mut app);
-        wait_for_worker(&mut app);
-        assert!(app.has_unsaved_changes);
-        assert!(app.report.is_none(), "{:?}", app.report);
-        assert!(app.entries.iter().any(|(path, _)| path == "added.txt"));
-
-        let original_contents =
-            operations::list_archive(archive.to_str().unwrap(), None, None).unwrap();
-        assert!(
-            !original_contents
-                .iter()
-                .any(|(path, _)| path.as_str() == "added.txt")
-        );
-        let staged_contents = operations::list_archive(&app.read_archive, None, None).unwrap();
-        assert!(
-            staged_contents
-                .iter()
-                .any(|(path, _)| path.as_str() == "added.txt")
-        );
-
-        app.save_archive();
-        wait_for_worker(&mut app);
-        assert!(!app.has_unsaved_changes);
-        let saved_contents =
-            operations::list_archive(archive.to_str().unwrap(), None, None).unwrap();
-        assert!(
-            saved_contents
-                .iter()
-                .any(|(path, _)| path.as_str() == "added.txt")
-        );
-    }
-
-    #[test]
-    fn remove_archive_entries_is_staged_and_updates_ui_without_relisting() {
-        let directory = tempfile::tempdir().unwrap();
-        let input = directory.path().join("README");
-        let archive = directory.path().join("archive.zar");
-        std::fs::write(&input, b"contents").unwrap();
-        operations::create_archive(archive.to_str().unwrap(), &[input]).unwrap();
-
-        let mut app = ZargApp::default();
-        app.open_archive(archive.clone(), None);
-        wait_for_worker(&mut app);
-        app.selected.insert("README".to_owned());
-        app.selection_anchor = Some("README".to_owned());
-
-        let mut form = app.new_operation_form(OperationKind::RemoveEntries, &app.archive);
-        form.remove_text = "README".to_owned();
-        app.start_operation(form);
-        wait_for_worker(&mut app);
-
-        assert!(app.has_unsaved_changes);
-        assert!(app.entries.is_empty());
-        assert!(!app.selected.contains("README"));
-        assert!(app.selection_anchor.is_none());
-        assert_eq!(
-            operations::info_archive(&app.read_archive, false)
-                .unwrap()
-                .len(),
-            2
-        );
-        assert!(
-            operations::list_archive(archive.to_str().unwrap(), None, None)
-                .unwrap()
-                .iter()
-                .any(|(path, _)| path.as_str() == "README")
-        );
-        assert!(
-            !operations::list_archive(&app.read_archive, None, None)
-                .unwrap()
-                .iter()
-                .any(|(path, _)| path.as_str() == "README")
-        );
-    }
-
-    #[test]
-    fn new_archive_is_created_in_temporary_storage_until_saved() {
-        let directory = tempfile::tempdir().unwrap();
-        let input = directory.path().join("input.txt");
-        let archive = directory.path().join("new.zar");
-        std::fs::write(&input, b"new archive").unwrap();
-
-        let mut app = ZargApp::default();
-        let mut form = app.new_operation_form(OperationKind::NewArchive, archive.to_str().unwrap());
-        form.input_paths.push(input);
-        form.save_user = true;
-        app.start_operation(form);
-        wait_for_worker(&mut app);
-
-        assert!(app.has_unsaved_changes);
-        assert!(!archive.exists());
-        assert!(app.archive.is_empty());
-        assert_ne!(app.read_archive, archive.to_string_lossy());
-        assert!(
-            operations::info_archive(&app.read_archive, false).unwrap()[0]
-                .user
-                .is_some()
-        );
-        app.show_operation(OperationKind::AddToArchive);
-        app.operation.compression_level = "7".to_owned();
-        app.close_operation();
-        assert!(app.save_archive_to(archive.to_string_lossy().into_owned()));
-        wait_for_worker(&mut app);
-        assert!(archive.exists());
-        assert_eq!(app.archive, archive.to_string_lossy());
-        assert!(!app.has_unsaved_changes);
-        app.show_operation(OperationKind::AddToArchive);
-        assert_eq!(app.operation.compression_level, "7");
-    }
-
-    #[test]
-    fn empty_new_archive_is_created_in_temporary_storage() {
-        let mut app = ZargApp::default();
-        let form = app.new_operation_form(OperationKind::NewArchive, "");
-        app.start_operation(form);
-        wait_for_worker(&mut app);
-
-        assert!(app.has_unsaved_changes);
-        assert!(app.archive.is_empty());
-        assert!(!app.read_archive.is_empty());
-        assert!(
-            operations::list_archive(&app.read_archive, None, None)
-                .unwrap()
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn add_to_unsaved_new_archive_uses_working_archive() {
-        let directory = tempfile::tempdir().unwrap();
-        let input = directory.path().join("added.txt");
-        let other_input = directory.path().join("second.txt");
-        std::fs::write(&input, b"added contents").unwrap();
-        std::fs::write(&other_input, b"second contents").unwrap();
-
-        let mut app = ZargApp::default();
-        assert!(!app.can_add_to_archive());
-        app.start_operation(app.new_operation_form(OperationKind::NewArchive, ""));
-        assert!(!app.can_add_to_archive());
-        wait_for_worker(&mut app);
-        assert!(app.can_add_to_archive());
-        assert!(app.has_current_archive());
-
-        app.show_operation(OperationKind::AddToArchive);
-        assert_eq!(app.operation.archive, app.read_archive);
-        app.operation.compression_level = "6".to_owned();
-        app.operation.input_paths.extend([input, other_input]);
-        click_add_archive_action(&mut app);
-        assert!(!app.can_add_to_archive());
-        wait_for_worker(&mut app);
-
-        assert!(app.can_add_to_archive());
-        assert!(app.archive.is_empty());
-        assert!(app.has_unsaved_changes);
-        assert!(app.report.is_none(), "{:?}", app.report);
-        assert!(app.entries.iter().any(|(path, _)| path == "added.txt"));
-        assert!(app.entries.iter().any(|(path, _)| path == "second.txt"));
-        app.show_operation(OperationKind::AddToArchive);
-        assert_eq!(app.operation.compression_level, "6");
-        assert!(app.operation.input_paths.is_empty());
-        let visible_paths: Vec<_> = app
-            .visible_entry_indices
-            .iter()
-            .map(|&index| app.entries[index].0.as_str())
-            .collect();
-        assert!(visible_paths.contains(&"added.txt"));
-        assert!(visible_paths.contains(&"second.txt"));
-        assert!(
-            operations::list_archive(&app.read_archive, None, None)
-                .unwrap()
-                .iter()
-                .any(|(path, _)| path.as_str() == "added.txt")
-        );
-        assert!(
-            operations::list_archive(&app.read_archive, None, None)
-                .unwrap()
-                .iter()
-                .any(|(path, _)| path.as_str() == "second.txt")
-        );
-        app.imported_archive_dir = Some(tempfile::tempdir().unwrap());
-        assert!(!app.can_add_to_archive());
-    }
-
-    fn click_add_archive_action(app: &mut ZargApp) {
-        let context = egui::Context::default();
-        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(500.0, 360.0));
-        let mut button_rect = egui::Rect::NOTHING;
-        for frame in 0..3 {
-            let events = if frame == 0 {
-                Vec::new()
-            } else {
-                vec![
-                    egui::Event::PointerMoved(button_rect.center()),
-                    egui::Event::PointerButton {
-                        pos: button_rect.center(),
-                        button: egui::PointerButton::Primary,
-                        pressed: frame == 1,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ]
-            };
-            let input = egui::RawInput {
-                screen_rect: Some(rect),
-                events,
-                ..Default::default()
-            };
-            context
-                .run_ui(input, |ui| {
-                    egui::Panel::bottom("operation-actions")
-                        .default_size(ui.spacing().interact_size.y.max(16.0) + 24.0)
-                        .frame(egui::Frame::new().inner_margin(3))
-                        .show_separator_line(false)
-                        .show(ui, |ui| {
-                            let response = app
-                                .render_operation_actions(ui, OperationKind::AddToArchive)
-                                .unwrap();
-                            assert!(rect.contains_rect(response.rect));
-                            assert!(response.enabled());
-                            button_rect = response.rect;
-                        });
-                })
-                .drop_without_applying_deltas();
-        }
-    }
-
-    #[test]
-    fn archive_switch_is_deferred_when_changes_are_unsaved() {
-        let mut app = ZargApp {
-            archive: "current.zar".to_owned(),
-            has_unsaved_changes: true,
-            ..Default::default()
-        };
-        let target = PathBuf::from("next.zar");
-
-        app.open_archive(target.clone(), None);
-
-        assert_eq!(app.archive, "current.zar");
-        assert!(app.has_unsaved_changes);
-        assert!(matches!(
-            app.pending_archive_switch,
-            Some(ArchiveSwitchAction::OpenPath(path, None)) if path == target
-        ));
-    }
-
-    fn wait_for_worker(app: &mut ZargApp) {
-        let context = egui::Context::default();
-        for _ in 0..12_000 {
-            app.poll_worker(&context);
-            if !app.busy {
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        }
-        panic!(
-            "archive worker did not finish in time: progress={}, confirmation={:?}",
-            app.progress_message, app.confirmation
-        );
-    }
-
-    #[test]
-    fn create_context_action_prefills_archive_path_from_first_selection() {
-        let directory = std::env::temp_dir().join(format!(
-            "zarg-create-context-test-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir(&directory).unwrap();
-        let first = directory.join("first file.txt");
-        let second = directory.join("second.txt");
-        std::fs::write(&first, b"first").unwrap();
-        std::fs::write(&second, b"second").unwrap();
-
-        let app = ZargApp::from_context_action(
-            ContextAction::Create,
-            vec![first.clone(), second.clone()],
-            &crate::settings::Settings {
-                archive_defaults: crate::settings::ArchiveDefaults {
-                    dates: true,
-                    include_files: "*.txt".into(),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        assert!(app.operation.dates);
-        assert_eq!(app.operation.include_files, "*.txt");
-
-        assert_eq!(
-            app.operation.archive,
-            directory
-                .join("first file.zar")
-                .to_string_lossy()
-                .into_owned()
-        );
-        assert_eq!(app.operation.input_paths, [first, second]);
-
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
-    fn password_requirements_report_missing_rules() {
-        assert_eq!(
-            password_requirements("short"),
-            vec![
-                "at least 12 characters",
-                "at least one uppercase letter",
-                "at least one digit",
-                "at least one symbol",
-            ]
-        );
-        assert!(password_requirements("Correct-Horse9").is_empty());
-    }
-
-    #[test]
-    fn block_sizes_match_cli_limits() {
-        assert_eq!(parse_block_size("64K").unwrap(), 64 * 1024);
-        assert_eq!(parse_block_size("1M").unwrap(), 1024 * 1024);
-        assert_eq!(parse_block_size("auto").unwrap(), 0);
-        assert!(parse_block_size("63K").is_err());
-        assert!(parse_block_size("33M").is_err());
-    }
-
-    #[test]
-    fn archive_list_cells_preserve_column_widths() {
-        let mut row_width = 0.0;
-        egui::__run_test_ui(|ui| {
-            ui.horizontal(|ui| {
-                left_aligned_cell(ui, 110.0, 20.0, egui::Label::new("1.2 KiB"));
-                left_aligned_cell(ui, 110.0, 20.0, egui::Label::new("4.8 KiB"));
-                row_width = ui.min_rect().width();
-            });
-        });
-        assert!(row_width >= 220.0, "row width collapsed to {row_width}");
-    }
-
-    #[test]
-    fn repeated_filter_text_lines_are_parsed() {
-        assert_eq!(lines(" *.rs \n\n*.toml"), ["*.rs", "*.toml"]);
-    }
-
-    #[test]
-    fn archive_list_filter_returns_matching_entry_indexes() {
-        let entries = vec![
-            ("docs/README.md".to_owned(), EntryData::File(12)),
-            ("src/main.rs".to_owned(), EntryData::File(20)),
-            ("docs/guide.md".to_owned(), EntryData::File(30)),
-        ];
-        assert_eq!(
-            filtered_entry_indices(&entries, &EntryFilter::new("", false, false).unwrap()),
-            [0, 1, 2]
-        );
-        assert_eq!(
-            filtered_entry_indices(&entries, &EntryFilter::new("DOCS/", false, false).unwrap()),
-            [0, 2]
-        );
-    }
-
-    #[test]
-    fn archive_entries_sort_by_requested_criterion() {
-        let entries = vec![
-            ("b.txt".to_owned(), EntryData::File(10)),
-            ("a.rs".to_owned(), EntryData::File(100)),
-            ("dir".to_owned(), EntryData::Directory),
-            ("c.txt".to_owned(), EntryData::File(20)),
-        ];
-        let details = std::collections::BTreeMap::from([
-            (
-                "b.txt".to_owned(),
-                ArchiveEntryDetails {
-                    modified_unix_millis: Some(100),
-                    ..ArchiveEntryDetails::default()
-                },
-            ),
-            (
-                "a.rs".to_owned(),
-                ArchiveEntryDetails {
-                    modified_unix_millis: Some(300),
-                    ..ArchiveEntryDetails::default()
-                },
-            ),
-            (
-                "dir".to_owned(),
-                ArchiveEntryDetails {
-                    modified_unix_millis: Some(200),
-                    ..ArchiveEntryDetails::default()
-                },
-            ),
-        ]);
-        let mut indices = (0..entries.len()).collect::<Vec<_>>();
-
-        sort_entry_indices(&mut indices, &entries, &details, SortBy::Name);
-        assert_eq!(indices, [1, 0, 3, 2]);
-        sort_entry_indices(&mut indices, &entries, &details, SortBy::Date);
-        assert_eq!(indices, [1, 2, 0, 3]);
-        sort_entry_indices(&mut indices, &entries, &details, SortBy::UncompressedSize);
-        assert_eq!(indices, [1, 3, 0, 2]);
-        sort_entry_indices(&mut indices, &entries, &details, SortBy::Type);
-        assert_eq!(indices, [2, 1, 0, 3]);
-
-        let sizes = std::collections::BTreeMap::from([
-            (
-                "b.txt".to_owned(),
-                ArchiveEntryDetails {
-                    compressed_size: Some(5),
-                    ..ArchiveEntryDetails::default()
-                },
-            ),
-            (
-                "a.rs".to_owned(),
-                ArchiveEntryDetails {
-                    compressed_size: Some(20),
-                    ..ArchiveEntryDetails::default()
-                },
-            ),
-            (
-                "c.txt".to_owned(),
-                ArchiveEntryDetails {
-                    compressed_size: Some(18),
-                    ..ArchiveEntryDetails::default()
-                },
-            ),
-        ]);
-        sort_entry_indices(&mut indices, &entries, &sizes, SortBy::CompressedSize);
-        assert_eq!(indices, [1, 3, 0, 2]);
-        // Ratios: a.rs 20%, b.txt 50%, c.txt 90%; the folder has none.
-        sort_entry_indices(&mut indices, &entries, &sizes, SortBy::Ratio);
-        assert_eq!(indices, [1, 0, 3, 2]);
-    }
-
-    #[test]
-    fn modified_time_format_uses_utc_and_handles_pre_epoch_values() {
-        assert_eq!(format_unix_millis(0), "1970-01-01 00:00 UTC");
-        assert_eq!(format_unix_millis(-1), "1969-12-31 23:59 UTC");
-    }
-
-    #[test]
-    fn structured_rows_build_and_expand_directory_hierarchy() {
-        let entries = vec![
-            ("folder/a.txt".to_owned(), EntryData::File(12)),
-            ("folder/sub/b.txt".to_owned(), EntryData::File(24)),
-            ("loose.txt".to_owned(), EntryData::File(6)),
-        ];
-        let all = [0, 1, 2];
-        let details = std::collections::BTreeMap::new();
-        let collapsed = structured_rows(
-            &entries,
-            &all,
-            &BTreeSet::new(),
-            false,
-            &details,
-            SortBy::Name,
-            false,
-        );
-        assert_eq!(
-            collapsed
-                .iter()
-                .map(|row| row.path.as_str())
-                .collect::<Vec<_>>(),
-            ["folder", "loose.txt"]
-        );
-        let expanded = structured_rows(
-            &entries,
-            &all,
-            &BTreeSet::from(["folder".to_owned()]),
-            false,
-            &details,
-            SortBy::Name,
-            false,
-        );
-        assert_eq!(
-            expanded
-                .iter()
-                .map(|row| (row.path.as_str(), row.depth))
-                .collect::<Vec<_>>(),
-            [
-                ("folder", 0),
-                ("folder/a.txt", 1),
-                ("folder/sub", 1),
-                ("loose.txt", 0)
-            ]
-        );
-    }
-
-    #[test]
-    fn structured_filter_reveals_matching_entry_ancestors() {
-        let entries = vec![
-            ("folder/sub/match.txt".to_owned(), EntryData::File(12)),
-            ("folder/other.txt".to_owned(), EntryData::File(24)),
-        ];
-        let rows = structured_rows(
-            &entries,
-            &[0],
-            &BTreeSet::new(),
-            true,
-            &std::collections::BTreeMap::new(),
-            SortBy::Name,
-            false,
-        );
-        assert_eq!(
-            rows.iter().map(|row| row.path.as_str()).collect::<Vec<_>>(),
-            ["folder", "folder/sub", "folder/sub/match.txt"]
-        );
-    }
-
-    #[test]
-    fn extended_selection_supports_replace_toggle_and_ranges() {
-        let visible = [1, 2, 3, 4, 5];
-        let empty = BTreeSet::new();
-        let plain = extended_selection(&visible, &empty, &None, &2, egui::Modifiers::NONE);
-        assert_eq!(plain.selected, BTreeSet::from([2]));
-        let toggled = extended_selection(
-            &visible,
-            &plain.selected,
-            &plain.anchor,
-            &4,
-            egui::Modifiers {
-                ctrl: true,
-                ..Default::default()
-            },
-        );
-        assert_eq!(toggled.selected, BTreeSet::from([2, 4]));
-        let ranged = extended_selection(
-            &visible,
-            &toggled.selected,
-            &Some(2),
-            &5,
-            egui::Modifiers {
-                shift: true,
-                ..Default::default()
-            },
-        );
-        assert_eq!(ranged.selected, BTreeSet::from([2, 3, 4, 5]));
-        let additive_range = extended_selection(
-            &visible,
-            &plain.selected,
-            &Some(2),
-            &4,
-            egui::Modifiers {
-                shift: true,
-                ctrl: true,
-                ..Default::default()
-            },
-        );
-        assert_eq!(additive_range.selected, BTreeSet::from([2, 3, 4]));
-    }
-
-    #[test]
-    fn file_icons_follow_mime_type_extensions() {
-        assert_eq!(file_icon("images/photo.JPEG"), UiIcon::Image);
-        assert_eq!(file_icon("music/song.flac"), UiIcon::Audio);
-        assert_eq!(file_icon("src/main.rs"), UiIcon::Code);
-        assert_eq!(file_icon("archives/backup.ZAR"), UiIcon::ZarArchive);
-        assert_eq!(file_icon("archives/backup.zip"), UiIcon::Archive);
-        assert_eq!(file_icon("archives/backup.7z"), UiIcon::Archive);
-        assert_eq!(file_icon("archives/backup.tar"), UiIcon::Archive);
-        assert_eq!(file_icon("archives/backup.tar.gz"), UiIcon::Archive);
-        assert_eq!(file_icon("archives/backup.tgz"), UiIcon::Archive);
-        assert_eq!(file_icon("unknown.data"), UiIcon::Generic);
-    }
-
-    #[test]
-    fn bundled_kde_icons_are_valid_images() {
-        let icons = [
-            UiIcon::OpenArchive,
-            UiIcon::NewArchive,
-            UiIcon::Quit,
-            UiIcon::SelectAll,
-            UiIcon::ClearSelection,
-            UiIcon::Refresh,
-            UiIcon::ListContents,
-            UiIcon::TestArchive,
-            UiIcon::Join,
-            UiIcon::About,
-            UiIcon::Add,
-            UiIcon::AddFolder,
-            UiIcon::Extract,
-            UiIcon::Info,
-            UiIcon::Remove,
-            UiIcon::Browse,
-            UiIcon::ClearInputs,
-            UiIcon::Confirm,
-            UiIcon::ConfirmApply,
-            UiIcon::Cancel,
-            UiIcon::AddFilterList,
-            UiIcon::Folder,
-            UiIcon::Symlink,
-            UiIcon::Image,
-            UiIcon::Audio,
-            UiIcon::Video,
-            UiIcon::Archive,
-            UiIcon::ZarArchive,
-            UiIcon::Pdf,
-            UiIcon::Code,
-            UiIcon::Python,
-            UiIcon::Java,
-            UiIcon::Script,
-            UiIcon::JavaScript,
-            UiIcon::Text,
-            UiIcon::Word,
-            UiIcon::Spreadsheet,
-            UiIcon::Presentation,
-            UiIcon::Generic,
-            UiIcon::SpecialData,
-            UiIcon::Error,
-        ];
-        for icon in icons {
-            image::load_from_memory(icon_bytes(icon))
-                .unwrap_or_else(|error| panic!("invalid bundled icon {icon:?}: {error}"));
-        }
-    }
-
-    #[test]
-    fn error_dialog_window_icon_is_valid() {
-        let icon = dialogs::operation_error::error_dialog_icon();
-        assert!(icon.width > 0 && icon.height > 0);
-        assert_eq!(icon.rgba.len(), (icon.width * icon.height * 4) as usize);
-    }
-
-    #[test]
-    fn invert_selection_flips_visible_entries_only() {
-        let selected = BTreeSet::from(["a".to_owned(), "hidden".to_owned()]);
-        let visible = ["a".to_owned(), "b".to_owned(), "c".to_owned()];
-        assert_eq!(
-            invert_selection(&selected, &visible),
-            BTreeSet::from(["b".to_owned(), "c".to_owned(), "hidden".to_owned()])
-        );
-    }
-
-    #[test]
-    fn filter_supports_wildcards_and_regex() {
-        let entries = [
-            ("docs/Readme.md", EntryData::File(1)),
-            ("src/main.rs", EntryData::File(1)),
-            ("src/lib.rs", EntryData::File(1)),
-        ]
-        .map(|(path, data)| (path.to_owned(), data));
-        let run = |text: &str, regex: bool| {
-            filtered_entry_indices(&entries, &EntryFilter::new(text, regex, false).unwrap())
-        };
-        assert_eq!(run("*.RS", false), [1, 2]);
-        assert_eq!(run("m?in.rs", false), [1]);
-        assert_eq!(run("src/*", false), [1, 2]);
-        assert_eq!(run(r"^src/(main|lib)\.rs$", true), [1, 2]);
-        assert_eq!(run("readme", true), [0]);
-        assert!(EntryFilter::new("(", true, false).is_err());
-        let case = |text: &str, regex: bool| {
-            filtered_entry_indices(&entries, &EntryFilter::new(text, regex, true).unwrap())
-        };
-        assert!(case("*.RS", false).is_empty());
-        assert!(case("README", false).is_empty());
-        assert_eq!(case("Readme", false), [0]);
-        assert!(case("readme", true).is_empty());
-    }
-
-    #[test]
-    fn recent_archives_are_unique_newest_first_and_capped() {
-        let mut recent = Vec::new();
-        for index in 0..12 {
-            remember_recent_archive(&mut recent, &format!("/a{index}.zar"));
-        }
-        remember_recent_archive(&mut recent, "/a5.zar");
-        assert_eq!(recent.len(), MAX_RECENT_ARCHIVES);
-        assert_eq!(recent[0], "/a5.zar");
-        assert_eq!(recent.iter().filter(|path| *path == "/a5.zar").count(), 1);
-        assert_eq!(recent[1], "/a11.zar");
-    }
-
-    #[test]
-    fn benchmark_reports_sizes_and_cleans_up() {
-        let dir = std::env::temp_dir().join(format!("zarg-bench-test-{}", std::process::id()));
-        let data = dir.join("data");
-        std::fs::create_dir_all(&data).unwrap();
-        std::fs::write(data.join("a.txt"), vec![b'a'; 100_000]).unwrap();
-        std::fs::write(data.join("b.txt"), b"hello").unwrap();
-        let archive = dir.join("in.zar").to_string_lossy().into_owned();
-        operations::create_archive(&archive, &[data]).unwrap();
-        let result = run_benchmark(
-            &archive,
-            None,
-            &BenchmarkSettings::default(),
-            &std::sync::atomic::AtomicBool::new(false),
-        )
-        .unwrap();
-        assert_eq!(result.files, 2);
-        assert_eq!(result.uncompressed, 100_005);
-        assert!(result.archive_size > 0 && result.archive_size < result.uncompressed);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
+mod tests;

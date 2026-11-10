@@ -17,9 +17,11 @@ extension declares that it does not require the GIL; concurrent-call tests
 exercise the binding from multiple Python threads. A free-threaded test verifies
 that importing the extension does not turn the GIL back on.
 
-Compatibility review: the official [Python 3.14](https://docs.python.org/3.14/whatsnew/3.14.html)
-and [Python 3.15](https://docs.python.org/3.15/whatsnew/3.15.html) release
-notes and porting sections, and the [PyO3 free-threading guide](https://pyo3.rs/v0.30.1/free-threading.html).
+Compatibility review: the official
+[Python 3.14](https://docs.python.org/3.14/whatsnew/3.14.html) and
+[Python 3.15](https://docs.python.org/3.15/whatsnew/3.15.html) release notes and
+porting sections, and the
+[PyO3 free-threading guide](https://pyo3.rs/v0.30.1/free-threading.html).
 
 ## Build and install
 
@@ -61,15 +63,15 @@ zarc-py check backup.zar
 zarc-py extract backup.zar --output restored --dry-run
 ```
 
-It supports create (`c`), add (`a`), remove (`r`), join (`j`), undo (`u`), check (`k`),
-info (`i`), list (`l`), and extract (`e`), including path filters and file
-list rules. Undo (`u`) removes trailing commits but never the first commit.
-`--password` prompts without echo where encryption is supported.
-Progress bars and interactive `ask` extraction policies are omitted because
-the current Python binding does not provide an interactive progress callback.
-The source is in [`python/pyzarlib/cli.py`](./python/pyzarlib/cli.py); it is an
-example consumer of the same public Python API documented below, not a second
-archive implementation.
+It supports create (`c`), add (`a`), remove (`r`), join (`j`), undo (`u`), check
+(`k`), info (`i`), list (`l`), and extract (`e`), including path filters and
+file list rules. Undo (`u`) removes trailing commits but never the first commit.
+`--password` prompts without echo where encryption is supported. Progress bars
+and interactive `ask` extraction policies are omitted because the current Python
+binding does not provide an interactive progress callback. The source is in
+[`python/pyzarlib/cli.py`](./python/pyzarlib/cli.py); it is an example consumer
+of the same public Python API documented below, not a second archive
+implementation.
 
 The Python API tests exercise archive operations through `pyzarlib`; the
 pytest suite also runs the complete native `zarlib` unit-test suite so
@@ -343,16 +345,17 @@ physical commit order.
 
 ## API
 
-- `create_archive(archive, paths, *, strict=False, overwrite=False,
-  save_metadata=False, save_dates=False, include_special_files=False,
-  verbose=False, block_size=8388608, compression_level=3, password=None, include_files=None,
-  exclude_files=None, include_folders=None, exclude_folders=None)` creates an
-  archive and returns its resolved block size and warnings.
-- `add_archive(archive, paths, *, strict=False, save_metadata=False,
-  save_dates=False, include_special_files=False, verbose=False, block_size=8388608,
-  compression_level=3, include_files=None, exclude_files=None,
-  include_folders=None, exclude_folders=None)` appends a commit and returns
-  warnings.
+- `create_archive(archive, paths, *, strict=False, overwrite=False,`
+  `save_metadata=False, save_dates=False, include_special_files=False,`
+  `verbose=False, block_size=8388608, compression_level=3, password=None,`
+  `include_files=None, exclude_files=None, include_folders=None,`
+  `exclude_folders=None)`
+  creates an archive and returns its resolved block size and warnings.
+- `add_archive(archive, paths, *, strict=False, save_metadata=False,`
+  `save_dates=False, include_special_files=False, verbose=False,`
+  `block_size=8388608, compression_level=3, include_files=None,`
+  `exclude_files=None, include_folders=None, exclude_folders=None)`
+  appends a commit and returns warnings.
 - `remove_archive(archive, paths)` appends tombstones.
 - `join_archive(archive, from_id, to_id, *, block_size=8388608,
   compression_level=3)` compacts a contiguous commit range and returns

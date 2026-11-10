@@ -9,9 +9,9 @@ visualizes the measurements available for that run.
 
 ## Important note to Windows benchmarks
 
-All the Windows benchmarks are run with Windows Defender enabled. Especially when
-an archive is extracted the Defender is massively slowing down the extraction
-process! For comparison see Linux benchmarks.
+All the Windows benchmarks are run with Windows Defender enabled. Especially
+when an archive is extracted the Defender is massively slowing down the
+extraction process! For comparison see Linux benchmarks.
 
 ## Running benchmarks
 

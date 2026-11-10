@@ -1,10 +1,9 @@
 use eframe::egui;
-use std::cell::RefCell;
-use std::collections::{BTreeSet, HashMap};
-use std::path::PathBuf;
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use super::super::{UiIcon, file_icon, icon_texture};
+use super::super::{IconCache, UiIcon, file_icon, icon_button, icon_texture};
 
 mod render;
 
@@ -36,6 +35,8 @@ pub struct FileDialog {
     error: Option<String>,
     /// Quick-access places.
     places: Vec<Place>,
+    /// User-bookmarked folders persisted in application settings.
+    bookmarks: Vec<PathBuf>,
     /// Sort column.
     sort_by: FileSortBy,
     /// Sort direction (true = reversed).
@@ -85,6 +86,7 @@ impl FileDialog {
             address: current_dir.to_string_lossy().into_owned(),
             error: None,
             places: Self::default_places(),
+            bookmarks: Vec::new(),
             sort_by: FileSortBy::Name,
             sort_reversed: false,
             col_name_w: 240.0,
@@ -155,11 +157,26 @@ impl FileDialog {
     }
 
     /// Open the dialog for selecting files and folders.
-    pub fn open_for_selection(&mut self) {
+    pub fn open_for_selection(&mut self, last_selected_path: Option<&Path>) {
         self.selected.clear();
         self.selection_anchor = None;
         self.filter.clear();
         self.error = None;
+        if let Some(path) = last_selected_path {
+            let start_dir = if path.is_dir() {
+                Some(path)
+            } else {
+                path.parent()
+                    .filter(|parent| !parent.as_os_str().is_empty())
+            };
+            if let Some(start_dir) = start_dir.filter(|path| path.is_dir())
+                && self.current_dir.as_path() != start_dir
+            {
+                self.current_dir = start_dir.to_path_buf();
+                self.address = self.current_dir.to_string_lossy().into_owned();
+                self.refresh_entries();
+            }
+        }
         self.open = true;
     }
 
@@ -170,6 +187,23 @@ impl FileDialog {
             .filter_map(|&vi| self.visible_indices.get(vi))
             .map(|&ei| self.entries[ei].path.clone())
             .collect()
+    }
+
+    pub fn set_bookmarks(&mut self, bookmarks: &[PathBuf]) {
+        self.bookmarks = bookmarks.to_vec();
+    }
+
+    pub fn bookmarks(&self) -> &[PathBuf] {
+        &self.bookmarks
+    }
+
+    fn toggle_current_bookmark(&mut self) {
+        let current_dir = self.current_dir.clone();
+        if let Some(index) = self.bookmarks.iter().position(|path| path == &current_dir) {
+            self.bookmarks.remove(index);
+        } else {
+            self.bookmarks.push(current_dir);
+        }
     }
 
     fn refresh_entries(&mut self) {
@@ -274,17 +308,16 @@ impl FileDialog {
     }
 
     /// Render the dialog. Returns `true` if the user confirmed (OK).
-    pub fn ui(
-        &mut self,
-        ui: &mut egui::Ui,
-        icon_cache: &RefCell<HashMap<UiIcon, egui::TextureHandle>>,
-    ) -> bool {
+    pub fn ui(&mut self, ui: &mut egui::Ui, icon_cache: &IconCache) -> bool {
         let mut confirmed = false;
 
-        // --- Top bar: navigate up + address + go + refresh ---
+        // --- Top bar: navigate up + address + bookmark + refresh ---
         ui.horizontal(|ui| {
             if ui
-                .button("Up")
+                .add(egui::Button::image(
+                    egui::Image::new(&icon_texture(ui.ctx(), icon_cache, UiIcon::GoUp))
+                        .fit_to_exact_size(egui::vec2(16.0, 16.0)),
+                ))
                 .on_hover_text("Go to parent folder")
                 .clicked()
                 && let Some(parent) = self.current_dir.parent()
@@ -307,16 +340,32 @@ impl FileDialog {
                     self.error = Some("Invalid directory path".into());
                 }
             }
-            if ui.button("Go").clicked() {
-                let path = PathBuf::from(self.address.trim());
-                if path.exists() && path.is_dir() {
-                    self.current_dir = path;
-                    self.refresh_entries();
+            let bookmarked = self.bookmarks.contains(&self.current_dir);
+            let bookmark = ui.add(
+                egui::Button::image(
+                    egui::Image::new(&icon_texture(ui.ctx(), icon_cache, UiIcon::Bookmarks))
+                        .fit_to_exact_size(egui::vec2(16.0, 16.0)),
+                )
+                .selected(bookmarked),
+            );
+            if bookmark
+                .on_hover_text(if bookmarked {
+                    "Remove bookmark for current folder"
                 } else {
-                    self.error = Some("Invalid directory path".into());
-                }
+                    "Bookmark current folder"
+                })
+                .clicked()
+            {
+                self.toggle_current_bookmark();
             }
-            if ui.button("Refresh").clicked() {
+            if ui
+                .add(egui::Button::image(
+                    egui::Image::new(&icon_texture(ui.ctx(), icon_cache, UiIcon::Refresh))
+                        .fit_to_exact_size(egui::vec2(16.0, 16.0)),
+                ))
+                .on_hover_text("Refresh current folder")
+                .clicked()
+            {
                 self.refresh_entries();
             }
         });
@@ -334,39 +383,77 @@ impl FileDialog {
             egui::Layout::left_to_right(egui::Align::Min),
             |ui| {
                 // Left sidebar: places
-                ui.vertical(|ui| {
-                    ui.label("Places");
-                    let places = self.places.clone();
-                    let current_dir = self.current_dir.clone();
-                    egui::ScrollArea::vertical()
-                        .id_salt("places")
-                        .max_height(400.0)
-                        .show(ui, |ui| {
-                            for place in &places {
-                                let selected = current_dir == place.path;
-                                let clicked = ui
-                                    .horizontal(|ui| {
-                                        let icon_kind = if place.is_drive {
-                                            UiIcon::Drive
-                                        } else {
-                                            UiIcon::Folder
-                                        };
-                                        let icon = icon_texture(ui.ctx(), icon_cache, icon_kind);
-                                        ui.add(
-                                            egui::Image::new(&icon)
-                                                .fit_to_exact_size(egui::vec2(16.0, 16.0)),
-                                        );
-                                        ui.selectable_label(selected, &place.label).clicked()
-                                    })
-                                    .inner;
-                                if clicked {
-                                    self.current_dir = place.path.clone();
-                                    self.address = self.current_dir.to_string_lossy().into_owned();
-                                    self.refresh_entries();
+                ui.allocate_ui_with_layout(
+                    egui::vec2(190.0, main_size.y),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.label("Places");
+                        let places = self.places.clone();
+                        let bookmarks = self.bookmarks.clone();
+                        let current_dir = self.current_dir.clone();
+                        egui::ScrollArea::vertical()
+                            .id_salt("places")
+                            .max_height(400.0)
+                            .show(ui, |ui| {
+                                for place in &places {
+                                    let selected = current_dir == place.path;
+                                    let icon_kind = if place.is_drive {
+                                        UiIcon::Drive
+                                    } else {
+                                        UiIcon::Folder
+                                    };
+                                    let clicked = folder_row_button(
+                                        ui,
+                                        icon_cache,
+                                        icon_kind,
+                                        &place.label,
+                                        selected,
+                                    )
+                                    .clicked();
+                                    if clicked {
+                                        self.current_dir = place.path.clone();
+                                        self.address =
+                                            self.current_dir.to_string_lossy().into_owned();
+                                        self.refresh_entries();
+                                    }
                                 }
-                            }
-                        });
-                });
+                                if !bookmarks.is_empty() {
+                                    ui.separator();
+                                    ui.label("Bookmarks");
+                                    for path in &bookmarks {
+                                        let label = path
+                                            .file_name()
+                                            .unwrap_or_else(|| path.as_os_str())
+                                            .to_string_lossy();
+                                        let selected = current_dir == *path;
+                                        let clicked = folder_row_button(
+                                            ui,
+                                            icon_cache,
+                                            UiIcon::Folder,
+                                            label.as_ref(),
+                                            selected,
+                                        )
+                                        .on_hover_text(path.display().to_string())
+                                        .clicked();
+                                        if clicked {
+                                            if path.is_dir() {
+                                                self.current_dir = path.clone();
+                                                self.address =
+                                                    self.current_dir.to_string_lossy().into_owned();
+                                                self.refresh_entries();
+                                            } else {
+                                                self.bookmarks.retain(|bookmark| bookmark != path);
+                                                self.error = Some(format!(
+                                                    "Bookmarked folder no longer exists: {}",
+                                                    path.display()
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                    },
+                );
 
                 ui.separator();
 
@@ -637,6 +724,7 @@ impl FileDialog {
             let button_font = egui::TextStyle::Button.resolve(ui.style());
             let button_padding = ui.spacing().button_padding.x;
             let minimum_button_width = ui.spacing().interact_size.x;
+            let icon_and_gap = 16.0 + ui.spacing().icon_spacing;
             let action_width = ["Clear", "Apply", "Cancel"]
                 .into_iter()
                 .map(|label| {
@@ -645,7 +733,8 @@ impl FileDialog {
                         button_font.clone(),
                         ui.visuals().text_color(),
                     );
-                    (galley.size().x + button_padding * 2.0).max(minimum_button_width)
+                    (galley.size().x + button_padding * 2.0 + icon_and_gap)
+                        .max(minimum_button_width)
                 })
                 .sum::<f32>();
             let spacing = ui.spacing().item_spacing.x;
@@ -657,15 +746,15 @@ impl FileDialog {
             if filter_resp.changed() {
                 self.apply_filter_and_sort();
             }
-            if ui.button("Clear").clicked() {
+            if icon_button(ui, icon_cache, UiIcon::ClearInputs, "Clear", true).clicked() {
                 self.filter.clear();
                 self.apply_filter_and_sort();
             }
-            if ui.button("Apply").clicked() {
+            if icon_button(ui, icon_cache, UiIcon::ConfirmApply, "Apply", true).clicked() {
                 confirmed = true;
                 self.open = false;
             }
-            if ui.button("Cancel").clicked() {
+            if icon_button(ui, icon_cache, UiIcon::Cancel, "Cancel", true).clicked() {
                 self.open = false;
             }
         });
@@ -768,5 +857,85 @@ fn file_type_label(name: &str) -> String {
         }
     } else {
         "File".into()
+    }
+}
+
+fn folder_row_button(
+    ui: &mut egui::Ui,
+    icon_cache: &IconCache,
+    icon_kind: UiIcon,
+    label: &str,
+    selected: bool,
+) -> egui::Response {
+    let icon = icon_texture(ui.ctx(), icon_cache, icon_kind);
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+        egui::Sense::click(),
+    );
+    if selected {
+        ui.painter()
+            .rect_filled(rect, 2.0, ui.visuals().selection.bg_fill);
+    } else if response.hovered() {
+        ui.painter()
+            .rect_filled(rect, 2.0, ui.visuals().widgets.hovered.bg_fill);
+    }
+
+    let icon_rect = egui::Rect::from_min_size(
+        egui::pos2(rect.left() + 4.0, rect.center().y - 8.0),
+        egui::vec2(16.0, 16.0),
+    );
+    ui.painter().image(
+        icon.id(),
+        icon_rect,
+        egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+        egui::Color32::WHITE,
+    );
+
+    let label_rect = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + 24.0, rect.top()),
+        egui::pos2(rect.right() - 4.0, rect.bottom()),
+    );
+    ui.scope_builder(
+        egui::UiBuilder::new()
+            .max_rect(label_rect)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        |ui| {
+            ui.add(egui::Label::new(label).truncate().halign(egui::Align::Min));
+        },
+    );
+    response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn current_folder_bookmark_can_be_toggled_on_and_off() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut dialog = FileDialog::new();
+        dialog.current_dir = directory.path().to_path_buf();
+
+        dialog.toggle_current_bookmark();
+        assert_eq!(dialog.bookmarks, [directory.path()]);
+
+        dialog.toggle_current_bookmark();
+        assert!(dialog.bookmarks.is_empty());
+    }
+
+    #[test]
+    fn opening_for_selection_uses_last_file_parent_or_selected_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        let selected_file = directory.path().join("selected.txt");
+        let selected_directory = directory.path().join("nested");
+        std::fs::write(&selected_file, b"content").unwrap();
+        std::fs::create_dir(&selected_directory).unwrap();
+
+        let mut dialog = FileDialog::new();
+        dialog.open_for_selection(Some(&selected_file));
+        assert_eq!(dialog.current_dir, directory.path());
+
+        dialog.open_for_selection(Some(&selected_directory));
+        assert_eq!(dialog.current_dir, selected_directory);
     }
 }

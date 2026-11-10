@@ -163,8 +163,12 @@ impl Server {
         })?;
         writer.send_compressed(&entries, level)?;
         drop(entries);
-        let source = match reader.recv_msg()? {
-            Msg::Proceed { go: true, source } => source,
+        let (source, pack) = match reader.recv_msg()? {
+            Msg::Proceed {
+                go: true,
+                source,
+                pack,
+            } => (source, pack),
             _ => {
                 println!("zcopy: {peer} declined to continue");
                 return Ok(());
@@ -181,11 +185,21 @@ impl Server {
         let passwords = password.map(|pw| pw.to_vec());
         let root = self.root.clone();
         let cache = Arc::clone(&self.cache);
+        let packed_output = pack.then(|| packed_archive_path(&self.root, &source));
         let label = (peer.to_string(), source);
-        let worker =
-            std::thread::spawn(move || extractor(&root, &cache, passwords, queue, writer, &label));
+        let worker = std::thread::spawn(move || {
+            extractor(
+                &root,
+                &cache,
+                passwords,
+                queue,
+                writer,
+                &label,
+                packed_output,
+            )
+        });
 
-        let result = self.receive(&mut reader, &jobs, id);
+        let result = self.receive(&mut reader, &jobs, id, pack);
         let _ = jobs.send(Job::Done);
         drop(jobs);
         let (files, bytes) = worker.join().unwrap_or((0, 0));
@@ -209,14 +223,20 @@ impl Server {
         reader: &mut FrameReader<TcpStream>,
         jobs: &std::sync::mpsc::SyncSender<Job>,
         id: u64,
+        pack: bool,
     ) -> Res<()> {
         let temp = self.root.join(TEMP_DIR);
+        let mut received_batches = 0;
         for number in 0u64.. {
             match reader.recv_msg()? {
                 Msg::Done => return Ok(()),
                 Msg::Batch {
                     bytes, metadata, ..
                 } => {
+                    if pack && received_batches > 0 {
+                        return Err("packed transfers must contain one archive batch".into());
+                    }
+                    received_batches += 1;
                     let metadata = metadata && self.settings.metadata.unwrap_or(false);
                     let items: Vec<Item> = reader.recv_compressed()?;
                     let archive = temp.join(format!("{id}-{number}.zar"));
@@ -249,6 +269,7 @@ fn extractor(
     queue: std::sync::mpsc::Receiver<Job>,
     mut writer: FrameWriter<TcpStream>,
     (peer, source): &(String, String),
+    packed_output: Option<PathBuf>,
 ) -> (u64, u64) {
     let (mut total_files, mut total_bytes) = (0u64, 0u64);
     for job in queue {
@@ -263,18 +284,32 @@ fn extractor(
                 metadata,
             } => {
                 let wire_bytes = fs::metadata(&archive).map(|m| m.len()).unwrap_or(0);
-                let outcome = extract_batch(root, cache, &password, &archive, &items, metadata);
+                let outcome = match &packed_output {
+                    Some(output) => {
+                        let _guard = EXTRACT_LOCK.lock().unwrap();
+                        store_packed_archive(&archive, output).map(|()| items.len() as u64)
+                    }
+                    None => extract_batch(root, cache, &password, &archive, &items, metadata),
+                };
                 let _ = fs::remove_file(&archive);
                 match &outcome {
                     Ok(files) => {
                         total_files += files;
                         total_bytes += wire_bytes;
-                        println!(
-                            "zcopy: {peer} copied {files} file(s) ({}) from '{source}' into '{}': {}",
-                            human(wire_bytes),
-                            root.display(),
-                            top_level(&items)
-                        );
+                        if let Some(output) = &packed_output {
+                            println!(
+                                "zcopy: {peer} packed {files} file(s) ({}) from '{source}' into '{}'",
+                                human(wire_bytes),
+                                output.display()
+                            );
+                        } else {
+                            println!(
+                                "zcopy: {peer} copied {files} file(s) ({}) from '{source}' into '{}': {}",
+                                human(wire_bytes),
+                                root.display(),
+                                top_level(&items)
+                            );
+                        }
                     }
                     Err(message) => {
                         println!("zcopy: {peer} copy from '{source}' failed: {message}")
@@ -299,6 +334,49 @@ fn extractor(
         }
     }
     (total_files, total_bytes)
+}
+
+fn packed_archive_path(root: &Path, source: &str) -> PathBuf {
+    let name = source
+        .trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .find(|part| !part.is_empty() && *part != "." && *part != "..")
+        .unwrap_or("received");
+    let name: String = name
+        .chars()
+        .map(|character| {
+            if character.is_control() || "<>:\"|?*".contains(character) {
+                '_'
+            } else {
+                character
+            }
+        })
+        .collect();
+    let name = if name.is_empty() { "received" } else { &name };
+    root.join(format!("{name}.zar"))
+}
+
+fn store_packed_archive(archive: &Path, output: &Path) -> Result<(), String> {
+    let temporary = archive.with_extension("packed.tmp");
+    fs::copy(archive, &temporary).map_err(|error| error.to_string())?;
+    let result = (|| {
+        match fs::symlink_metadata(output) {
+            Ok(metadata) if metadata.is_dir() => {
+                return Err(format!(
+                    "packed output is a directory: {}",
+                    output.display()
+                ));
+            }
+            Ok(_) => fs::remove_file(output).map_err(|error| error.to_string())?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.to_string()),
+        }
+        fs::rename(&temporary, output).map_err(|error| error.to_string())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
 }
 
 /// Names of the first-level entries a batch touches, abbreviated.

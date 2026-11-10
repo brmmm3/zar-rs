@@ -333,9 +333,20 @@ pub fn extract_single_file(
     output: &Path,
     passwords: &PasswordSet,
 ) -> Result<u64, Box<dyn std::error::Error>> {
+    extract_single_file_through(archive, path, output, passwords, None)
+}
+
+/// Extracts one file from the archive state through the selected commit.
+pub fn extract_single_file_through(
+    archive: &str,
+    path: &str,
+    output: &Path,
+    passwords: &PasswordSet,
+    to: Option<&str>,
+) -> Result<u64, Box<dyn std::error::Error>> {
     let wanted = FilterSet::from_patterns(&[escape_glob(path)], &[], &[], &[], &[] as &[PathBuf])?;
     let (toc, sources, _) =
-        load_extraction_state_impl(archive, None, passwords, None, Some(&wanted), None)?;
+        load_extraction_state_impl(archive, to, passwords, None, Some(&wanted), None)?;
     let archive_path = ArchivePath::new(path)?;
     let Some(TocEntry::File(file_entry)) = toc
         .iter()
@@ -488,6 +499,7 @@ fn extract_external_archive(
         return Err(format!("input archive is not a file: {}", archive.display()).into());
     }
     let progress = ProgressReporter::new(callback);
+    progress.check_cancelled()?;
     #[cfg(not(target_os = "wasi"))]
     let temporary = tempfile::tempdir()?;
     #[cfg(target_os = "wasi")]
@@ -509,22 +521,26 @@ fn extract_external_archive(
     };
     let temporary_root = temporary.path().canonicalize()?;
     match kind {
-        ImportArchiveKind::Zip => extract_zip(archive, &temporary_root)?,
-        ImportArchiveKind::SevenZip => extract_7z(archive, &temporary_root)?,
-        ImportArchiveKind::Tar => extract_tar(File::open(archive)?, &temporary_root)?,
+        ImportArchiveKind::Zip => extract_zip(archive, &temporary_root, &progress)?,
+        ImportArchiveKind::SevenZip => extract_7z(archive, &temporary_root, &progress)?,
+        ImportArchiveKind::Tar => extract_tar(File::open(archive)?, &temporary_root, &progress)?,
         ImportArchiveKind::TarGz => extract_tar(
             flate2::read::MultiGzDecoder::new(File::open(archive)?),
             &temporary_root,
+            &progress,
         )?,
-        ImportArchiveKind::Gzip => extract_gzip_file(archive, &temporary_root, archive)?,
+        ImportArchiveKind::Gzip => extract_gzip_file(archive, &temporary_root, archive, &progress)?,
     }
 
+    progress.check_cancelled()?;
     let entries = filter_tree_entries(scan_tree(&temporary_root, "")?, filters);
+    progress.check_cancelled()?;
     let mut toc = Toc::default();
     let mut planned_directories: Vec<(PathBuf, Option<EntryMetadata>)> = Vec::new();
     let mut regular_files = Vec::new();
     let mut specials = Vec::new();
     for entry in entries {
+        progress.check_cancelled()?;
         let source_archive_path = ArchivePath::new(entry.archive_path.clone())?;
         let relative = if options.strip_top_level {
             match source_archive_path.as_str().split_once('/') {
@@ -599,6 +615,7 @@ fn extract_external_archive(
     progress.extraction_summary(&summary);
     let mut accepted_directories = Vec::new();
     for (target, metadata) in planned_directories {
+        progress.check_cancelled()?;
         if target.exists() && !target.is_dir() {
             return Err(
                 format!("destination path is not a directory: {}", target.display()).into(),
@@ -610,6 +627,7 @@ fn extract_external_archive(
     let mut skipped_targets = std::collections::HashSet::new();
     let mut overwrite_all = None;
     for (_, target, _source_path, size) in &regular_files {
+        progress.check_cancelled()?;
         if options.existing_policy != ExistingPolicy::Overwrite && target.exists() {
             match options.existing_policy {
                 ExistingPolicy::Skip => {
@@ -660,6 +678,7 @@ fn extract_external_archive(
         ));
     }
     for (target, source) in &specials {
+        progress.check_cancelled()?;
         validate_special_target(target, destination, &source.kind)?;
         accepted_files.push((target.clone(), source.clone()));
     }
@@ -675,6 +694,7 @@ fn extract_external_archive(
             .collect(),
     };
     if options.dry_run {
+        progress.check_cancelled()?;
         return Ok(plan);
     }
     let selected_total = accepted_files
@@ -685,6 +705,7 @@ fn extract_external_archive(
         })
         .ok_or("extraction progress size overflow")?;
     progress.reset_phase("Extracting files", selected_total.max(1));
+    progress.check_cancelled()?;
     let directory_paths = accepted_directories
         .iter()
         .map(|(path, _)| path.clone())
@@ -706,9 +727,11 @@ fn extract_external_archive(
         }
     }
     for directory in &all_dirs {
+        progress.check_cancelled()?;
         ensure_directory_no_follow(destination, directory)?;
     }
     for (target, source) in &specials {
+        progress.check_cancelled()?;
         if accepted_files
             .iter()
             .any(|(accepted, _)| accepted == target)
@@ -733,7 +756,7 @@ fn extract_external_archive(
                 }
                 Err(error) => return Err(error.into()),
             };
-        let copied = io::copy(&mut input, &mut output)?;
+        let copied = copy_interruptibly(&mut input, &mut output, &progress)?;
         if copied != *size {
             return Err(format!("extracted size mismatch for {}", target.display()).into());
         }
@@ -813,10 +836,12 @@ pub fn extract_archive_with_passwords_progress_and_filters(
         strip_top_level,
     } = options;
     let progress = ProgressReporter::new(progress);
+    progress.check_cancelled()?;
     let archive_size = File::open(archive)?.metadata()?.len().saturating_sub(4);
     progress.start_phase("Reading archive headers", archive_size.max(1));
     let full_toc =
         load_toc_through_with_passwords_and_progress(archive, to, passwords, Some(&progress))?;
+    progress.check_cancelled()?;
     let toc = filters.filter_toc(&full_toc)?;
     progress.reset_phase("Planning extraction", archive_size.max(1));
     let summary = summarize_toc(&toc, restore_symlinks, restore_devices)?;
@@ -836,6 +861,7 @@ pub fn extract_archive_with_passwords_progress_and_filters(
             Some(full_toc),
         )?
     };
+    progress.check_cancelled()?;
     validate_interactive_policies(
         progress.0.is_some_and(Progress::is_interactive),
         collision_policy,
@@ -850,6 +876,7 @@ pub fn extract_archive_with_passwords_progress_and_filters(
         .collect();
 
     for (path, entry) in toc.iter() {
+        progress.check_cancelled()?;
         let relative = if strip_top_level {
             match path.as_str().split_once('/') {
                 Some((_, rest)) => rest,
@@ -933,6 +960,7 @@ pub fn extract_archive_with_passwords_progress_and_filters(
 
     let mut accepted_directories = Vec::new();
     for (target, metadata) in &planned_directories {
+        progress.check_cancelled()?;
         if target.exists() && !target.is_dir() {
             return Err(
                 format!("destination path is not a directory: {}", target.display()).into(),
@@ -943,6 +971,7 @@ pub fn extract_archive_with_passwords_progress_and_filters(
     let mut accepted_files = Vec::new();
     let mut overwrite_all = None;
     for (target, source) in planned_files {
+        progress.check_cancelled()?;
         if !matches!(source.kind, ExtractedKind::File) {
             validate_special_target(&target, destination, &source.kind)?;
             let exists = std::fs::symlink_metadata(&target).is_ok();
@@ -1029,6 +1058,7 @@ pub fn extract_archive_with_passwords_progress_and_filters(
             .collect(),
     };
     if dry_run {
+        progress.check_cancelled()?;
         return Ok(plan);
     }
 
@@ -1044,6 +1074,7 @@ pub fn extract_archive_with_passwords_progress_and_filters(
         })
         .ok_or("extraction progress size overflow")?;
     progress.reset_phase("Extracting files", total_progress.max(1));
+    progress.check_cancelled()?;
     let directory_paths = accepted_directories
         .iter()
         .map(|(path, _)| path.clone())
@@ -1065,11 +1096,13 @@ pub fn extract_archive_with_passwords_progress_and_filters(
         }
     }
     for directory in &all_dirs {
+        progress.check_cancelled()?;
         ensure_directory_no_follow(destination, directory)?;
     }
 
     let mut regular_files = Vec::new();
     for (target, source) in accepted_files {
+        progress.check_cancelled()?;
         if matches!(source.kind, ExtractedKind::File) {
             regular_files.push((target, source));
             continue;
@@ -1160,6 +1193,7 @@ pub fn extract_archive_with_passwords_progress_and_filters(
             .map_err(extraction_worker_error)?;
     }
     if restore_metadata {
+        progress.check_cancelled()?;
         restore_directory_metadata(destination, &accepted_directories, progress.0)?;
     }
     Ok(plan)
@@ -1277,6 +1311,7 @@ fn extract_regular_file(
     callback: Option<&dyn Progress>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let progress = ProgressReporter::new(callback);
+    progress.check_cancelled()?;
     let mut output = match create_extraction_file(destination, target, existing_policy) {
         Ok(output) => output,
         Err(error)
@@ -1290,6 +1325,7 @@ fn extract_regular_file(
     let mut written = 0_u64;
     let mut checksum = Xxh64::new(0);
     for block in &source.blocks {
+        progress.check_cancelled()?;
         let uncached;
         let contents = if source.entry.offset_in_block.is_some() {
             cached_extraction_block(&mut reader.block_cache, block.offset, || {
@@ -1331,6 +1367,7 @@ fn extract_regular_file(
             target.display()
         ))));
     }
+    output.set_len(written)?;
     if restore_metadata {
         apply_metadata(&output, source.metadata.as_ref(), target, callback)
             .map_err(ExtractionFailure::from_error)?;

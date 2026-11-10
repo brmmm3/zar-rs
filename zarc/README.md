@@ -86,10 +86,12 @@ Options:
   strict mode, symlinks are recorded in the archive and require
   `extract --symlinks` to restore; unreadable files are skipped with a warning;
   named pipes and device nodes are skipped unless `--special-files` is set.
-- `--include-file PATTERN` / `--exclude-file PATTERN` (aliases `--if` / `--ef`): filter files using
-  fnmatch patterns. Repeat either option to provide multiple patterns.
-- `--include-folder PATTERN` / `--exclude-folder PATTERN` (aliases `--id` / `--ed`): filter matching
-  folders; matching a folder includes or excludes its entire subtree.
+- `--include-file PATTERN` / `--exclude-file PATTERN` (aliases `--if` / `--ef`):
+  filter files using fnmatch patterns. Repeat either option to provide multiple
+  patterns.
+- `--include-folder PATTERN` / `--exclude-folder PATTERN` (aliases `--id` /
+  `--ed`): filter matching folders; matching a folder includes or excludes its
+  entire subtree.
 - `--filelist PATH`: read patterns from a text file, one per line. Lines
   beginning with `-` exclude the pattern; other lines include it. File-list
   patterns apply to files and folders.
@@ -162,21 +164,19 @@ keys starting with `zar.` are reserved.
   archive. It validates and atomically replaces the archive, and refuses to
   remove the first commit.
 
-`add` accepts `--block-size`, `--compression-level`, `--metadata`,
-`--dates`, `--special-files`, `--strict`, `--verbose`, the include/exclude filter options
-above, and `--progress`. Unreadable files are skipped
-with a warning unless `--strict` is set, in which case a permission error
-fails the operation. Named pipes and Unix device nodes are skipped with
-warnings unless `--special-files` is set. Device nodes are only created during
-extraction with `extract --devices` and may require privileges.
-`join` accepts `--from`, `--to`, `--block-size`,
+`add` accepts `--block-size`, `--compression-level`, `--metadata`, `--dates`,
+`--special-files`, `--strict`, `--verbose`, the include/exclude filter options
+above, and `--progress`. Unreadable files are skipped with a warning unless
+`--strict` is set, in which case a permission error fails the operation. Named
+pipes and Unix device nodes are skipped with warnings unless `--special-files`
+is set. Device nodes are only created during extraction with `extract --devices`
+and may require privileges. `join` accepts `--from`, `--to`, `--block-size`,
 `--compression-level`, and `--progress`. The commands stage and validate the
 replacement before publishing it. These state-changing operations currently
 reject archives whose accumulated TOC depends on encrypted headers; encrypted
-archive append/removal/compaction is not supported.
-`undo` is different: it only validates framing and truncates a suffix, so it
-can remove encrypted commits without decrypting them. It still preserves the
-first commit.
+archive append/removal/compaction is not supported. `undo` is different: it only
+validates framing and truncates a suffix, so it can remove encrypted commits
+without decrypting them. It still preserves the first commit.
 
 ### Encrypt and decrypt commit ranges
 
@@ -218,19 +218,18 @@ zarc check --recover backup.zar
   payloads. `--to ID` shows the state after that commit.
 - `info` shows per-commit header content changes, commit IDs, stored sizes,
   creation date/time, optional username, logical uncompressed file sizes, and
-  the ratio of commit size to uncompressed size. Header-encrypted commits show the uncompressed size as
-  unavailable without credentials. `-v` adds
+  the ratio of commit size to uncompressed size. Header-encrypted commits show
+  the uncompressed size as unavailable without credentials. `-v` adds
   per-file-group compression and deduplication statistics, plus counts for
   stored symlinks, pipes, and devices; use `list` to see their paths and device
   numbers. `-vv` additionally lists each block's compressed size, compression
   ratio, file count, and file groups. Both verbose levels read frame metadata
   without decompressing file contents. `--json` includes the header content
   change counts, formatted creation times and Unix-millisecond timestamps, and
-  optional usernames in its
-  machine-readable summary. `create --user` and `add --user` store the current
-  OS username with the new commit; commit timestamps are always recorded.
-  These statistics use frame metadata and do not verify or decompress data
-  payloads.
+  optional usernames in its machine-readable summary. `create --user` and
+  `add --user` store the current OS username with the new commit; commit
+  timestamps are always recorded. These statistics use frame metadata and do not
+  verify or decompress data payloads.
 - `check` validates framing, readable TOC updates, block references, and
   checksums; it decompresses unencrypted blocks and checks decoded file sizes.
   Pass `--password` to authenticate/decrypt encrypted content. Without the

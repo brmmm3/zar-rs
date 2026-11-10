@@ -2,6 +2,7 @@ use super::*;
 use crate::{ArchivePath, TocEntry};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 struct Fixture {
     dir: tempfile::TempDir,
@@ -82,6 +83,51 @@ impl Progress for TestProgress {
     }
 }
 
+#[derive(Default)]
+struct CancelAfterAddProgress(AtomicBool);
+
+impl Progress for CancelAfterAddProgress {
+    fn message(&self, message: &str) {
+        if message.starts_with("Adding ") {
+            self.0.store(true, Ordering::Relaxed);
+        }
+    }
+
+    fn advance(&self, _: u64) {}
+
+    fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+}
+
+struct CancelOnMessageProgress {
+    prefix: &'static str,
+    cancelled: AtomicBool,
+}
+
+impl CancelOnMessageProgress {
+    fn new(prefix: &'static str) -> Self {
+        Self {
+            prefix,
+            cancelled: AtomicBool::new(false),
+        }
+    }
+}
+
+impl Progress for CancelOnMessageProgress {
+    fn message(&self, message: &str) {
+        if message.starts_with(self.prefix) {
+            self.cancelled.store(true, Ordering::Relaxed);
+        }
+    }
+
+    fn advance(&self, _: u64) {}
+
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Relaxed)
+    }
+}
+
 fn options(
     collision_policy: CollisionPolicy,
     existing_policy: ExistingPolicy,
@@ -99,13 +145,107 @@ fn options(
 }
 
 #[test]
+fn cancelling_add_during_file_processing_preserves_archive() {
+    let fixture = Fixture::new();
+    let input = fixture.dir.path().join("cancelled.txt");
+    std::fs::write(&input, vec![b'x'; 1024 * 1024]).unwrap();
+    let original = std::fs::read(fixture.archive()).unwrap();
+    let progress = CancelAfterAddProgress::default();
+
+    let result = add_archive_with_encoding_progress(
+        fixture.archive(),
+        &[input],
+        EncodingOptions::default(),
+        Some(&progress),
+        false,
+    );
+
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("operation cancelled")
+    );
+    assert_eq!(std::fs::read(fixture.archive()).unwrap(), original);
+}
+
+#[test]
+fn cancelling_create_does_not_publish_archive() {
+    let fixture = Fixture::new();
+    let archive = fixture.dir.path().join("cancelled.zar");
+    let progress = CancelOnMessageProgress::new("Creating ");
+
+    let result = create_archive_with_password_progress(
+        archive.to_str().unwrap(),
+        std::slice::from_ref(&fixture.input),
+        false,
+        EncodingOptions::default(),
+        None,
+        Some(&progress),
+        false,
+    );
+
+    assert!(
+        result
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("operation cancelled")
+    );
+    assert!(!archive.exists());
+}
+
+#[test]
+fn cancelling_extract_before_writing_leaves_destination_untouched() {
+    let fixture = Fixture::new();
+    let destination = fixture.dir.path().join("cancelled-extract");
+    let progress = CancelOnMessageProgress::new("Extracting files");
+
+    let result = extract_archive_with_progress(
+        fixture.archive(),
+        &destination,
+        options(CollisionPolicy::Rename, ExistingPolicy::Error),
+        None,
+        Some(&progress),
+    );
+
+    assert!(
+        result
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("operation cancelled")
+    );
+    assert!(!destination.exists());
+}
+
+#[test]
+fn extract_single_file_through_reads_the_selected_revision() {
+    let fixture = Fixture::new();
+    std::fs::write(fixture.input.join("a.txt"), b"new content").unwrap();
+    add_archive(fixture.archive(), std::slice::from_ref(&fixture.input)).unwrap();
+    let output = fixture.dir.path().join("extracted.txt");
+    let passwords = PasswordSet::default();
+    extract_single_file_through(
+        fixture.archive(),
+        "input/a.txt",
+        &output,
+        &passwords,
+        Some("00000001"),
+    )
+    .unwrap();
+    assert_eq!(std::fs::read(&output).unwrap(), b"alpha content");
+    extract_single_file(fixture.archive(), "input/a.txt", &output, &passwords).unwrap();
+    assert_eq!(std::fs::read(&output).unwrap(), b"new content");
+}
+
+#[test]
 fn list_details_tracks_removals_and_selected_commits() {
     let fixture = Fixture::new();
     let archive = fixture.archive();
     let (toc, details) = list_archive_with_details(archive, None, None).unwrap();
     let path = ArchivePath::new("input/a.txt").unwrap();
     assert!(matches!(toc.get(&path), Some(TocEntry::File(_))));
-    assert!(details[&path].compressed_size.is_some());
     assert!(details[&path].modified_unix_millis.is_some());
     assert!(
         load_toc(&mut std::fs::File::open(archive).unwrap())
@@ -131,6 +271,87 @@ fn list_details_tracks_removals_and_selected_commits() {
             .is_some()
     );
     assert!(load_toc_through(archive, Some("ffffffff"), None).is_err());
+}
+
+#[test]
+fn list_details_estimates_file_sizes_from_block_ratios() {
+    let dir = tempfile::tempdir().unwrap();
+    let archive = dir.path().join("archive.zar");
+    let first = dir.path().join("a.txt");
+    let second = dir.path().join("b.txt");
+    let large = dir.path().join("large.txt");
+    let empty = dir.path().join("empty.txt");
+    let tiny = dir.path().join("tiny.txt");
+    std::fs::write(&first, vec![b'a'; 128]).unwrap();
+    std::fs::write(&second, vec![b'b'; 256]).unwrap();
+    let mut large_bytes = vec![b'c'; 8192];
+    large_bytes.extend((0..137).map(|i| (i * 73) as u8));
+    std::fs::write(&large, &large_bytes).unwrap();
+    std::fs::write(&empty, []).unwrap();
+    std::fs::write(&tiny, b"hey").unwrap();
+    create_archive_with_encoding(
+        archive.to_str().unwrap(),
+        &[first, second, large, empty, tiny],
+        false,
+        EncodingOptions {
+            block_size: 4096,
+            compression_level: 3,
+        },
+    )
+    .unwrap();
+    let (toc, details) = list_archive_with_details(archive.to_str().unwrap(), None, None).unwrap();
+    let info = info_archive_with_blocks(archive.to_str().unwrap(), true).unwrap();
+    for (name, expected_size) in [
+        ("a.txt", 128),
+        ("b.txt", 256),
+        ("tiny.txt", 3),
+        ("large.txt", 8329),
+    ] {
+        let path = ArchivePath::new(name).unwrap();
+        let Some(TocEntry::File(file)) = toc.get(&path) else {
+            panic!("missing file {name}");
+        };
+        assert_eq!(file.size, expected_size);
+        if name == "a.txt" || name == "b.txt" {
+            assert!(file.offset_in_block.is_some());
+        } else if name == "large.txt" {
+            assert!(file.block_indices.len() > 1);
+        }
+        let ratios: Vec<f64> = file
+            .block_indices
+            .iter()
+            .map(|index| {
+                info[0]
+                    .blocks
+                    .iter()
+                    .find(|block| block.index == *index)
+                    .unwrap()
+                    .ratio_percent
+                    .unwrap()
+                    / 100.0
+            })
+            .collect();
+        let expected_ratio = ratios.iter().sum::<f64>() / ratios.len() as f64;
+        if name == "large.txt" {
+            assert!(ratios.iter().any(|ratio| (*ratio - ratios[0]).abs() > 0.1));
+            let weighted = info[0]
+                .blocks
+                .iter()
+                .filter(|block| file.block_indices.contains(&block.index))
+                .map(|block| block.compressed_size)
+                .sum::<u64>() as f64
+                / file.size as f64;
+            assert!((expected_ratio - weighted).abs() > 0.01);
+        }
+        assert!((details[&path].compression_ratio.unwrap() - expected_ratio).abs() < 1e-12);
+        assert_eq!(
+            details[&path].compressed_size,
+            Some((expected_ratio * file.size as f64).round() as u64)
+        );
+    }
+    let path = ArchivePath::new("empty.txt").unwrap();
+    assert_eq!(details[&path].compressed_size, Some(0));
+    assert_eq!(details[&path].compression_ratio, None);
 }
 
 #[test]
@@ -241,6 +462,34 @@ fn check_encrypted_archive_with_and_without_password() {
     assert!(unlocked.checked_blocks > 0);
     assert!(list_archive_with_details(archive, None, None).is_err());
     assert!(list_archive_with_details(archive, None, Some(b"correct password")).is_ok());
+    let (_, details) = list_archive_with_details(archive, None, Some(b"correct password")).unwrap();
+    let path = ArchivePath::new("input/a.txt").unwrap();
+    assert!(details[&path].compression_ratio.is_some());
+    assert!(details[&path].compressed_size.is_some());
+    let data_only = fixture.dir.path().join("data-only.zar");
+    create_archive_with_password_progress_and_filters_and_encryption(
+        data_only.to_str().unwrap(),
+        std::slice::from_ref(&fixture.input),
+        false,
+        EncodingOptions::default(),
+        Some((
+            b"correct password",
+            crate::ContentAead::Aes256Gcm,
+            crate::EncryptionScope::Data,
+        )),
+        None,
+        CreateFilterOptions {
+            input: CreateInputOptions::default(),
+            filters: &FilterSet::default(),
+        },
+    )
+    .unwrap();
+    let (_, locked) = list_archive_with_details(data_only.to_str().unwrap(), None, None).unwrap();
+    assert_eq!(locked[&path].compression_ratio, None);
+    let (_, unlocked) =
+        list_archive_with_details(data_only.to_str().unwrap(), None, Some(b"correct password"))
+            .unwrap();
+    assert!(unlocked[&path].compression_ratio.is_some());
     let contents = extract_archive_to_memory_with_passwords(
         archive,
         None,

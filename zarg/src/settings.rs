@@ -16,6 +16,37 @@ pub enum ThemeMode {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum IconTheme {
+    #[default]
+    Crystal,
+    Flat,
+}
+
+impl IconTheme {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Crystal => "Crystal",
+            Self::Flat => "Flat",
+        }
+    }
+
+    fn as_setting(self) -> &'static str {
+        match self {
+            Self::Crystal => "crystal",
+            Self::Flat => "flat",
+        }
+    }
+
+    fn from_setting(value: &str) -> Option<Self> {
+        match value {
+            "crystal" => Some(Self::Crystal),
+            "flat" => Some(Self::Flat),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DefaultEncryptionMethod {
     #[default]
     Aes256Gcm,
@@ -83,12 +114,14 @@ pub struct Settings {
     pub sort_reversed: bool,
     pub ui_scale: f32,
     pub theme_mode: ThemeMode,
+    pub icon_theme: IconTheme,
     pub default_block_size: String,
     pub default_compression_level: i32,
     pub default_encryption_method: DefaultEncryptionMethod,
     pub archive_defaults: ArchiveDefaults,
     pub column_widths: BTreeMap<String, f32>,
     pub recent_archives: Vec<String>,
+    pub bookmarks: Vec<PathBuf>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -125,12 +158,14 @@ impl Default for Settings {
             sort_reversed: false,
             ui_scale: 1.0,
             theme_mode: ThemeMode::System,
+            icon_theme: IconTheme::Crystal,
             default_block_size: "8M".to_owned(),
             default_compression_level: 3,
             default_encryption_method: DefaultEncryptionMethod::Aes256Gcm,
             archive_defaults: ArchiveDefaults::default(),
             column_widths: BTreeMap::new(),
             recent_archives: Vec::new(),
+            bookmarks: Vec::new(),
         }
     }
 }
@@ -167,16 +202,21 @@ impl Settings {
             .unwrap_or_default()
     }
 
-    pub fn save(&self) {
-        let Some(path) = settings_path() else {
-            return;
-        };
-        if let Some(parent) = path.parent()
-            && std::fs::create_dir_all(parent).is_err()
-        {
-            return;
+    pub fn save(&self) -> std::io::Result<()> {
+        let path = settings_path().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "configuration directory unavailable",
+            )
+        })?;
+        self.save_to(&path)
+    }
+
+    fn save_to(&self, path: &std::path::Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
         }
-        let _ = std::fs::write(path, self.render());
+        std::fs::write(path, self.render())
     }
 
     pub fn parse(text: &str) -> Self {
@@ -200,6 +240,9 @@ impl Settings {
                 "window.y" => position[1] = value.parse().ok(),
                 "monitors" => settings.monitor_count = value.parse().unwrap_or(0),
                 "recent" if !value.is_empty() => settings.recent_archives.push(value.to_owned()),
+                "bookmark" if !value.is_empty() => {
+                    settings.bookmarks.push(PathBuf::from(value));
+                }
                 "view" => settings.view = value.to_owned(),
                 "sort" => settings.sort = value.to_owned(),
                 "sort_reversed" => settings.sort_reversed = value == "true",
@@ -216,6 +259,11 @@ impl Settings {
                 "theme" => {
                     if let Some(theme_mode) = ThemeMode::from_setting(value) {
                         settings.theme_mode = theme_mode;
+                    }
+                }
+                "icon_theme" => {
+                    if let Some(icon_theme) = IconTheme::from_setting(value) {
+                        settings.icon_theme = icon_theme;
                     }
                 }
                 "default_block_size" if BLOCK_SIZE_OPTIONS.contains(&value) => {
@@ -286,10 +334,16 @@ impl Settings {
             .filter_map(|(dialog, size)| Some((dialog, [size[0]?, size[1]?])))
             .collect();
         settings.window = size
-            .filter(|size| size[0] >= 100.0 && size[1] >= 100.0)
+            .filter(|size| {
+                size.iter()
+                    .all(|value| value.is_finite() && *value >= 100.0)
+            })
             .map(|size| WindowGeometry {
                 size,
-                position: position[0].zip(position[1]).map(|(x, y)| [x, y]),
+                position: position[0]
+                    .zip(position[1])
+                    .filter(|(x, y)| x.is_finite() && y.is_finite())
+                    .map(|(x, y)| [x, y]),
             });
         settings
     }
@@ -316,6 +370,7 @@ impl Settings {
         text.push_str(&format!("sort_reversed={}\n", self.sort_reversed));
         text.push_str(&format!("ui_scale={}\n", self.ui_scale));
         text.push_str(&format!("theme={}\n", self.theme_mode.as_setting()));
+        text.push_str(&format!("icon_theme={}\n", self.icon_theme.as_setting()));
         text.push_str(&format!("default_block_size={}\n", self.default_block_size));
         text.push_str(&format!(
             "default_compression_level={}\n",
@@ -347,6 +402,9 @@ impl Settings {
         for archive in &self.recent_archives {
             text.push_str(&format!("recent={archive}\n"));
         }
+        for bookmark in &self.bookmarks {
+            text.push_str(&format!("bookmark={}\n", bookmark.display()));
+        }
         for (column, width) in &self.column_widths {
             text.push_str(&format!("column.{column}={width}\n"));
         }
@@ -362,11 +420,14 @@ impl Settings {
         }
     }
 
-    /// Saved window geometry is only reused when the monitor setup is unchanged.
+    /// Keep the saved size even when the previous position may no longer be visible.
     pub fn geometry_for_startup(&self, current_monitors: usize) -> Option<WindowGeometry> {
-        (current_monitors > 0 && self.monitor_count == current_monitors)
-            .then_some(self.window)
-            .flatten()
+        self.window.map(|mut geometry| {
+            if current_monitors == 0 || self.monitor_count != current_monitors {
+                geometry.position = None;
+            }
+            geometry
+        })
     }
 }
 
@@ -390,6 +451,7 @@ mod tests {
             sort_reversed: true,
             ui_scale: 1.75,
             theme_mode: ThemeMode::Dark,
+            icon_theme: IconTheme::Flat,
             default_block_size: "16M".to_owned(),
             default_compression_level: 12,
             default_encryption_method: DefaultEncryptionMethod::ChaCha20Poly1305,
@@ -406,6 +468,10 @@ mod tests {
             },
             column_widths: BTreeMap::from([("details:Name".to_owned(), 321.5)]),
             recent_archives: vec!["/a/one.zar".to_owned(), "/b/two.zar".to_owned()],
+            bookmarks: vec![
+                PathBuf::from("/projects"),
+                PathBuf::from("/data/archive tools"),
+            ],
         }
     }
 
@@ -413,6 +479,19 @@ mod tests {
     fn settings_round_trip() {
         let settings = sample();
         assert_eq!(Settings::parse(&settings.render()), settings);
+    }
+
+    #[test]
+    fn settings_save_to_disk_and_report_failures() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config").join("settings.conf");
+        let settings = sample();
+        settings.save_to(&path).unwrap();
+        assert_eq!(
+            Settings::parse(&std::fs::read_to_string(path).unwrap()),
+            settings
+        );
+        assert!(settings.save_to(directory.path()).is_err());
     }
 
     #[test]
@@ -446,9 +525,24 @@ mod tests {
                 mode
             );
         }
+
         assert_eq!(
             Settings::parse("theme=unknown\n").theme_mode,
             ThemeMode::System
+        );
+    }
+
+    #[test]
+    fn icon_theme_defaults_to_crystal_and_round_trips() {
+        assert_eq!(Settings::default().icon_theme, IconTheme::Crystal);
+        for (value, theme) in [("crystal", IconTheme::Crystal), ("flat", IconTheme::Flat)] {
+            let settings = Settings::parse(&format!("icon_theme={value}\n"));
+            assert_eq!(settings.icon_theme, theme);
+            assert!(settings.render().contains(&format!("icon_theme={value}\n")));
+        }
+        assert_eq!(
+            Settings::parse("icon_theme=unknown\n").icon_theme,
+            IconTheme::Crystal
         );
     }
 
@@ -496,11 +590,19 @@ mod tests {
     }
 
     #[test]
-    fn geometry_requires_matching_monitor_count() {
+    fn geometry_preserves_size_but_requires_matching_monitor_count_for_position() {
         let settings = sample();
-        assert!(settings.geometry_for_startup(2).is_some());
-        assert!(settings.geometry_for_startup(1).is_none());
-        assert!(settings.geometry_for_startup(0).is_none());
+        assert_eq!(settings.geometry_for_startup(2), settings.window);
+        for count in [0, 1, 3] {
+            assert_eq!(
+                settings.geometry_for_startup(count),
+                Some(WindowGeometry {
+                    size: [1100.0, 700.0],
+                    position: None
+                })
+            );
+        }
+        assert_eq!(Settings::default().geometry_for_startup(1), None);
     }
 
     #[test]
@@ -508,5 +610,17 @@ mod tests {
         let settings = Settings::parse("nonsense\nwindow.width=abc\ncolumn.x=-3\n");
         assert!(settings.window.is_none());
         assert!(settings.column_widths.is_empty());
+        assert!(
+            Settings::parse("window.width=inf\nwindow.height=500\n")
+                .window
+                .is_none()
+        );
+        assert_eq!(
+            Settings::parse("window.width=800\nwindow.height=600\nwindow.x=NaN\nwindow.y=1\n")
+                .window
+                .unwrap()
+                .position,
+            None
+        );
     }
 }

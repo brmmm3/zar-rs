@@ -8,7 +8,8 @@ CPU: AMD64, 20 logical cores
 
 ## Results
 
-Source: [`linux-4.0.1.tar.gz`](https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.0.1.tar.gz)  
+Source:
+[`linux-4.0.1.tar.gz`](https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.0.1.tar.gz)  
 Uncompressed source size: 525.0 MiB  
 Regular files verified: 48,933  
 Symbolic links excluded from path/size verification: 12
@@ -36,11 +37,13 @@ Symbolic links excluded from path/size verification: 12
 
 Throughput uses the uncompressed regular-file size. Each extraction was run into
 a freshly emptied `testresults/` directory, then checked against the source tree
-for matching regular-file paths and sizes. During its 2 extraction run(s), `zarlib` renamed 0 path(s) total (0 per run) due to case-folded collisions; generated suffixes are normalized only for comparison. The results
-directory was emptied again after each check. Symlink entries are excluded
-because `zarlib` currently reports and skips unsupported input symlinks. ZIP
-and tar preserve links; 7z preserves them in its archive but may skip unsafe
-relative links during extraction, as noted above.
+for matching regular-file paths and sizes. During its 2 extraction run(s),
+`zarlib` renamed 0 path(s) total (0 per run) due to case-folded collisions;
+generated suffixes are normalized only for comparison. The results directory was
+emptied again after each check. Symlink entries are excluded because `zarlib`
+currently reports and skips unsupported input symlinks. ZIP and tar preserve
+links; 7z preserves them in its archive but may skip unsafe relative links
+during extraction, as noted above.
 
 ## Method
 
@@ -50,8 +53,10 @@ relative links during extraction, as noted above.
   writing `3` to `/proc/sys/vm/drop_caches` on Linux (root required), or
   `RAMMap.exe -Et` on Windows (elevation required). Cold runs are skipped with
   a warning when the privileges are missing.
-- `zarlib` encrypted runs are skipped on this platform because `zarc` can only prompt for passwords on POSIX terminals.
-- On this platform `zip`/`unzip` receive the password with `-P` instead of an interactive prompt.
+- `zarlib` encrypted runs are skipped on this platform because `zarc` can only
+  prompt for passwords on POSIX terminals.
+- On this platform `zip`/`unzip` receive the password with `-P` instead of an
+  interactive prompt.
 - `zarlib`: `zarc` release build, default Zstandard compression level 3;
   encrypted runs use AES-256-GCM and the default header-and-data scope.
 - `zip`: Info-ZIP recursive DEFLATE at level 6, storing symlinks as links.
@@ -79,11 +84,13 @@ relative links during extraction, as noted above.
 ## Tool versions
 
 - `cargo`: `cargo 1.101.0-nightly (29c5daa1a 2026-10-07)`
-- `tar`: `bsdtar 3.8.9 - libarchive 3.8.9 zlib/1.2.13.1-motley liblzma/5.8.3 bz2lib/1.0.8 libzstd/1.5.7 cng/2.0 libb2/bundled`
+- `tar`:
+  `bsdtar 3.8.9 - libarchive 3.8.9 zlib/1.2.13.1-motley liblzma/5.8.3 bz2lib/1.0.8 libzstd/1.5.7 cng/2.0 libb2/bundled`
 - `openssl`: `OpenSSL 4.1.0 23 Oct 2026 (Library: OpenSSL 4.1.0 23 Oct 2026)`
 - `7z`: `7-Zip 26.03 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-09-03`
 - `zip`: `This is Zip 3.0 (July 5th 2008), by Info-ZIP.`
-- `unzip`: `UnZip 6.00 of 20 April 2009, by Info-ZIP.  Maintained by C. Spieler.  Send`
+- `unzip`:
+  `UnZip 6.00 of 20 April 2009, by Info-ZIP.  Maintained by C. Spieler.  Send`
 
 The generated archives and temporary key material are removed after the run.
 The source archive and extracted source tree remain in `testdata/`.

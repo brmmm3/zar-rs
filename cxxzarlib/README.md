@@ -3,16 +3,15 @@
 `cxxzarlib` provides a C++ interface to `zarlib` using the
 [CXX bridge](https://cxx.rs/). It exposes the same JSON operation dispatcher as
 [`czarlib`](../czarlib/README.md), but uses `rust::Str`, `rust::String`, and
-`rust::Error` at the C++ boundary instead of manually managed C strings.
-All twelve C-wrapper operations are supported: `create_archive`, `add_archive`,
+`rust::Error` at the C++ boundary instead of manually managed C strings. All
+twelve C-wrapper operations are supported: `create_archive`, `add_archive`,
 `remove_archive`, `join_archive`, `undo_archive`, `encrypt_archive_commits`,
 `decrypt_archive_commits`, `check_archive`, `info_archive`, `list_archive`,
-`extract_archive`, and `extract_archive_to_memory`. Request
-fields, validation, output shapes, password handling, filters, and archive
-semantics are shared with `czarlib`.
-Create and Add requests may include `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz`
-source paths; their contents are imported into the resulting ZAR using the source
-archive's internal paths.
+`extract_archive`, and `extract_archive_to_memory`. Request fields, validation,
+output shapes, password handling, filters, and archive semantics are shared with
+`czarlib`. Create and Add requests may include `.zip`, `.7z`, `.tar`, `.tar.gz`,
+or `.tgz` source paths; their contents are imported into the resulting ZAR using
+the source archive's internal paths.
 
 ## Build
 
@@ -59,8 +58,8 @@ non-default Cargo target directory, update the bridge-header path accordingly.
 ## Tests
 
 The native C++ integration test exercises the bridge and all supported
-operations, including create/add/remove/join/undo, info/list/check, filesystem and
-in-memory extraction, commit encryption/decryption, filters, existing-file
+operations, including create/add/remove/join/undo, info/list/check, filesystem
+and in-memory extraction, commit encryption/decryption, filters, existing-file
 behavior, AES-GCM and ChaCha20-Poly1305 encryption, per-commit passwords, error
 handling, and concurrent calls.
 

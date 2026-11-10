@@ -11,15 +11,12 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import datetime as dt
-from collections import deque
-from dataclasses import dataclass
 import html
 import json
 import os
 import platform
 import plistlib
 import re
-import scandir_rs
 import secrets
 import shutil
 import subprocess
@@ -30,8 +27,12 @@ import threading
 import time
 import urllib.request
 import zipfile
+from collections import deque
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Callable, Iterator
+
+import scandir_rs
 
 if os.name == "posix":
     import fcntl
@@ -138,8 +139,8 @@ def _cpu_model() -> str:
                     "-NoProfile",
                     "-NonInteractive",
                     "-Command",
-                    "(Get-CimInstance Win32_Processor | "
-                    "Select-Object -First 1 -ExpandProperty Name)",
+                    ("(Get-CimInstance Win32_Processor | "
+                    "Select-Object -First 1 -ExpandProperty Name)"),
                 ]
             )
             if output:
@@ -752,7 +753,7 @@ def run_with_password(command: list[str], cwd: Path, password: str) -> None:
         stdout=slave_fd,
         stderr=slave_fd,
         start_new_session=True,
-        preexec_fn=attach_controlling_terminal,
+        preexec_fn=attach_controlling_terminal,  # noqa: PLW1509
         close_fds=True,
     )
     os.close(slave_fd)
@@ -1519,12 +1520,12 @@ def svg_chart(
             )
             parts.extend(
                 [
-                    f'<text x="{label_width - 12}" y="{row_y + 17}" '
-                    f'text-anchor="end" class="label">{html.escape(label)}</text>',
-                    f'<rect x="{bar_x}" y="{row_y + 3}" width="{bar_width}" '
-                    f'height="18" rx="4" fill="{color}" opacity="{opacity}"/>',
-                    f'<text x="{bar_x + bar_width + 8}" y="{row_y + 17}" '
-                    f'class="value">{value_label}</text>',
+                    (f'<text x="{label_width - 12}" y="{row_y + 17}" '
+                    f'text-anchor="end" class="label">{html.escape(label)}</text>'),
+                    (f'<rect x="{bar_x}" y="{row_y + 3}" width="{bar_width}" '
+                    f'height="18" rx="4" fill="{color}" opacity="{opacity}"/>'),
+                    (f'<text x="{bar_x + bar_width + 8}" y="{row_y + 17}" '
+                    f'class="value">{value_label}</text>'),
                 ]
             )
         return "\n".join(parts)
@@ -1554,8 +1555,7 @@ def svg_chart(
                 for sample in samples:
                     all_values.append(float(sample[metric_index]))
                     t = float(sample[0])
-                    if t > max_time:
-                        max_time = t
+                    max_time = max(max_time, t)
         if not all_values:
             parts.append(
                 f'<text x="{plot_x}" y="{chart_top + chart_height // 2}" '
@@ -1691,8 +1691,8 @@ def svg_chart(
     # Removed extraneous closing parenthesis
     metadata = [
         '<text x="24" y="24" class="heading">Benchmark system</text>',
-        f'<text x="24" y="46" class="metadata">'
-        f'Operating system: {html.escape(hardware.operating_system)}</text>',
+        (f'<text x="24" y="46" class="metadata">'
+        f'Operating system: {html.escape(hardware.operating_system)}</text>'),
         f'<text x="24" y="64" class="metadata">{html.escape(cpu_summary)}</text>',
     ]
     metadata.extend(
@@ -1749,7 +1749,7 @@ def write_report(
     CHART_PATH.write_text(
         svg_chart(results, source_bytes, hardware), encoding="utf-8"
     )
-    timestamp = dt.datetime.now(dt.timezone.utc).astimezone().isoformat(timespec="seconds")
+    timestamp = dt.datetime.now(dt.UTC).astimezone().isoformat(timespec="seconds")
     logical_cores = os.cpu_count() or "unknown"
     storage_lines = "\n".join(
         f"- Benchmark storage ({storage.location}): {storage.media_type}; "
@@ -2028,14 +2028,18 @@ def run_benchmarks(
                     path.unlink(missing_ok=True)
                     print(f"Compressing {method} (encrypted={encrypted}, {cache} cache)...")
 
-                    def prepare_cache(*warm: Path) -> None:
+                    def prepare_cache(*warm: Path, cache: str = cache) -> None:
                         if cache == "cold":
                             drop_caches(rammap, accept_eula)
                         else:
                             for target in warm:
                                 read_files(target)
 
-                    def compress() -> None:
+                    def compress(
+                        method: str = method,
+                        path: Path = path,
+                        encrypted: bool = encrypted,
+                    ) -> None:
                         if method == "zarlib":
                             compress_zarlib(binary, path, encrypted)
                         elif method == "zip":
@@ -2107,7 +2111,7 @@ def run_benchmarks(
                         try:
                             monitor.start()
                             extraction_seconds = measure(
-                                lambda: extract_archive(
+                                lambda method=method, encrypted=encrypted, path=path: extract_archive(
                                     method,
                                     encrypted,
                                     path,
@@ -2133,7 +2137,7 @@ def run_benchmarks(
                             clean_testresults()
                             prepare_cache(path)
                             partial_seconds, peak_bytes, final_bytes = measure_with_disk_peak(
-                                lambda: extract_archive(
+                                lambda method=method, encrypted=encrypted, path=path: extract_archive(
                                     method,
                                     encrypted,
                                     path,

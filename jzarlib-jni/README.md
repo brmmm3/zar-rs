@@ -5,15 +5,14 @@ provides the same twelve archive operations and JSON contract as the C wrapper:
 create, add, remove, join, undo, encrypt/decrypt commit ranges, check, info,
 list, filesystem extract, and in-memory extract. See
 [`czarlib/README.md`](../czarlib/README.md) for operation request fields,
-filters, encryption options, and limitations.
-Create and Add requests may include `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz`
-source paths; their contents are imported into the resulting ZAR using the source
-archive's internal paths.
+filters, encryption options, and limitations. Create and Add requests may
+include `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz` source paths; their contents
+are imported into the resulting ZAR using the source archive's internal paths.
 
 ## Requirements, build, and tests
 
-Install JDK 25 or newer, a C compiler, Cargo, and Maven. Build the JNI shared library and
-run the integration tests from the repository root:
+Install JDK 25 or newer, a C compiler, Cargo, and Maven. Build the JNI shared
+library and run the integration tests from the repository root:
 
 ```sh
 ./jzarlib-jni/build-native.sh

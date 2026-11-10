@@ -229,10 +229,10 @@ argument accepts filter-list paths whose non-empty lines use the CLI
 filter reference in `CreateFilterOptions`; the add and extract variants accept
 the filter set separately.
 
-`operations` also re-exports common option, report, and callback types, including
-`EncodingOptions`, `Progress`, `CheckReport`, `CommitInfo`, `ExtractionOptions`,
-`CollisionPolicy`, and `ExistingPolicy`. Read the function signatures in the
-module for the options appropriate to your use case.
+`operations` also re-exports common option, report, and callback types,
+including `EncodingOptions`, `Progress`, `CheckReport`, `CommitInfo`,
+`ExtractionOptions`, `CollisionPolicy`, and `ExistingPolicy`. Read the function
+signatures in the module for the options appropriate to your use case.
 
 For example, set encoding options when creating or appending:
 

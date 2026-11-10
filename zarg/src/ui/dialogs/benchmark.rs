@@ -217,7 +217,7 @@ impl ZargApp {
         let viewport_id = egui::ViewportId::from_hash_of("benchmark-dialog");
         context.show_viewport_immediate(
             viewport_id,
-            Self::centered_dialog_viewport_builder(context, "Benchmark", size, true),
+            Self::centered_dialog_viewport_builder(context, viewport_id, "Benchmark", size, true),
             |ui, _class| {
                 ui.painter().rect_filled(
                     ui.max_rect(),
@@ -277,33 +277,28 @@ impl ZargApp {
                                      extracting a new archive with these settings. Nothing else is written.",
                                 );
                                 ui.add_enabled_ui(!running, |ui| {
-                                    egui::Grid::new("benchmark_settings")
-                                        .num_columns(2)
-                                        .spacing([16.0, 6.0])
-                                        .show(ui, |ui| {
-                                            ui.label("Block size");
-                                            egui::ComboBox::from_id_salt("bench_block")
-                                                .selected_text(&state.settings.block_size)
-                                                .show_ui(ui, |ui| {
-                                                    for size in [
-                                                        "64K", "256K", "1M", "2M", "4M", "8M",
-                                                        "16M", "32M",
-                                                    ] {
-                                                        ui.selectable_value(
-                                                            &mut state.settings.block_size,
-                                                            size.to_owned(),
-                                                            size,
-                                                        );
-                                                    }
-                                                });
-                                            ui.end_row();
-                                            ui.label("Compression level");
-                                            ui.add(egui::Slider::new(
-                                                &mut state.settings.compression_level,
-                                                -7..=22,
-                                            ));
-                                            ui.end_row();
-                                        });
+                                    Self::render_combo_row(ui, "Block size", |ui| {
+                                        egui::ComboBox::from_id_salt("bench_block")
+                                            .selected_text(&state.settings.block_size)
+                                            .show_ui(ui, |ui| {
+                                                for size in [
+                                                    "64K", "256K", "1M", "2M", "4M", "8M", "16M",
+                                                    "32M",
+                                                ] {
+                                                    ui.selectable_value(
+                                                        &mut state.settings.block_size,
+                                                        size.to_owned(),
+                                                        size,
+                                                    );
+                                                }
+                                            });
+                                    });
+                                    Self::render_combo_row(ui, "Compression level", |ui| {
+                                        ui.add(egui::Slider::new(
+                                            &mut state.settings.compression_level,
+                                            -7..=22,
+                                        ));
+                                    });
                                     ui.checkbox(
                                         &mut state.settings.owner_permissions,
                                         "Save owner and permissions",

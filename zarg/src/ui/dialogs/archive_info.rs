@@ -69,7 +69,13 @@ impl ZargApp {
         let mut open = true;
         context.show_viewport_immediate(
             viewport_id,
-            Self::centered_dialog_viewport_builder(context, "Archive information", size, true),
+            Self::centered_dialog_viewport_builder(
+                context,
+                viewport_id,
+                "Archive information",
+                size,
+                true,
+            ),
             |ui, _class| {
                 ui.painter().rect_filled(
                     ui.max_rect(),
@@ -111,7 +117,7 @@ impl ZargApp {
     }
 }
 pub(super) fn info_ratio(compressed: u64, uncompressed: u64) -> Option<f64> {
-    (uncompressed > 0).then(|| compressed as f64 / uncompressed as f64)
+    (uncompressed > 0).then_some(compressed as f64 / uncompressed as f64)
 }
 pub(super) fn info_row(ui: &mut egui::Ui, label: &str, value: impl Into<egui::WidgetText>) {
     ui.label(egui::RichText::new(label).weak());

@@ -24,10 +24,15 @@ impl ZargApp {
             let size = self.dialog_size(size_key, [520.0, 190.0]);
             let mut actual_size = None;
             let mut open = true;
-            let viewport_builder =
-                Self::centered_dialog_viewport_builder(context, "Operation error", size, false)
-                    .with_app_id("zarg-error")
-                    .with_icon(error_dialog_icon());
+            let viewport_builder = Self::centered_dialog_viewport_builder(
+                context,
+                viewport_id,
+                "Operation error",
+                size,
+                false,
+            )
+            .with_app_id("zarg-error")
+            .with_icon(error_dialog_icon());
             context.show_viewport_immediate(viewport_id, viewport_builder, |ui, _class| {
                 ui.painter().rect_filled(
                     ui.max_rect(),

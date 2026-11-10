@@ -159,6 +159,7 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
     progress: Option<&dyn Progress>,
     filter_options: CreateFilterOptions<'_>,
 ) -> Result<CreateReport, Box<dyn std::error::Error>> {
+    ProgressReporter::new(progress).check_cancelled()?;
     let CreateFilterOptions {
         input: input_options,
         filters,
@@ -263,7 +264,8 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
         action: "Creating",
         encryption,
     };
-    let scanned_inputs = super::archive_input::scan_input_paths(paths, &cwd, parent)?;
+    let scanned_inputs = super::archive_input::scan_input_paths(paths, &cwd, parent, progress)?;
+    ProgressReporter::new(progress).check_cancelled()?;
     let all_tree_entries = filter_tree_entries(scanned_inputs.entries, filters);
     if let Some(progress) = progress {
         let summary = summarize_tree_entries(&all_tree_entries)?;
@@ -271,6 +273,7 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
         ProgressReporter::new(Some(progress)).set_total(summary.total_bytes);
     }
     process_tree_entries(&all_tree_entries, &mut scan_context)?;
+    ProgressReporter::new(progress).check_cancelled()?;
     if changes.is_empty() && !paths.is_empty() {
         return Err("no supported files or directories were found to archive".into());
     }
@@ -376,6 +379,7 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
         return Err("created archive failed validation".into());
     }
 
+    ProgressReporter::new(progress).check_cancelled()?;
     if overwrite_existing {
         replace_archive(&temp_archive, archive_path)?;
     } else {
