@@ -51,6 +51,7 @@ fn supported_archive_import_types_are_detected_case_insensitively() {
     for path in [
         "backup.zip",
         "backup.7z",
+        "backup.RAR",
         "backup.tar",
         "backup.tar.gz",
         "backup.TGZ",
@@ -61,8 +62,170 @@ fn supported_archive_import_types_are_detected_case_insensitively() {
         ));
     }
     assert!(!crate::operations::is_supported_import_archive(
-        std::path::Path::new("backup.rar")
+        std::path::Path::new("backup.rarx")
     ));
+}
+
+fn write_rar(path: &std::path::Path, version: rars::ArchiveVersion, solid: bool) {
+    let mut builder = rars::Builder::new(version).solid(solid);
+    builder
+        .add_directory(b"nested".to_vec(), None, None)
+        .unwrap();
+    builder
+        .add_bytes(
+            b"nested/hello.txt".to_vec(),
+            b"hello from rar".to_vec(),
+            None,
+            None,
+        )
+        .unwrap();
+    builder
+        .add_bytes(b"empty.txt".to_vec(), Vec::new(), None, None)
+        .unwrap();
+    builder
+        .add_bytes(
+            "nested/café.txt".as_bytes().to_vec(),
+            b"unicode".to_vec(),
+            None,
+            None,
+        )
+        .unwrap();
+    std::fs::write(path, builder.to_bytes().unwrap()).unwrap();
+}
+
+#[test]
+fn rar_imports_create_add_and_extract_compressed_and_solid_archives() {
+    for version in [rars::ArchiveVersion::Rar29, rars::ArchiveVersion::Rar50] {
+        for solid in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let rar = directory.path().join("input.RAR");
+            let archive = directory.path().join("archive.zar");
+            let original = directory.path().join("original.txt");
+            write_rar(&rar, version, solid);
+            crate::operations::create_archive(
+                archive.to_str().unwrap(),
+                std::slice::from_ref(&rar),
+            )
+            .unwrap();
+            let contents = crate::operations::extract_archive_to_memory(
+                archive.to_str().unwrap(),
+                None,
+                None,
+                None,
+                0,
+            )
+            .unwrap();
+            assert_eq!(contents["nested/hello.txt"], b"hello from rar");
+            assert_eq!(contents["empty.txt"], b"");
+            assert_eq!(contents["nested/café.txt"], b"unicode");
+            let output = directory.path().join("output");
+            crate::operations::extract_archive(rar.to_str().unwrap(), &output, false).unwrap();
+            assert_eq!(
+                std::fs::read(output.join("nested/hello.txt")).unwrap(),
+                b"hello from rar"
+            );
+            std::fs::write(&original, b"existing").unwrap();
+            let added_archive = directory.path().join("added.zar");
+            crate::operations::create_archive(
+                added_archive.to_str().unwrap(),
+                std::slice::from_ref(&original),
+            )
+            .unwrap();
+            crate::operations::add_archive(
+                added_archive.to_str().unwrap(),
+                std::slice::from_ref(&rar),
+            )
+            .unwrap();
+            let contents = crate::operations::extract_archive_to_memory(
+                added_archive.to_str().unwrap(),
+                None,
+                None,
+                None,
+                0,
+            )
+            .unwrap();
+            assert_eq!(contents["original.txt"], b"existing");
+            assert_eq!(contents["nested/hello.txt"], b"hello from rar");
+        }
+    }
+}
+
+#[test]
+fn rar_import_rejects_links_and_incomplete_volumes() {
+    let directory = tempfile::tempdir().unwrap();
+    for version in [rars::ArchiveVersion::Rar29, rars::ArchiveVersion::Rar50] {
+        let rar = directory.path().join("unsafe.rar");
+        let target = directory.path().join("unsafe.zar");
+        let mut builder = rars::Builder::new(version).store(true);
+        builder
+            .add_unix_symlink(b"link".to_vec(), b"target".to_vec(), false, None, None)
+            .unwrap();
+        std::fs::write(&rar, builder.to_bytes().unwrap()).unwrap();
+        assert!(
+            crate::operations::create_archive(target.to_str().unwrap(), std::slice::from_ref(&rar))
+                .is_err()
+        );
+        assert!(!target.exists());
+
+        let mut builder = rars::Builder::new(version)
+            .store(true)
+            .volume_size(Some(128));
+        builder
+            .add_bytes(b"file".to_vec(), vec![42; 256], None, None)
+            .unwrap();
+        let volumes = builder.build_volumes(None).unwrap();
+        assert!(volumes.len() > 1);
+        std::fs::write(&rar, &volumes[0]).unwrap();
+        let error =
+            crate::operations::create_archive(target.to_str().unwrap(), std::slice::from_ref(&rar))
+                .unwrap_err();
+        assert!(error.to_string().contains("multi-volume RAR"));
+        assert!(!target.exists());
+    }
+}
+
+#[test]
+fn rar_import_rejects_encrypted_and_corrupt_entries_without_changing_archive() {
+    let directory = tempfile::tempdir().unwrap();
+    let rar = directory.path().join("bad.rar");
+    let original = directory.path().join("original.txt");
+    let archive = directory.path().join("archive.zar");
+    std::fs::write(&original, b"existing").unwrap();
+    crate::operations::create_archive(archive.to_str().unwrap(), std::slice::from_ref(&original))
+        .unwrap();
+    let before = std::fs::read(&archive).unwrap();
+    for version in [rars::ArchiveVersion::Rar29, rars::ArchiveVersion::Rar50] {
+        let mut builder = rars::Builder::new(version).store(true);
+        builder
+            .add_bytes(b"file".to_vec(), b"payload text".to_vec(), None, None)
+            .unwrap();
+        builder
+            .set_entry_encryption(b"file", Some(b"secret".to_vec()), None)
+            .unwrap();
+        std::fs::write(&rar, builder.to_bytes().unwrap()).unwrap();
+        let error =
+            crate::operations::add_archive(archive.to_str().unwrap(), std::slice::from_ref(&rar))
+                .unwrap_err();
+        assert!(error.to_string().contains("encrypted RAR"));
+        assert_eq!(std::fs::read(&archive).unwrap(), before);
+
+        let mut builder = rars::Builder::new(version).store(true);
+        builder
+            .add_bytes(b"file".to_vec(), b"payload text".to_vec(), None, None)
+            .unwrap();
+        let mut bytes = builder.to_bytes().unwrap();
+        let offset = bytes
+            .windows(b"payload text".len())
+            .position(|window| window == b"payload text")
+            .unwrap();
+        bytes[offset] ^= 1;
+        std::fs::write(&rar, bytes).unwrap();
+        assert!(
+            crate::operations::add_archive(archive.to_str().unwrap(), std::slice::from_ref(&rar))
+                .is_err()
+        );
+        assert_eq!(std::fs::read(&archive).unwrap(), before);
+    }
 }
 
 #[test]

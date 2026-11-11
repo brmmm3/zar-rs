@@ -44,14 +44,15 @@ Highlights:
   The [archive benchmark workflow](./.github/workflows/benchmark-archives.yml)
   runs on Windows, Linux, and macOS; each run uploads its generated report and
   chart from the `doc/benchmarks/` folder as workflow artifacts.
-- **ZIP, 7z, TAR, and gzip extraction/import.** Pass a `.zip`, `.7z`, `.tar`,
+- **ZIP, 7z, RAR, TAR, and gzip extraction/import.** Pass a `.zip`, `.7z`, `.rar`, `.tar`,
   `.tar.gz`, `.tgz`, or standalone `.gz` file to `zarc extract` to write its
   contents directly; regular files are written in parallel. Standalone gzip
   extraction removes the `.gz` suffix from the output filename. These formats
   can also be passed to create or add, where their contents are imported under
   their paths in the new ZAR commit. This works through `zarlib`, `zarc`,
-  `zarg`, and the language bindings. Encrypted ZIP/7z archives and ZIP/7z links
-  are not supported. TAR symbolic links are preserved where the host supports
+  `zarg`, and the language bindings. Encrypted ZIP/7z/RAR archives and
+  ZIP/7z/RAR links are not supported. Multi-volume RAR archives and RAR
+  special entries are rejected. TAR symbolic links are preserved where the host supports
   them; hard links are imported as regular files. TAR paths with harmless `.`
   components are normalized; parent traversal and special entries are rejected.
   Source archive timestamps are not retained; timestamp options record the
@@ -197,6 +198,7 @@ zarc create backup.zar documents/ src/ notes.txt
 # Convert a supported archive's contents into a ZAR archive
 zarc create backup.zar downloaded.zip
 zarc create backup-from-7z.zar downloaded.7z
+zarc create backup-from-rar.zar downloaded.rar
 zarc create backup-from-tar.zar downloaded.tar
 zarc create backup-from-tar-gz.zar downloaded.tar.gz
 zarc create backup-from-tgz.zar downloaded.tgz

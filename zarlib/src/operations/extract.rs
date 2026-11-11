@@ -1,5 +1,6 @@
 use super::archive_input::{
-    ImportArchiveKind, extract_7z, extract_gzip_file, extract_tar, extract_zip, import_archive_kind,
+    ImportArchiveKind, extract_7z, extract_gzip_file, extract_rar, extract_tar, extract_zip,
+    import_archive_kind,
 };
 use super::common::*;
 use super::filters::FilterSet;
@@ -523,6 +524,7 @@ fn extract_external_archive(
     match kind {
         ImportArchiveKind::Zip => extract_zip(archive, &temporary_root, &progress)?,
         ImportArchiveKind::SevenZip => extract_7z(archive, &temporary_root, &progress)?,
+        ImportArchiveKind::Rar => extract_rar(archive, &temporary_root, &progress)?,
         ImportArchiveKind::Tar => extract_tar(File::open(archive)?, &temporary_root, &progress)?,
         ImportArchiveKind::TarGz => extract_tar(
             flate2::read::MultiGzDecoder::new(File::open(archive)?),

@@ -1216,11 +1216,12 @@ impl ZargApp {
                 if let Some(path) = rfd::FileDialog::new()
                     .add_filter(
                         "All supported archives",
-                        &["zar", "zip", "7z", "tar", "tgz", "tar.gz"],
+                        &["zar", "zip", "7z", "rar", "tar", "tgz", "tar.gz"],
                     )
                     .add_filter("ZAR archive", &["zar"])
                     .add_filter("ZIP archive", &["zip"])
                     .add_filter("7z archive", &["7z"])
+                    .add_filter("RAR archive", &["rar"])
                     .add_filter("TAR archive", &["tar"])
                     .add_filter("gz archive", &["tgz", "tar.gz"])
                     .pick_file()

@@ -21,9 +21,11 @@ zstd = "0.14.3"
 tempfile = "3"
 tar = { version = "0.4", default-features = false }
 sevenz-rust2 = { version = "0.25", default-features = false, features = ["bzip2", "ppmd", "brotli", "deflate", "lz4", "zstd"] }
+rars = { version = "0.12.4", default-features = false }
 zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
+rars = { version = "0.12.4", default-features = false, features = ["write", "encryption"] }
 sevenz-rust2 = { version = "0.25", default-features = false, features = ["compress"] }
 
 [target.'cfg(not(target_os = "wasi"))'.dependencies]

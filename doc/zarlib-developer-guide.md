@@ -92,10 +92,11 @@ create_archive(
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-`create_archive` and `add_archive` also accept `.zip`, `.7z`, `.tar`, `.tar.gz`,
+`create_archive` and `add_archive` also accept `.zip`, `.7z`, `.rar`, `.tar`, `.tar.gz`,
 and `.tgz` paths in their input lists. Entries are imported using their internal
 paths, then processed like other inputs. Encrypted ZIP/7z sources and ZIP/7z
-links are rejected. TAR symbolic links are preserved where the host supports
+links are rejected. Multi-volume RAR archives and RAR special entries are
+rejected. TAR symbolic links are preserved where the host supports
 them, hard links are imported as regular files, and TAR special entries are
 rejected. Safe TAR paths with leading `./` components are normalized, but
 parent traversal is rejected. Source archive timestamps are not retained;

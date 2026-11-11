@@ -3,9 +3,10 @@
 `pyzarlib` provides Python bindings to the Rust `zarlib` archive library.
 The package exposes high-level create, add, remove, join, undo, commit
 encryption/decryption, check, info, list, and extract operations.
-ZIP, 7z, TAR, TAR.GZ, and TGZ paths in `create_archive` and `add_archive` are
-imported by their internal entry paths. Encrypted ZIP/7z sources and ZIP/7z
-links are not supported. TAR symbolic links are preserved where the host
+ZIP, 7z, RAR, TAR, TAR.GZ, and TGZ paths in `create_archive` and `add_archive` are
+imported by their internal entry paths. Encrypted ZIP/7z/RAR sources and
+ZIP/7z/RAR links are not supported. Multi-volume RAR archives and RAR special
+entries are rejected. TAR symbolic links are preserved where the host
 supports them, hard links are imported as regular files, and TAR special
 entries are not supported.
 

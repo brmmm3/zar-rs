@@ -861,7 +861,7 @@ fn cli_encoding_options(
 
 fn zar_output_filename(filename: &str) -> Option<String> {
     let lowercase = filename.to_ascii_lowercase();
-    let suffix = [".tar.gz", ".tgz", ".zip", ".7z", ".tar", ".gz"]
+    let suffix = [".tar.gz", ".tgz", ".zip", ".7z", ".rar", ".tar", ".gz"]
         .into_iter()
         .find(|suffix| lowercase.ends_with(suffix))?;
     Some(format!(

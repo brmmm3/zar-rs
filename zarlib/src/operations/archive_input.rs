@@ -18,6 +18,7 @@ pub(super) struct ScannedInputs {
 pub(super) enum ImportArchiveKind {
     Zip,
     SevenZip,
+    Rar,
     Tar,
     TarGz,
     Gzip,
@@ -54,6 +55,7 @@ pub(super) fn scan_input_paths(
             match kind {
                 ImportArchiveKind::Zip => extract_zip(&source, &temporary_root, &progress)?,
                 ImportArchiveKind::SevenZip => extract_7z(&source, &temporary_root, &progress)?,
+                ImportArchiveKind::Rar => extract_rar(&source, &temporary_root, &progress)?,
                 ImportArchiveKind::Tar => {
                     extract_tar(File::open(&source)?, &temporary_root, &progress)?
                 }
@@ -104,11 +106,138 @@ pub(super) fn import_archive_kind(path: &Path) -> Option<ImportArchiveKind> {
         Some(ImportArchiveKind::Zip)
     } else if extension.eq_ignore_ascii_case("7z") {
         Some(ImportArchiveKind::SevenZip)
+    } else if extension.eq_ignore_ascii_case("rar") {
+        Some(ImportArchiveKind::Rar)
     } else if extension.eq_ignore_ascii_case("tar") {
         Some(ImportArchiveKind::Tar)
     } else {
         None
     }
+}
+
+pub(super) fn extract_rar(
+    source: &Path,
+    destination: &Path,
+    progress: &ProgressReporter<'_>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    progress.check_cancelled()?;
+    let cancellation = rars::ReadCancellation::new();
+    #[cfg(not(target_os = "wasi"))]
+    let result = std::thread::scope(|scope| {
+        let (finished, signal) = std::sync::mpsc::channel::<()>();
+        let watcher = if progress.0.is_some() {
+            let watcher_cancellation = cancellation.clone();
+            Some(scope.spawn(move || {
+                loop {
+                    if progress.is_cancelled() {
+                        watcher_cancellation.cancel();
+                        break;
+                    }
+                    match signal.recv_timeout(std::time::Duration::from_millis(20)) {
+                        Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                    }
+                }
+            }))
+        } else {
+            None
+        };
+        let result = extract_rar_inner(source, destination, progress, &cancellation);
+        drop(finished);
+        if let Some(watcher) = watcher {
+            watcher.join().expect("RAR cancellation watcher panicked");
+        }
+        result
+    });
+    #[cfg(target_os = "wasi")]
+    let result = extract_rar_inner(source, destination, progress, &cancellation);
+    result?;
+    progress.check_cancelled()?;
+    Ok(())
+}
+
+fn extract_rar_inner(
+    source: &Path,
+    destination: &Path,
+    progress: &ProgressReporter<'_>,
+    cancellation: &rars::ReadCancellation,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let options = rars::ArchiveReadOptions::new().with_cancellation(cancellation);
+    let archive = rars::ArchiveReader::read_reader_with_options(File::open(source)?, options)?;
+    let is_volume = match &archive {
+        rars::Archive::Rar13(archive) => archive.main.is_volume(),
+        rars::Archive::Rar15To40(archive) => archive.main.is_volume(),
+        rars::Archive::Rar50Plus(archive) => archive.main.is_volume(),
+        _ => return Err("unsupported RAR archive format".into()),
+    };
+    if is_volume {
+        return Err("multi-volume RAR archives are not supported".into());
+    }
+    for member in archive.members() {
+        progress.check_cancelled()?;
+        let meta = &member.meta;
+        if meta.is_encrypted {
+            return Err("encrypted RAR entries are not supported".into());
+        }
+        if meta.is_redirection || meta.is_split_before || meta.is_split_after {
+            return Err("RAR links and split entries are not supported".into());
+        }
+        if matches!(meta.attr_source(), rars::AttrSource::Unix) {
+            let file_type = meta.file_attr & 0o170000;
+            if file_type != 0 && file_type != 0o100000 && file_type != 0o040000 {
+                return Err("RAR links and special entries are not supported".into());
+            }
+        }
+        if matches!(meta.attr_source(), rars::AttrSource::Dos) && meta.file_attr & 0x400 != 0 {
+            return Err("RAR links and reparse points are not supported".into());
+        }
+        let name = member.decoded_name(None)?;
+        rar_entry_path(&name, meta.is_directory)?;
+    }
+    archive.extract_with_links(
+        options,
+        |entry| {
+            progress.check_cancelled()?;
+            let name = rars::filename::decoded_name(&entry.name, entry.name_is_unicode, None)?;
+            let path = rar_entry_path(&name, entry.is_directory)?;
+            let output_path = destination.join(path.as_str());
+            if entry.is_directory {
+                std::fs::create_dir_all(&output_path)?;
+                return Ok(Box::new(io::sink()));
+            }
+            let parent = output_path
+                .parent()
+                .ok_or_else(|| io::Error::other("RAR entry has no parent directory"))?;
+            std::fs::create_dir_all(parent)?;
+            let file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&output_path)?;
+            Ok(Box::new(file))
+        },
+        |_entry, _link| {
+            Err(io::Error::new(io::ErrorKind::InvalidData, "RAR links are not supported").into())
+        },
+    )?;
+    progress.check_cancelled()?;
+    Ok(())
+}
+
+fn rar_entry_path(name: &[u8], is_directory: bool) -> Result<ArchivePath, io::Error> {
+    let text = std::str::from_utf8(name)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
+        .replace('\\', "/");
+    let path = if is_directory {
+        text.trim_end_matches('/')
+    } else {
+        &text
+    };
+    ArchivePath::new(path.to_owned()).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("invalid RAR entry path {text:?}: {error}"),
+        )
+    })
 }
 
 pub(super) fn extract_gzip_file(
@@ -512,4 +641,27 @@ fn tar_archive_path(
     let archive_path = ArchivePath::new(normalized_path)
         .map_err(|error| format!("invalid TAR entry path {entry_name:?}: {error}"))?;
     Ok(Some(archive_path))
+}
+
+#[cfg(test)]
+mod rar_path_tests {
+    use super::rar_entry_path;
+
+    #[test]
+    fn validates_rar_member_paths() {
+        assert_eq!(
+            rar_entry_path(br"nested\file.txt", false).unwrap().as_str(),
+            "nested/file.txt"
+        );
+        assert_eq!(rar_entry_path(b"nested/", true).unwrap().as_str(), "nested");
+        for path in [
+            b"../outside".as_slice(),
+            b"/absolute",
+            br"C:\outside",
+            br"nested\..\outside",
+            b"bad\xff",
+        ] {
+            assert!(rar_entry_path(path, false).is_err(), "{path:?}");
+        }
+    }
 }

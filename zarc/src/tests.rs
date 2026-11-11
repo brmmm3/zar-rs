@@ -646,6 +646,7 @@ fn conversion_output_names_replace_supported_archive_extensions() {
     for (source, expected) in [
         ("backup.zip", "backup.zar"),
         ("backup.7z", "backup.zar"),
+        ("backup.RAR", "backup.zar"),
         ("backup.tar", "backup.zar"),
         ("backup.tar.gz", "backup.zar"),
         ("backup.tgz", "backup.zar"),
@@ -655,6 +656,46 @@ fn conversion_output_names_replace_supported_archive_extensions() {
         assert_eq!(zar_output_filename(source).as_deref(), Some(expected));
     }
     assert_eq!(zar_output_filename("backup.zipx"), None);
+}
+
+#[test]
+fn cli_convert_imports_rar_contents() {
+    let directory = TestDirectory::new();
+    let source = directory.path().join("input");
+    let output = directory.path().join("output");
+    std::fs::create_dir(&source).unwrap();
+    let mut rar = rars::Builder::new(rars::ArchiveVersion::Rar50);
+    rar.add_bytes(
+        b"nested/file.txt".to_vec(),
+        b"RAR content".to_vec(),
+        None,
+        None,
+    )
+    .unwrap();
+    std::fs::write(source.join("sample.RAR"), rar.to_bytes().unwrap()).unwrap();
+
+    assert_eq!(
+        run([
+            "convert",
+            source.to_str().unwrap(),
+            "--output-folder",
+            output.to_str().unwrap()
+        ]
+        .into_iter()
+        .map(str::to_owned))
+        .unwrap(),
+        0
+    );
+    let archive = output.join("sample.zar");
+    let contents = zarlib::operations::extract_archive_to_memory(
+        archive.to_str().unwrap(),
+        None,
+        None,
+        None,
+        0,
+    )
+    .unwrap();
+    assert_eq!(contents["nested/file.txt"], b"RAR content");
 }
 
 #[test]
@@ -2172,7 +2213,7 @@ fn create_deduplicates_equal_files_but_never_compares_different_sizes() {
 #[test]
 fn create_and_add_skip_compression_for_known_extensions_case_insensitively() {
     let directory = TestDirectory::new();
-    let compressed = directory.path().join("archive.rar");
+    let compressed = directory.path().join("archive.JPG");
     let ordinary = directory.path().join("archive.txt");
     std::fs::write(&compressed, vec![b'x'; 4096]).unwrap();
     std::fs::write(&ordinary, vec![b'y'; 4096]).unwrap();
@@ -2219,7 +2260,7 @@ fn create_and_add_skip_compression_for_known_extensions_case_insensitively() {
         flags_by_index.insert(frame.block_index, frame.flags);
     }
 
-    let compressed_entry = entries.get("archive.rar").unwrap();
+    let compressed_entry = entries.get("archive.JPG").unwrap();
     let ordinary_entry = entries.get("archive.txt").unwrap();
     assert_eq!(compressed_entry.block_indices.len(), 4);
     assert_eq!(ordinary_entry.block_indices.len(), 4);
@@ -2236,7 +2277,7 @@ fn create_and_add_skip_compression_for_known_extensions_case_insensitively() {
             .all(|index| flags_by_index[index] & zarlib::BLOCK_FLAG_UNCOMPRESSED == 0)
     );
 
-    let appended = directory.path().join("added.rar");
+    let appended = directory.path().join("added.MP3");
     let appended_payload = vec![b'z'; 4096];
     std::fs::write(&appended, &appended_payload).unwrap();
     add_archive_with_encoding(
@@ -2264,7 +2305,7 @@ fn create_and_add_skip_compression_for_known_extensions_case_insensitively() {
         .changes
         .into_iter()
         .find_map(|change| match change {
-            TocChange::PutFile { path, entry } if path.as_str() == "added.rar" => Some(entry),
+            TocChange::PutFile { path, entry } if path.as_str() == "added.MP3" => Some(entry),
             _ => None,
         })
         .unwrap();

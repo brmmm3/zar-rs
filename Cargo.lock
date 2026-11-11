@@ -3628,6 +3628,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "rars"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f10c4922c8ceb429e2eed0b2f61672f673d53a42fdfeb07fd0e143777ee9a979"
+dependencies = [
+ "aes",
+ "aho-corasick",
+ "crc32fast",
+ "getrandom 0.4.3",
+ "hmac",
+ "sha1",
+ "sha2",
+ "zeroize",
+]
+
+[[package]]
 name = "raw-window-handle"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4019,6 +4035,17 @@ dependencies = [
  "ppmd-rust",
  "wasm-bindgen",
  "zstd",
+]
+
+[[package]]
+name = "sha1"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
 ]
 
 [[package]]
@@ -5579,6 +5606,7 @@ dependencies = [
  "indicatif",
  "libc",
  "mimalloc",
+ "rars",
  "zarlib",
 ]
 
@@ -5612,6 +5640,7 @@ dependencies = [
  "getrandom 0.4.3",
  "globset",
  "libc",
+ "rars",
  "rayon",
  "scandir",
  "sevenz-rust2",
@@ -5766,6 +5795,20 @@ name = "zeroize"
 version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
+dependencies = [
+ "zeroize_derive",
+]
+
+[[package]]
+name = "zeroize_derive"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c50655cbb0fe3fc43170059e702f1ce5e19b84cec58dc87b037a09935c2f328"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
 
 [[package]]
 name = "zerotrie"

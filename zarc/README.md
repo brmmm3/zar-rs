@@ -42,6 +42,7 @@ For example, `zarc a backup.zar new-file.txt` is equivalent to
 zarc create backup.zar docs/ src/ report.txt
 zarc create converted.zar downloaded.zip
 zarc create converted-7z.zar downloaded.7z
+zarc create converted-rar.zar downloaded.rar
 zarc create converted-tar.zar downloaded.tar
 zarc create converted-tar-gz.zar downloaded.tar.gz
 zarc create converted-tgz.zar downloaded.tgz
@@ -57,10 +58,11 @@ Directories are scanned recursively. Paths inside the current working
 directory are stored relative to it; an absolute input outside it is stored
 using its basename (for example, `/var/log` is stored as `log`). Empty files
 are supported.
-ZIP, 7z, TAR, TAR.GZ, and TGZ files passed as input are imported by their
+ZIP, 7z, RAR, TAR, TAR.GZ, and TGZ files passed as input are imported by their
 internal paths rather than stored as a single archive file. This also applies
-to paths passed to `zarc add`. Encrypted ZIP/7z sources and ZIP/7z links are not
-supported. TAR symbolic links are preserved where the host supports them, and
+to paths passed to `zarc add`. Encrypted ZIP/7z/RAR sources and ZIP/7z/RAR links are not
+supported. Multi-volume RAR archives and RAR special entries are rejected.
+TAR symbolic links are preserved where the host supports them, and
 hard links are imported as regular files. TAR paths with harmless `.` components
 are normalized; parent traversal and special entries are rejected. Source
 archive timestamps are not retained; timestamp options record the staged files' import-time
@@ -128,7 +130,7 @@ zarc convert downloads/ --overwrite
 ```
 
 `convert` scans only files directly inside the input folder (it does not scan
-subfolders) and converts supported ZIP, 7z, TAR, TAR.GZ, and TGZ archives into
+subfolders) and converts supported ZIP, 7z, RAR, TAR, TAR.GZ, and TGZ archives into
 separate ZAR files. The fnmatch `--filter` is matched against each source
 filename and defaults to `*`; unsupported files are ignored. The destination
 folder defaults to the input folder. The source archive extension is replaced

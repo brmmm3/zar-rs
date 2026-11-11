@@ -16,6 +16,8 @@ until a version is released.
 
 ### Added
 
+- Added RAR archive import for create/add, direct extraction, and `zarc convert`.
+  Encrypted and multi-volume RAR archives, links, and special entries are rejected.
 - Added opt-in creation- and access-time recording for create/add via
   `--creation-time` (`--ct`), `--access-time` (`--at`), and binding options
   `save_creation_time` and `save_access_time`. Extraction does not restore
