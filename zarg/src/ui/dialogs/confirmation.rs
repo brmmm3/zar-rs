@@ -101,7 +101,12 @@ impl ZargApp {
                 }
                 UnsavedArchiveChoice::Discard => {
                     if let Some(action) = self.pending_archive_switch.take() {
-                        self.discard_current_archive();
+                        if !matches!(
+                            action,
+                            ArchiveSwitchAction::OpenDialog | ArchiveSwitchAction::OpenPath(..)
+                        ) {
+                            self.discard_current_archive();
+                        }
                         self.execute_archive_switch(action);
                     }
                 }

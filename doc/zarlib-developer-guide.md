@@ -66,8 +66,16 @@ These snippets use the same operations as the `zarc` create, add, remove,
 join, check, info, list, and extract commands. Run them from a working
 directory containing `src/`, `README.md`, and any other referenced input
 files. `PathBuf` inputs are mapped to archive-relative paths.
-These examples use an unencrypted archive. Encrypted commits can be appended;
-removing or joining encrypted archives remains unsupported.
+These examples use an unencrypted archive. Encrypted commits can be appended.
+The library's `remove_archive_entries_with_progress_and_encryption` operation
+can remove entries from encrypted archives when supplied the passwords for all
+encrypted commits, and can encrypt the removal commit. Commits whose encrypted
+headers cannot be unlocked are omitted from passwordless listing and
+extraction; removals of entries in those hidden commits are treated as no-ops
+in the visible state. The password-aware join operation consolidates readable
+commits in the selected range at the first readable commit's position, while
+preserving locked commits and their relative order. Supply passwords by commit
+ID for encrypted commits to include them in the join.
 
 ### Create
 
@@ -177,6 +185,27 @@ Removal paths are archive-relative names, not filesystem paths to delete.
 Removing a directory also removes its descendants from the effective table of
 contents; earlier commits remain unchanged.
 
+### Remove commits
+
+Equivalent CLI: `zarc remove-commits backup.zar 00000002 00000004 --output reduced.zar`
+
+```rust,no_run
+use zarlib::operations::remove_archive_commits;
+
+let ids = vec!["00000002".to_owned(), "00000004".to_owned()];
+let result = remove_archive_commits("backup.zar", &ids, Some("reduced.zar"))?;
+if !result.replay_validated {
+    eprintln!("Retained encrypted headers prevented replay validation");
+}
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Pass `None` for the output to replace the input archive. At least one commit
+must remain. Remaining commits are replayed in order, and incompatible
+histories are rejected when all retained headers are readable. Encrypted
+headers are copied without passwords, so their effects cannot be validated;
+`replay_validated` reports whether that validation was performed.
+
 ### Join a commit range
 
 Equivalent CLI: `zarc join backup.zar --from <first-id> --to <last-id>`
@@ -214,6 +243,7 @@ The operation modules and their commonly used public entry points are:
 | `operations::create` | `create_archive`, `create_archive_with_options`, `create_archive_with_encoding`, `create_archive_with_password_progress_and_filters`, `create_archive_with_password_progress_and_filters_and_aead` | Create a new archive; optional strict scanning, encoding options, password encryption, AEAD selection, and path filters. |
 | `operations::add` | `add_archive`, `add_archive_with_encoding`, `add_archive_with_encoding_progress_and_options_and_filters` | Append a commit that adds or replaces paths, optionally filtered. |
 | `operations::remove` | `remove_archive` | Append tombstones for existing archive-relative paths. |
+| `operations::remove_commits` | `remove_archive_commits` | Remove selected commits in place or to a separate archive. |
 | `operations::join` | `join_archive_with_encoding` | Compact a contiguous commit range. |
 | `operations::check` | `check_archive_with_recovery` | Validate framing and readable archive contents, optionally recovering past damaged framing. |
 | `operations::info` | `info_archive` | Read commit summaries, optionally including verbose file-group statistics. |

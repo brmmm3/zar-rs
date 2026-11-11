@@ -42,6 +42,7 @@ fn operation_kinds_have_distinct_titles_and_dialog_size_keys() {
         OperationKind::AddToArchive,
         OperationKind::RemoveEntries,
         OperationKind::JoinCommits,
+        OperationKind::RemoveCommits,
         OperationKind::UndoCommits,
         OperationKind::ChangeCommits,
         OperationKind::CustomMetadata,
@@ -68,6 +69,7 @@ fn all_operation_dialogs_render_with_representative_state() {
         OperationKind::NewArchive,
         OperationKind::AddToArchive,
         OperationKind::JoinCommits,
+        OperationKind::RemoveCommits,
         OperationKind::UndoCommits,
         OperationKind::ChangeCommits,
         OperationKind::CustomMetadata,
@@ -315,13 +317,29 @@ fn fields_cover_join_and_undo_ranges() {
     });
     assert_eq!(app.operation.to_id, "last");
 
+    app.operation = form(OperationKind::RemoveCommits, "archive.zar");
+    app.operation.from_id = "last".into();
+    app.operation.to_id = "first".into();
+    run_frame(&context, |ui| {
+        app.render_operation_fields(ui, OperationKind::RemoveCommits);
+    });
+    assert_eq!(app.operation.to_id, "last");
+
     app.operation = form(OperationKind::UndoCommits, "archive.zar");
+    for _ in 0..2 {
+        app.rewrite_snapshots.push(RewriteSnapshot {
+            directory: tempfile::tempdir().unwrap(),
+            dirty: true,
+            password: None,
+            passwords: BTreeMap::new(),
+        });
+    }
     app.operation.undo_commits = 100;
     run_frame(&context, |ui| {
         app.render_operation_fields(ui, OperationKind::UndoCommits);
     });
     assert_eq!(app.operation.undo_commits, 2);
-    app.operation.commit_ids.clear();
+    app.rewrite_snapshots.clear();
     run_frame(&context, |ui| {
         app.render_operation_fields(ui, OperationKind::UndoCommits);
     });
@@ -761,6 +779,8 @@ fn undo_action_allows_a_staged_rewrite_with_one_commit() {
     std::fs::write(&archive, b"archive").unwrap();
     let mut app = ZargApp {
         operation: form(OperationKind::UndoCommits, archive.to_str().unwrap()),
+        read_archive: archive.to_string_lossy().into_owned(),
+        has_unsaved_changes: true,
         ..Default::default()
     };
     app.operation.commit_ids = vec!["first".into()];
@@ -768,12 +788,12 @@ fn undo_action_allows_a_staged_rewrite_with_one_commit() {
         directory: tempfile::tempdir().unwrap(),
         dirty: false,
         password: None,
-        commit_count: 2,
+        passwords: BTreeMap::new(),
     });
     app.operation.undo_commits = 1;
     assert!(action_enabled(&mut app, OperationKind::UndoCommits));
     app.operation.undo_commits = 2;
-    assert!(action_enabled(&mut app, OperationKind::UndoCommits));
+    assert!(!action_enabled(&mut app, OperationKind::UndoCommits));
     app.operation.undo_commits = 3;
     assert!(!action_enabled(&mut app, OperationKind::UndoCommits));
 }
@@ -821,10 +841,16 @@ fn action_buttons_validate_inputs_and_passwords() {
     assert!(action_enabled(&mut app, OperationKind::CustomMetadata));
     app.operation = form(OperationKind::UndoCommits, archive);
     app.operation.undo_commits = 1;
-    assert!(action_enabled(&mut app, OperationKind::UndoCommits));
+    assert!(!action_enabled(&mut app, OperationKind::UndoCommits));
     app.operation.undo_commits = 3;
     assert!(!action_enabled(&mut app, OperationKind::UndoCommits));
 
+    app.operation = form(OperationKind::RemoveCommits, archive);
+    assert!(!action_enabled(&mut app, OperationKind::RemoveCommits));
+    app.operation.to_id = "middle".into();
+    assert!(action_enabled(&mut app, OperationKind::RemoveCommits));
+    app.operation.from_id = "last".into();
+    assert!(!action_enabled(&mut app, OperationKind::RemoveCommits));
     app.operation = form(OperationKind::JoinCommits, archive);
     assert!(action_enabled(&mut app, OperationKind::JoinCommits));
     app.operation.to_id = "first".into();

@@ -793,6 +793,8 @@ fn extract_external_archive(
     Ok(plan)
 }
 
+/// Extracts entries whose commits are visible with `passwords`. Commits with
+/// locked headers are skipped, so the resulting plan may be a partial view.
 pub fn extract_archive_with_passwords_progress_and_filters(
     archive: &str,
     destination: &Path,
@@ -1664,10 +1666,27 @@ fn load_extraction_state_impl(
         header_bytes_read = header_bytes_read
             .checked_add(file.stream_position()?.saturating_sub(header_start))
             .ok_or("extraction progress size overflow")?;
-        let header = validated
-            .logical_header
-            .as_ref()
-            .ok_or("cannot extract a header-encrypted commit; use --password")?;
+        let Some(header) = validated.logical_header.as_ref() else {
+            if !validated.encryption.is_header_encrypted() {
+                return Err("commit header is missing its logical header".into());
+            }
+            if let Some(progress) = progress {
+                if let Some(callback) = progress.0 {
+                    callback.warning(&format!(
+                        "skipping header-encrypted commit {:08x} without its password",
+                        u32::from_le_bytes(commit_header.commit_id)
+                    ));
+                }
+                progress.inc(header_bytes_read.saturating_sub(progressed_header_bytes));
+                progress.inc(commit_header.data_section_size);
+            }
+            progressed_header_bytes = header_bytes_read;
+            header_offset = next_header_offset;
+            if matched_this_commit {
+                stopped_at_to = true;
+            }
+            continue;
+        };
         if validated.encryption.is_data_encrypted() && dek.is_none() {
             return Err("cannot extract a data-encrypted commit without a password".into());
         }

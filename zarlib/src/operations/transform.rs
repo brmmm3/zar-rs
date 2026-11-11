@@ -609,7 +609,7 @@ fn validate_written_commit(
     Ok(())
 }
 
-fn validate_staged_archive(
+pub(super) fn validate_staged_archive(
     path: &Path,
     limits: CommitValidationLimits,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -636,7 +636,7 @@ fn validate_staged_archive(
     Ok(())
 }
 
-fn copy_file_region(
+pub(super) fn copy_file_region(
     input: &mut File,
     output: &mut File,
     offset: u64,
@@ -650,7 +650,7 @@ fn copy_file_region(
     Ok(())
 }
 
-fn resolve_output_path(path: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+pub(super) fn resolve_output_path(path: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let absolute = if path.is_absolute() {
         path.to_path_buf()
     } else {
@@ -665,7 +665,7 @@ fn resolve_output_path(path: &Path) -> Result<PathBuf, Box<dyn std::error::Error
     Ok(parent.join(filename))
 }
 
-fn paths_refer_to_same_file(
+pub(super) fn paths_refer_to_same_file(
     source: &Path,
     destination: &Path,
 ) -> Result<bool, Box<dyn std::error::Error>> {
@@ -690,12 +690,12 @@ fn paths_refer_to_same_file(
 }
 
 #[cfg(unix)]
-fn replace_archive(source: &Path, destination: &Path) -> io::Result<()> {
+pub(super) fn replace_archive(source: &Path, destination: &Path) -> io::Result<()> {
     std::fs::rename(source, destination)
 }
 
 #[cfg(windows)]
-fn replace_archive(source: &Path, destination: &Path) -> io::Result<()> {
+pub(super) fn replace_archive(source: &Path, destination: &Path) -> io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
 
     const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
@@ -731,7 +731,7 @@ fn replace_archive(source: &Path, destination: &Path) -> io::Result<()> {
 }
 
 #[cfg(not(any(unix, windows)))]
-fn replace_archive(source: &Path, destination: &Path) -> io::Result<()> {
+pub(super) fn replace_archive(source: &Path, destination: &Path) -> io::Result<()> {
     std::fs::rename(source, destination)
 }
 

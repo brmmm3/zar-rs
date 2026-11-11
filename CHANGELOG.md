@@ -24,7 +24,7 @@ until a version is released.
   buttons pinned to the bottom, so Create and Cancel stay visible when the
   dialog is small; only the form fields scroll.
 
-## 0.9.0 - 2026-??-??
+## 0.9.0 - 2026-11-11
 
 ### Added
 

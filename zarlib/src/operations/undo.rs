@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 /// Removes the requested number of commits from the end of an archive.
 ///
 /// The first commit is the archive's root state and cannot be removed.
-pub fn undo_archive(
+pub fn remove_commits(
     archive: &str,
     commits_to_remove: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -113,7 +113,7 @@ pub fn undo_archive(
 
 #[cfg(test)]
 mod tests {
-    use super::undo_archive;
+    use super::remove_commits;
     use crate::operations::{add_archive, create_archive};
     use std::fs;
 
@@ -132,7 +132,7 @@ mod tests {
         add_archive(archive.to_str().unwrap(), std::slice::from_ref(&second)).unwrap();
         add_archive(archive.to_str().unwrap(), std::slice::from_ref(&third)).unwrap();
 
-        undo_archive(archive.to_str().unwrap(), 1).unwrap();
+        remove_commits(archive.to_str().unwrap(), 1).unwrap();
         let commits = crate::operations::info_archive(archive.to_str().unwrap(), false).unwrap();
         assert_eq!(commits.len(), 2);
         let contents =
@@ -166,9 +166,9 @@ mod tests {
         create_archive(archive.to_str().unwrap(), std::slice::from_ref(&first)).unwrap();
         add_archive(archive.to_str().unwrap(), std::slice::from_ref(&second)).unwrap();
 
-        let error = undo_archive(archive.to_str().unwrap(), 2).unwrap_err();
+        let error = remove_commits(archive.to_str().unwrap(), 2).unwrap_err();
         assert!(error.to_string().contains("first commit must be retained"));
-        assert!(undo_archive(archive.to_str().unwrap(), 0).is_err());
+        assert!(remove_commits(archive.to_str().unwrap(), 0).is_err());
         assert_eq!(
             crate::operations::info_archive(archive.to_str().unwrap(), false)
                 .unwrap()

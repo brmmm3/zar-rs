@@ -1,4 +1,4 @@
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, IsTerminal, Seek, Write};
 use std::process::ExitCode;
 mod args;
 use args::{Cli, Command};
@@ -17,7 +17,7 @@ use std::{
 use zarlib::operations::*;
 #[cfg(test)]
 use zarlib::*;
-use zarlib::{ContentAead, EncryptionScope};
+use zarlib::{ArchivePath, CommitValidationLimits, ContentAead, EncryptionScope, TocChange};
 
 #[cfg(unix)]
 struct TerminalEchoGuard {
@@ -90,6 +90,120 @@ fn prompt_password_set(
         passwords.insert_for_commit(id, password.into_bytes());
     }
     Ok(passwords)
+}
+
+struct ReplacedFile {
+    path: ArchivePath,
+    previous_commit: [u8; 4],
+    replacing_commit: [u8; 4],
+}
+
+#[derive(Default)]
+struct ListDiagnostics {
+    replaced_files: Vec<ReplacedFile>,
+    skipped_commits: Vec<[u8; 4]>,
+}
+
+fn list_diagnostics(
+    archive: &str,
+    to: Option<&str>,
+    passwords: &PasswordSet,
+) -> Result<ListDiagnostics, Box<dyn std::error::Error>> {
+    let requested_id = to.map(parse_commit_id).transpose()?;
+    let mut file = std::fs::File::open(archive)?;
+    let mut header_offset = zarlib::ContainerHeader::read_from(&mut file)?.first_header_offset;
+    let limits = CommitValidationLimits::default();
+    let mut matches = 0_u32;
+    let mut stopped_at_to = false;
+    let mut active_files = std::collections::BTreeMap::<ArchivePath, [u8; 4]>::new();
+    let mut diagnostics = ListDiagnostics::default();
+
+    while header_offset != 0 {
+        let (commit_header, _, next_header_offset) =
+            read_commit_at_offset(&mut file, header_offset, limits)?;
+        if requested_id == Some(commit_header.commit_id) {
+            matches += 1;
+            if matches > 1 {
+                return Err("--to commit ID is ambiguous".into());
+            }
+        }
+        if !stopped_at_to {
+            file.seek(std::io::SeekFrom::Start(header_offset))?;
+            let (validated, _) = read_header_with_passwords(&mut file, limits, passwords)?;
+            if let Some(header) = validated.logical_header {
+                for change in header.changes {
+                    match change {
+                        TocChange::PutFile { path, .. } => {
+                            if let Some(previous_commit) =
+                                active_files.insert(path.clone(), validated.commit_header.commit_id)
+                                && previous_commit != validated.commit_header.commit_id
+                            {
+                                diagnostics.replaced_files.push(ReplacedFile {
+                                    path,
+                                    previous_commit,
+                                    replacing_commit: validated.commit_header.commit_id,
+                                });
+                            }
+                        }
+                        TocChange::PutDirectory { path }
+                        | TocChange::PutSymlink { path, .. }
+                        | TocChange::PutNamedPipe { path }
+                        | TocChange::PutDevice { path, .. }
+                        | TocChange::RemoveFile { path } => {
+                            active_files.remove(&path);
+                        }
+                        TocChange::RemoveDirectory { path } => {
+                            active_files.retain(|existing, _| {
+                                existing != &path
+                                    && !existing
+                                        .as_str()
+                                        .strip_prefix(path.as_str())
+                                        .is_some_and(|suffix| suffix.starts_with('/'))
+                            });
+                        }
+                    }
+                }
+            } else if validated.encryption.is_header_encrypted() {
+                diagnostics
+                    .skipped_commits
+                    .push(validated.commit_header.commit_id);
+            } else {
+                return Err("commit header is missing its logical header".into());
+            }
+        }
+        if requested_id == Some(commit_header.commit_id) {
+            stopped_at_to = true;
+        }
+        header_offset = next_header_offset;
+    }
+
+    if requested_id.is_some() && matches == 0 {
+        return Err("--to commit ID was not found".into());
+    }
+    Ok(diagnostics)
+}
+
+fn render_list_diagnostics(diagnostics: &ListDiagnostics) -> String {
+    let mut output = String::new();
+    if !diagnostics.replaced_files.is_empty() {
+        output.push_str("Files replaced by newer commits:\n");
+        for replaced in &diagnostics.replaced_files {
+            output.push_str(&format!(
+                "  {} (commit {} replaced by commit {})",
+                replaced.path,
+                format_commit_id(&replaced.previous_commit),
+                format_commit_id(&replaced.replacing_commit)
+            ));
+            output.push('\n');
+        }
+    }
+    if !diagnostics.skipped_commits.is_empty() {
+        output.push_str("Ignored commits (password not provided):\n");
+        for commit_id in &diagnostics.skipped_commits {
+            output.push_str(&format!("  {}\n", format_commit_id(commit_id)));
+        }
+    }
+    output
 }
 
 fn parse_content_aead(value: &str) -> Result<ContentAead, Box<dyn std::error::Error>> {
@@ -1116,9 +1230,18 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             println!("Time: {}", format_duration(elapsed));
             Ok(0)
         }
-        Command::Undo { archive, commits } => {
-            undo_archive(&archive, commits)?;
-            println!("Removed {commits} trailing commit(s)");
+        Command::RemoveCommits {
+            archive,
+            commits,
+            output,
+        } => {
+            let result = remove_archive_commits(&archive, &commits, output.as_deref())?;
+            if !result.replay_validated {
+                eprintln!(
+                    "Warning: retained encrypted headers prevented validation of the remaining history."
+                );
+            }
+            println!("Removed {} commit(s)", commits.len());
             Ok(0)
         }
         Command::Meta {
@@ -1356,6 +1479,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             to,
             password,
             password_for,
+            verbose,
             include_files,
             exclude_files,
             include_folders,
@@ -1391,6 +1515,16 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                         println!("{} [{kind:?} device {major}:{minor}]", archive_path)
                     }
                 }
+            }
+            if verbose {
+                print!(
+                    "{}",
+                    render_list_diagnostics(&list_diagnostics(
+                        &archive,
+                        to.as_deref(),
+                        &passwords,
+                    )?)
+                );
             }
             let elapsed = start.elapsed();
             println!("Time: {}", format_duration(elapsed));

@@ -2,7 +2,6 @@ use super::common::*;
 use crate::{
     BLOCK_FLAG_ENCRYPTED, BlockFrame, CommitValidationLimits, ContainerHeader, ContentAead,
     FileEntry, FileGroupKind, HEADER_OFFSET_SIZE, LogicalHeader, MetadataType, TocChange,
-    ValidatedHeader,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::File;
@@ -92,10 +91,12 @@ pub fn info_archive(
     path: &str,
     verbose: bool,
 ) -> Result<Vec<CommitInfo>, Box<dyn std::error::Error>> {
-    Ok(read_archive_info(path, verbose, false)?
-        .into_iter()
-        .map(|details| details.commit)
-        .collect())
+    Ok(
+        read_archive_info(path, verbose, false, &PasswordSet::default())?
+            .into_iter()
+            .map(|details| details.commit)
+            .collect(),
+    )
 }
 
 /// Like [`info_archive`], with per-block compression details when `verbose` is true.
@@ -103,13 +104,23 @@ pub fn info_archive_with_blocks(
     path: &str,
     verbose: bool,
 ) -> Result<Vec<CommitInfoWithBlocks>, Box<dyn std::error::Error>> {
-    read_archive_info(path, verbose, true)
+    info_archive_with_blocks_and_passwords(path, verbose, &PasswordSet::default())
+}
+
+/// Like [`info_archive_with_blocks`], with encrypted commit headers unlocked by `passwords`.
+pub fn info_archive_with_blocks_and_passwords(
+    path: &str,
+    verbose: bool,
+    passwords: &PasswordSet,
+) -> Result<Vec<CommitInfoWithBlocks>, Box<dyn std::error::Error>> {
+    read_archive_info(path, verbose, true, passwords)
 }
 
 fn read_archive_info(
     path: &str,
     verbose: bool,
     include_block_details: bool,
+    passwords: &PasswordSet,
 ) -> Result<Vec<CommitInfoWithBlocks>, Box<dyn std::error::Error>> {
     let mut file = File::open(path)?;
     let container = ContainerHeader::read_from(&mut file)?;
@@ -129,13 +140,13 @@ fn read_archive_info(
             .and_then(|size| size.checked_sub(HEADER_OFFSET_SIZE))
             .ok_or("commit size overflow")?;
         file.seek(SeekFrom::Start(header_offset))?;
-        let validated = ValidatedHeader::read_header(&mut file, limits)?;
+        let (validated, _) = read_header_with_passwords(&mut file, limits, passwords)?;
         let uncompressed_size = validated
             .logical_header
             .as_ref()
             .map(uncompressed_commit_size)
             .transpose()?;
-        let header_encrypted = validated.logical_header.is_none();
+        let header_encrypted = validated.encryption.is_header_encrypted();
         let header_changes = validated
             .logical_header
             .as_ref()
@@ -575,4 +586,48 @@ pub fn summarize_commit_files(
         }
     }
     Ok(stats)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::operations::{EncodingOptions, create_archive_with_password};
+
+    #[test]
+    fn archive_info_can_unlock_encrypted_commit_headers() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("secret.txt");
+        let archive = directory.path().join("encrypted.zar");
+        std::fs::write(&input, b"secret contents").unwrap();
+        create_archive_with_password(
+            archive.to_str().unwrap(),
+            &[input],
+            false,
+            EncodingOptions::default(),
+            Some(b"correct password"),
+        )
+        .unwrap();
+
+        let locked = info_archive_with_blocks(archive.to_str().unwrap(), true).unwrap();
+        assert!(locked[0].commit.header_encrypted);
+        assert!(locked[0].commit.details.is_none());
+
+        let passwords = PasswordSet::new(Some(b"correct password".to_vec()));
+        let unlocked =
+            info_archive_with_blocks_and_passwords(archive.to_str().unwrap(), true, &passwords)
+                .unwrap();
+        assert!(unlocked[0].commit.header_encrypted);
+        assert!(unlocked[0].commit.data_encrypted);
+        assert!(unlocked[0].commit.details.is_some());
+
+        let wrong_password = PasswordSet::new(Some(b"incorrect password".to_vec()));
+        assert!(
+            info_archive_with_blocks_and_passwords(
+                archive.to_str().unwrap(),
+                true,
+                &wrong_password
+            )
+            .is_err()
+        );
+    }
 }

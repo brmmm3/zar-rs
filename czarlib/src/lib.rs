@@ -298,7 +298,7 @@ fn undo(request: &Value) -> Result<Value, String> {
         .and_then(Value::as_u64)
         .and_then(|value| usize::try_from(value).ok())
         .ok_or("'commits' must be a positive integer in range")?;
-    operations::undo_archive(required_string(request, "archive")?, commits)
+    operations::remove_commits(required_string(request, "archive")?, commits)
         .map_err(|error| error.to_string())?;
     Ok(Value::Null)
 }

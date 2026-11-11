@@ -1,13 +1,14 @@
 use super::common::*;
 use super::pipeline::archive_prefix;
 use crate::{
-    ArchivePath, CommitHeader, CommitValidationLimits, ContainerHeader, HEADER_OFFSET_SIZE,
-    HeaderFrame, LogicalHeader, Toc, TocChange, TocEntry, UNENCRYPTED_DESCRIPTOR, ValidatedCommit,
-    ValidatedHeader,
+    ArchivePath, CommitHeader, CommitValidationLimits, ContainerHeader, ContentAead,
+    EncryptionDescriptor, EncryptionScope, HEADER_OFFSET_SIZE, HeaderFrame, LogicalHeader, Toc,
+    TocChange, TocEntry, ValidatedCommit, generate_dek, generate_nonce, wrap_dek_with_password,
 };
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use zeroize::Zeroizing;
 
 pub fn remove_archive(archive: &str, paths: &[PathBuf]) -> Result<(), Box<dyn std::error::Error>> {
     remove_archive_with_progress(archive, paths, None)
@@ -32,6 +33,25 @@ pub fn remove_archive_entries_with_progress(
     paths: &[ArchivePath],
     progress: Option<&dyn Progress>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    remove_archive_entries_with_progress_and_encryption(
+        archive,
+        paths,
+        progress,
+        None,
+        &PasswordSet::default(),
+    )
+}
+
+/// Removes entries and optionally encrypts the resulting header-only commit.
+/// Passwords for existing encrypted commits are required to build the complete
+/// archive state before applying removals.
+pub fn remove_archive_entries_with_progress_and_encryption(
+    archive: &str,
+    paths: &[ArchivePath],
+    progress: Option<&dyn Progress>,
+    encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
+    passwords: &PasswordSet,
+) -> Result<(), Box<dyn std::error::Error>> {
     let progress = ProgressReporter::new(progress);
     if let Some(callback) = progress.0 {
         callback.set_total(paths.len() as u64);
@@ -44,8 +64,8 @@ pub fn remove_archive_entries_with_progress(
     if !parent.is_dir() {
         return Err(format!("archive parent is not a directory: {}", parent.display()).into());
     }
-    let (mut toc, next_commit_id) = load_toc_for_removal(archive_path)?;
-    let reusable_tail = find_reusable_empty_tail(archive_path, &PasswordSet::default())?;
+    let (mut toc, next_commit_id) = load_toc_for_removal(archive_path, passwords)?;
+    let reusable_tail = find_reusable_empty_tail(archive_path, passwords)?;
     let new_commit_id = reusable_tail.map_or(next_commit_id, |tail| tail.commit_id);
     let mut changes = Vec::new();
     let mut seen_paths = std::collections::BTreeSet::new();
@@ -74,7 +94,14 @@ pub fn remove_archive_entries_with_progress(
     let header_bytes = LogicalHeader::new(changes)
         .with_metadata(commit_metadata(None)?)
         .encode()?;
-    append_header_only_commit_with_id(archive_path, &header_bytes, new_commit_id, true)
+    append_header_only_commit_with_id_and_encryption(
+        archive_path,
+        &header_bytes,
+        new_commit_id,
+        true,
+        encryption,
+        passwords,
+    )
 }
 
 /// Appends a commit that carries only a logical header (no data section).
@@ -92,23 +119,77 @@ fn append_header_only_commit_with_id(
     new_commit_id: [u8; 4],
     reuse_empty_tail: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    append_header_only_commit_with_id_and_encryption(
+        archive_path,
+        header_bytes,
+        new_commit_id,
+        reuse_empty_tail,
+        None,
+        &PasswordSet::default(),
+    )
+}
+
+fn append_header_only_commit_with_id_and_encryption(
+    archive_path: &Path,
+    header_bytes: &[u8],
+    new_commit_id: [u8; 4],
+    reuse_empty_tail: bool,
+    encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
+    passwords: &PasswordSet,
+) -> Result<(), Box<dyn std::error::Error>> {
     let limits = CommitValidationLimits::default();
     let data_section_size = 0u64;
+    let (dek, descriptor_bytes) = if let Some((password, algorithm, scope)) = encryption {
+        let dek = Zeroizing::new(generate_dek()?);
+        let descriptor = EncryptionDescriptor::Password {
+            scope,
+            algorithm,
+            nonce: generate_nonce()?,
+            key_wrap: wrap_dek_with_password(password, &dek, algorithm, 65_536, 3, 1)?,
+        };
+        (Some(dek), descriptor.encode()?)
+    } else {
+        (None, crate::UNENCRYPTED_DESCRIPTOR.to_vec())
+    };
     let temp_ch = CommitHeader::new(0, new_commit_id, data_section_size, 0)?;
-    let staged_header =
-        HeaderFrame::from_uncompressed(temp_ch, header_bytes, UNENCRYPTED_DESCRIPTOR.to_vec(), 3)?;
+    let staged_header = if encryption.is_some_and(|(_, _, scope)| {
+        matches!(
+            scope,
+            EncryptionScope::Header | EncryptionScope::HeaderAndData
+        )
+    }) {
+        HeaderFrame::from_uncompressed_encrypted(
+            temp_ch,
+            header_bytes,
+            descriptor_bytes.clone(),
+            3,
+            dek.as_deref()
+                .ok_or("encrypted header is missing its key")?,
+        )?
+    } else {
+        HeaderFrame::from_uncompressed(temp_ch, header_bytes, descriptor_bytes.clone(), 3)?
+    };
     let header_size = u32::try_from(staged_header.encoded_size()?)?;
     let commit_header = CommitHeader::new(0, new_commit_id, data_section_size, header_size)?;
-    let header = HeaderFrame::from_uncompressed(
-        commit_header.clone(),
-        header_bytes,
-        UNENCRYPTED_DESCRIPTOR.to_vec(),
-        3,
-    )?;
+    let header = if encryption.is_some_and(|(_, _, scope)| {
+        matches!(
+            scope,
+            EncryptionScope::Header | EncryptionScope::HeaderAndData
+        )
+    }) {
+        HeaderFrame::from_uncompressed_encrypted(
+            commit_header,
+            header_bytes,
+            descriptor_bytes,
+            3,
+            dek.as_deref()
+                .ok_or("encrypted header is missing its key")?,
+        )?
+    } else {
+        HeaderFrame::from_uncompressed(commit_header, header_bytes, descriptor_bytes, 3)?
+    };
 
-    if reuse_empty_tail
-        && let Some(tail) = find_reusable_empty_tail(archive_path, &PasswordSet::default())?
-    {
+    if reuse_empty_tail && let Some(tail) = find_reusable_empty_tail(archive_path, passwords)? {
         if tail.commit_id != new_commit_id {
             return Err("last archive commit changed while preparing header commit".into());
         }
@@ -232,7 +313,10 @@ fn replace_empty_tail_with_header(
     Ok(())
 }
 
-fn load_toc_for_removal(archive_path: &Path) -> Result<(Toc, [u8; 4]), Box<dyn std::error::Error>> {
+fn load_toc_for_removal(
+    archive_path: &Path,
+    passwords: &PasswordSet,
+) -> Result<(Toc, [u8; 4]), Box<dyn std::error::Error>> {
     let mut file = File::open(archive_path)?;
     let limits = CommitValidationLimits::default();
     let container = ContainerHeader::read_from(&mut file)?;
@@ -244,11 +328,11 @@ fn load_toc_for_removal(archive_path: &Path) -> Result<(Toc, [u8; 4]), Box<dyn s
         let (commit_header, _, next_header_offset) =
             read_commit_at_offset(&mut file, header_offset, limits)?;
         file.seek(SeekFrom::Start(header_offset))?;
-        let validated = ValidatedHeader::read_header(&mut file, limits)?;
-        if validated.encryption.is_header_encrypted() || validated.encryption.is_data_encrypted() {
-            return Err(
-                "mutations on archives containing encrypted commits are unsupported".into(),
-            );
+        let (validated, dek) = read_header_with_passwords(&mut file, limits, passwords)?;
+        if validated.logical_header.is_none()
+            || (validated.encryption.is_data_encrypted() && dek.is_none())
+        {
+            return Err("removing entries requires passwords for all encrypted commits".into());
         }
         let header = validated
             .logical_header

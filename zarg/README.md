@@ -106,16 +106,16 @@ desktop entry.
 - Open those formats directly for read-only browsing and extraction; zarg
   creates a temporary ZAR snapshot and leaves the source archive unchanged.
 - Remove selected archive entries or paths.
-- Join a contiguous range of commits. In-place joins and changes to commit
-  encryption are staged in a temporary working archive until Save or Save as.
-  Undo commits can reverse those changes without discarding earlier edits; its
-  step count also covers subsequent staged actions and earlier trailing commits.
-  The first commit is retained. Saving removes the temporary working archive
-  and its undo history.
+- Join a contiguous range of commits, or remove an inclusive range through
+  Tools → Remove commits. At least one commit must remain; removing commits
+  can change the resulting history. When retained encrypted headers prevent
+  validation, zarg reports a warning.
+- Edit → Undo reverses unsaved session changes in action order, without
+  removing saved commit history. Saving clears the undo history.
 - Encrypt, decrypt, or change encryption for commits through a unified dialog
   (Tools → Change commits). Choose an inclusive commit range and optionally
   write the result to a different archive without changing the open archive.
-  Join commits also supports a separate output archive. Leave "Write to" empty
+  Join and Remove commits also support a separate output archive. Leave "Write to" empty
   for an in-place staged change; an output path must differ from the open
   archive. Encryption offers AES-256-GCM or
   ChaCha20-Poly1305, with header/data scope selection.
@@ -124,6 +124,12 @@ desktop entry.
   optional verbose statistics or JSON output.
 - List the latest archive state or select a commit and unlock encrypted
   headers with a password.
+- Opening an archive with encrypted commits prompts for each commit's password.
+  Leave a password blank to keep that commit locked, or copy the first
+  password to all encrypted commits. Cancel leaves the current archive open.
+  Successfully unlocked commit passwords are remembered in memory for the
+  application session and reused in the Info and Add dialogs. Reopening the
+  archive prefills its password fields; passwords are not saved to disk.
 - Extract with collision and existing-file policies, optional metadata,
   symlink/device restoration, dry run, and commit selection. The Extract
   dialog has General, Advanced, and Filter tabs, plus an Encryption tab when
@@ -138,7 +144,7 @@ desktop entry.
   the New archive dialog's settings; for an opened archive it uses Settings defaults. Later
   Add dialogs remember their settings until another archive is created or opened
   or the application exits, including when the dialog is canceled. Selected
-  input files and passwords are not remembered; passwords must be re-entered.
+  input files and new-commit encryption passwords are not remembered.
 - Settings are grouped into Appearance, Compression, Advanced, Encryption,
   and Filters tabs.
 - New archive prompts to save unsaved changes only when the latest state is

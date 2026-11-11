@@ -15,7 +15,9 @@ class PackagingDispatchTests(unittest.TestCase):
             with self.subTest(system=system):
                 with (
                     mock.patch.object(run_packaging, "build_linux_packages") as linux,
-                    mock.patch.object(run_packaging, "build_windows_installers") as windows,
+                    mock.patch.object(
+                        run_packaging, "build_windows_installers"
+                    ) as windows,
                     mock.patch.object(run_packaging, "build_macos_packages") as macos,
                 ):
                     run_packaging.build_for_system(system)
@@ -39,7 +41,9 @@ class PackagingDispatchTests(unittest.TestCase):
             ("aarch64", ("arm64", "aarch64-pc-windows-msvc")),
         ):
             with self.subTest(machine=machine):
-                self.assertEqual(run_packaging.windows_target_for_machine(machine), target)
+                self.assertEqual(
+                    run_packaging.windows_target_for_machine(machine), target
+                )
 
     def test_rejects_an_unsupported_windows_cpu_architecture(self):
         with self.assertRaisesRegex(
@@ -54,10 +58,18 @@ class PackagingDispatchTests(unittest.TestCase):
         ):
             with self.subTest(machine=machine):
                 with (
-                    mock.patch.object(run_packaging.platform, "machine", return_value=machine),
-                    mock.patch.object(run_packaging, "require", side_effect=lambda name: name),
-                    mock.patch.object(run_packaging, "workspace_version", return_value="0.9.0"),
-                    mock.patch.object(run_packaging, "inno_setup_compiler", return_value="ISCC.exe"),
+                    mock.patch.object(
+                        run_packaging.platform, "machine", return_value=machine
+                    ),
+                    mock.patch.object(
+                        run_packaging, "require", side_effect=lambda name: name
+                    ),
+                    mock.patch.object(
+                        run_packaging, "workspace_version", return_value="0.10.0"
+                    ),
+                    mock.patch.object(
+                        run_packaging, "inno_setup_compiler", return_value="ISCC.exe"
+                    ),
                     mock.patch.object(run_packaging, "command") as command,
                 ):
                     run_packaging.build_windows_installers()
@@ -65,7 +77,9 @@ class PackagingDispatchTests(unittest.TestCase):
                 self.assertEqual(command.call_count, 4)
                 self.assertEqual(command.call_args_list[1].args[0][3], target)
                 self.assertIn(target, command.call_args_list[2].args[0])
-                self.assertIn(f"/DArch={architecture}", command.call_args_list[3].args[0])
+                self.assertIn(
+                    f"/DArch={architecture}", command.call_args_list[3].args[0]
+                )
 
 
 if __name__ == "__main__":

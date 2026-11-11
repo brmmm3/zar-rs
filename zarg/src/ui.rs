@@ -1,6 +1,6 @@
 use eframe::egui;
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -208,6 +208,8 @@ pub(crate) enum UiIcon {
     Confirm,
     ConfirmApply,
     Cancel,
+    Lock,
+    Unlock,
     AddFilterList,
     Folder,
     Bookmarks,
@@ -297,6 +299,8 @@ fn icon_bytes(icon: UiIcon, theme: crate::settings::IconTheme) -> &'static [u8] 
         UiIcon::Confirm => themed_icon!("actions/dialog-ok.png"),
         UiIcon::ConfirmApply => themed_icon!("actions/dialog-ok-apply.png"),
         UiIcon::Cancel => themed_icon!("actions/dialog-cancel.png"),
+        UiIcon::Lock => themed_icon!("actions/document-encrypt.png"),
+        UiIcon::Unlock => themed_icon!("actions/document-decrypt.png"),
         UiIcon::AddFilterList => themed_icon!("actions/list-add.png"),
         UiIcon::Folder => themed_icon!("places/folder.png"),
         UiIcon::Bookmarks => themed_icon!("places/bookmarks.png"),
@@ -434,6 +438,7 @@ pub(super) struct OperationForm {
     from_id: String,
     to_id: String,
     join_output: String,
+    remove_commits_output: String,
     undo_commits: usize,
     transform_output: String,
     transform_action: usize,
@@ -452,6 +457,7 @@ pub(super) struct OperationForm {
     password_confirm: String,
     existing_password: String,
     commit_unlocks: Vec<CommitUnlock>,
+    archive_passwords: BTreeMap<[u8; 4], String>,
     show_password: bool,
     aead: usize,
     encryption_scope: usize,
@@ -601,6 +607,19 @@ enum UiEvent {
     Total(u64),
     Warning(String),
     Confirm(String),
+    OpenPasswords {
+        commits: Vec<operations::CommitInfo>,
+        password: Option<String>,
+        remembered: BTreeMap<[u8; 4], String>,
+        answers: Sender<Option<BTreeMap<[u8; 4], String>>>,
+    },
+    OpenPasswordError(String),
+    RememberPasswords(BTreeMap<[u8; 4], String>),
+    ReplacePasswords(BTreeMap<[u8; 4], String>),
+    OpeningArchive {
+        archive: String,
+        passwords: BTreeMap<[u8; 4], String>,
+    },
     Loaded(
         Result<
             (
@@ -627,6 +646,7 @@ enum UiEvent {
         steps: usize,
         dirty: bool,
         password: Option<String>,
+        passwords: BTreeMap<[u8; 4], String>,
     },
     EntriesRemoved(Vec<String>),
     ArchiveSaved {
@@ -646,7 +666,7 @@ struct RewriteSnapshot {
     directory: tempfile::TempDir,
     dirty: bool,
     password: Option<String>,
-    commit_count: usize,
+    passwords: BTreeMap<[u8; 4], String>,
 }
 
 #[derive(Clone)]
@@ -661,6 +681,39 @@ pub(super) struct ArchiveInfoView {
     pub(super) archive: String,
     pub(super) commits: Vec<CommitInfoWithBlocks>,
     pub(super) metadata: Vec<(String, String)>,
+}
+
+pub(super) struct ArchiveInfoLoad {
+    pub(super) view: ArchiveInfoView,
+    pub(super) passwords: BTreeMap<[u8; 4], String>,
+}
+
+pub(super) struct ArchiveInfoUnlockPrompt {
+    pub(super) commit_id: [u8; 4],
+    pub(super) password: String,
+    pub(super) error: Option<String>,
+    pub(super) busy: bool,
+}
+
+struct OpenPasswordRow {
+    id: [u8; 4],
+    encrypted: bool,
+    password: String,
+}
+
+struct OpenPasswordDialog {
+    rows: Vec<OpenPasswordRow>,
+    answers: Sender<Option<BTreeMap<[u8; 4], String>>>,
+    error: Option<String>,
+    busy: bool,
+}
+
+fn password_set(passwords: &BTreeMap<[u8; 4], String>, default: Option<&str>) -> PasswordSet {
+    let mut result = PasswordSet::new(default.map(|value| value.as_bytes().to_vec()));
+    for (id, password) in passwords {
+        result.insert_for_commit(*id, password.as_bytes().to_vec());
+    }
+    result
 }
 
 /// Unpacks the archive to a scratch folder, then times creating and extracting a
@@ -776,14 +829,19 @@ pub struct ZargApp {
     pending_open: Option<String>,
     recent_archives: Vec<String>,
     recent_check: Option<Receiver<Vec<String>>>,
-    info_loading: Option<Receiver<Result<ArchiveInfoView, String>>>,
+    info_loading: Option<Receiver<Result<ArchiveInfoLoad, String>>>,
     info_view: Option<ArchiveInfoView>,
+    info_passwords: BTreeMap<[u8; 4], String>,
+    info_unlock_prompt: Option<ArchiveInfoUnlockPrompt>,
     benchmark: BenchmarkState,
     pending_recent_archive: Option<String>,
     window_geometry: Option<crate::settings::WindowGeometry>,
     geometry_monitor_count: usize,
     dialog_sizes: HashMap<String, [f32; 2]>,
     archive_password: Option<String>,
+    archive_passwords: BTreeMap<[u8; 4], String>,
+    session_passwords: HashMap<PathBuf, BTreeMap<[u8; 4], String>>,
+    open_password_dialog: Option<OpenPasswordDialog>,
     column_widths: HashMap<String, f32>,
     has_entry_dates: bool,
     has_entry_owner: bool,
@@ -862,12 +920,17 @@ impl Default for ZargApp {
             recent_check: None,
             info_loading: None,
             info_view: None,
+            info_passwords: BTreeMap::new(),
+            info_unlock_prompt: None,
             benchmark: BenchmarkState::default(),
             pending_recent_archive: None,
             window_geometry: None,
             geometry_monitor_count: 0,
             dialog_sizes: HashMap::new(),
             archive_password: None,
+            archive_passwords: BTreeMap::new(),
+            session_passwords: HashMap::new(),
+            open_password_dialog: None,
             column_widths: HashMap::new(),
             has_entry_dates: false,
             has_entry_owner: false,
@@ -967,6 +1030,16 @@ impl EntrySummary {
 }
 
 impl ZargApp {
+    fn remember_commit_passwords(&mut self, passwords: &BTreeMap<[u8; 4], String>) {
+        self.archive_passwords.extend(passwords.clone());
+        if !self.archive.is_empty() && !self.has_unsaved_changes {
+            let path = PathBuf::from(&self.archive);
+            let key = std::fs::canonicalize(&path).unwrap_or(path);
+            self.session_passwords
+                .insert(key, self.archive_passwords.clone());
+        }
+    }
+
     pub fn create_default_archive(&mut self) {
         let mut form = self.new_operation_form(OperationKind::NewArchive, "");
         form.password_is_set = false;
@@ -1100,7 +1173,7 @@ impl ZargApp {
 
     fn check_first_commit_for_new_archive(&mut self) {
         let archive = self.read_archive.clone();
-        let password = self.archive_password.clone();
+        let passwords = password_set(&self.archive_passwords, self.archive_password.as_deref());
         let (events_tx, events_rx) = mpsc::channel();
         let (answer_tx, _answer_rx) = mpsc::channel();
         self.begin_worker(events_rx, answer_tx, "Checking first commit");
@@ -1111,12 +1184,8 @@ impl ZargApp {
                     operations::info_archive(&archive, false).map_err(|error| error.to_string())?;
                 let first = commits.first().ok_or("Archive has no commits.")?;
                 let id = format!("{:08x}", u32::from_le_bytes(first.id));
-                let toc = operations::list_archive(
-                    &archive,
-                    Some(&id),
-                    password.as_deref().map(str::as_bytes),
-                )
-                .map_err(|error| error.to_string())?;
+                let toc = operations::list_archive_with_passwords(&archive, Some(&id), &passwords)
+                    .map_err(|error| error.to_string())?;
                 Ok(toc.is_empty())
             })();
             match result {
@@ -1163,70 +1232,141 @@ impl ZargApp {
     }
 
     fn open_archive_now(&mut self, path: PathBuf, password: Option<String>) {
-        self.add_archive_settings = None;
-        if self.operation.kind == Some(OperationKind::AddToArchive) {
-            self.operation = OperationForm::default();
-        }
+        let key = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+        let remembered = self
+            .session_passwords
+            .get(&key)
+            .cloned()
+            .unwrap_or_default();
         let archive = path.to_string_lossy().into_owned();
-        self.commit_ids.clear();
-        self.selected_commit.clear();
-        self.latest_archive_empty = None;
-        let opened_archive = archive.clone();
-        self.imported_archive_dir = None;
-        self.working_archive_dir = None;
-        self.rewrite_snapshots.clear();
-        self.has_unsaved_changes = false;
-        self.read_archive.clone_from(&archive);
-        self.pending_recent_archive = Some(archive.clone());
-        self.archive.clone_from(&archive);
-        self.location.clone_from(&archive);
-        self.selected.clear();
-        self.selection_anchor = None;
         self.report = None;
         let (events_tx, events_rx) = mpsc::channel();
         let (answer_tx, answer_rx) = mpsc::channel();
         drop(answer_rx);
-        let password = password.unwrap_or_default();
-        self.archive_password = (!password.is_empty()).then(|| password.clone());
-        self.opening_archive = true;
         self.begin_worker(events_rx, answer_tx, "Reading archive");
         std::thread::spawn(move || {
-            let prepared_archive =
-                if operations::is_supported_import_archive(PathBuf::from(&archive).as_path()) {
-                    (|| {
-                        let directory = tempfile::Builder::new()
-                            .prefix("zarg-open-archive-")
-                            .tempdir()?;
-                        let imported_path = directory.path().join("opened.zar");
-                        let imported_path = imported_path.to_string_lossy().into_owned();
-                        operations::create_archive(&imported_path, &[PathBuf::from(&archive)])?;
-                        Ok::<_, Box<dyn std::error::Error>>(Some((directory, imported_path)))
-                    })()
-                } else {
-                    (|| {
-                        let directory = tempfile::Builder::new()
-                            .prefix("zarg-working-archive-")
-                            .tempdir()?;
-                        let working_path = directory.path().join("working.zar");
-                        std::fs::copy(&archive, &working_path)?;
-                        Ok::<_, Box<dyn std::error::Error>>(Some((
-                            directory,
-                            working_path.to_string_lossy().into_owned(),
-                        )))
-                    })()
+            let is_imported =
+                operations::is_supported_import_archive(PathBuf::from(&archive).as_path());
+            let mut selected_passwords = BTreeMap::new();
+            if !is_imported {
+                let commits = match operations::info_archive(&archive, false) {
+                    Ok(commits) => commits,
+                    Err(error) => {
+                        finish_with_events(
+                            events_tx,
+                            Err(format!("Cannot read archive commits: {error}")),
+                        );
+                        return;
+                    }
                 };
+                if commits
+                    .iter()
+                    .any(|commit| commit.header_encrypted || commit.data_encrypted)
+                {
+                    let (password_tx, password_rx) = mpsc::channel();
+                    if events_tx
+                        .send(UiEvent::OpenPasswords {
+                            commits,
+                            password,
+                            remembered,
+                            answers: password_tx,
+                        })
+                        .is_err()
+                    {
+                        return;
+                    }
+                    loop {
+                        let Ok(Some(passwords)) = password_rx.recv() else {
+                            finish_with_events(
+                                events_tx,
+                                Ok("Opening archive cancelled.".to_owned()),
+                            );
+                            return;
+                        };
+                        let set = password_set(&passwords, None);
+                        match operations::list_archive_with_details_and_passwords(
+                            &archive, None, &set,
+                        ) {
+                            Ok(_) => {
+                                selected_passwords = passwords;
+                                break;
+                            }
+                            Err(error) => {
+                                if events_tx
+                                    .send(UiEvent::OpenPasswordError(error.to_string()))
+                                    .is_err()
+                                {
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let prepared_archive = if is_imported {
+                (|| {
+                    let directory = tempfile::Builder::new()
+                        .prefix("zarg-open-archive-")
+                        .tempdir()?;
+                    let imported_path = directory.path().join("opened.zar");
+                    let imported_path = imported_path.to_string_lossy().into_owned();
+                    operations::create_archive(&imported_path, &[PathBuf::from(&archive)])?;
+                    Ok::<_, Box<dyn std::error::Error>>(Some((directory, imported_path)))
+                })()
+            } else {
+                (|| {
+                    let directory = tempfile::Builder::new()
+                        .prefix("zarg-working-archive-")
+                        .tempdir()?;
+                    let working_path = directory.path().join("working.zar");
+                    std::fs::copy(&archive, &working_path)?;
+                    Ok::<_, Box<dyn std::error::Error>>(Some((
+                        directory,
+                        working_path.to_string_lossy().into_owned(),
+                    )))
+                })()
+            };
             let (archive_to_read, imported_directory) = match prepared_archive {
                 Ok(Some((directory, imported_path))) => (imported_path, Some(directory)),
                 Ok(None) => (archive.clone(), None),
                 Err(error) => {
                     let error = error.to_string();
-                    let _ = events_tx.send(UiEvent::Loaded(Err(error.clone())));
                     finish_with_events(events_tx, Err(error));
                     return;
                 }
             };
-            let is_imported =
-                operations::is_supported_import_archive(PathBuf::from(&archive).as_path());
+            let set = password_set(&selected_passwords, None);
+            let result =
+                operations::list_archive_with_details_and_passwords(&archive_to_read, None, &set);
+            let toc = match result {
+                Ok(toc) => toc,
+                Err(error) => {
+                    finish_with_events(events_tx, Err(error.to_string()));
+                    return;
+                }
+            };
+            let ids = match operations::info_archive(&archive_to_read, false) {
+                Ok(commits) => commits
+                    .iter()
+                    .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                    .collect(),
+                Err(error) => {
+                    finish_with_events(
+                        events_tx,
+                        Err(format!("Cannot read archive commits: {error}")),
+                    );
+                    return;
+                }
+            };
+            if events_tx
+                .send(UiEvent::OpeningArchive {
+                    archive: archive.clone(),
+                    passwords: selected_passwords,
+                })
+                .is_err()
+            {
+                return;
+            }
             if let Some(directory) = imported_directory {
                 if is_imported {
                     let _ = events_tx.send(UiEvent::ImportedArchive {
@@ -1243,49 +1383,22 @@ impl ZargApp {
                     });
                 }
             }
-            match operations::info_archive(&archive_to_read, false) {
-                Ok(commits) => {
-                    let ids = commits
-                        .iter()
-                        .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
-                        .collect();
-                    let _ = events_tx.send(UiEvent::CommitIds(ids));
-                }
-                Err(error) => {
-                    let error = format!("Cannot read archive commits: {error}");
-                    let _ = events_tx.send(UiEvent::Loaded(Err(error.clone())));
-                    finish_with_events(events_tx, Err(error));
-                    return;
-                }
-            }
-            let result = operations::list_archive_with_details(
-                &archive_to_read,
-                None,
-                (!password.is_empty()).then_some(password.as_bytes()),
-            )
-            .map_err(|error| error.to_string());
-            match result {
-                Ok(toc) => {
-                    let count = toc.0.len();
-                    let _ = events_tx.send(UiEvent::SelectedCommit(String::new()));
-                    let _ = events_tx.send(UiEvent::Loaded(Ok(toc)));
-                    let summary = if is_imported {
-                        format!("{count} entries loaded (read-only archive)")
-                    } else {
-                        format!("{count} entries loaded")
-                    };
-                    finish_with_events(events_tx, Ok(summary));
-                }
-                Err(error) => {
-                    let _ = events_tx.send(UiEvent::Loaded(Err(error.clone())));
-                    finish_with_events(events_tx, Err(error));
-                }
-            }
+            let _ = events_tx.send(UiEvent::CommitIds(ids));
+            let count = toc.0.len();
+            let _ = events_tx.send(UiEvent::SelectedCommit(String::new()));
+            let _ = events_tx.send(UiEvent::Loaded(Ok(toc)));
+            let summary = if is_imported {
+                format!("{count} entries loaded (read-only archive)")
+            } else {
+                format!("{count} entries loaded")
+            };
+            finish_with_events(events_tx, Ok(summary));
         });
-        self.status = format!("Opened {opened_archive}");
+        self.status = "Reading archive information...".to_owned();
     }
 
     fn discard_current_archive(&mut self) {
+        self.clear_archive_info();
         self.add_archive_settings = None;
         if self.operation.kind == Some(OperationKind::AddToArchive) {
             self.operation = OperationForm::default();
@@ -1299,6 +1412,7 @@ impl ZargApp {
         self.has_unsaved_changes = false;
         self.latest_archive_empty = None;
         self.archive_password = None;
+        self.archive_passwords.clear();
         self.commit_ids.clear();
         self.selected_commit.clear();
         self.selected.clear();
@@ -1405,10 +1519,42 @@ impl ZargApp {
         };
         let add_new_password = (kind == OperationKind::AddToArchive && form.password_is_set)
             .then(|| form.password.as_bytes().to_vec());
+        let current_archive_operation = form.archive == self.archive;
+        let mut operation_passwords: BTreeMap<[u8; 4], String> =
+            if kind == OperationKind::AddToArchive && current_archive_operation {
+                form.commit_unlocks
+                    .iter()
+                    .filter(|commit| commit.selected)
+                    .map(|commit| (commit.id, commit.password.clone()))
+                    .collect()
+            } else {
+                BTreeMap::new()
+            };
+        let new_commit_password = ((kind == OperationKind::NewArchive
+            || (kind == OperationKind::AddToArchive && current_archive_operation))
+            && form.password_is_set)
+            .then(|| form.password.clone());
+        let supplied_operation_password = (current_archive_operation
+            && matches!(
+                kind,
+                OperationKind::ListArchive
+                    | OperationKind::ExtractArchive
+                    | OperationKind::TestArchive
+            )
+            && form.password_is_set
+            && !form.password.is_empty())
+        .then(|| {
+            (
+                form.password.clone(),
+                (kind != OperationKind::TestArchive && !form.to.trim().is_empty())
+                    .then(|| form.to.trim().to_owned()),
+            )
+        });
 
         let logical_archive = form.archive.clone();
         let output = match kind {
             OperationKind::JoinCommits => form.join_output.trim(),
+            OperationKind::RemoveCommits => form.remove_commits_output.trim(),
             OperationKind::ChangeCommits => form.transform_output.trim(),
             _ => "",
         };
@@ -1438,7 +1584,9 @@ impl ZargApp {
             | OperationKind::RemoveEntries
             | OperationKind::UndoCommits
             | OperationKind::CustomMetadata => true,
-            OperationKind::JoinCommits | OperationKind::ChangeCommits => !explicit_output,
+            OperationKind::JoinCommits
+            | OperationKind::RemoveCommits
+            | OperationKind::ChangeCommits => !explicit_output,
             _ => false,
         };
         let mut new_working_archive = None;
@@ -1516,7 +1664,9 @@ impl ZargApp {
             });
         form.archive.clone_from(&archive);
         if kind == OperationKind::UndoCommits
-            && (form.undo_commits == 0 || form.undo_commits > self.maximum_undo_steps())
+            && (!self.has_unsaved_changes
+                || form.undo_commits == 0
+                || form.undo_commits > self.maximum_undo_steps())
         {
             self.status = "Choose a valid number of undo steps.".to_owned();
             return;
@@ -1530,7 +1680,7 @@ impl ZargApp {
                     snapshot.directory.path().join("before.zar"),
                     snapshot.dirty,
                     snapshot.password.clone(),
-                    form.undo_commits - count,
+                    snapshot.passwords.clone(),
                 ))
             } else {
                 None
@@ -1540,7 +1690,7 @@ impl ZargApp {
             password.clone()
         } else if kind == OperationKind::UndoCommits || explicit_output {
             self.archive_password.clone()
-        } else if kind == OperationKind::ChangeCommits {
+        } else if kind == OperationKind::ChangeCommits && !explicit_output {
             match form.transform_action {
                 0 => Some(form.password.clone()),
                 1 => None,
@@ -1559,18 +1709,31 @@ impl ZargApp {
                 })
         };
         let refresh_archive = archive.clone();
+        let mut refresh_commit_passwords = if let Some((_, _, _, _, passwords)) = &undo_snapshots {
+            passwords.clone()
+        } else if kind == OperationKind::ChangeCommits && !explicit_output {
+            BTreeMap::new()
+        } else {
+            self.archive_passwords.clone()
+        };
         let is_encryption_transform = kind == OperationKind::ChangeCommits;
         let refresh_commit_ids = changes_archive;
         let take_snapshot = changes_archive
             && kind != OperationKind::NewArchive
-            && kind != OperationKind::UndoCommits
-            && (matches!(
-                kind,
-                OperationKind::JoinCommits | OperationKind::ChangeCommits
-            ) || !self.rewrite_snapshots.is_empty());
+            && kind != OperationKind::UndoCommits;
         let snapshot_dirty = self.has_unsaved_changes;
         let snapshot_password = self.archive_password.clone();
-        let snapshot_commit_count = self.commit_ids.len();
+        let snapshot_passwords = self.archive_passwords.clone();
+        let transform_passwords =
+            (kind == OperationKind::ChangeCommits && !explicit_output).then(|| {
+                (
+                    form.from_id.clone(),
+                    form.to_id.clone(),
+                    (form.transform_action != 1).then(|| form.password.clone()),
+                    self.archive_passwords.clone(),
+                    !form.transform_strict && form.existing_password.is_empty(),
+                )
+            });
         let refresh_to = if kind == OperationKind::ListArchive {
             (!form.to.trim().is_empty()).then(|| form.to.clone())
         } else if !refresh_commit_ids && !self.selected_commit.is_empty() {
@@ -1582,40 +1745,58 @@ impl ZargApp {
             && self.commit_ids.last() == Some(&self.selected_commit)
             && self.latest_archive_empty.is_some())
         .then(|| lines(&form.remove_text));
-        let result =
-            match if let Some((steps, source, dirty, password, additional)) = undo_snapshots {
-                let target = archive.clone();
-                let events = events_tx.clone();
-                Ok(Box::new(move || {
-                    let directory = tempfile::tempdir().map_err(|error| error.to_string())?;
-                    let candidate = directory.path().join("undo.zar");
-                    std::fs::copy(source, &candidate)
-                        .map_err(|error| format!("Cannot prepare undo: {error}"))?;
-                    if additional > 0 {
-                        operations::undo_archive(&candidate.to_string_lossy(), additional)
-                            .map_err(|error| error.to_string())?;
-                    }
-                    save_archive_copy(&candidate.to_string_lossy(), &target)?;
-                    let _ = events.send(UiEvent::RewriteUndone {
-                        steps,
-                        dirty: dirty || additional > 0,
-                        password,
-                    });
-                    Ok(format!("Undid {} step(s)", steps + additional))
-                }) as OperationJob)
-            } else {
-                build_job(kind, form, events_tx.clone(), progress)
-            } {
-                Ok(job) => job,
-                Err(error) => {
-                    self.status = error.to_string();
-                    return;
-                }
-            };
+        let result = match if let Some((steps, source, dirty, password, passwords)) = undo_snapshots
+        {
+            let target = archive.clone();
+            let events = events_tx.clone();
+            Ok(Box::new(move || {
+                let directory = tempfile::tempdir().map_err(|error| error.to_string())?;
+                let candidate = directory.path().join("undo.zar");
+                std::fs::copy(source, &candidate)
+                    .map_err(|error| format!("Cannot prepare undo: {error}"))?;
+                save_archive_copy(&candidate.to_string_lossy(), &target)?;
+                let _ = events.send(UiEvent::RewriteUndone {
+                    steps,
+                    dirty,
+                    password,
+                    passwords,
+                });
+                Ok(format!("Undid {steps} step(s)"))
+            }) as OperationJob)
+        } else {
+            build_job(kind, form, events_tx.clone(), progress)
+        } {
+            Ok(job) => job,
+            Err(error) => {
+                self.status = error.to_string();
+                return;
+            }
+        };
         self.begin_worker_with_cancellation(events_rx, answer_tx, kind.title(), cancellation);
         self.report = None;
         self.warnings.clear();
         std::thread::spawn(move || {
+            let skipped_encrypted = if transform_passwords
+                .as_ref()
+                .is_some_and(|(_, _, _, _, skip)| *skip)
+            {
+                match operations::info_archive(&archive, false) {
+                    Ok(commits) => commits
+                        .into_iter()
+                        .filter(|commit| commit.header_encrypted || commit.data_encrypted)
+                        .map(|commit| commit.id)
+                        .collect::<BTreeSet<_>>(),
+                    Err(error) => {
+                        finish_with_events(
+                            events_tx,
+                            Err(format!("Cannot inspect archive commits: {error}")),
+                        );
+                        return;
+                    }
+                }
+            } else {
+                BTreeSet::new()
+            };
             let snapshot = if take_snapshot {
                 Some((|| {
                     let directory = tempfile::tempdir()
@@ -1626,7 +1807,7 @@ impl ZargApp {
                         directory,
                         dirty: snapshot_dirty,
                         password: snapshot_password,
-                        commit_count: snapshot_commit_count,
+                        passwords: snapshot_passwords,
                     })
                 })())
             } else {
@@ -1657,6 +1838,47 @@ impl ZargApp {
                 Some(Err(error)) => Err(error),
                 None => result(),
             };
+            if outcome.is_ok()
+                && let Some((password, to)) = supplied_operation_password
+            {
+                match operations::info_archive(&archive, false) {
+                    Ok(commits) => {
+                        let mut candidates = BTreeMap::new();
+                        for commit in commits {
+                            if commit.header_encrypted || commit.data_encrypted {
+                                candidates.insert(commit.id, password.clone());
+                            }
+                            if to.as_ref().is_some_and(|id| {
+                                id.eq_ignore_ascii_case(&format!(
+                                    "{:08x}",
+                                    u32::from_le_bytes(commit.id)
+                                ))
+                            }) {
+                                break;
+                            }
+                        }
+                        let set = password_set(&candidates, None);
+                        match operations::info_archive_with_blocks_and_passwords(
+                            &archive, false, &set,
+                        ) {
+                            Ok(_) => {
+                                refresh_commit_passwords.extend(candidates.clone());
+                                operation_passwords.extend(candidates);
+                            }
+                            Err(error) => {
+                                let _ = events_tx.send(UiEvent::Warning(format!(
+                                    "Could not remember commit passwords: {error}"
+                                )));
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        let _ = events_tx.send(UiEvent::Warning(format!(
+                            "Could not inspect commit passwords: {error}"
+                        )));
+                    }
+                }
+            }
             if outcome.is_ok() {
                 if let Some((directory, path)) = new_working_archive {
                     let _ = events_tx.send(UiEvent::WorkingArchive {
@@ -1678,6 +1900,42 @@ impl ZargApp {
                 });
                 match operations::info_archive(&refresh_archive, false) {
                     Ok(commits) => {
+                        if kind == OperationKind::RemoveCommits && !explicit_output {
+                            let retained: BTreeSet<_> =
+                                commits.iter().map(|commit| commit.id).collect();
+                            refresh_commit_passwords.retain(|id, _| retained.contains(id));
+                            let _ = events_tx
+                                .send(UiEvent::ReplacePasswords(refresh_commit_passwords.clone()));
+                        }
+                        if let Some((from, to, new_password, mut passwords, _)) =
+                            transform_passwords
+                        {
+                            let mut in_range = false;
+                            for commit in &commits {
+                                let id = format!("{:08x}", u32::from_le_bytes(commit.id));
+                                if id == from {
+                                    in_range = true;
+                                }
+                                if in_range && !skipped_encrypted.contains(&commit.id) {
+                                    passwords.remove(&commit.id);
+                                    if (commit.header_encrypted || commit.data_encrypted)
+                                        && let Some(password) = &new_password
+                                    {
+                                        passwords.insert(commit.id, password.clone());
+                                    }
+                                }
+                                if id == to {
+                                    in_range = false;
+                                }
+                            }
+                            refresh_commit_passwords = passwords.clone();
+                            let _ = events_tx.send(UiEvent::ReplacePasswords(passwords));
+                        }
+                        if let (Some(commit), Some(password)) =
+                            (commits.last(), &new_commit_password)
+                        {
+                            operation_passwords.insert(commit.id, password.clone());
+                        }
                         if let (Some(passwords), Some(password)) =
                             (&mut add_refresh_passwords, add_new_password)
                         {
@@ -1716,12 +1974,11 @@ impl ZargApp {
                 let _ = events_tx.send(UiEvent::EntriesRemoved(paths));
                 let _ = events_tx.send(UiEvent::SelectedCommit(String::new()));
             } else if outcome.is_ok() {
-                let list_password =
-                    if kind == OperationKind::ChangeCommits && refresh_password.is_none() {
-                        None
-                    } else {
-                        refresh_password.as_deref().map(str::as_bytes)
-                    };
+                let list_password = if kind == OperationKind::ChangeCommits && !explicit_output {
+                    None
+                } else {
+                    refresh_password.as_deref()
+                };
                 let result = if let Some(passwords) = &mut add_refresh_passwords {
                     operations::list_archive_with_details_and_passwords(
                         &refresh_archive,
@@ -1729,14 +1986,18 @@ impl ZargApp {
                         passwords,
                     )
                 } else {
-                    operations::list_archive_with_details(
+                    let passwords = password_set(&refresh_commit_passwords, list_password);
+                    operations::list_archive_with_details_and_passwords(
                         &refresh_archive,
                         refresh_to.as_deref(),
-                        list_password,
+                        &passwords,
                     )
                 };
                 match result {
                     Ok(toc) => {
+                        if !operation_passwords.is_empty() {
+                            let _ = events_tx.send(UiEvent::RememberPasswords(operation_passwords));
+                        }
                         let _ = events_tx.send(UiEvent::SelectedCommit(
                             refresh_to.clone().unwrap_or_default(),
                         ));
@@ -1770,10 +2031,10 @@ impl ZargApp {
         self.status = format!("Opening {path}");
         self.warnings.clear();
         let archive = self.read_archive.clone();
-        let password = self.archive_password.clone();
+        let passwords = password_set(&self.archive_passwords, self.archive_password.as_deref());
         let to = (!self.selected_commit.is_empty()).then(|| self.selected_commit.clone());
         std::thread::spawn(move || {
-            let outcome = extract_and_open(&archive, &path, password.as_deref(), to.as_deref());
+            let outcome = extract_and_open(&archive, &path, &passwords, to.as_deref());
             finish_with_events(events_tx, outcome);
         });
     }
@@ -1783,17 +2044,17 @@ impl ZargApp {
             return;
         }
         let archive = self.read_archive.clone();
-        let password = self.archive_password.clone();
+        let passwords = password_set(&self.archive_passwords, self.archive_password.as_deref());
         let (events_tx, events_rx) = mpsc::channel();
         let (answer_tx, answer_rx) = mpsc::channel();
         drop(answer_rx);
         self.begin_worker(events_rx, answer_tx, "Reading commit");
         self.report = None;
         std::thread::spawn(move || {
-            match operations::list_archive_with_details(
+            match operations::list_archive_with_details_and_passwords(
                 &archive,
                 Some(&id),
-                password.as_deref().map(str::as_bytes),
+                &passwords,
             ) {
                 Ok(toc) => {
                     let count = toc.0.len();
@@ -1842,6 +2103,74 @@ impl ZargApp {
                     self.warnings.push(warning);
                 }
                 UiEvent::Confirm(prompt) => self.confirmation = Some(prompt),
+                UiEvent::OpenPasswords {
+                    commits,
+                    password,
+                    remembered,
+                    answers,
+                } => {
+                    self.open_password_dialog = Some(OpenPasswordDialog {
+                        rows: commits
+                            .into_iter()
+                            .map(|commit| {
+                                let encrypted = commit.header_encrypted || commit.data_encrypted;
+                                OpenPasswordRow {
+                                    id: commit.id,
+                                    encrypted,
+                                    password: if encrypted {
+                                        remembered
+                                            .get(&commit.id)
+                                            .cloned()
+                                            .or_else(|| password.clone())
+                                            .unwrap_or_default()
+                                    } else {
+                                        String::new()
+                                    },
+                                }
+                            })
+                            .collect(),
+                        answers,
+                        error: None,
+                        busy: false,
+                    });
+                }
+                UiEvent::OpenPasswordError(error) => {
+                    if let Some(dialog) = &mut self.open_password_dialog {
+                        dialog.busy = false;
+                        dialog.error = Some(error);
+                    }
+                }
+                UiEvent::RememberPasswords(passwords) => {
+                    self.remember_commit_passwords(&passwords);
+                }
+                UiEvent::ReplacePasswords(passwords) => {
+                    self.archive_passwords = passwords;
+                }
+                UiEvent::OpeningArchive { archive, passwords } => {
+                    self.open_password_dialog = None;
+                    self.clear_archive_info();
+                    self.add_archive_settings = None;
+                    if self.operation.kind == Some(OperationKind::AddToArchive) {
+                        self.operation = OperationForm::default();
+                    }
+                    self.commit_ids.clear();
+                    self.selected_commit.clear();
+                    self.latest_archive_empty = None;
+                    self.imported_archive_dir = None;
+                    self.working_archive_dir = None;
+                    self.rewrite_snapshots.clear();
+                    self.has_unsaved_changes = false;
+                    self.read_archive.clone_from(&archive);
+                    self.pending_recent_archive = Some(archive.clone());
+                    self.archive.clone_from(&archive);
+                    self.location = archive;
+                    self.selected.clear();
+                    self.selection_anchor = None;
+                    self.archive_password = None;
+                    self.archive_passwords = passwords;
+                    self.remember_commit_passwords(&BTreeMap::new());
+                    self.opening_archive = true;
+                }
                 UiEvent::CommitIds(ids) => self.commit_ids = ids,
                 UiEvent::SelectedCommit(id) => {
                     self.selected_commit = if id.is_empty() {
@@ -1852,6 +2181,8 @@ impl ZargApp {
                 }
                 UiEvent::ArchivePath { path, password } => {
                     if path != self.read_archive {
+                        self.clear_archive_info();
+                        self.archive_passwords.clear();
                         self.archive.clone_from(&path);
                         self.read_archive = path.clone();
                         self.location = path;
@@ -1861,6 +2192,7 @@ impl ZargApp {
                     self.archive_password = password;
                 }
                 UiEvent::ImportedArchive { directory, path } => {
+                    self.clear_archive_info();
                     self.read_archive = path;
                     self.imported_archive_dir = Some(directory);
                 }
@@ -1871,6 +2203,7 @@ impl ZargApp {
                     dirty,
                     new_archive_settings,
                 } => {
+                    self.clear_archive_info();
                     if dirty {
                         if self.operation.kind == Some(OperationKind::AddToArchive) {
                             self.operation = OperationForm::default();
@@ -1878,6 +2211,7 @@ impl ZargApp {
                         self.add_archive_settings = new_archive_settings.map(|settings| *settings);
                     }
                     if dirty && logical_path.is_empty() {
+                        self.archive_passwords.clear();
                         self.rewrite_snapshots.clear();
                         self.set_entries(Toc::default(), Default::default());
                         self.latest_archive_empty = None;
@@ -1892,6 +2226,7 @@ impl ZargApp {
                     self.has_unsaved_changes = dirty;
                 }
                 UiEvent::ArchiveModified => {
+                    self.clear_archive_info();
                     self.has_unsaved_changes = true;
                     self.latest_archive_empty = None;
                 }
@@ -1900,11 +2235,13 @@ impl ZargApp {
                     steps,
                     dirty,
                     password,
+                    passwords,
                 } => {
                     self.rewrite_snapshots
                         .truncate(self.rewrite_snapshots.len() - steps);
                     self.has_unsaved_changes = dirty;
                     self.archive_password = password;
+                    self.archive_passwords = passwords;
                     self.latest_archive_empty = None;
                 }
                 UiEvent::FirstCommitEmpty(empty) => {
@@ -1920,6 +2257,7 @@ impl ZargApp {
                     self.latest_archive_empty = Some(self.entries.is_empty());
                 }
                 UiEvent::ArchiveSaved { path } => {
+                    self.clear_archive_info();
                     self.archive.clone_from(&path);
                     self.read_archive.clone_from(&path);
                     self.location = path;
@@ -1927,6 +2265,7 @@ impl ZargApp {
                     self.working_archive_dir = None;
                     self.rewrite_snapshots.clear();
                     self.has_unsaved_changes = false;
+                    self.remember_commit_passwords(&BTreeMap::new());
                 }
                 UiEvent::Loaded(result) => match result {
                     Ok((toc, details)) => {
@@ -1956,6 +2295,7 @@ impl ZargApp {
                     }
                 },
                 UiEvent::Finished(result) => {
+                    self.open_password_dialog = None;
                     let cancellation_requested = self
                         .worker
                         .as_ref()
@@ -1995,6 +2335,7 @@ impl ZargApp {
         if disconnected {
             self.busy = false;
             self.worker = None;
+            self.open_password_dialog = None;
             if self.pending_switch_after_save {
                 self.pending_archive_switch = None;
                 self.pending_switch_after_save = false;
@@ -2240,15 +2581,13 @@ impl ZargApp {
     }
 
     fn maximum_undo_steps(&self) -> usize {
-        self.rewrite_snapshots.first().map_or_else(
-            || self.commit_ids.len().saturating_sub(1),
-            |first| self.rewrite_snapshots.len() + first.commit_count.saturating_sub(1),
-        )
+        self.rewrite_snapshots.len()
     }
 
     fn can_undo(&self) -> bool {
         !self.busy
             && self.has_current_archive()
+            && self.has_unsaved_changes
             && self.maximum_undo_steps() > 0
             && self.imported_archive_dir.is_none()
     }
@@ -2360,6 +2699,12 @@ impl ZargApp {
                 icon_texture(ui.ctx(), &self.icons, UiIcon::SelectAll),
                 "Edit",
                 |ui| {
+                    if icon_button(ui, &self.icons, UiIcon::Undo, "Undo", self.can_undo()).clicked()
+                    {
+                        self.show_operation(OperationKind::UndoCommits);
+                        ui.close();
+                    }
+                    ui.separator();
                     if icon_button(
                         ui,
                         &self.icons,
@@ -2483,7 +2828,7 @@ impl ZargApp {
                         &self.icons,
                         UiIcon::ChangeCommits,
                         "Change commits",
-                        !self.busy && self.has_current_archive() && !is_imported_archive,
+                        !self.busy && !self.archive.is_empty() && !is_imported_archive,
                     )
                     .clicked()
                     {
@@ -2505,9 +2850,19 @@ impl ZargApp {
                         self.show_operation(OperationKind::JoinCommits);
                         ui.close();
                     }
-                    if icon_button(ui, &self.icons, UiIcon::Undo, "Undo", self.can_undo()).clicked()
+                    if icon_button(
+                        ui,
+                        &self.icons,
+                        UiIcon::Remove,
+                        "Remove commits",
+                        !self.busy
+                            && self.has_current_archive()
+                            && self.commit_ids.len() > 1
+                            && !is_imported_archive,
+                    )
+                    .clicked()
                     {
-                        self.show_operation(OperationKind::UndoCommits);
+                        self.show_operation(OperationKind::RemoveCommits);
                         ui.close();
                     }
                     if icon_button(
@@ -2681,9 +3036,13 @@ impl ZargApp {
                 Ok(commits) => commits
                     .into_iter()
                     .filter(|commit| commit.header_encrypted || commit.data_encrypted)
-                    .map(|commit| CommitUnlock {
-                        id: commit.id,
-                        ..Default::default()
+                    .map(|commit| {
+                        let password = self.archive_passwords.get(&commit.id).cloned();
+                        CommitUnlock {
+                            id: commit.id,
+                            selected: password.is_some(),
+                            password: password.unwrap_or_default(),
+                        }
                     })
                     .collect(),
                 Err(error) => {
@@ -2695,6 +3054,11 @@ impl ZargApp {
             Vec::new()
         };
         self.operation = self.new_operation_form(kind, &archive);
+        if archive == self.archive {
+            self.operation
+                .archive_passwords
+                .clone_from(&self.archive_passwords);
+        }
         if kind == OperationKind::ExtractArchive && self.archive.is_empty() {
             self.operation.destination = ".".to_owned();
         }
@@ -2739,10 +3103,17 @@ impl ZargApp {
             }
             self.operation.meta_new.push(Default::default());
         }
-        if kind == OperationKind::JoinCommits {
+        if matches!(
+            kind,
+            OperationKind::JoinCommits | OperationKind::RemoveCommits
+        ) {
             self.operation.commit_ids.clone_from(&self.commit_ids);
             self.operation.from_id = self.commit_ids.first().cloned().unwrap_or_default();
-            self.operation.to_id = self.commit_ids.last().cloned().unwrap_or_default();
+            self.operation.to_id = if kind == OperationKind::RemoveCommits {
+                self.operation.from_id.clone()
+            } else {
+                self.commit_ids.last().cloned().unwrap_or_default()
+            };
         }
         if kind == OperationKind::UndoCommits {
             self.operation.undo_commits = 1;
@@ -4139,6 +4510,7 @@ impl eframe::App for ZargApp {
         self.poll_archive_info(&context);
         self.render_operation_dialog(&context);
         self.render_archive_info(&context);
+        self.render_open_password_dialog(&context);
         self.poll_benchmark(&context);
         self.render_benchmark(&context);
         self.render_confirmation_dialog(&context);
@@ -4263,7 +4635,7 @@ fn save_archive_copy(source: &str, target: &str) -> Result<(), String> {
 fn build_job(
     kind: OperationKind,
     form: OperationForm,
-    _events: Sender<UiEvent>,
+    events: Sender<UiEvent>,
     progress: UiProgress,
 ) -> OperationBuildResult {
     let archive = form.archive.clone();
@@ -4408,12 +4780,38 @@ fn build_job(
                 .map_err(|error| error.to_string())
             })
         }
-        OperationKind::UndoCommits => {
-            let commits = form.undo_commits;
+        OperationKind::UndoCommits => return Err("No unsaved changes to undo.".into()),
+        OperationKind::RemoveCommits => {
+            let Some(ids) = removal_range(&form.commit_ids, &form.from_id, &form.to_id) else {
+                return Err("Choose a valid commit range that leaves at least one commit.".into());
+            };
+            let ids = ids.to_vec();
+            let output = form.remove_commits_output.trim().to_owned();
             Box::new(move || {
-                operations::undo_archive(&archive, commits)
-                    .map(|()| format!("Removed {commits} trailing commit(s)"))
-                    .map_err(|error| error.to_string())
+                let result = operations::remove_archive_commits(
+                    &archive,
+                    &ids,
+                    (!output.is_empty()).then_some(output.as_str()),
+                )
+                .map_err(|error| error.to_string())?;
+                let warning = if !result.replay_validated {
+                    let _ = events.send(UiEvent::Warning(
+                        "Retained encrypted headers prevented validation of the remaining history."
+                            .to_owned(),
+                    ));
+                    "Warning: retained encrypted headers prevented history validation. "
+                } else {
+                    ""
+                };
+                Ok(format!(
+                    "{warning}Removed {} commit(s){}",
+                    ids.len(),
+                    if output.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" into {output}")
+                    }
+                ))
             })
         }
         OperationKind::JoinCommits => {
@@ -4537,11 +4935,16 @@ fn build_job(
         }
         OperationKind::TestArchive => {
             let recover = form.recover;
+            let passwords = if form.password_is_set {
+                PasswordSet::new(password.clone())
+            } else {
+                password_set(&form.archive_passwords, None)
+            };
             Box::new(move || {
-                let report = operations::check_archive_with_recovery_progress(
+                let report = operations::check_archive_with_recovery_and_passwords_progress(
                     &archive,
                     recover,
-                    password.as_deref(),
+                    &passwords,
                     Some(progress.as_ref()),
                 )
                 .map_err(|error| error.to_string())?;
@@ -4550,8 +4953,13 @@ fn build_job(
         }
         OperationKind::ListArchive => {
             let to = (!form.to.trim().is_empty()).then(|| form.to.clone());
+            let passwords = if form.password_is_set {
+                PasswordSet::new(password.clone())
+            } else {
+                password_set(&form.archive_passwords, None)
+            };
             Box::new(move || {
-                operations::list_archive(&archive, to.as_deref(), password.as_deref())
+                operations::list_archive_with_passwords(&archive, to.as_deref(), &passwords)
                     .map(|toc| format!("Loaded {} entries from {archive}", toc.len()))
                     .map_err(|error| error.to_string())
             })
@@ -4568,6 +4976,11 @@ fn build_job(
             let restore_devices = form.restore_devices;
             let strip_top_level = form.strip_top_level;
             let import_archive = operations::is_supported_import_archive(Path::new(&archive));
+            let passwords = if form.password_is_set {
+                PasswordSet::new(password.clone())
+            } else {
+                password_set(&form.archive_passwords, None)
+            };
             Box::new(move || {
                 let imported_directory = if import_archive {
                     Some(
@@ -4609,11 +5022,11 @@ fn build_job(
                     restore_devices,
                     strip_top_level,
                 };
-                operations::extract_archive_with_progress_and_filters(
+                operations::extract_archive_with_passwords_progress_and_filters(
                     &archive_to_extract,
                     &destination,
                     options,
-                    password.as_deref(),
+                    &passwords,
                     Some(progress.as_ref()),
                     &filters,
                 )
@@ -4659,7 +5072,7 @@ fn build_job(
 fn extract_and_open(
     archive: &str,
     path: &str,
-    password: Option<&str>,
+    passwords: &PasswordSet,
     to: Option<&str>,
 ) -> Result<String, String> {
     let unique = std::time::SystemTime::now()
@@ -4668,8 +5081,7 @@ fn extract_and_open(
     let mut target = std::env::temp_dir().join(format!("zarg-{}-{unique}", std::process::id()));
     std::fs::create_dir_all(&target).map_err(|error| error.to_string())?;
     target.push(path.rsplit('/').next().unwrap_or(path));
-    let passwords = PasswordSet::new(password.map(|password| password.as_bytes().to_vec()));
-    operations::extract_single_file_through(archive, path, &target, &passwords, to)
+    operations::extract_single_file_through(archive, path, &target, passwords, to)
         .map_err(|error| error.to_string())?;
     open_with_default_program(&target)?;
     Ok(format!("Opened {path}"))
@@ -5088,6 +5500,15 @@ fn join_range_is_valid(commits: &[String], from: &str, to: &str) -> bool {
     let from = commits.iter().position(|id| id == from);
     let to = commits.iter().position(|id| id == to);
     matches!((from, to), (Some(from), Some(to)) if to > from)
+}
+
+fn removal_range<'a>(commits: &'a [String], from: &str, to: &str) -> Option<&'a [String]> {
+    let first = commits.iter().position(|id| id == from)?;
+    let last = commits.iter().position(|id| id == to)?;
+    if first > last || last - first + 1 == commits.len() {
+        return None;
+    }
+    Some(&commits[first..=last])
 }
 
 fn commit_range_is_valid(commits: &[String], from: &str, to: &str) -> bool {

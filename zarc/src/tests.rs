@@ -118,6 +118,66 @@ fn info_commit_line_includes_uncompressed_size_and_ratio() {
 }
 
 #[test]
+fn list_verbose_reports_replaced_files_and_commits_missing_passwords() {
+    let directory = TestDirectory::new();
+    let archive_path = directory.path().join("list-diagnostics.zar");
+    let replaced_input = directory.path().join("shared.txt");
+    std::fs::write(&replaced_input, b"old contents").unwrap();
+    create_archive(
+        archive_path.to_str().unwrap(),
+        std::slice::from_ref(&replaced_input),
+    )
+    .unwrap();
+
+    std::fs::write(&replaced_input, b"new contents").unwrap();
+    add_archive(
+        archive_path.to_str().unwrap(),
+        std::slice::from_ref(&replaced_input),
+    )
+    .unwrap();
+
+    let encrypted_input = directory.path().join("secret.txt");
+    std::fs::write(&encrypted_input, b"secret").unwrap();
+    add_archive_with_encoding_progress_and_filters_and_encryption(
+        archive_path.to_str().unwrap(),
+        std::slice::from_ref(&encrypted_input),
+        EncodingOptions::default(),
+        None,
+        AddInputOptions::default(),
+        &FilterSet::default(),
+        Some((
+            b"list password",
+            ContentAead::Aes256Gcm,
+            EncryptionScope::HeaderAndData,
+        )),
+        &PasswordSet::default(),
+    )
+    .unwrap();
+
+    let commits = info_archive(archive_path.to_str().unwrap(), false).unwrap();
+    let diagnostics = list_diagnostics(
+        archive_path.to_str().unwrap(),
+        None,
+        &PasswordSet::default(),
+    )
+    .unwrap();
+    assert_eq!(diagnostics.replaced_files.len(), 1);
+    assert_eq!(diagnostics.replaced_files[0].path.as_str(), "shared.txt");
+    assert_eq!(diagnostics.replaced_files[0].previous_commit, commits[0].id);
+    assert_eq!(
+        diagnostics.replaced_files[0].replacing_commit,
+        commits[1].id
+    );
+    assert_eq!(diagnostics.skipped_commits, vec![commits[2].id]);
+
+    let rendered = render_list_diagnostics(&diagnostics);
+    assert!(rendered.contains("Files replaced by newer commits:"));
+    assert!(rendered.contains("shared.txt"));
+    assert!(rendered.contains("Ignored commits (password not provided):"));
+    assert!(rendered.contains(&format_commit_id(&commits[2].id)));
+}
+
+#[test]
 fn verbose_info_renders_stored_special_entry_counts() {
     let stats = CommitFileStats {
         symlinks: 2,
@@ -404,6 +464,12 @@ fn clap_parser_accepts_cli_options_and_rejects_invalid_usage() {
             && filelist == &[PathBuf::from("filters.txt")]
     ));
     assert!(matches!(
+        Cli::try_parse_from(["zarc", "list", "archive.zar", "-v"])
+            .unwrap()
+            .command,
+        Command::List { verbose: true, .. }
+    ));
+    assert!(matches!(
         Cli::try_parse_from([
             "zarc",
             "extract",
@@ -594,7 +660,6 @@ fn clap_parser_accepts_short_subcommand_aliases() {
         ("a", "add"),
         ("r", "remove"),
         ("j", "join"),
-        ("u", "undo"),
         ("k", "check"),
         ("i", "info"),
         ("l", "list"),
@@ -1140,7 +1205,7 @@ fn add_progress_uses_adding_message_byte_counts_and_total() {
 }
 
 #[test]
-fn undo_command_removes_tail_and_preserves_initial_commit() {
+fn remove_commits_command_removes_selected_commits() {
     let directory = TestDirectory::new();
     let archive = directory.path().join("undo.zar");
     let first = directory.path().join("first.txt");
@@ -1150,7 +1215,10 @@ fn undo_command_removes_tail_and_preserves_initial_commit() {
     create_archive(archive.to_str().unwrap(), std::slice::from_ref(&first)).unwrap();
     add_archive(archive.to_str().unwrap(), std::slice::from_ref(&second)).unwrap();
 
-    run(["undo", archive.to_str().unwrap(), "1"]
+    let commits = info_archive(archive.to_str().unwrap(), false).unwrap();
+    let first_id = format!("{:08x}", u32::from_le_bytes(commits[0].id));
+    let second_id = format!("{:08x}", u32::from_le_bytes(commits[1].id));
+    run(["remove-commits", archive.to_str().unwrap(), &first_id]
         .into_iter()
         .map(str::to_owned))
     .unwrap();
@@ -1160,11 +1228,46 @@ fn undo_command_removes_tail_and_preserves_initial_commit() {
             .len(),
         1
     );
-    let error = run(["undo", archive.to_str().unwrap(), "1"]
+    let error = run(["remove-commits", archive.to_str().unwrap(), &second_id]
         .into_iter()
         .map(str::to_owned))
     .unwrap_err();
-    assert!(error.to_string().contains("first commit must be retained"));
+    assert!(
+        error
+            .to_string()
+            .contains("at least one commit must remain")
+    );
+}
+
+#[test]
+fn remove_commits_command_writes_output_without_modifying_input() {
+    let directory = TestDirectory::new();
+    let archive = directory.path().join("archive.zar");
+    let output = directory.path().join("output.zar");
+    let first = directory.path().join("first.txt");
+    let second = directory.path().join("second.txt");
+    std::fs::write(&first, b"first").unwrap();
+    std::fs::write(&second, b"second").unwrap();
+    let archive = archive.to_str().unwrap();
+    create_archive(archive, &[first]).unwrap();
+    add_archive(archive, &[second]).unwrap();
+    let commits = info_archive(archive, false).unwrap();
+    let id = format!("{:08x}", u32::from_le_bytes(commits[0].id));
+    let before = std::fs::read(archive).unwrap();
+    run([
+        "remove-commits",
+        archive,
+        &id,
+        "--output",
+        output.to_str().unwrap(),
+    ]
+    .into_iter()
+    .map(str::to_owned))
+    .unwrap();
+    assert_eq!(std::fs::read(archive).unwrap(), before);
+    let retained = info_archive(output.to_str().unwrap(), false).unwrap();
+    assert_eq!(retained.len(), 1);
+    assert_eq!(retained[0].id, commits[1].id);
 }
 
 #[test]
@@ -4158,7 +4261,9 @@ fn cli_archive_lifecycle_executes_commands_and_preserves_content() {
             .get(&archive_path("second.txt"))
             .is_none()
     );
-    assert_eq!(command(&["undo", archive, "1"]).unwrap(), 0);
+    let commits = info_archive(archive, false).unwrap();
+    let last = format!("{:08x}", u32::from_le_bytes(commits.last().unwrap().id));
+    assert_eq!(command(&["remove-commits", archive, &last]).unwrap(), 0);
     assert!(
         list_archive(archive, None, None)
             .unwrap()

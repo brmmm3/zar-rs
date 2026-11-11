@@ -1,20 +1,39 @@
 use super::super::*;
 
 impl ZargApp {
+    pub(in crate::ui) fn clear_archive_info(&mut self) {
+        self.info_view = None;
+        self.info_loading = None;
+        self.info_passwords.clear();
+        self.info_unlock_prompt = None;
+    }
+
     pub(in crate::ui) fn show_archive_info(&mut self) {
         if self.imported_archive_dir.is_some() {
             return;
         }
+        self.clear_archive_info();
+        self.start_archive_info_load(self.archive_passwords.clone());
+    }
+
+    fn start_archive_info_load(&mut self, passwords: BTreeMap<[u8; 4], String>) {
         let archive = self.archive.clone();
         let working_archive = self.read_archive.clone();
         let (sender, receiver) = mpsc::channel();
         self.info_loading = Some(receiver);
-        self.info_view = None;
         self.status = "Reading archive information...".to_owned();
         std::thread::spawn(move || {
             let result = (|| {
-                let commits = operations::info_archive_with_blocks(&working_archive, true)
-                    .map_err(|error| error.to_string())?;
+                let mut password_set = PasswordSet::default();
+                for (commit_id, password) in &passwords {
+                    password_set.insert_for_commit(*commit_id, password.as_bytes().to_vec());
+                }
+                let commits = operations::info_archive_with_blocks_and_passwords(
+                    &working_archive,
+                    true,
+                    &password_set,
+                )
+                .map_err(|error| error.to_string())?;
                 let metadata = operations::read_custom_metadata(&working_archive)
                     .map(|items| {
                         items
@@ -25,10 +44,13 @@ impl ZargApp {
                             .collect()
                     })
                     .unwrap_or_default();
-                Ok(ArchiveInfoView {
-                    archive,
-                    commits,
-                    metadata,
+                Ok(ArchiveInfoLoad {
+                    view: ArchiveInfoView {
+                        archive,
+                        commits,
+                        metadata,
+                    },
+                    passwords,
                 })
             })();
             let _ = sender.send(result);
@@ -42,20 +64,39 @@ impl ZargApp {
             Ok(result) => {
                 self.info_loading = None;
                 match result {
-                    Ok(view) => {
-                        self.status = format!("{} commit(s)", view.commits.len());
-                        self.info_view = Some(view);
+                    Ok(load) => {
+                        self.status = format!("{} commit(s)", load.view.commits.len());
+                        self.remember_commit_passwords(&load.passwords);
+                        self.info_passwords = load.passwords;
+                        self.info_view = Some(load.view);
+                        self.info_unlock_prompt = None;
                     }
                     Err(error) => {
-                        self.status = error.clone();
-                        self.report = Some(error);
+                        if let Some(prompt) = &mut self.info_unlock_prompt {
+                            prompt.busy = false;
+                            prompt.error = Some(error.clone());
+                            self.status = format!("Could not unlock commit: {error}");
+                        } else {
+                            self.status = error.clone();
+                            self.report = Some(error);
+                        }
                     }
                 }
             }
             Err(mpsc::TryRecvError::Empty) => {
                 context.request_repaint_after(std::time::Duration::from_millis(100));
             }
-            Err(mpsc::TryRecvError::Disconnected) => self.info_loading = None,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.info_loading = None;
+                let error = "Archive information worker stopped unexpectedly".to_owned();
+                if let Some(prompt) = &mut self.info_unlock_prompt {
+                    prompt.busy = false;
+                    prompt.error = Some(error.clone());
+                } else {
+                    self.status = error.clone();
+                    self.report = Some(error);
+                }
+            }
         }
     }
     pub(in crate::ui) fn render_archive_info(&mut self, context: &egui::Context) {
@@ -67,6 +108,7 @@ impl ZargApp {
         let mut actual_size = None;
         let viewport_id = egui::ViewportId::from_hash_of("archive-information-dialog");
         let mut open = true;
+        let mut action = None;
         context.show_viewport_immediate(
             viewport_id,
             Self::centered_dialog_viewport_builder(
@@ -103,7 +145,17 @@ impl ZargApp {
                     .show(ui, |ui| {
                         egui::ScrollArea::vertical()
                             .auto_shrink([false, false])
-                            .show(ui, |ui| render_info_contents(ui, view));
+                            .show(ui, |ui| {
+                                render_info_contents(
+                                    ui,
+                                    view,
+                                    &self.icons,
+                                    &self.info_passwords,
+                                    self.info_loading.is_none()
+                                        && self.info_unlock_prompt.is_none(),
+                                    &mut action,
+                                )
+                            });
                     });
                 if !open {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
@@ -113,8 +165,145 @@ impl ZargApp {
         self.record_dialog_size(size_key, actual_size);
         if !open {
             self.info_view = None;
+            self.info_loading = None;
+            self.info_passwords.clear();
+            self.info_unlock_prompt = None;
+        } else if let Some(action) = action {
+            match action {
+                InfoCommitAction::Unlock(commit_id) => {
+                    self.info_unlock_prompt = Some(ArchiveInfoUnlockPrompt {
+                        commit_id,
+                        password: String::new(),
+                        error: None,
+                        busy: false,
+                    });
+                }
+                InfoCommitAction::Hide(commit_id) => {
+                    self.info_passwords.remove(&commit_id);
+                }
+            }
+        }
+        if self.info_view.is_some() {
+            self.render_archive_info_unlock_prompt(context);
         }
     }
+
+    fn render_archive_info_unlock_prompt(&mut self, context: &egui::Context) {
+        let Some(prompt) = &mut self.info_unlock_prompt else {
+            return;
+        };
+        let viewport_id = egui::ViewportId::from_hash_of("archive-information-unlock");
+        let mut action = None;
+        let commit_id = format!("{:08x}", u32::from_le_bytes(prompt.commit_id));
+        context.show_viewport_immediate(
+            viewport_id,
+            Self::centered_dialog_viewport_builder(
+                context,
+                viewport_id,
+                "Unlock commit",
+                [420.0, 170.0],
+                true,
+            ),
+            |ui, _class| {
+                ui.painter().rect_filled(
+                    ui.max_rect(),
+                    0.0,
+                    ui.visuals().window_fill().to_opaque(),
+                );
+                let close_requested = ui.ctx().input(|input| input.viewport().close_requested());
+                if close_requested && !prompt.busy {
+                    action = Some(InfoUnlockAction::Cancel);
+                }
+                egui::CentralPanel::default().show(ui, |ui| {
+                    ui.label(format!("Enter the password for commit {commit_id}:"));
+                    ui.add_space(6.0);
+                    ui.add(
+                        egui::TextEdit::singleline(&mut prompt.password)
+                            .password(true)
+                            .hint_text("Password")
+                            .desired_width(380.0)
+                            .interactive(!prompt.busy),
+                    );
+                    if let Some(error) = &prompt.error {
+                        ui.colored_label(ui.visuals().error_fg_color, error);
+                    }
+                    ui.add_space(8.0);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .add_enabled(!prompt.busy, egui::Button::new("Cancel"))
+                            .clicked()
+                        {
+                            action = Some(InfoUnlockAction::Cancel);
+                        }
+                        if ui
+                            .add_enabled(
+                                !prompt.busy && !prompt.password.is_empty(),
+                                egui::Button::new("Unlock all"),
+                            )
+                            .clicked()
+                        {
+                            action = Some(InfoUnlockAction::All);
+                        }
+                        if ui
+                            .add_enabled(
+                                !prompt.busy && !prompt.password.is_empty(),
+                                egui::Button::new("Unlock"),
+                            )
+                            .clicked()
+                        {
+                            action = Some(InfoUnlockAction::One);
+                        }
+                    });
+                    if prompt.busy {
+                        ui.weak("Unlocking...");
+                    }
+                });
+                if action == Some(InfoUnlockAction::Cancel) {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            },
+        );
+        match action {
+            Some(InfoUnlockAction::Cancel) => self.info_unlock_prompt = None,
+            Some(InfoUnlockAction::One | InfoUnlockAction::All) => {
+                let unlock_all = action == Some(InfoUnlockAction::All);
+                let mut passwords = self.info_passwords.clone();
+                let prompt = self.info_unlock_prompt.as_mut().unwrap();
+                if unlock_all {
+                    if let Some(view) = &self.info_view {
+                        for commit in &view.commits {
+                            let info = &commit.commit;
+                            let id = info.id;
+                            if (info.header_encrypted || info.data_encrypted)
+                                && !passwords.contains_key(&id)
+                            {
+                                passwords.insert(id, prompt.password.clone());
+                            }
+                        }
+                    }
+                } else {
+                    passwords.insert(prompt.commit_id, prompt.password.clone());
+                }
+                prompt.busy = true;
+                prompt.error = None;
+                self.start_archive_info_load(passwords);
+            }
+            None => {}
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InfoCommitAction {
+    Unlock([u8; 4]),
+    Hide([u8; 4]),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InfoUnlockAction {
+    One,
+    All,
+    Cancel,
 }
 pub(super) fn info_ratio(compressed: u64, uncompressed: u64) -> Option<f64> {
     (uncompressed > 0).then_some(compressed as f64 / uncompressed as f64)
@@ -138,12 +327,25 @@ pub(super) fn info_ratio_bar(ui: &mut egui::Ui, ratio: Option<f64>) {
         }
     }
 }
-pub(super) fn render_info_contents(ui: &mut egui::Ui, view: &ArchiveInfoView) {
+fn render_info_contents(
+    ui: &mut egui::Ui,
+    view: &ArchiveInfoView,
+    icons: &IconCache,
+    passwords: &BTreeMap<[u8; 4], String>,
+    controls_enabled: bool,
+    action: &mut Option<InfoCommitAction>,
+) {
     let stored: u64 = view.commits.iter().map(|commit| commit.commit.size).sum();
     let uncompressed: Option<u64> = view
         .commits
         .iter()
-        .map(|commit| commit.commit.uncompressed_size)
+        .map(|commit| {
+            if commit.commit.header_encrypted && !passwords.contains_key(&commit.commit.id) {
+                None
+            } else {
+                commit.commit.uncompressed_size
+            }
+        })
         .sum();
     ui.heading("Summary");
     egui::Grid::new("info_summary")
@@ -181,17 +383,64 @@ pub(super) fn render_info_contents(ui: &mut egui::Ui, view: &ArchiveInfoView) {
     ui.heading("Commits");
     let last = view.commits.len().saturating_sub(1);
     for (index, commit) in view.commits.iter().enumerate() {
-        let id = format!("{:08x}", u32::from_le_bytes(commit.commit.id));
-        egui::CollapsingHeader::new(format!(
-            "Commit {id} - {}",
-            display_size(commit.commit.size)
-        ))
-        .id_salt(("info_commit", index))
-        .default_open(index == last)
-        .show(ui, |ui| render_commit_info(ui, index, commit));
+        let commit_id = commit.commit.id;
+        let encrypted = commit.commit.header_encrypted || commit.commit.data_encrypted;
+        let unlocked = passwords.contains_key(&commit_id);
+        let id = format!("{:08x}", u32::from_le_bytes(commit_id));
+        egui::collapsing_header::CollapsingState::load_with_default_open(
+            ui.ctx(),
+            ui.make_persistent_id(("info_commit", index)),
+            index == last,
+        )
+        .show_header(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(format!(
+                    "Commit {id} - {}",
+                    display_size(commit.commit.size)
+                ));
+                if encrypted {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let icon = if unlocked {
+                            UiIcon::Unlock
+                        } else {
+                            UiIcon::Lock
+                        };
+                        let texture = icon_texture(ui.ctx(), icons, icon);
+                        let response = ui
+                            .add_enabled(
+                                controls_enabled,
+                                egui::Button::image_and_text(
+                                    egui::Image::new(&texture)
+                                        .fit_to_exact_size(egui::vec2(16.0, 16.0)),
+                                    if unlocked { "Hide" } else { "Unlock" },
+                                )
+                                .selected(unlocked),
+                            )
+                            .on_hover_text(if unlocked {
+                                "Hide commit contents"
+                            } else {
+                                "Unlock commit contents"
+                            });
+                        if response.clicked() {
+                            *action = Some(if unlocked {
+                                InfoCommitAction::Hide(commit_id)
+                            } else {
+                                InfoCommitAction::Unlock(commit_id)
+                            });
+                        }
+                    });
+                }
+            });
+        })
+        .body(|ui| render_commit_info(ui, index, commit, !encrypted || unlocked));
     }
 }
-pub(super) fn render_commit_info(ui: &mut egui::Ui, index: usize, info: &CommitInfoWithBlocks) {
+fn render_commit_info(
+    ui: &mut egui::Ui,
+    index: usize,
+    info: &CommitInfoWithBlocks,
+    show_contents: bool,
+) {
     let commit = &info.commit;
     let scope = match (commit.header_encrypted, commit.data_encrypted) {
         (false, false) => "none",
@@ -210,26 +459,28 @@ pub(super) fn render_commit_info(ui: &mut egui::Ui, index: usize, info: &CommitI
         .spacing([16.0, 4.0])
         .show(ui, |ui| {
             info_row(ui, "Stored size", display_size(commit.size));
-            if let Some(created) = commit.created_unix_millis {
+            if show_contents && let Some(created) = commit.created_unix_millis {
                 info_row(ui, "Created", operations::format_unix_millis(created));
             }
-            if let Some(user) = &commit.user {
+            if show_contents && let Some(user) = &commit.user {
                 info_row(ui, "User", user);
             }
             info_row(ui, "Header", display_size(u64::from(commit.header_size)));
             info_row(ui, "Data", display_size(commit.data_size));
-            info_row(
-                ui,
-                "Uncompressed",
-                commit
-                    .uncompressed_size
-                    .map(display_size)
-                    .unwrap_or_else(|| "unavailable (encrypted header)".to_owned()),
-            );
-            ui.label(egui::RichText::new("Ratio").weak());
-            info_ratio_bar(ui, commit.ratio_percent.map(|percent| percent / 100.0));
-            ui.end_row();
-            if let Some(header) = &commit.header_compression {
+            if show_contents {
+                info_row(
+                    ui,
+                    "Uncompressed",
+                    commit
+                        .uncompressed_size
+                        .map(display_size)
+                        .unwrap_or_else(|| "unavailable (encrypted header)".to_owned()),
+                );
+                ui.label(egui::RichText::new("Ratio").weak());
+                info_ratio_bar(ui, commit.ratio_percent.map(|percent| percent / 100.0));
+                ui.end_row();
+            }
+            if show_contents && let Some(header) = &commit.header_compression {
                 info_row(
                     ui,
                     "Header compression",
@@ -256,6 +507,11 @@ pub(super) fn render_commit_info(ui: &mut egui::Ui, index: usize, info: &CommitI
                 },
             );
         });
+    if !show_contents {
+        ui.add_space(4.0);
+        ui.weak("Commit contents are locked.");
+        return;
+    }
     let Some(file_stats) = &commit.details else {
         if commit.header_encrypted {
             ui.weak("File statistics unavailable (encrypted header)");
@@ -420,4 +676,83 @@ fn render_block_info(ui: &mut egui::Ui, index: usize, blocks: &[BlockInfo]) {
                     }
                 });
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn wait_for_info(app: &mut ZargApp) {
+        let context = egui::Context::default();
+        for _ in 0..12_000 {
+            app.poll_archive_info(&context);
+            if app.info_loading.is_none() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        panic!("archive information worker did not finish");
+    }
+
+    #[test]
+    fn info_unlock_is_remembered_only_after_success_and_survives_closing() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("input.txt");
+        let archive = directory.path().join("archive.zar");
+        std::fs::write(&input, b"secret").unwrap();
+        operations::create_archive_with_password(
+            archive.to_str().unwrap(),
+            &[input],
+            false,
+            EncodingOptions::default(),
+            Some(b"correct password"),
+        )
+        .unwrap();
+        let path = archive.to_string_lossy().into_owned();
+        let mut app = ZargApp {
+            archive: path.clone(),
+            read_archive: path,
+            ..Default::default()
+        };
+        app.show_archive_info();
+        wait_for_info(&mut app);
+        let id = app.info_view.as_ref().unwrap().commits[0].commit.id;
+        assert!(
+            app.info_view.as_ref().unwrap().commits[0]
+                .commit
+                .details
+                .is_none()
+        );
+        app.info_unlock_prompt = Some(ArchiveInfoUnlockPrompt {
+            commit_id: id,
+            password: "wrong".to_owned(),
+            error: None,
+            busy: true,
+        });
+        app.start_archive_info_load(BTreeMap::from([(id, "wrong".to_owned())]));
+        wait_for_info(&mut app);
+        assert!(app.info_unlock_prompt.as_ref().unwrap().error.is_some());
+        assert!(app.archive_passwords.is_empty());
+        app.start_archive_info_load(BTreeMap::from([(id, "correct password".to_owned())]));
+        wait_for_info(&mut app);
+        assert!(app.info_unlock_prompt.is_none());
+        assert_eq!(app.archive_passwords.get(&id).unwrap(), "correct password");
+        assert!(
+            app.info_view.as_ref().unwrap().commits[0]
+                .commit
+                .details
+                .is_some()
+        );
+        app.info_passwords.remove(&id);
+        app.clear_archive_info();
+        app.show_archive_info();
+        wait_for_info(&mut app);
+        assert_eq!(app.info_passwords.get(&id).unwrap(), "correct password");
+        assert!(
+            app.info_view.as_ref().unwrap().commits[0]
+                .commit
+                .details
+                .is_some()
+        );
+    }
 }

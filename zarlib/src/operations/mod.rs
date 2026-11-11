@@ -15,6 +15,7 @@ pub mod list;
 pub mod meta;
 pub mod pipeline;
 pub mod remove;
+pub mod remove_commits;
 pub mod transform;
 pub mod undo;
 
@@ -34,5 +35,6 @@ pub use list::*;
 pub use meta::*;
 pub use pipeline::*;
 pub use remove::*;
+pub use remove_commits::*;
 pub use transform::*;
 pub use undo::*;

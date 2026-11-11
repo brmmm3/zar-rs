@@ -12,8 +12,7 @@ zarc --help
 zarc <command> --help
 ```
 
-One-letter shortcuts are shown in the table; `encrypt` and `decrypt` have no
-short aliases.
+One-letter shortcuts are shown in the table.
 
 | Command | Shortcut |
 |---|---|
@@ -21,7 +20,7 @@ short aliases.
 | `add` | `a` |
 | `remove` | `r` |
 | `join` | `j` |
-| `undo` | `u` |
+| `remove-commits` | - |
 | `convert` | - |
 | `meta` | `m` |
 | `encrypt` | - |
@@ -145,7 +144,7 @@ zarc add --user backup.zar source/
 zarc add --special-files backup.zar /dev/
 zarc remove backup.zar obsolete.txt old-directory/
 zarc join backup.zar --from 00000001 --to 00000004
-zarc undo backup.zar 1
+zarc remove-commits backup.zar 00000002 00000004 --output reduced.zar
 zarc meta backup.zar --set author=Jane --remove old-key
 zarc meta backup.zar
 ```
@@ -161,9 +160,13 @@ keys starting with `zar.` are reserved.
 - `join` compacts an inclusive, contiguous range of commits into one commit at
   the same position, preserving the resulting TOC state and commits outside the
   range. Commit IDs are eight hexadecimal digits.
-- `undo` removes the requested positive number of commits from the end of the
-  archive. It validates and atomically replaces the archive, and refuses to
-  remove the first commit.
+- `remove-commits` removes the specified commit IDs, preserving the other
+  commits in order. At least one commit must remain; the first can be removed.
+  Use `--output` to write a different archive, otherwise the input is replaced.
+  Retained commits are replayed, so removing one can change subsequent state.
+  An incompatible remaining history is rejected when all retained headers are
+  readable. Encrypted headers are copied without passwords and their effects
+  cannot be validated by this command.
 
 `add` accepts `--block-size`, `--compression-level`, `--metadata`, `--dates`,
 `--special-files`, `--strict`, `--verbose`, the include/exclude filter options
@@ -175,9 +178,8 @@ and may require privileges. `join` accepts `--from`, `--to`, `--block-size`,
 `--compression-level`, and `--progress`. The commands stage and validate the
 replacement before publishing it. These state-changing operations currently
 reject archives whose accumulated TOC depends on encrypted headers; encrypted
-archive append/removal/compaction is not supported. `undo` is different: it only
-validates framing and truncates a suffix, so it can remove encrypted commits
-without decrypting them. It still preserves the first commit.
+archive append/removal/compaction is not supported. `remove-commits` copies
+retained commits without decrypting them and does not require passwords.
 
 ### Encrypt and decrypt commit ranges
 

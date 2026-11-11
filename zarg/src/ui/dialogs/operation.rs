@@ -52,6 +52,7 @@ pub(in crate::ui) enum OperationKind {
     AddToArchive,
     RemoveEntries,
     JoinCommits,
+    RemoveCommits,
     UndoCommits,
     ChangeCommits,
     CustomMetadata,
@@ -67,6 +68,7 @@ impl OperationKind {
             Self::AddToArchive => "Add to archive",
             Self::RemoveEntries => "Remove entries",
             Self::JoinCommits => "Join commits",
+            Self::RemoveCommits => "Remove commits",
             Self::UndoCommits => "Undo",
             Self::ChangeCommits => "Change commits",
             Self::CustomMetadata => "Custom metadata",
@@ -82,6 +84,7 @@ impl OperationKind {
             Self::AddToArchive => "operation-add",
             Self::RemoveEntries => "operation-remove",
             Self::JoinCommits => "operation-join",
+            Self::RemoveCommits => "operation-remove-commits",
             Self::UndoCommits => "operation-undo",
             Self::ChangeCommits => "operation-change-commits",
             Self::CustomMetadata => "operation-metadata",
@@ -202,7 +205,10 @@ impl ZargApp {
             [440.0, 100.0]
         } else if kind == OperationKind::CustomMetadata {
             [440.0, 190.0]
-        } else if kind == OperationKind::JoinCommits {
+        } else if matches!(
+            kind,
+            OperationKind::JoinCommits | OperationKind::RemoveCommits
+        ) {
             [440.0, 180.0]
         } else if kind == OperationKind::ExtractArchive {
             [500.0, 230.0]
@@ -351,11 +357,7 @@ impl ZargApp {
             }
             OperationKind::RemoveEntries => {}
             OperationKind::UndoCommits => {
-                let maximum = if self.rewrite_snapshots.is_empty() {
-                    self.operation.commit_ids.len().saturating_sub(1)
-                } else {
-                    self.maximum_undo_steps()
-                };
+                let maximum = self.maximum_undo_steps();
                 let range_maximum = maximum.max(1);
                 self.operation.undo_commits = self.operation.undo_commits.clamp(1, range_maximum);
                 ui.horizontal(|ui| {
@@ -366,7 +368,66 @@ impl ZargApp {
                             .range(1..=range_maximum),
                     );
                 });
-                ui.label("Staged changes count as steps. The first commit is retained.");
+                ui.label("Only unsaved changes from this session can be undone.");
+            }
+            OperationKind::RemoveCommits => {
+                ui.label("Remove the selected inclusive range of commits. At least one commit must remain. Remaining history may change; encrypted headers cannot be validated.");
+                Self::render_combo_row(ui, "First commit", |ui| {
+                    egui::ComboBox::from_id_salt("remove-first-commit")
+                        .selected_text(&self.operation.from_id)
+                        .show_ui(ui, |ui| {
+                            for id in &self.operation.commit_ids {
+                                ui.selectable_value(&mut self.operation.from_id, id.clone(), id);
+                            }
+                        });
+                });
+                let first = self
+                    .operation
+                    .commit_ids
+                    .iter()
+                    .position(|id| id == &self.operation.from_id)
+                    .unwrap_or(0);
+                if self
+                    .operation
+                    .commit_ids
+                    .iter()
+                    .position(|id| id == &self.operation.to_id)
+                    .is_some_and(|last| last < first)
+                {
+                    self.operation.to_id = self.operation.from_id.clone();
+                }
+                Self::render_combo_row(ui, "Last commit", |ui| {
+                    egui::ComboBox::from_id_salt("remove-last-commit")
+                        .selected_text(&self.operation.to_id)
+                        .show_ui(ui, |ui| {
+                            for id in self.operation.commit_ids.iter().skip(first) {
+                                ui.selectable_value(&mut self.operation.to_id, id.clone(), id);
+                            }
+                        });
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Write to");
+                    ui.allocate_ui_with_layout(
+                        ui.available_size(),
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            if icon_button(ui, &self.icons, UiIcon::Browse, "Browse...", true)
+                                .clicked()
+                                && let Some(path) = rfd::FileDialog::new().save_file()
+                            {
+                                self.operation.remove_commits_output =
+                                    path.to_string_lossy().into_owned();
+                            }
+                            ui.add(
+                                egui::TextEdit::singleline(
+                                    &mut self.operation.remove_commits_output,
+                                )
+                                .desired_width(ui.available_width())
+                                .hint_text("Optional; empty stages changes in the current archive"),
+                            );
+                        },
+                    );
+                });
             }
             OperationKind::ChangeCommits => {
                 ui.label("Choose an action and inclusive commit range.");
@@ -490,7 +551,7 @@ impl ZargApp {
                 );
                 ui.separator();
                 ui.horizontal(|ui| {
-                    ui.label("Write to:");
+                    ui.label("Write to");
                     ui.allocate_ui_with_layout(
                         ui.available_size(),
                         egui::Layout::right_to_left(egui::Align::Center),
@@ -580,7 +641,7 @@ impl ZargApp {
                         });
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Write to:");
+                    ui.label("Write to");
                     ui.allocate_ui_with_layout(
                         ui.available_size(),
                         egui::Layout::right_to_left(egui::Align::Center),
@@ -850,6 +911,7 @@ impl ZargApp {
                 OperationKind::CustomMetadata
                     | OperationKind::TestArchive
                     | OperationKind::JoinCommits
+                    | OperationKind::RemoveCommits
                     | OperationKind::UndoCommits
                     | OperationKind::ChangeCommits
             )
@@ -1294,6 +1356,7 @@ impl ZargApp {
                 OperationKind::AddToArchive => (UiIcon::Add, "Add"),
                 OperationKind::RemoveEntries => return None,
                 OperationKind::JoinCommits => (UiIcon::Join, "Join"),
+                OperationKind::RemoveCommits => (UiIcon::Remove, "Remove"),
                 OperationKind::UndoCommits => (UiIcon::Undo, "Undo"),
                 OperationKind::ChangeCommits => (UiIcon::TestArchive, "Apply"),
                 OperationKind::CustomMetadata => (UiIcon::ConfirmApply, "Apply"),
@@ -1328,15 +1391,17 @@ impl ZargApp {
                         && self.operation.has_metadata_changes()
                 }
                 OperationKind::UndoCommits => {
-                    PathBuf::from(self.operation.archive.trim()).is_file()
+                    self.has_current_archive()
+                        && self.has_unsaved_changes
                         && self.operation.undo_commits > 0
-                        && self.operation.undo_commits
-                            <= if self.rewrite_snapshots.is_empty() {
-                                self.operation.commit_ids.len().saturating_sub(1)
-                            } else {
-                                self.maximum_undo_steps()
-                            }
+                        && self.operation.undo_commits <= self.maximum_undo_steps()
                 }
+                OperationKind::RemoveCommits => removal_range(
+                    &self.operation.commit_ids,
+                    &self.operation.from_id,
+                    &self.operation.to_id,
+                )
+                .is_some(),
                 OperationKind::ChangeCommits => {
                     PathBuf::from(self.operation.archive.trim()).is_file()
                         && commit_range_is_valid(

@@ -59,11 +59,10 @@ pub fn list_archive_with_details_and_passwords(
         }
         file.seek(SeekFrom::Start(header_offset))?;
         let (validated, key) = read_header_with_passwords(&mut file, limits, passwords)?;
-        let Some(header) = validated.logical_header else {
-            return Err(
-                "cannot list an archive with a header-encrypted commit; use --password".into(),
-            );
-        };
+        let header = validated.logical_header;
+        if header.is_none() && !validated.encryption.is_header_encrypted() {
+            return Err("commit header is missing its logical header".into());
+        }
 
         file.seek(SeekFrom::Start(data_start))?;
         let mut block_sizes = HashMap::new();
@@ -144,13 +143,15 @@ pub fn list_archive_with_details_and_passwords(
         }
 
         let block_indices = block_sizes.keys().copied().collect::<HashSet<_>>();
-        toc.apply_commit_with_available_blocks(&header.changes, &block_indices)?;
-        apply_entry_details(
-            &mut details,
-            &header.changes,
-            &header.entry_metadata,
-            &block_sizes,
-        )?;
+        if let Some(header) = header {
+            toc.apply_commit_with_available_blocks(&header.changes, &block_indices)?;
+            apply_entry_details(
+                &mut details,
+                &header.changes,
+                &header.entry_metadata,
+                &block_sizes,
+            )?;
+        }
         if requested_id == Some(validated.commit_header.commit_id) {
             stopped_at_to = true;
         }
@@ -295,6 +296,9 @@ pub fn load_toc_through(
     load_toc_through_with_passwords(archive, to, &passwords)
 }
 
+/// Builds the visible archive state. Commits with encrypted headers are skipped
+/// when their passwords are unavailable; later removals of entries from those
+/// commits are treated as removals of unknown paths.
 pub fn load_toc_through_with_passwords(
     archive: &str,
     to: Option<&str>,
@@ -355,12 +359,11 @@ pub fn load_toc_through_with_passwords_and_progress(
                 u32::from_le_bytes(validated.commit_header.commit_id)
             ));
         }
-        let Some(header) = validated.logical_header.as_ref() else {
-            return Err(
-                "cannot list an archive with a header-encrypted commit; use --password".into(),
-            );
-        };
-        toc.apply_commit(&header.changes)?;
+        if let Some(header) = validated.logical_header.as_ref() {
+            toc.apply_commit(&header.changes)?;
+        } else if !validated.encryption.is_header_encrypted() {
+            return Err("commit header is missing its logical header".into());
+        }
         if requested_id == Some(validated.commit_header.commit_id) {
             stopped_at_to = true;
         }

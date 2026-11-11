@@ -599,6 +599,12 @@ fn extract_dialog_detects_encryption_for_main_and_context_actions() {
         .unwrap();
         let mut app = ZargApp::default();
         app.open_archive(archive.clone(), scope.map(|_| "password".to_owned()));
+        if scope.is_some() {
+            wait_for_open_password_dialog(&mut app);
+            let dialog = app.open_password_dialog.as_mut().unwrap();
+            dialog.answers.send(Some(dialog.passwords())).unwrap();
+            dialog.busy = true;
+        }
         wait_for_worker(&mut app);
         assert!(app.report.is_none(), "{:?}", app.report);
         app.show_operation(OperationKind::ExtractArchive);
@@ -727,7 +733,7 @@ fn default_password_encrypts_added_commit() {
 }
 
 #[test]
-fn new_encrypted_archive_add_requires_reentering_password() {
+fn new_encrypted_archive_remembers_existing_commit_password() {
     let directory = tempfile::tempdir().unwrap();
     let input = directory.path().join("input.txt");
     std::fs::write(&input, b"contents").unwrap();
@@ -750,8 +756,8 @@ fn new_encrypted_archive_add_requires_reentering_password() {
     app.operation.password = "GoodPassword9!".to_owned();
     app.operation.password_confirm = app.operation.password.clone();
     assert_eq!(app.operation.commit_unlocks.len(), 1);
-    app.operation.commit_unlocks[0].selected = true;
-    app.operation.commit_unlocks[0].password = "GoodPassword9!".to_owned();
+    assert!(app.operation.commit_unlocks[0].selected);
+    assert_eq!(app.operation.commit_unlocks[0].password, "GoodPassword9!");
     click_add_archive_action(&mut app);
     wait_for_worker(&mut app);
     assert!(app.report.is_none(), "{:?}", app.report);
@@ -840,12 +846,14 @@ fn add_unlocks_multiple_encrypted_commits_with_individual_passwords() {
     }
     app.show_operation(OperationKind::AddToArchive);
     assert_eq!(app.operation.commit_unlocks.len(), 3);
-    assert!(
-        app.operation
-            .commit_unlocks
-            .iter()
-            .all(|row| !row.selected && row.password.is_empty())
-    );
+    for (row, password) in app.operation.commit_unlocks.iter().zip([
+        "first password",
+        "second password",
+        "third password",
+    ]) {
+        assert!(row.selected);
+        assert_eq!(row.password, password);
+    }
 }
 
 #[test]
@@ -1126,6 +1134,146 @@ fn run_undo(app: &mut ZargApp, steps: usize) {
     }
 }
 
+fn run_remove_commits(app: &mut ZargApp, from: &str, to: &str, output: Option<&Path>) {
+    app.show_operation(OperationKind::RemoveCommits);
+    app.operation.from_id = from.to_owned();
+    app.operation.to_id = to.to_owned();
+    app.operation.remove_commits_output =
+        output.map_or_else(String::new, |path| path.to_string_lossy().into_owned());
+    let form = std::mem::take(&mut app.operation);
+    app.start_operation(form);
+    if app.busy {
+        wait_for_worker(app);
+    }
+}
+
+#[test]
+fn removing_commits_stages_change_and_undo_stops_at_saved_state() {
+    let (directory, mut app, archive) = rewrite_fixture();
+    let third = directory.path().join("third.txt");
+    std::fs::write(&third, b"third").unwrap();
+    app.show_operation(OperationKind::AddToArchive);
+    app.operation.input_paths.push(third);
+    let form = std::mem::take(&mut app.operation);
+    app.start_operation(form);
+    wait_for_worker(&mut app);
+    assert!(app.save_archive());
+    wait_for_worker(&mut app);
+    assert!(!app.can_undo());
+    let original = std::fs::read(&archive).unwrap();
+    let ids = app.commit_ids.clone();
+    run_remove_commits(&mut app, &ids[1], &ids[1], None);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert_eq!(app.commit_ids, vec![ids[0].clone(), ids[2].clone()]);
+    assert!(app.entries.iter().all(|(path, _)| path != "second.txt"));
+    assert!(app.entries.iter().any(|(path, _)| path == "third.txt"));
+    assert_eq!(std::fs::read(&archive).unwrap(), original);
+    assert!(app.can_undo());
+    run_undo(&mut app, 1);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert_eq!(app.commit_ids, ids);
+    assert_eq!(std::fs::read(&app.read_archive).unwrap(), original);
+    assert!(!app.has_unsaved_changes);
+    assert!(!app.can_undo());
+    run_undo(&mut app, 1);
+    assert!(!app.busy);
+    assert_eq!(std::fs::read(&archive).unwrap(), original);
+}
+
+#[test]
+fn removing_commits_to_output_preserves_current_archive_and_undo_history() {
+    let (directory, mut app, _archive) = rewrite_fixture();
+    let before = std::fs::read(&app.read_archive).unwrap();
+    let before_ids = app.commit_ids.clone();
+    let steps = app.maximum_undo_steps();
+    let output = directory.path().join("removed.zar");
+    run_remove_commits(&mut app, &before_ids[0], &before_ids[0], Some(&output));
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert_eq!(std::fs::read(&app.read_archive).unwrap(), before);
+    assert_eq!(app.commit_ids, before_ids);
+    assert_eq!(app.maximum_undo_steps(), steps);
+    let commits = operations::info_archive(output.to_str().unwrap(), false).unwrap();
+    assert_eq!(commits.len(), 1);
+    assert_eq!(
+        format!("{:08x}", u32::from_le_bytes(commits[0].id)),
+        before_ids[1]
+    );
+}
+
+#[test]
+fn removing_commits_warns_when_retained_history_cannot_be_validated() {
+    let (_directory, mut app, _archive) = rewrite_fixture();
+    let first = app.commit_ids[0].clone();
+    let last = app.commit_ids[1].clone();
+    app.show_operation(OperationKind::ChangeCommits);
+    app.operation.from_id = first.clone();
+    app.operation.to_id = first;
+    app.operation.password = "FirstPassword9!".to_owned();
+    app.operation.password_confirm = app.operation.password.clone();
+    let form = std::mem::take(&mut app.operation);
+    app.start_operation(form);
+    wait_for_worker(&mut app);
+    let passwords = app.archive_passwords.clone();
+    run_remove_commits(&mut app, &last, &last, None);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(app.status.contains("Warning:"));
+    assert!(
+        app.warnings
+            .iter()
+            .any(|warning| warning.contains("encrypted headers"))
+    );
+    assert_eq!(app.archive_passwords, passwords);
+    run_undo(&mut app, 1);
+    assert_eq!(app.archive_passwords, passwords);
+    assert_eq!(app.commit_ids.len(), 2);
+}
+
+#[test]
+fn non_strict_encryption_preserves_skipped_commit_passwords_and_undo_restores_them() {
+    let (_directory, mut app, _archive) = rewrite_fixture();
+    let first = app.commit_ids[0].clone();
+    let last = app.commit_ids[1].clone();
+
+    app.show_operation(OperationKind::ChangeCommits);
+    app.operation.from_id = first.clone();
+    app.operation.to_id = first.clone();
+    app.operation.password = "FirstPassword9!".to_owned();
+    app.operation.password_confirm = app.operation.password.clone();
+    let form = std::mem::take(&mut app.operation);
+    app.start_operation(form);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    let first_passwords = app.archive_passwords.clone();
+    assert_eq!(first_passwords.len(), 1);
+
+    app.show_operation(OperationKind::ChangeCommits);
+    app.operation.from_id = first;
+    app.operation.to_id = last;
+    app.operation.existing_password.clear();
+    app.operation.transform_strict = false;
+    app.operation.password = "SecondPassword9!".to_owned();
+    app.operation.password_confirm = app.operation.password.clone();
+    let form = std::mem::take(&mut app.operation);
+    app.start_operation(form);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert_eq!(app.archive_passwords.len(), 2);
+    assert!(
+        first_passwords
+            .iter()
+            .all(|(id, password)| { app.archive_passwords.get(id) == Some(password) })
+    );
+    assert!(
+        app.archive_passwords
+            .values()
+            .any(|password| password == "SecondPassword9!")
+    );
+
+    run_undo(&mut app, 1);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert_eq!(app.archive_passwords, first_passwords);
+}
+
 #[test]
 fn staged_rewrites_undo_multiple_steps_and_restore_previous_changes() {
     let (_directory, mut app, archive) = rewrite_fixture();
@@ -1138,6 +1286,7 @@ fn staged_rewrites_undo_multiple_steps_and_restore_previous_changes() {
     run_encrypt(&mut app, None);
     assert!(app.report.is_none(), "{:?}", app.report);
     assert!(app.archive_password.is_some());
+    assert_eq!(app.archive_passwords.len(), 1);
     assert_eq!(app.maximum_undo_steps(), 3);
     run_undo(&mut app, 2);
     assert!(app.report.is_none(), "{:?}", app.report);
@@ -1145,8 +1294,9 @@ fn staged_rewrites_undo_multiple_steps_and_restore_previous_changes() {
     assert_eq!(std::fs::read(&archive).unwrap(), original);
     assert!(app.has_unsaved_changes);
     assert!(app.archive_password.is_none());
+    assert!(app.archive_passwords.is_empty());
     assert_eq!(app.commit_ids.len(), 2);
-    assert!(app.rewrite_snapshots.is_empty());
+    assert_eq!(app.rewrite_snapshots.len(), 1);
 }
 
 #[test]
@@ -1245,7 +1395,7 @@ fn explicit_rewrite_outputs_leave_current_archive_untouched() {
     assert_eq!(std::fs::read(&app.read_archive).unwrap(), before);
     assert!(app.archive_password.is_none());
     assert!(app.has_unsaved_changes);
-    assert!(app.rewrite_snapshots.is_empty());
+    assert_eq!(app.rewrite_snapshots.len(), 1);
     run_join(&mut app, Some(&archive));
     assert!(!app.busy);
     assert!(app.status.contains("different archive"));
@@ -1913,6 +2063,177 @@ fn wait_for_worker(app: &mut ZargApp) {
         "archive worker did not finish in time: progress={}, confirmation={:?}",
         app.progress_message, app.confirmation
     );
+}
+
+fn wait_for_open_password_dialog(app: &mut ZargApp) {
+    let context = egui::Context::default();
+    for _ in 0..12_000 {
+        app.poll_worker(&context);
+        if app.open_password_dialog.is_some() {
+            return;
+        }
+        assert!(app.busy, "archive worker stopped: {:?}", app.report);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    panic!("archive password dialog did not appear");
+}
+
+#[test]
+fn opening_encrypted_archive_accepts_per_commit_passwords_and_cancel() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive = directory.path().join("multiple.zar");
+    let plain = directory.path().join("plain.txt");
+    let first = directory.path().join("first.txt");
+    let second = directory.path().join("second.txt");
+    for path in [&plain, &first, &second] {
+        std::fs::write(path, path.file_name().unwrap().as_encoded_bytes()).unwrap();
+    }
+    let path = archive.to_str().unwrap();
+    operations::create_archive(path, &[plain]).unwrap();
+    for (input, password, existing) in [
+        (first, b"first password".as_slice(), None),
+        (
+            second,
+            b"second password".as_slice(),
+            Some(b"first password".to_vec()),
+        ),
+    ] {
+        operations::add_archive_with_encoding_progress_and_filters_and_encryption(
+            path,
+            &[input],
+            EncodingOptions::default(),
+            None,
+            AddInputOptions::default(),
+            &FilterSet::default(),
+            Some((
+                password,
+                ContentAead::Aes256Gcm,
+                EncryptionScope::HeaderAndData,
+            )),
+            &PasswordSet::new(existing),
+        )
+        .unwrap();
+    }
+
+    let mut app = ZargApp::default();
+    app.archive = "previous.zar".to_owned();
+    app.read_archive = app.archive.clone();
+    app.open_archive_now(archive.clone(), None);
+    wait_for_open_password_dialog(&mut app);
+    let dialog = app.open_password_dialog.as_ref().unwrap();
+    assert_eq!(dialog.rows.len(), 3);
+    assert!(!dialog.rows[0].encrypted);
+    assert!(dialog.rows[1].encrypted && dialog.rows[2].encrypted);
+    dialog.answers.send(None).unwrap();
+    wait_for_worker(&mut app);
+    assert_eq!(app.archive, "previous.zar");
+    assert!(app.open_password_dialog.is_none());
+
+    app.open_archive_now(archive.clone(), None);
+    wait_for_open_password_dialog(&mut app);
+    let dialog = app.open_password_dialog.as_mut().unwrap();
+    dialog.rows[1].password = "wrong password".to_owned();
+    dialog.answers.send(Some(dialog.passwords())).unwrap();
+    dialog.busy = true;
+    let context = egui::Context::default();
+    for _ in 0..12_000 {
+        app.poll_worker(&context);
+        if app
+            .open_password_dialog
+            .as_ref()
+            .is_some_and(|dialog| dialog.error.is_some())
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(app.open_password_dialog.as_ref().unwrap().error.is_some());
+    assert_eq!(app.archive, "previous.zar");
+    let dialog = app.open_password_dialog.as_mut().unwrap();
+    dialog.rows[1].password = "first password".to_owned();
+    dialog.rows[2].password = "second password".to_owned();
+    dialog.answers.send(Some(dialog.passwords())).unwrap();
+    dialog.busy = true;
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert_eq!(app.archive_passwords.len(), 2);
+    app.show_archive_info();
+    let context = egui::Context::default();
+    for _ in 0..12_000 {
+        app.poll_archive_info(&context);
+        if app.info_loading.is_none() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let view = app.info_view.as_ref().expect("archive info loaded");
+    assert_eq!(app.info_passwords.len(), 2);
+    assert!(view.commits[1].commit.details.is_some());
+    assert!(view.commits[2].commit.details.is_some());
+    app.clear_archive_info();
+    for name in ["plain.txt", "first.txt", "second.txt"] {
+        assert!(app.entries.iter().any(|(path, _)| path == name), "{name}");
+    }
+    let first_commit = app.commit_ids[1].clone();
+    app.select_commit(first_commit);
+    wait_for_worker(&mut app);
+    assert!(app.entries.iter().any(|(path, _)| path == "first.txt"));
+    assert!(!app.entries.iter().any(|(path, _)| path == "second.txt"));
+    let last_commit = app.commit_ids[2].clone();
+    app.select_commit(last_commit);
+    wait_for_worker(&mut app);
+    let output = directory.path().join("extracted");
+    std::fs::create_dir(&output).unwrap();
+    app.show_operation(OperationKind::ExtractArchive);
+    app.operation.destination = output.to_string_lossy().into_owned();
+    let form = std::mem::take(&mut app.operation);
+    app.start_operation(form);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(app.entries.iter().any(|(path, _)| path == "second.txt"));
+    assert_eq!(
+        std::fs::read(output.join("first.txt")).unwrap(),
+        b"first.txt"
+    );
+    assert_eq!(
+        std::fs::read(output.join("second.txt")).unwrap(),
+        b"second.txt"
+    );
+    app.open_archive_now(archive, None);
+    wait_for_open_password_dialog(&mut app);
+    let dialog = app.open_password_dialog.as_mut().unwrap();
+    assert_eq!(dialog.rows[1].password, "first password");
+    assert_eq!(dialog.rows[2].password, "second password");
+    for row in &mut dialog.rows {
+        row.password.clear();
+    }
+    dialog.answers.send(Some(dialog.passwords())).unwrap();
+    dialog.busy = true;
+    wait_for_worker(&mut app);
+    assert!(app.archive_passwords.is_empty());
+    assert!(app.entries.iter().any(|(path, _)| path == "plain.txt"));
+    assert!(!app.entries.iter().any(|(path, _)| path == "first.txt"));
+    assert!(!app.entries.iter().any(|(path, _)| path == "second.txt"));
+    app.show_operation(OperationKind::ListArchive);
+    app.operation.to = app.commit_ids[1].clone();
+    app.operation.password_is_set = true;
+    app.operation.password = "first password".to_owned();
+    let form = std::mem::take(&mut app.operation);
+    app.start_operation(form);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert_eq!(app.archive_passwords.len(), 1);
+    app.show_archive_info();
+    for _ in 0..12_000 {
+        app.poll_archive_info(&context);
+        if app.info_loading.is_none() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let view = app.info_view.as_ref().expect("archive info loaded");
+    assert!(view.commits[1].commit.details.is_some());
+    assert!(view.commits[2].commit.details.is_none());
 }
 
 #[test]

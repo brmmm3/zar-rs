@@ -1,6 +1,6 @@
 use super::common::*;
 use super::info::group_size_metadata;
-use super::list::load_toc;
+use super::list::load_toc_through_with_passwords;
 use super::pipeline::{BlockWorkItem, SmallFilePacker, encode_block};
 use crate::{
     ArchivePath, BlockFrame, CommitHeader, CommitValidationLimits, FileEntry, HEADER_OFFSET_SIZE,
@@ -11,6 +11,15 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use xxhash_rust::xxh64::Xxh64;
+use zeroize::Zeroizing;
+
+struct JoinCommit {
+    header: CommitHeader,
+    data_start: u64,
+    commit_end: u64,
+    validated: ValidatedCommit,
+    key: Option<Zeroizing<[u8; crate::DEK_SIZE]>>,
+}
 
 fn write_joined_block(
     data: &mut Vec<u8>,
@@ -46,8 +55,29 @@ pub fn join_archive_with_encoding_progress(
     archive: &str,
     from_id: &str,
     to_id: &str,
+    options: EncodingOptions,
+    progress: Option<&dyn Progress>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    join_archive_with_encoding_progress_and_passwords(
+        archive,
+        from_id,
+        to_id,
+        options,
+        progress,
+        &PasswordSet::default(),
+    )
+}
+
+/// Joins the readable commits in the selected range. Encrypted commits whose
+/// password is unavailable are retained unchanged; the joined commit is placed
+/// at the first readable commit's position.
+pub fn join_archive_with_encoding_progress_and_passwords(
+    archive: &str,
+    from_id: &str,
+    to_id: &str,
     mut options: EncodingOptions,
     progress: Option<&dyn Progress>,
+    passwords: &PasswordSet,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let encoding_warning = resolve_encoding_options(&mut options);
     if let (Some(progress), Some(warning)) = (progress, encoding_warning.as_deref()) {
@@ -64,8 +94,6 @@ pub fn join_archive_with_encoding_progress(
     if !parent.is_dir() {
         return Err(format!("archive parent is not a directory: {}", parent.display()).into());
     }
-    ensure_archive_unencrypted(archive_path)?;
-
     let mut input = File::open(archive_path)?;
     let limits = CommitValidationLimits::default();
     let archive_bytes = input.metadata()?.len();
@@ -78,7 +106,8 @@ pub fn join_archive_with_encoding_progress(
     while header_offset != 0 {
         let (commit_header, data_start, next_header_offset) =
             read_commit_at_offset(&mut input, header_offset, limits)?;
-        let validated = ValidatedCommit::read_body(&mut input, commit_header.clone(), limits)?;
+        let (validated, key) =
+            read_commit_with_passwords(&mut input, commit_header.clone(), limits, passwords)?;
         let commit_end = header_offset
             .checked_add(u64::from(commit_header.header_frame_size))
             .and_then(|size| size.checked_add(HEADER_OFFSET_SIZE))
@@ -88,20 +117,20 @@ pub fn join_archive_with_encoding_progress(
             "Joining commit {:08x}",
             u32::from_le_bytes(commit_header.commit_id)
         ));
-        commits.push((
-            header_offset,
-            commit_header,
+        commits.push(JoinCommit {
+            header: commit_header,
             data_start,
             commit_end,
             validated,
-        ));
+            key,
+        });
         header_offset = next_header_offset;
     }
     let matching_indices = |id: &[u8; 4]| {
         commits
             .iter()
             .enumerate()
-            .filter_map(|(index, (_, ch, _, _, _commit))| (ch.commit_id == *id).then_some(index))
+            .filter_map(|(index, commit)| (commit.header.commit_id == *id).then_some(index))
             .collect::<Vec<_>>()
     };
     let from_matches = matching_indices(&from_id);
@@ -115,38 +144,72 @@ pub fn join_archive_with_encoding_progress(
         return Err("start commit ID must not appear after end commit ID".into());
     }
 
+    let selected: Vec<usize> = (first..=last)
+        .filter(|&index| {
+            let commit = &commits[index];
+            commit.validated.logical_header.is_some()
+                && (!commit.validated.encryption.is_data_encrypted() || commit.key.is_some())
+        })
+        .collect();
+    if selected.is_empty() {
+        return Err(
+            "the selected range contains no commits readable with the supplied passwords".into(),
+        );
+    }
+
+    let first_selected = selected[0];
     let mut prefix_toc = Toc::default();
-    for (_, _, _, _, commit) in &commits[..first] {
+    for commit in &commits[..first_selected] {
         let header = commit
+            .validated
             .logical_header
             .as_ref()
-            .ok_or("cannot join when preceding commit headers are encrypted")?;
-        prefix_toc.apply_commit_with_available_blocks(&header.changes, &commit.block_indices)?;
+            .ok_or("cannot build join prefix while a preceding commit header is encrypted")?;
+        prefix_toc
+            .apply_commit_with_available_blocks(&header.changes, &commit.validated.block_indices)?;
     }
     let mut joined_toc = prefix_toc.clone();
     let mut written_files = BTreeMap::<ArchivePath, Vec<u8>>::new();
     let mut custom_metadata = HashMap::new();
     let mut joined_special = BTreeMap::<ArchivePath, TocEntry>::new();
     let limits = CommitValidationLimits::default();
-    for (_header_offset, commit_header, data_start, _, commit) in &commits[first..=last] {
-        let header = commit
-            .logical_header
-            .as_ref()
-            .ok_or("cannot join a commit with an encrypted header")?;
-        if commit.encryption.is_data_encrypted() {
-            return Err("cannot join data-encrypted commits".into());
-        }
-        input.seek(io::SeekFrom::Start(*data_start))?;
+    for &index in &selected {
+        let commit = &commits[index];
+        let commit_header = &commit.header;
+        let header = commit.validated.logical_header.as_ref().unwrap();
+        let algorithm = match &commit.validated.encryption {
+            crate::EncryptionDescriptor::Unencrypted => None,
+            crate::EncryptionDescriptor::Symmetric { algorithm, .. }
+            | crate::EncryptionDescriptor::Password { algorithm, .. }
+            | crate::EncryptionDescriptor::Recipients { algorithm, .. }
+            | crate::EncryptionDescriptor::PasswordAndRecipients { algorithm, .. } => {
+                Some(*algorithm)
+            }
+        };
+        input.seek(io::SeekFrom::Start(commit.data_start))?;
         let mut data_reader = (&mut input).take(commit_header.data_section_size);
-        let mut blocks = HashMap::with_capacity(commit.block_count as usize);
+        let mut blocks = HashMap::with_capacity(commit.validated.block_count as usize);
         while data_reader.limit() != 0 {
             let block = BlockFrame::read_from(&mut data_reader, limits.max_frame_payload_size)?;
-            let contents = block.uncompressed_at_most(limits.max_uncompressed_block_size)?;
+            let contents = if block.flags & crate::BLOCK_FLAG_ENCRYPTED != 0 {
+                block.uncompressed_encrypted(
+                    commit_header,
+                    commit
+                        .key
+                        .as_deref()
+                        .ok_or("join password is unavailable")?,
+                    algorithm.ok_or("encrypted commit is missing its algorithm")?,
+                    limits.max_uncompressed_block_size,
+                )?
+            } else {
+                block.uncompressed_at_most(limits.max_uncompressed_block_size)?
+            };
             progress.inc(contents.len() as u64);
             blocks.insert(block.block_index, contents);
         }
         super::meta::merge_custom_metadata(&mut custom_metadata, &header.metadata);
-        joined_toc.apply_commit_with_available_blocks(&header.changes, &commit.block_indices)?;
+        joined_toc
+            .apply_commit_with_available_blocks(&header.changes, &commit.validated.block_indices)?;
         for change in &header.changes {
             match change {
                 TocChange::PutFile { path, entry } => {
@@ -226,13 +289,6 @@ pub fn join_archive_with_encoding_progress(
             }
         }
     }
-    if commits[last + 1..]
-        .iter()
-        .any(|(_, _, _, _, commit)| commit.logical_header.is_none())
-    {
-        return Err("cannot validate joined state with a later header-encrypted commit".into());
-    }
-
     let mut changes = Vec::new();
     let mut rewritten_paths = std::collections::HashSet::new();
     for (path, entry) in prefix_toc.iter() {
@@ -386,128 +442,108 @@ pub fn join_archive_with_encoding_progress(
         options.compression_level,
     )?;
 
-    let (_, _, range_start, _, _) = &commits[first];
-    let range_start = range_start
-        .checked_sub(HEADER_OFFSET_SIZE)
-        .ok_or("range start underflow")?;
-    let (_, _, _, range_end, _) = &commits[last];
+    let selected_set = selected
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>();
+    let merged_body_start = data.len() as u64;
+    let mut merged_body = data;
+    header.write_to(&mut merged_body)?;
+    let merged_body = merged_body;
 
     let mut output = OpenOptions::new()
         .write(true)
+        .read(true)
         .create_new(true)
         .open(&staged_archive)?;
     cleanup.0.push(staged_archive.clone());
-    input.seek(io::SeekFrom::Start(0))?;
-    io::copy(&mut (&mut input).take(range_start), &mut output)?;
-    output.write_all(&0u64.to_le_bytes())?;
-    output.write_all(&data)?;
-    let new_header_offset = output.stream_position()?;
-    header.write_to(&mut output)?;
-    output.write_all(&new_header_offset.to_le_bytes())?;
-    input.seek(io::SeekFrom::Start(*range_end))?;
-    io::copy(&mut input, &mut output)?;
+    crate::ContainerHeader::new(0).write_to(&mut output)?;
+    let mut previous_link_position = None;
+    let mut output_commits = 0usize;
+
+    for (index, commit) in commits.iter().enumerate() {
+        if index == first_selected {
+            let link_position = output.stream_position()?;
+            output.write_all(&0u64.to_le_bytes())?;
+            let data_start = output.stream_position()?;
+            output.write_all(&merged_body)?;
+            let merged_header_offset = data_start
+                .checked_add(merged_body_start)
+                .ok_or("joined header offset overflow")?;
+            output.write_all(&merged_header_offset.to_le_bytes())?;
+            if let Some(position) = previous_link_position {
+                let end = output.stream_position()?;
+                output.seek(SeekFrom::Start(position))?;
+                output.write_all(&merged_header_offset.to_le_bytes())?;
+                output.seek(SeekFrom::Start(end))?;
+            } else {
+                output.seek(SeekFrom::Start(4))?;
+                output.write_all(&merged_header_offset.to_le_bytes())?;
+                output.seek(SeekFrom::End(0))?;
+            }
+            previous_link_position = Some(link_position);
+            output_commits += 1;
+        }
+        if selected_set.contains(&index) {
+            continue;
+        }
+
+        let link_position = output.stream_position()?;
+        output.write_all(&0u64.to_le_bytes())?;
+        let data_start = output.stream_position()?;
+        let body_size = commit
+            .commit_end
+            .checked_sub(commit.data_start)
+            .and_then(|size| size.checked_sub(HEADER_OFFSET_SIZE))
+            .ok_or("source commit body size underflow")?;
+        input.seek(SeekFrom::Start(commit.data_start))?;
+        io::copy(&mut (&mut input).take(body_size), &mut output)?;
+        let output_header_offset = data_start
+            .checked_add(commit.header.data_section_size)
+            .ok_or("copied header offset overflow")?;
+        output.write_all(&output_header_offset.to_le_bytes())?;
+        if let Some(position) = previous_link_position {
+            let end = output.stream_position()?;
+            output.seek(SeekFrom::Start(position))?;
+            output.write_all(&output_header_offset.to_le_bytes())?;
+            output.seek(SeekFrom::Start(end))?;
+        } else {
+            output.seek(SeekFrom::Start(4))?;
+            output.write_all(&output_header_offset.to_le_bytes())?;
+            output.seek(SeekFrom::End(0))?;
+        }
+        previous_link_position = Some(link_position);
+        output_commits += 1;
+    }
+
+    if output_commits == 0 {
+        return Err("joining would leave an archive with no commits".into());
+    }
     output.flush()?;
     drop(output);
 
-    if first == 0 {
-        let mut f = OpenOptions::new().write(true).open(&staged_archive)?;
-        f.seek(SeekFrom::Start(4))?;
-        f.write_all(&new_header_offset.to_le_bytes())?;
-        f.flush()?;
-    } else {
-        let (_, prev_commit_header, _, _, _) = &commits[first - 1];
-        let prev_next_offset_pos = commits[first - 1]
-            .0
-            .checked_sub(prev_commit_header.data_section_size)
-            .and_then(|pos| pos.checked_sub(HEADER_OFFSET_SIZE))
-            .ok_or("previous commit offset underflow")?;
-        let mut f = OpenOptions::new().write(true).open(&staged_archive)?;
-        f.seek(SeekFrom::Start(prev_next_offset_pos))?;
-        f.write_all(&new_header_offset.to_le_bytes())?;
-        f.flush()?;
-    }
-
-    if last + 1 < commits.len() {
-        let header_enc_size =
-            u64::try_from(header.encoded_size()?).map_err(|_| "header size overflow")?;
-        let new_commit_size = (new_header_offset - range_start)
-            .checked_add(header_enc_size)
-            .and_then(|size| size.checked_add(HEADER_OFFSET_SIZE))
-            .ok_or("new commit size overflow")?;
-        let old_range_size = range_end
-            .checked_sub(range_start)
-            .ok_or("range size underflow")?;
-        let delta = (new_commit_size as i128) - (old_range_size as i128);
-
-        let next_commit = &commits[last + 1];
-        let next_commit_new_offset = new_header_offset
-            .checked_add(header_enc_size)
-            .and_then(|size| size.checked_add(HEADER_OFFSET_SIZE))
-            .and_then(|size| size.checked_add(HEADER_OFFSET_SIZE))
-            .and_then(|size| size.checked_add(next_commit.1.data_section_size))
-            .ok_or("next commit offset overflow")?;
-
-        let mut f = OpenOptions::new().write(true).open(&staged_archive)?;
-        f.seek(SeekFrom::Start(range_start))?;
-        f.write_all(&next_commit_new_offset.to_le_bytes())?;
-        f.flush()?;
-        drop(f);
-
-        let mut current_offset = next_commit_new_offset;
-        for (_suffix_header_offset, suffix_commit_header, _, _, _) in &commits[(last + 1)..] {
-            let next_offset_pos = current_offset
-                .checked_sub(suffix_commit_header.data_section_size)
-                .and_then(|pos| pos.checked_sub(HEADER_OFFSET_SIZE))
-                .ok_or("suffix next_header_offset position underflow")?;
-            let mut f = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&staged_archive)?;
-            f.seek(SeekFrom::Start(next_offset_pos))?;
-            let mut next_bytes = [0u8; 8];
-            f.read_exact(&mut next_bytes)?;
-            let old_next = u64::from_le_bytes(next_bytes);
-            let new_next = if old_next == 0 {
-                0
-            } else {
-                let adjusted = (old_next as i128) + delta;
-                if adjusted < 0 {
-                    return Err("suffix offset underflow during adjustment".into());
-                }
-                adjusted as u64
-            };
-            f.seek(SeekFrom::Start(next_offset_pos))?;
-            f.write_all(&new_next.to_le_bytes())?;
-            f.flush()?;
-            drop(f);
-
-            let this_offset_pos = current_offset
-                .checked_add(u64::from(suffix_commit_header.header_frame_size))
-                .ok_or("suffix this_header_offset position overflow")?;
-            let mut f = OpenOptions::new().write(true).open(&staged_archive)?;
-            f.seek(SeekFrom::Start(this_offset_pos))?;
-            f.write_all(&current_offset.to_le_bytes())?;
-            f.flush()?;
-            drop(f);
-
-            current_offset = if new_next == 0 {
-                break;
-            } else {
-                new_next
-            };
-        }
-    }
-
     let mut validation = File::open(&staged_archive)?;
-    let first_header_offset = read_first_header_offset(&mut validation)?;
-    let mut header_offset = first_header_offset;
-    while header_offset != 0 {
-        let (ch, _, next_header_offset) =
-            read_commit_at_offset(&mut validation, header_offset, limits)?;
-        ValidatedCommit::read_body(&mut validation, ch, limits)?;
-        header_offset = next_header_offset;
+    let mut output_offset = read_first_header_offset(&mut validation)?;
+    let mut validation_count = 0usize;
+    while output_offset != 0 {
+        let (ch, _, next_offset) = read_commit_at_offset(&mut validation, output_offset, limits)?;
+        let (validated, _) =
+            read_commit_with_passwords(&mut validation, ch.clone(), limits, passwords)?;
+        if ch.commit_id == new_commit_id && validated.logical_header.is_none() {
+            return Err("joined commit failed logical-header validation".into());
+        }
+        validation_count += 1;
+        output_offset = next_offset;
     }
-    let _ = load_toc(&mut File::open(&staged_archive)?)?;
+    if validation_count != output_commits {
+        return Err("staged archive has an unexpected number of commits".into());
+    }
+    let _ = load_toc_through_with_passwords(
+        staged_archive
+            .to_str()
+            .ok_or("archive path is not valid UTF-8")?,
+        None,
+        passwords,
+    )?;
     drop(validation);
     drop(input);
     std::fs::rename(&staged_archive, archive_path)?;

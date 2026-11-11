@@ -460,7 +460,9 @@ fn check_encrypted_archive_with_and_without_password() {
     let unlocked = check_archive_with_recovery(archive, false, Some(b"correct password")).unwrap();
     assert!(unlocked.logical_state_readable);
     assert!(unlocked.checked_blocks > 0);
-    assert!(list_archive_with_details(archive, None, None).is_err());
+    let (locked_toc, locked_details) = list_archive_with_details(archive, None, None).unwrap();
+    assert!(locked_toc.is_empty());
+    assert!(locked_details.is_empty());
     assert!(list_archive_with_details(archive, None, Some(b"correct password")).is_ok());
     let (_, details) = list_archive_with_details(archive, None, Some(b"correct password")).unwrap();
     let path = ArchivePath::new("input/a.txt").unwrap();

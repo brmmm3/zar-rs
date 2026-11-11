@@ -374,23 +374,32 @@ pub(crate) enum Command {
     },
 
     #[command(
-        alias = "u",
-        about = "Remove the requested number of commits from the end of an archive",
-        long_about = "Remove commits from the end of an archive while retaining its first commit.\n\n\
-            The count must be at least one and must leave the initial commit in place. The archive \
-            is validated and replaced atomically; commits before the removed suffix are preserved.\n\n\
+        about = "Remove selected commits from an archive",
+        long_about = "Remove commits by ID while retaining all other commits in their original order.\n\n\
+            At least one commit must remain. Encrypted commits can be removed or retained without \
+            passwords. Retained encrypted headers prevent validation of the resulting history. \
+            The archive is replaced in place unless --output specifies a different file.\n\n\
             USAGE EXAMPLES:\n  \
-              zarc undo archive.zar 1\n  \
-              zarc undo archive.zar 3"
+              zarc remove-commits archive.zar 00000002 00000004\n  \
+              zarc remove-commits archive.zar 00000001 --output reduced.zar"
     )]
-    Undo {
+    RemoveCommits {
         #[arg(value_name = "ARCHIVE", help = "Existing archive file path (.zar)")]
         archive: String,
         #[arg(
-            value_name = "COMMITS",
-            help = "Number of commits to remove from the end (must retain the first commit)"
+            value_name = "COMMIT_ID",
+            required = true,
+            num_args = 1..,
+            help = "Commit IDs to remove (8 hexadecimal digits each)"
         )]
-        commits: usize,
+        commits: Vec<String>,
+        #[arg(
+            short = 'o',
+            long,
+            value_name = "FILE",
+            help = "Write to a different archive"
+        )]
+        output: Option<String>,
     },
 
     #[command(
@@ -674,10 +683,12 @@ pub(crate) enum Command {
         about = "List files and directories in the archive table of contents",
         long_about = "List files, directories, symlinks, and special entries stored in the archive.\n\n\
             Reads the logical table of contents (TOC) up to the latest commit, or up to the commit \
-            specified by --to. Does not decompress or read data payloads.\n\n\
+            specified by --to. Does not decompress or read data payloads. Use -v to show files \
+            replaced by newer commits and commits skipped because their passwords are missing.\n\n\
             USAGE EXAMPLES:\n  \
-              zarc list archive.zar\n  \
-              zarc list archive.zar --to 00000002\n  \
+             zarc list archive.zar\n  \
+             zarc list archive.zar -v\n  \
+             zarc list archive.zar --to 00000002\n  \
               zarc list archive.zar --include-file '*.txt'\n  \
               zarc list --password encrypted.zar"
     )]
@@ -690,6 +701,12 @@ pub(crate) enum Command {
             help = "List archive contents as of this commit ID (8 hex digits)"
         )]
         to: Option<String>,
+        #[arg(
+            short = 'v',
+            long,
+            help = "Show replaced files and commits skipped for missing passwords"
+        )]
+        verbose: bool,
         #[arg(
             long,
             help = "Prompt for a default password to unlock every encrypted commit header"

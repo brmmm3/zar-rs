@@ -1085,7 +1085,7 @@ dependencies = [
 
 [[package]]
 name = "cxxzarlib"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "cxx",
  "cxx-build",
@@ -1094,7 +1094,7 @@ dependencies = [
 
 [[package]]
 name = "czarlib"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "mimalloc",
  "serde_json",
@@ -3569,7 +3569,7 @@ dependencies = [
 
 [[package]]
 name = "pyzarlib"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "mimalloc",
  "pyo3",
@@ -4645,7 +4645,7 @@ dependencies = [
 
 [[package]]
 name = "wasizarlib"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "czarlib",
  "wit-bindgen 0.63.0",
@@ -5573,7 +5573,7 @@ dependencies = [
 
 [[package]]
 name = "zarc"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "clap",
  "indicatif",
@@ -5584,7 +5584,7 @@ dependencies = [
 
 [[package]]
 name = "zarg"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "catppuccin-egui",
  "dirs 7.0.0",
@@ -5602,7 +5602,7 @@ dependencies = [
 
 [[package]]
 name = "zarlib"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -5707,7 +5707,7 @@ dependencies = [
 
 [[package]]
 name = "zcopy"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "clap",
  "getrandom 0.4.3",
