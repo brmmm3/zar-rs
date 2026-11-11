@@ -118,6 +118,8 @@ pub struct EntryMetadata {
     pub group: Option<u32>,
     pub permissions: Option<u32>,
     pub modified_unix_millis: Option<i64>,
+    pub created_unix_millis: Option<i64>,
+    pub accessed_unix_millis: Option<i64>,
 }
 
 impl LogicalHeader {
@@ -525,6 +527,20 @@ fn write_entry_metadata(
             }
             None => output.push(0),
         }
+        match entry.created_unix_millis {
+            Some(value) => {
+                output.push(1);
+                output.extend_from_slice(&value.to_le_bytes());
+            }
+            None => output.push(0),
+        }
+        match entry.accessed_unix_millis {
+            Some(value) => {
+                output.push(1);
+                output.extend_from_slice(&value.to_le_bytes());
+            }
+            None => output.push(0),
+        }
         if output.len() > limits.max_encoded_size {
             return Err(LogicalHeaderError::LimitExceeded);
         }
@@ -583,6 +599,20 @@ fn read_entry_metadata(
             )),
             _ => return Err(LogicalHeaderError::InvalidMetadata),
         };
+        let created_unix_millis = match reader.u8()? {
+            0 => None,
+            1 => Some(i64::from_le_bytes(
+                reader.take(8)?.try_into().expect("fixed length"),
+            )),
+            _ => return Err(LogicalHeaderError::InvalidMetadata),
+        };
+        let accessed_unix_millis = match reader.u8()? {
+            0 => None,
+            1 => Some(i64::from_le_bytes(
+                reader.take(8)?.try_into().expect("fixed length"),
+            )),
+            _ => return Err(LogicalHeaderError::InvalidMetadata),
+        };
         entries.push(EntryMetadata {
             path,
             platform,
@@ -590,6 +620,8 @@ fn read_entry_metadata(
             group,
             permissions,
             modified_unix_millis,
+            created_unix_millis,
+            accessed_unix_millis,
         });
     }
     Ok(entries)
@@ -826,6 +858,8 @@ mod tests {
                 group: Some(100),
                 permissions: Some(0o755),
                 modified_unix_millis: None,
+                created_unix_millis: None,
+                accessed_unix_millis: Some(1_500_000_000_789),
             },
             EntryMetadata {
                 path: path("docs/file.txt"),
@@ -834,6 +868,8 @@ mod tests {
                 group: Some(100),
                 permissions: Some(0o640),
                 modified_unix_millis: None,
+                created_unix_millis: None,
+                accessed_unix_millis: None,
             },
         ]);
 
@@ -843,7 +879,7 @@ mod tests {
     }
 
     #[test]
-    fn logical_header_round_trips_entry_modification_times() {
+    fn logical_header_round_trips_entry_timestamps() {
         let header = LogicalHeader::with_block_size(
             vec![TocChange::PutFile {
                 path: path("file.txt"),
@@ -858,11 +894,48 @@ mod tests {
             group: None,
             permissions: None,
             modified_unix_millis: Some(1_700_000_000_123),
+            created_unix_millis: Some(1_600_000_000_456),
+            accessed_unix_millis: None,
         }]);
 
         let encoded = header.encode().unwrap();
         assert_eq!(&encoded[4..6], &HEADER_VERSION.to_le_bytes());
         assert_eq!(LogicalHeader::decode(&encoded).unwrap(), header);
+    }
+
+    #[test]
+    fn entry_timestamps_reject_invalid_and_truncated_encoding() {
+        let entry = EntryMetadata {
+            path: path("file"),
+            platform: "unix".to_owned(),
+            owner: None,
+            group: None,
+            permissions: None,
+            modified_unix_millis: None,
+            created_unix_millis: None,
+            accessed_unix_millis: None,
+        };
+        let mut bytes = Vec::new();
+        write_entry_metadata(&mut bytes, &[entry], LogicalHeaderLimits::default()).unwrap();
+        for marker in [bytes.len() - 2, bytes.len() - 1] {
+            let mut malformed = bytes.clone();
+            malformed[marker] = 2;
+            assert!(matches!(
+                read_entry_metadata(
+                    &mut SliceReader::new(&malformed),
+                    LogicalHeaderLimits::default()
+                ),
+                Err(LogicalHeaderError::InvalidMetadata)
+            ));
+            malformed[marker] = 1;
+            assert!(matches!(
+                read_entry_metadata(
+                    &mut SliceReader::new(&malformed),
+                    LogicalHeaderLimits::default()
+                ),
+                Err(LogicalHeaderError::Truncated)
+            ));
+        }
     }
 
     #[test]
@@ -874,6 +947,8 @@ mod tests {
             group: Some(1),
             permissions: Some(0o600),
             modified_unix_millis: None,
+            created_unix_millis: None,
+            accessed_unix_millis: None,
         };
         let header = LogicalHeader::new(vec![TocChange::PutFile {
             path: path("file"),

@@ -386,6 +386,8 @@ fn archive_operation_forms_use_saved_defaults_without_enabling_encryption() {
         archive_defaults: crate::settings::ArchiveDefaults {
             metadata: true,
             dates: true,
+            creation_time: true,
+            access_time: true,
             special_files: true,
             strict: true,
             save_user: true,
@@ -414,6 +416,8 @@ fn archive_operation_forms_use_saved_defaults_without_enabling_encryption() {
         assert!(
             app.operation.metadata
                 && app.operation.dates
+                && app.operation.creation_time
+                && app.operation.access_time
                 && app.operation.special_files
                 && app.operation.strict
         );
@@ -1646,6 +1650,8 @@ fn startup_archive_uses_settings_and_seeds_add_dialog() {
         archive_defaults: crate::settings::ArchiveDefaults {
             metadata: true,
             dates: true,
+            creation_time: true,
+            access_time: true,
             special_files: true,
             strict: true,
             save_user: true,
@@ -1684,6 +1690,8 @@ fn startup_archive_uses_settings_and_seeds_add_dialog() {
     assert!(
         app.operation.metadata
             && app.operation.dates
+            && app.operation.creation_time
+            && app.operation.access_time
             && app.operation.special_files
             && app.operation.strict
     );

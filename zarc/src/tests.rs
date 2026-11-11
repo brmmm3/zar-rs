@@ -10,6 +10,36 @@ use zarlib::{
 };
 
 #[test]
+fn timestamp_flags_and_aliases_work_for_create_and_add() {
+    for command in ["create", "add"] {
+        for (modified, created, accessed) in [
+            ("--modification-time", "--creation-time", "--access-time"),
+            ("--mt", "--ct", "--at"),
+        ] {
+            let parsed = Cli::try_parse_from([
+                "zarc", command, modified, created, accessed, "a.zar", "file",
+            ])
+            .unwrap();
+            assert!(matches!(
+                parsed.command,
+                Command::Create {
+                    modification_time: true,
+                    creation_time: true,
+                    access_time: true,
+                    ..
+                } | Command::Add {
+                    modification_time: true,
+                    creation_time: true,
+                    access_time: true,
+                    ..
+                }
+            ));
+        }
+        assert!(Cli::try_parse_from(["zarc", command, "--dates", "a.zar", "file"]).is_err());
+    }
+}
+
+#[test]
 fn overwrite_prompt_accepts_yes_no_and_all_future_choices() {
     assert_eq!(parse_overwrite_decision("y"), OverwriteDecision::Yes);
     assert_eq!(parse_overwrite_decision("YES"), OverwriteDecision::Yes);
@@ -199,13 +229,16 @@ fn verbose_info_renders_saved_entry_metadata() {
             owner: 2,
             group: 2,
             permissions: 2,
-            dates: 1,
+            modification_times: 1,
+            creation_times: 0,
+            access_times: 0,
         },
         ..CommitFileStats::default()
     };
     assert!(
-        render_commit_stats(&stats)
-            .contains("saved metadata: owner (2), group (2), permissions (2), date (1)")
+        render_commit_stats(&stats).contains(
+            "saved metadata: owner (2), group (2), permissions (2), modification time (1)"
+        )
     );
 }
 
@@ -2940,7 +2973,9 @@ fn create_includes_named_pipes_only_when_special_files_are_enabled() {
         None,
         CreateInputOptions {
             save_metadata: false,
-            save_dates: false,
+            save_modification_time: false,
+            save_creation_time: false,
+            save_access_time: false,
             save_user: false,
             include_special_files: false,
             overwrite_existing: false,
@@ -2971,7 +3006,9 @@ fn create_includes_named_pipes_only_when_special_files_are_enabled() {
         None,
         CreateInputOptions {
             save_metadata: false,
-            save_dates: false,
+            save_modification_time: false,
+            save_creation_time: false,
+            save_access_time: false,
             save_user: false,
             include_special_files: true,
             overwrite_existing: false,
@@ -3016,7 +3053,9 @@ fn create_overwrite_replaces_existing_archive_only_after_successful_creation() {
         None,
         CreateInputOptions {
             save_metadata: false,
-            save_dates: false,
+            save_modification_time: false,
+            save_creation_time: false,
+            save_access_time: false,
             save_user: false,
             include_special_files: true,
             overwrite_existing: true,
@@ -3048,7 +3087,7 @@ fn list_archive_details_reports_file_sizes_and_saved_metadata() {
         None,
         CreateInputOptions {
             save_metadata: true,
-            save_dates: false,
+            save_modification_time: false,
             ..CreateInputOptions::default()
         },
     )
@@ -4166,7 +4205,7 @@ fn cli_archive_lifecycle_executes_commands_and_preserves_content() {
         command(&[
             "create",
             "--progress",
-            "--dates",
+            "--modification-time",
             "--block-size",
             "auto",
             "--include-file",

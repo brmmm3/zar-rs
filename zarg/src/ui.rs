@@ -464,6 +464,8 @@ pub(super) struct OperationForm {
     strict: bool,
     metadata: bool,
     dates: bool,
+    creation_time: bool,
+    access_time: bool,
     special_files: bool,
     save_user: bool,
     overwrite: bool,
@@ -557,6 +559,8 @@ struct AddArchiveSettings {
     strict: bool,
     metadata: bool,
     dates: bool,
+    creation_time: bool,
+    access_time: bool,
     special_files: bool,
     verbose: bool,
 }
@@ -577,6 +581,8 @@ impl AddArchiveSettings {
             strict: form.strict,
             metadata: form.metadata,
             dates: form.dates,
+            creation_time: form.creation_time,
+            access_time: form.access_time,
             special_files: form.special_files,
             verbose: form.verbose,
         }
@@ -596,6 +602,8 @@ impl AddArchiveSettings {
         form.strict = self.strict;
         form.metadata = self.metadata;
         form.dates = self.dates;
+        form.creation_time = self.creation_time;
+        form.access_time = self.access_time;
         form.special_files = self.special_files;
         form.verbose = self.verbose;
     }
@@ -2951,6 +2959,8 @@ impl ZargApp {
             let defaults = &self.archive_defaults;
             form.metadata = defaults.metadata;
             form.dates = defaults.dates;
+            form.creation_time = defaults.creation_time;
+            form.access_time = defaults.access_time;
             form.special_files = defaults.special_files;
             form.strict = defaults.strict;
             form.save_user = kind == OperationKind::NewArchive && defaults.save_user;
@@ -4287,6 +4297,14 @@ impl eframe::App for ZargApp {
                     return;
                 }
                 let has_dates = self.has_entry_dates;
+                let has_creation_time = self
+                    .entry_details
+                    .values()
+                    .any(|details| details.created_unix_millis.is_some());
+                let has_access_time = self
+                    .entry_details
+                    .values()
+                    .any(|details| details.accessed_unix_millis.is_some());
                 let (has_owner, has_permissions) =
                     (self.has_entry_owner, self.has_entry_permissions);
                 let mut labels = vec!["Name"];
@@ -4296,6 +4314,16 @@ impl eframe::App for ZargApp {
                     labels.push("Modified");
                     defaults.push(160.0);
                     sorts.push(Some(SortBy::Date));
+                }
+                if has_creation_time {
+                    labels.push("Created");
+                    defaults.push(160.0);
+                    sorts.push(None);
+                }
+                if has_access_time {
+                    labels.push("Accessed");
+                    defaults.push(160.0);
+                    sorts.push(None);
                 }
                 labels.extend(["Compressed", "Uncompressed", "Ratio"]);
                 defaults.extend([110.0, 110.0, 80.0]);
@@ -4476,6 +4504,12 @@ impl eframe::App for ZargApp {
                                     if has_dates {
                                         values.push(format_modified(details));
                                     }
+                                    if has_creation_time {
+                                        values.push(format_created(details));
+                                    }
+                                    if has_access_time {
+                                        values.push(format_accessed(details));
+                                    }
                                     values.extend([compressed, uncompressed, ratio]);
                                     if has_owner {
                                         values.push(format_owner(details));
@@ -4651,7 +4685,9 @@ fn build_job(
             let strict = form.strict;
             let input = CreateInputOptions {
                 save_metadata: form.metadata,
-                save_dates: form.dates,
+                save_modification_time: form.dates,
+                save_creation_time: form.creation_time,
+                save_access_time: form.access_time,
                 save_user: form.save_user,
                 include_special_files: form.special_files,
                 overwrite_existing: form.overwrite,
@@ -4697,7 +4733,9 @@ fn build_job(
             let paths = form.input_paths;
             let input = AddInputOptions {
                 save_metadata: form.metadata,
-                save_dates: form.dates,
+                save_modification_time: form.dates,
+                save_creation_time: form.creation_time,
+                save_access_time: form.access_time,
                 save_user: false,
                 include_special_files: form.special_files,
                 strict: form.strict,
@@ -5181,6 +5219,20 @@ fn filtered_entry_indices(entries: &[(String, EntryData)], filter: &EntryFilter)
 fn format_modified(details: Option<&ArchiveEntryDetails>) -> String {
     details
         .and_then(|details| details.modified_unix_millis)
+        .map(format_unix_millis)
+        .unwrap_or_else(|| "—".to_owned())
+}
+
+fn format_created(details: Option<&ArchiveEntryDetails>) -> String {
+    details
+        .and_then(|details| details.created_unix_millis)
+        .map(format_unix_millis)
+        .unwrap_or_else(|| "—".to_owned())
+}
+
+fn format_accessed(details: Option<&ArchiveEntryDetails>) -> String {
+    details
+        .and_then(|details| details.accessed_unix_millis)
         .map(format_unix_millis)
         .unwrap_or_else(|| "—".to_owned())
 }

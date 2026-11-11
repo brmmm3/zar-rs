@@ -228,6 +228,8 @@ impl ZargApp {
                                     ui.weak("Defaults for New archive and Add to archive; each operation can override them.");
                                     ui.checkbox(&mut archive_defaults.metadata, "Preserve platform-specific metadata");
                                     ui.checkbox(&mut archive_defaults.dates, "Save modification dates");
+                                    ui.checkbox(&mut archive_defaults.creation_time, "Save creation times");
+                                    ui.checkbox(&mut archive_defaults.access_time, "Save access times");
                                     ui.checkbox(&mut archive_defaults.special_files, "Include named pipes and device nodes");
                                     ui.checkbox(&mut archive_defaults.strict, "Strict input validation");
                                     ui.checkbox(&mut archive_defaults.save_user, "Save current OS username (new archives)");

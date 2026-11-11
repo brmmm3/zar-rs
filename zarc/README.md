@@ -63,7 +63,7 @@ to paths passed to `zarc add`. Encrypted ZIP/7z sources and ZIP/7z links are not
 supported. TAR symbolic links are preserved where the host supports them, and
 hard links are imported as regular files. TAR paths with harmless `.` components
 are normalized; parent traversal and special entries are rejected. Source
-archive timestamps are not retained; `--dates` records the import-time
+archive timestamps are not retained; timestamp options record the staged files' import-time
 filesystem timestamps instead. 7z entries using COPY, LZMA/LZMA2, BZip2,
 PPMD, DEFLATE, Brotli, LZ4, or Zstandard are supported.
 
@@ -76,8 +76,13 @@ Options:
 - `--overwrite`: replace the target archive if it already exists.
 - `--metadata`: record supported platform-specific owner, group, and
   permission metadata.
-- `--dates`: record each entry's modification time (shown and sortable in
-  `zarg`; current readers support logical-header version 8).
+- `--modification-time`, `--mt`: record each entry's modification time.
+- `--creation-time`, `--ct`: record each entry's creation time; fail if it is
+  unavailable for a stored entry.
+- `--access-time`, `--at`: record each entry's access time; fail if it is
+  unavailable for a stored entry. Filesystem policies and reads during scanning
+  can affect access times. Timestamps are shown in `zarg`, but archive
+  extraction does not restore them.
 - `--special-files`: include named pipes and Unix device nodes; these are
   otherwise skipped with warnings.
 - `--verbose`: print the warning when storing a symbolic link. By default,
@@ -168,7 +173,8 @@ keys starting with `zar.` are reserved.
   readable. Encrypted headers are copied without passwords and their effects
   cannot be validated by this command.
 
-`add` accepts `--block-size`, `--compression-level`, `--metadata`, `--dates`,
+`add` accepts `--block-size`, `--compression-level`, `--metadata`,
+`--modification-time` (`--mt`), `--creation-time` (`--ct`), `--access-time` (`--at`),
 `--special-files`, `--strict`, `--verbose`, the include/exclude filter options
 above, and `--progress`. Unreadable files are skipped with a warning unless
 `--strict` is set, in which case a permission error fails the operation. Named

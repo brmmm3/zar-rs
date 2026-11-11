@@ -27,7 +27,7 @@ impl Fixture {
             None,
             CreateInputOptions {
                 save_metadata: true,
-                save_dates: true,
+                save_modification_time: true,
                 ..Default::default()
             },
         )
@@ -641,10 +641,136 @@ fn input_summary_and_metadata_preserve_dates_only_when_requested() {
     let captured = capture_entry_metadata(&path, &metadata, true).unwrap();
     assert!(captured.modified_unix_millis.is_some());
     assert_eq!(
-        finalize_entry_metadata(vec![entry_date_metadata(&path, Some(1))], false).len(),
+        finalize_entry_metadata(
+            vec![entry_date_metadata(&path, Some(1), None, None)],
+            false,
+            false,
+            false
+        )
+        .len(),
         0
     );
-    assert_eq!(finalize_entry_metadata(vec![captured], true).len(), 1);
+    assert_eq!(
+        finalize_entry_metadata(vec![captured], true, false, false).len(),
+        1
+    );
+}
+
+#[test]
+fn timestamps_are_independent_for_create_and_add() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = dir.path().join("first.txt");
+    let second = dir.path().join("second.txt");
+    std::fs::write(&first, b"first").unwrap();
+    std::fs::write(&second, b"second").unwrap();
+    let creation_available = std::fs::metadata(&first).unwrap().created().is_ok()
+        && std::fs::metadata(&second).unwrap().created().is_ok();
+    let access_available = std::fs::metadata(&first).unwrap().accessed().is_ok()
+        && std::fs::metadata(&second).unwrap().accessed().is_ok();
+
+    for (modified, created, accessed) in [
+        (false, false, false),
+        (true, false, false),
+        (false, true, false),
+        (false, false, true),
+        (true, true, false),
+        (true, false, true),
+        (false, true, true),
+        (true, true, true),
+    ] {
+        if (created && !creation_available) || (accessed && !access_available) {
+            continue;
+        }
+        let archive = dir
+            .path()
+            .join(format!("{modified}-{created}-{accessed}.zar"));
+        let archive = archive.to_str().unwrap();
+        create_archive_with_password_progress_and_special_files(
+            archive,
+            std::slice::from_ref(&first),
+            false,
+            EncodingOptions::default(),
+            None,
+            None,
+            CreateInputOptions {
+                save_modification_time: modified,
+                save_creation_time: created,
+                save_access_time: accessed,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        add_archive_with_encoding_progress_and_options(
+            archive,
+            std::slice::from_ref(&second),
+            EncodingOptions::default(),
+            None,
+            AddInputOptions {
+                save_modification_time: modified,
+                save_creation_time: created,
+                save_access_time: accessed,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let (_, details) = list_archive_with_details(archive, None, None).unwrap();
+        for path in ["first.txt", "second.txt"] {
+            let entry = &details[&ArchivePath::new(path).unwrap()];
+            assert_eq!(entry.modified_unix_millis.is_some(), modified, "{path}");
+            assert_eq!(entry.created_unix_millis.is_some(), created, "{path}");
+            assert_eq!(entry.accessed_unix_millis.is_some(), accessed, "{path}");
+        }
+    }
+}
+
+#[test]
+fn missing_creation_time_is_reported() {
+    let path = ArchivePath::new("missing.txt").unwrap();
+    let entry = entry_date_metadata(&path, Some(1), None, None);
+    assert!(
+        require_creation_times(std::slice::from_ref(&entry))
+            .unwrap_err()
+            .to_string()
+            .contains("missing.txt")
+    );
+    assert!(
+        require_access_times(&[entry])
+            .unwrap_err()
+            .to_string()
+            .contains("missing.txt")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn access_time_is_captured_before_file_contents_are_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("input.txt");
+    let archive = dir.path().join("archive.zar");
+    std::fs::write(&input, b"contents").unwrap();
+    let timestamp = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000);
+    std::fs::File::open(&input)
+        .unwrap()
+        .set_times(std::fs::FileTimes::new().set_accessed(timestamp))
+        .unwrap();
+    create_archive_with_password_progress_and_special_files(
+        archive.to_str().unwrap(),
+        std::slice::from_ref(&input),
+        false,
+        EncodingOptions::default(),
+        None,
+        None,
+        CreateInputOptions {
+            save_access_time: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let (_, details) = list_archive_with_details(archive.to_str().unwrap(), None, None).unwrap();
+    assert_eq!(
+        details[&ArchivePath::new("input.txt").unwrap()].accessed_unix_millis,
+        Some(1_600_000_000_000)
+    );
 }
 
 #[test]

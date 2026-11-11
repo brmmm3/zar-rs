@@ -154,6 +154,8 @@ pub struct Settings {
 pub struct ArchiveDefaults {
     pub metadata: bool,
     pub dates: bool,
+    pub creation_time: bool,
+    pub access_time: bool,
     pub special_files: bool,
     pub strict: bool,
     pub save_user: bool,
@@ -309,6 +311,10 @@ impl Settings {
                 }
                 "default_metadata" => settings.archive_defaults.metadata = value == "true",
                 "default_dates" => settings.archive_defaults.dates = value == "true",
+                "default_creation_time" => {
+                    settings.archive_defaults.creation_time = value == "true"
+                }
+                "default_access_time" => settings.archive_defaults.access_time = value == "true",
                 "default_special_files" => {
                     settings.archive_defaults.special_files = value == "true"
                 }
@@ -408,8 +414,8 @@ impl Settings {
         ));
         let defaults = &self.archive_defaults;
         text.push_str(&format!(
-            "default_metadata={}\ndefault_dates={}\ndefault_special_files={}\ndefault_strict={}\ndefault_save_user={}\n",
-            defaults.metadata, defaults.dates, defaults.special_files, defaults.strict, defaults.save_user
+            "default_metadata={}\ndefault_dates={}\ndefault_creation_time={}\ndefault_access_time={}\ndefault_special_files={}\ndefault_strict={}\ndefault_save_user={}\n",
+            defaults.metadata, defaults.dates, defaults.creation_time, defaults.access_time, defaults.special_files, defaults.strict, defaults.save_user
         ));
         for (key, patterns) in [
             ("default_include_file", &defaults.include_files),
@@ -484,6 +490,8 @@ mod tests {
             archive_defaults: ArchiveDefaults {
                 metadata: true,
                 dates: true,
+                creation_time: true,
+                access_time: true,
                 special_files: true,
                 strict: true,
                 save_user: true,

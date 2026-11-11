@@ -7,6 +7,8 @@ pub(in crate::ui) struct BenchmarkSettings {
     compression_level: i32,
     owner_permissions: bool,
     dates: bool,
+    creation_time: bool,
+    access_time: bool,
     special_files: bool,
 }
 impl Default for BenchmarkSettings {
@@ -16,6 +18,8 @@ impl Default for BenchmarkSettings {
             compression_level: 3,
             owner_permissions: false,
             dates: false,
+            creation_time: false,
+            access_time: false,
             special_files: true,
         }
     }
@@ -137,7 +141,9 @@ pub(in crate::ui) fn run_benchmark(
         CreateFilterOptions {
             input: CreateInputOptions {
                 save_metadata: settings.owner_permissions,
-                save_dates: settings.dates,
+                save_modification_time: settings.dates,
+                save_creation_time: settings.creation_time,
+                save_access_time: settings.access_time,
                 save_user: false,
                 include_special_files: settings.special_files,
                 overwrite_existing: false,
@@ -304,6 +310,8 @@ impl ZargApp {
                                         "Save owner and permissions",
                                     );
                                     ui.checkbox(&mut state.settings.dates, "Save modification dates");
+                                    ui.checkbox(&mut state.settings.creation_time, "Save creation times");
+                                    ui.checkbox(&mut state.settings.access_time, "Save access times");
                                     ui.checkbox(
                                         &mut state.settings.special_files,
                                         "Include symbolic links and special files",

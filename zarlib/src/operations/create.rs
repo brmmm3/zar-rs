@@ -15,7 +15,9 @@ use zeroize::Zeroizing;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CreateInputOptions {
     pub save_metadata: bool,
-    pub save_dates: bool,
+    pub save_modification_time: bool,
+    pub save_creation_time: bool,
+    pub save_access_time: bool,
     pub save_user: bool,
     pub include_special_files: bool,
     pub overwrite_existing: bool,
@@ -77,7 +79,9 @@ pub fn create_archive_with_password_progress(
         progress,
         CreateInputOptions {
             save_metadata,
-            save_dates: false,
+            save_modification_time: false,
+            save_creation_time: false,
+            save_access_time: false,
             save_user: false,
             include_special_files: true,
             overwrite_existing: false,
@@ -166,7 +170,9 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
     } = filter_options;
     let CreateInputOptions {
         save_metadata,
-        save_dates,
+        save_modification_time,
+        save_creation_time,
+        save_access_time,
         save_user,
         include_special_files,
         overwrite_existing,
@@ -273,6 +279,12 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
         ProgressReporter::new(Some(progress)).set_total(summary.total_bytes);
     }
     process_tree_entries(&all_tree_entries, &mut scan_context)?;
+    if save_creation_time {
+        require_creation_times(&entry_metadata)?;
+    }
+    if save_access_time {
+        require_access_times(&entry_metadata)?;
+    }
     ProgressReporter::new(progress).check_cancelled()?;
     if changes.is_empty() && !paths.is_empty() {
         return Err("no supported files or directories were found to archive".into());
@@ -282,7 +294,12 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
     let data_section_size = archive.stream_position()? - commit_data_start - HEADER_OFFSET_SIZE;
 
     let logical_header = LogicalHeader::with_block_size(changes, options.block_size as u32)
-        .with_entry_metadata(finalize_entry_metadata(entry_metadata, save_dates));
+        .with_entry_metadata(finalize_entry_metadata(
+            entry_metadata,
+            save_modification_time,
+            save_creation_time,
+            save_access_time,
+        ));
     let mut group_sizes = group_size_metadata(&logical_header, &block_sizes)?;
     let username = save_user.then(current_username).transpose()?;
     group_sizes.extend(commit_metadata(username.as_deref())?);

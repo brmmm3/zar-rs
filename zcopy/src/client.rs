@@ -285,7 +285,9 @@ fn transfer(
                 CreateFilterOptions {
                     input: CreateInputOptions {
                         save_metadata: metadata,
-                        save_dates: false,
+                        save_modification_time: false,
+                        save_creation_time: false,
+                        save_access_time: false,
                         save_user: false,
                         include_special_files: false,
                         overwrite_existing: true,

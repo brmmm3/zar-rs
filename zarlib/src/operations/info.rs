@@ -84,7 +84,9 @@ pub struct EntryMetadataStats {
     pub owner: u64,
     pub group: u64,
     pub permissions: u64,
-    pub dates: u64,
+    pub modification_times: u64,
+    pub creation_times: u64,
+    pub access_times: u64,
 }
 
 pub fn info_archive(
@@ -417,7 +419,9 @@ pub fn summarize_commit_header_only(
         counts.owner += u64::from(entry.owner.is_some());
         counts.group += u64::from(entry.group.is_some());
         counts.permissions += u64::from(entry.permissions.is_some());
-        counts.dates += u64::from(entry.modified_unix_millis.is_some());
+        counts.modification_times += u64::from(entry.modified_unix_millis.is_some());
+        counts.creation_times += u64::from(entry.created_unix_millis.is_some());
+        counts.access_times += u64::from(entry.accessed_unix_millis.is_some());
     }
     for change in &header.changes {
         let entry = match change {

@@ -56,6 +56,8 @@ pub struct TreeEntry {
     pub kind: TreeEntryKind,
     pub size: u64,
     pub modified_unix_millis: Option<i64>,
+    pub created_unix_millis: Option<i64>,
+    pub accessed_unix_millis: Option<i64>,
 }
 
 #[derive(Clone, Debug)]
@@ -163,6 +165,8 @@ pub fn scan_tree(
             kind,
             size: metadata.len(),
             modified_unix_millis: modified_unix_millis(&metadata),
+            created_unix_millis: created_unix_millis(&metadata),
+            accessed_unix_millis: accessed_unix_millis(&metadata),
         }]);
     }
 
@@ -180,6 +184,8 @@ pub fn scan_tree(
             kind: TreeEntryKind::Directory,
             size: 0,
             modified_unix_millis: modified_unix_millis(&metadata),
+            created_unix_millis: created_unix_millis(&metadata),
+            accessed_unix_millis: accessed_unix_millis(&metadata),
         });
     }
 
@@ -282,6 +288,8 @@ pub fn scan_tree(
                 kind,
                 size: ext.st_size,
                 modified_unix_millis: modified_unix_millis(&metadata),
+                created_unix_millis: created_unix_millis(&metadata),
+                accessed_unix_millis: accessed_unix_millis(&metadata),
             });
         }
     }
@@ -310,6 +318,8 @@ pub fn scan_tree(
             kind: classify_entry(source, &metadata)?,
             size: metadata.len(),
             modified_unix_millis: modified_unix_millis(&metadata),
+            created_unix_millis: created_unix_millis(&metadata),
+            accessed_unix_millis: accessed_unix_millis(&metadata),
         }]);
     }
 
@@ -321,6 +331,8 @@ pub fn scan_tree(
             kind: TreeEntryKind::Directory,
             size: 0,
             modified_unix_millis: modified_unix_millis(&metadata),
+            created_unix_millis: created_unix_millis(&metadata),
+            accessed_unix_millis: accessed_unix_millis(&metadata),
         });
     }
     scan_wasi_directory(source, prefix, &mut entries)?;
@@ -357,6 +369,8 @@ fn scan_wasi_directory(
             kind: kind.clone(),
             size: metadata.len(),
             modified_unix_millis: modified_unix_millis(&metadata),
+            created_unix_millis: created_unix_millis(&metadata),
+            accessed_unix_millis: accessed_unix_millis(&metadata),
         });
         if matches!(kind, TreeEntryKind::Directory) {
             scan_wasi_directory(&path, &relative, entries)?;
@@ -543,6 +557,8 @@ pub struct PendingHardLink {
     pub target_path: ArchivePath,
     pub source_path: PathBuf,
     pub modified_unix_millis: Option<i64>,
+    pub created_unix_millis: Option<i64>,
+    pub accessed_unix_millis: Option<i64>,
 }
 
 pub fn process_tree_entries(
@@ -614,6 +630,8 @@ pub fn process_tree_entries(
                             target_path: target_path.clone(),
                             source_path: entry.source_path.clone(),
                             modified_unix_millis: entry.modified_unix_millis,
+                            created_unix_millis: entry.created_unix_millis,
+                            accessed_unix_millis: entry.accessed_unix_millis,
                         });
                         continue;
                     }
@@ -663,7 +681,12 @@ pub fn process_tree_entries(
             .push(if let Some(metadata) = metadata {
                 capture_entry_metadata(&hard_link.archive_path, &metadata, true)?
             } else {
-                entry_date_metadata(&hard_link.archive_path, hard_link.modified_unix_millis)
+                entry_date_metadata(
+                    &hard_link.archive_path,
+                    hard_link.modified_unix_millis,
+                    hard_link.created_unix_millis,
+                    hard_link.accessed_unix_millis,
+                )
             });
     }
 
@@ -700,7 +723,12 @@ pub fn process_directory_entry(
         .push(if let Some(metadata) = metadata {
             capture_entry_metadata(&path, &metadata, true)?
         } else {
-            entry_date_metadata(&path, entry.modified_unix_millis)
+            entry_date_metadata(
+                &path,
+                entry.modified_unix_millis,
+                entry.created_unix_millis,
+                entry.accessed_unix_millis,
+            )
         });
     push_unique_path(
         ArchivePath::new(entry.archive_path.clone())?,
@@ -739,7 +767,12 @@ pub fn process_symlink_entry(
         .push(if let Some(metadata) = metadata {
             capture_entry_metadata(&path, &metadata, true)?
         } else {
-            entry_date_metadata(&path, entry.modified_unix_millis)
+            entry_date_metadata(
+                &path,
+                entry.modified_unix_millis,
+                entry.created_unix_millis,
+                entry.accessed_unix_millis,
+            )
         });
     context.changes.push(TocChange::PutSymlink {
         path,
@@ -769,7 +802,12 @@ pub fn process_named_pipe_entry(
         .push(if let Some(metadata) = metadata {
             capture_entry_metadata(&path, &metadata, true)?
         } else {
-            entry_date_metadata(&path, entry.modified_unix_millis)
+            entry_date_metadata(
+                &path,
+                entry.modified_unix_millis,
+                entry.created_unix_millis,
+                entry.accessed_unix_millis,
+            )
         });
     context.changes.push(TocChange::PutNamedPipe { path });
     Ok(())
@@ -799,7 +837,12 @@ pub fn process_device_entry(
         .push(if let Some(metadata) = metadata {
             capture_entry_metadata(&path, &metadata, true)?
         } else {
-            entry_date_metadata(&path, entry.modified_unix_millis)
+            entry_date_metadata(
+                &path,
+                entry.modified_unix_millis,
+                entry.created_unix_millis,
+                entry.accessed_unix_millis,
+            )
         });
     context.changes.push(TocChange::PutDevice {
         path,
@@ -1188,7 +1231,12 @@ pub fn process_file_entries_parallel(
                             }
                         }
                     } else {
-                        Some(entry_date_metadata(&path, entry.modified_unix_millis))
+                        Some(entry_date_metadata(
+                            &path,
+                            entry.modified_unix_millis,
+                            entry.created_unix_millis,
+                            entry.accessed_unix_millis,
+                        ))
                     };
 
                     let skip_compression = should_skip_compression(&entry.source_path);
@@ -1618,7 +1666,12 @@ pub fn process_file_entries_parallel(
                 }
             }
         } else {
-            Some(entry_date_metadata(&path, entry.modified_unix_millis))
+            Some(entry_date_metadata(
+                &path,
+                entry.modified_unix_millis,
+                entry.created_unix_millis,
+                entry.accessed_unix_millis,
+            ))
         };
 
         let skip_compression = should_skip_compression(&entry.source_path);
@@ -1937,6 +1990,8 @@ mod tests {
             kind: TreeEntryKind::File,
             size: 12,
             modified_unix_millis: None,
+            created_unix_millis: None,
+            accessed_unix_millis: None,
         };
         let warnings = Mutex::new(Vec::new());
         let permission_error = std::io::Error::from(std::io::ErrorKind::PermissionDenied);

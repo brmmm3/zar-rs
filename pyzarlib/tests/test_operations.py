@@ -8,6 +8,27 @@ import pytest
 import pyzarlib
 
 
+def test_timestamp_keyword_options(tmp_path: Path) -> None:
+    first = tmp_path / "first.txt"
+    second = tmp_path / "second.txt"
+    first.write_text("first", encoding="utf-8")
+    second.write_text("second", encoding="utf-8")
+    archive = tmp_path / "timestamps.zar"
+    pyzarlib.create_archive(archive, [first], save_modification_time=True, save_access_time=True)
+    pyzarlib.add_archive(archive, [second], save_modification_time=True, save_access_time=True)
+    with pytest.raises(TypeError):
+        pyzarlib.create_archive(tmp_path / "old.zar", [first], save_dates=True)
+    assert len(pyzarlib.info_archive(archive)) == 2
+    created_archive = tmp_path / "created.zar"
+    try:
+        pyzarlib.create_archive(created_archive, [first], save_creation_time=True)
+    except RuntimeError as error:
+        assert "creation time unavailable" in str(error)
+        assert not created_archive.exists()
+    else:
+        pyzarlib.add_archive(created_archive, [second], save_creation_time=True)
+
+
 def create_sample_archive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "input" / "nested").mkdir(parents=True)

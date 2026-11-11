@@ -5,6 +5,22 @@ import pyzarlib.cli as pyzarlib_cli
 from pyzarlib.cli import main
 
 import pyzarlib
+import pytest
+
+
+def test_timestamp_options_and_aliases() -> None:
+    parser = pyzarlib_cli._parser()
+    for command in ("create", "add"):
+        for modification, creation, access in (
+            ("--modification-time", "--creation-time", "--access-time"),
+            ("--mt", "--ct", "--at"),
+        ):
+            args = parser.parse_args([command, modification, creation, access, "a.zar", "file"])
+            assert args.modification_time
+            assert args.creation_time
+            assert args.access_time
+        with pytest.raises(SystemExit):
+            parser.parse_args([command, "--dates", "a.zar", "file"])
 
 
 def test_python_zarc_cli_aliases_cover_archive_commands(

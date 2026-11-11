@@ -109,7 +109,13 @@ version-checked until decrypted. The container magic and commit framing
 version are separate from this logical-header version.
 
 Entry metadata can contain an optional signed Unix timestamp in milliseconds
-for the source entry's modification time. Each file entry also has an optional
+for the source entry's modification time, followed by optional signed Unix
+timestamps in milliseconds for its creation and access times, in that order.
+Each timestamp is encoded as a one-byte presence marker followed by a
+little-endian `i64` when present.
+This changes the unreleased version 8 entry-metadata layout in place; archives
+written with the earlier layout may be unreadable if they contain entry
+metadata. Each file entry also has an optional
 in-block offset following its optional checksum. When present, it must refer
 to exactly one block; the file contains `size` bytes starting at that offset.
 This allows multiple small files to share a block. Without an offset, the file

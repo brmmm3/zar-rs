@@ -99,7 +99,8 @@ links are rejected. TAR symbolic links are preserved where the host supports
 them, hard links are imported as regular files, and TAR special entries are
 rejected. Safe TAR paths with leading `./` components are normalized, but
 parent traversal is rejected. Source archive timestamps are not retained;
-when `save_dates` is enabled, the import-time filesystem timestamps are
+when `save_modification_time`, `save_creation_time`, or `save_access_time` is enabled, the
+import-time filesystem timestamps are
 recorded instead. 7z entries using COPY, LZMA/LZMA2,
 BZip2, PPMD, DEFLATE, Brotli, LZ4, or Zstandard are supported.
 

@@ -619,7 +619,9 @@ fn render_commit_info(
                 ("owner", metadata.owner),
                 ("group", metadata.group),
                 ("permissions", metadata.permissions),
-                ("date", metadata.dates),
+                ("modification time", metadata.modification_times),
+                ("creation time", metadata.creation_times),
+                ("access time", metadata.access_times),
             ]
             .iter()
             .filter(|(_, count)| *count > 0)

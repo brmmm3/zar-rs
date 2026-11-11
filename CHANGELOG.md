@@ -9,9 +9,17 @@ until a version is released.
 
 - Write and read only logical-header version 8. Archives containing earlier
   unreleased logical-header versions 0–7 are no longer supported.
+- Renamed the create/add `--dates` option to `--modification-time` (`--mt`)
+  and the corresponding public `save_dates` option to
+  `save_modification_time`. The unreleased version 8 entry-metadata layout
+  changed in place; archives using its earlier layout may be unreadable.
 
 ### Added
 
+- Added opt-in creation- and access-time recording for create/add via
+  `--creation-time` (`--ct`), `--access-time` (`--at`), and binding options
+  `save_creation_time` and `save_access_time`. Extraction does not restore
+  timestamps; recording fails when a requested timestamp is unavailable.
 - `zarg` now has a Qt6 Fusion appearance and follows the system light/dark
   theme, including runtime changes. On Linux the theme is detected through the
   XDG settings portal with desktop-specific fallbacks, since winit does not

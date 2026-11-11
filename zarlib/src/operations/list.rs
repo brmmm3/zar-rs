@@ -18,6 +18,8 @@ pub struct ArchiveEntryDetails {
     pub permissions: Option<u32>,
     pub metadata_platform: Option<String>,
     pub modified_unix_millis: Option<i64>,
+    pub created_unix_millis: Option<i64>,
+    pub accessed_unix_millis: Option<i64>,
 }
 
 pub fn list_archive_with_details(
@@ -248,6 +250,8 @@ fn entry_details(
         permissions: entry_metadata.and_then(|entry| entry.permissions),
         metadata_platform: entry_metadata.map(|entry| entry.platform.clone()),
         modified_unix_millis: entry_metadata.and_then(|entry| entry.modified_unix_millis),
+        created_unix_millis: entry_metadata.and_then(|entry| entry.created_unix_millis),
+        accessed_unix_millis: entry_metadata.and_then(|entry| entry.accessed_unix_millis),
     }
 }
 

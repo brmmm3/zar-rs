@@ -54,8 +54,8 @@ Highlights:
   are not supported. TAR symbolic links are preserved where the host supports
   them; hard links are imported as regular files. TAR paths with harmless `.`
   components are normalized; parent traversal and special entries are rejected.
-  Source archive timestamps are not retained; `--dates` records import-time
-  filesystem timestamps instead. 7z entries using COPY, LZMA/LZMA2, BZip2, PPMD,
+  Source archive timestamps are not retained; timestamp options record the
+  staged files' import-time filesystem timestamps instead. 7z entries using COPY, LZMA/LZMA2, BZip2, PPMD,
   DEFLATE, Brotli, LZ4, or Zstandard are supported.
 - **Batch archive conversion.** `zarc convert FOLDER` converts supported
   archive files directly inside a folder into separate `.zar` files, with an
@@ -80,12 +80,18 @@ Highlights:
 - `zarc extract` restores symlinks and devices only when explicitly requested.
   Device creation may require privileges, and symlink targets must remain
   within the extraction root.
-- `create --dates` and `add --dates` can record entry modification times.
-  Current archive extraction does not restore them. `zcopy` transfers and
+- `create` and `add` can record entry modification times with
+  `--modification-time` (`--mt`), creation times with `--creation-time`
+  (`--ct`), and access times with `--access-time` (`--at`). Creation- or
+  access-time recording fails if a stored entry's filesystem does not provide
+  it. Access times can change as files or directories are read and depend on
+  filesystem policies. Archive extraction does not restore these timestamps. `zcopy` transfers and
   restores file modification times separately in its unpack mode.
 - Only logical-header version 8 is supported. Archives created by unreleased
   versions that used logical-header versions 0–7 cannot be interpreted by
   current readers; all new commits use version 8.
+  The unreleased version 8 entry-metadata layout has changed: archives written
+  with its earlier layout may not be readable when they contain entry metadata.
 - `zarc add` can use passwords for existing encrypted commits. The CLI
   `remove` and `join` commands do not accept those passwords: `remove` cannot
   operate when encrypted commits need passwords, and `join` skips locked

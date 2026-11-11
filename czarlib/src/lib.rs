@@ -204,6 +204,9 @@ fn encryption_scope(request: &Value) -> Result<EncryptionScope, String> {
 }
 
 fn create(request: &Value) -> Result<Value, String> {
+    if request.get("save_dates").is_some() {
+        return Err("'save_dates' was renamed to 'save_modification_time'".to_owned());
+    }
     let archive = required_string(request, "archive")?;
     let input_paths = paths(request)?;
     let options = encoding_options(request)?;
@@ -222,7 +225,9 @@ fn create(request: &Value) -> Result<Value, String> {
         CreateFilterOptions {
             input: CreateInputOptions {
                 save_metadata: bool_option(request, "save_metadata", false)?,
-                save_dates: bool_option(request, "save_dates", false)?,
+                save_modification_time: bool_option(request, "save_modification_time", false)?,
+                save_creation_time: bool_option(request, "save_creation_time", false)?,
+                save_access_time: bool_option(request, "save_access_time", false)?,
                 save_user: bool_option(request, "save_user", false)?,
                 include_special_files: bool_option(request, "include_special_files", false)?,
                 overwrite_existing: bool_option(request, "overwrite", false)?,
@@ -243,6 +248,9 @@ fn create(request: &Value) -> Result<Value, String> {
 }
 
 fn add(request: &Value) -> Result<Value, String> {
+    if request.get("save_dates").is_some() {
+        return Err("'save_dates' was renamed to 'save_modification_time'".to_owned());
+    }
     let archive = required_string(request, "archive")?;
     let input_paths = paths(request)?;
     let options = encoding_options(request)?;
@@ -259,7 +267,9 @@ fn add(request: &Value) -> Result<Value, String> {
         Some(&warnings),
         AddInputOptions {
             save_metadata: bool_option(request, "save_metadata", false)?,
-            save_dates: bool_option(request, "save_dates", false)?,
+            save_modification_time: bool_option(request, "save_modification_time", false)?,
+            save_creation_time: bool_option(request, "save_creation_time", false)?,
+            save_access_time: bool_option(request, "save_access_time", false)?,
             save_user: bool_option(request, "save_user", false)?,
             include_special_files: bool_option(request, "include_special_files", false)?,
             strict: bool_option(request, "strict", false)?,
@@ -400,7 +410,9 @@ fn info(request: &Value) -> Result<Value, String> {
                         "owner": details.entry_metadata.owner,
                         "group": details.entry_metadata.group,
                         "permissions": details.entry_metadata.permissions,
-                        "dates": details.entry_metadata.dates,
+                        "modification_times": details.entry_metadata.modification_times,
+                        "creation_times": details.entry_metadata.creation_times,
+                        "access_times": details.entry_metadata.access_times,
                     },
                 })
             });
@@ -717,6 +729,59 @@ pub unsafe extern "C" fn czarlib_string_free(value: *mut c_char) {
 mod tests {
     use super::execute_json;
     use std::io::Write;
+
+    #[test]
+    fn timestamp_options_and_renamed_key_are_checked() {
+        let directory = tempfile::tempdir().unwrap();
+        let first = directory.path().join("first.txt");
+        let second = directory.path().join("second.txt");
+        let archive = directory.path().join("timestamps.zar");
+        std::fs::write(&first, b"first").unwrap();
+        std::fs::write(&second, b"second").unwrap();
+        for operation in ["create_archive", "add_archive"] {
+            let request = serde_json::json!({
+                "archive": archive,
+                "paths": [first],
+                "save_dates": false,
+            });
+            assert!(
+                execute_json(operation, &request.to_string())
+                    .unwrap_err()
+                    .contains("save_modification_time")
+            );
+        }
+        let created = std::fs::metadata(&first).unwrap().created().is_ok()
+            && std::fs::metadata(&second).unwrap().created().is_ok();
+        let accessed = std::fs::metadata(&first).unwrap().accessed().is_ok()
+            && std::fs::metadata(&second).unwrap().accessed().is_ok();
+        for (operation, path) in [("create_archive", first), ("add_archive", second)] {
+            let request = serde_json::json!({
+                "archive": archive,
+                "paths": [path],
+                "save_modification_time": true,
+                "save_creation_time": created,
+                "save_access_time": accessed,
+            });
+            execute_json(operation, &request.to_string()).unwrap();
+        }
+        let info = execute_json(
+            "info_archive",
+            &serde_json::json!({"archive": archive, "verbose": true}).to_string(),
+        )
+        .unwrap();
+        let info: serde_json::Value = serde_json::from_str(&info).unwrap();
+        for commit in info.as_array().unwrap() {
+            assert_eq!(commit["details"]["entry_metadata"]["modification_times"], 1);
+            assert_eq!(
+                commit["details"]["entry_metadata"]["creation_times"],
+                u64::from(created)
+            );
+            assert_eq!(
+                commit["details"]["entry_metadata"]["access_times"],
+                u64::from(accessed)
+            );
+        }
+    }
 
     #[test]
     fn create_archive_json_imports_zip_paths() {

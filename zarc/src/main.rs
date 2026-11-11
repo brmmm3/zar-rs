@@ -772,7 +772,9 @@ fn render_commit_stats(stats: &CommitFileStats) -> String {
         ("owner", metadata.owner),
         ("group", metadata.group),
         ("permissions", metadata.permissions),
-        ("date", metadata.dates),
+        ("modification time", metadata.modification_times),
+        ("creation time", metadata.creation_times),
+        ("access time", metadata.access_times),
     ]
     .iter()
     .filter(|(_, count)| *count > 0)
@@ -1033,7 +1035,9 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             strict,
             verbose,
             metadata,
-            dates,
+            modification_time,
+            creation_time,
+            access_time,
             user,
             special_files,
             include_files,
@@ -1076,7 +1080,9 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                 CreateFilterOptions {
                     input: CreateInputOptions {
                         save_metadata: metadata,
-                        save_dates: dates,
+                        save_modification_time: modification_time,
+                        save_creation_time: creation_time,
+                        save_access_time: access_time,
                         save_user: user,
                         include_special_files: special_files,
                         overwrite_existing: overwrite,
@@ -1113,7 +1119,9 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             paths,
             progress,
             metadata,
-            dates,
+            modification_time,
+            creation_time,
+            access_time,
             user,
             special_files,
             password: encrypt,
@@ -1175,7 +1183,9 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                 Some(&progress_callback as &dyn Progress),
                 AddInputOptions {
                     save_metadata: metadata,
-                    save_dates: dates,
+                    save_modification_time: modification_time,
+                    save_creation_time: creation_time,
+                    save_access_time: access_time,
                     save_user: user,
                     include_special_files: special_files,
                     strict,

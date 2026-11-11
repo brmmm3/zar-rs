@@ -503,22 +503,45 @@ pub fn platform_identifier() -> &'static str {
 }
 
 pub fn modified_unix_millis(metadata: &std::fs::Metadata) -> Option<i64> {
-    let modified = metadata.modified().ok()?;
-    let millis = match modified.duration_since(std::time::UNIX_EPOCH) {
+    system_time_unix_millis(metadata.modified().ok()?)
+}
+
+pub fn created_unix_millis(metadata: &std::fs::Metadata) -> Option<i64> {
+    system_time_unix_millis(metadata.created().ok()?)
+}
+
+pub fn accessed_unix_millis(metadata: &std::fs::Metadata) -> Option<i64> {
+    system_time_unix_millis(metadata.accessed().ok()?)
+}
+
+fn system_time_unix_millis(time: std::time::SystemTime) -> Option<i64> {
+    let millis = match time.duration_since(std::time::UNIX_EPOCH) {
         Ok(duration) => i128::try_from(duration.as_millis()).ok()?,
         Err(error) => -(error.duration().as_millis() as i128),
     };
     i64::try_from(millis).ok()
 }
 
-/// Drops modification times unless requested, and omits records that carry no data.
+/// Drops unrequested timestamps and omits records that carry no data.
 pub fn finalize_entry_metadata(
     mut entries: Vec<EntryMetadata>,
-    save_dates: bool,
+    save_modification_time: bool,
+    save_creation_time: bool,
+    save_access_time: bool,
 ) -> Vec<EntryMetadata> {
-    if !save_dates {
+    if !save_modification_time {
         for entry in &mut entries {
             entry.modified_unix_millis = None;
+        }
+    }
+    if !save_creation_time {
+        for entry in &mut entries {
+            entry.created_unix_millis = None;
+        }
+    }
+    if !save_access_time {
+        for entry in &mut entries {
+            entry.accessed_unix_millis = None;
         }
     }
     entries.retain(|entry| {
@@ -526,11 +549,38 @@ pub fn finalize_entry_metadata(
             || entry.group.is_some()
             || entry.permissions.is_some()
             || entry.modified_unix_millis.is_some()
+            || entry.created_unix_millis.is_some()
+            || entry.accessed_unix_millis.is_some()
     });
     entries
 }
 
-pub fn entry_date_metadata(path: &ArchivePath, modified_unix_millis: Option<i64>) -> EntryMetadata {
+pub fn require_creation_times(entries: &[EntryMetadata]) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(entry) = entries
+        .iter()
+        .find(|entry| entry.created_unix_millis.is_none())
+    {
+        return Err(format!("creation time unavailable for {}", entry.path).into());
+    }
+    Ok(())
+}
+
+pub fn require_access_times(entries: &[EntryMetadata]) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(entry) = entries
+        .iter()
+        .find(|entry| entry.accessed_unix_millis.is_none())
+    {
+        return Err(format!("access time unavailable for {}", entry.path).into());
+    }
+    Ok(())
+}
+
+pub fn entry_date_metadata(
+    path: &ArchivePath,
+    modified_unix_millis: Option<i64>,
+    created_unix_millis: Option<i64>,
+    accessed_unix_millis: Option<i64>,
+) -> EntryMetadata {
     EntryMetadata {
         path: path.clone(),
         platform: platform_identifier().to_owned(),
@@ -538,6 +588,8 @@ pub fn entry_date_metadata(path: &ArchivePath, modified_unix_millis: Option<i64>
         group: None,
         permissions: None,
         modified_unix_millis,
+        created_unix_millis,
+        accessed_unix_millis,
     }
 }
 
@@ -555,6 +607,8 @@ pub fn capture_entry_metadata(
         group: save_metadata.then(|| metadata.gid()),
         permissions: save_metadata.then(|| metadata.mode() & 0o7777),
         modified_unix_millis: modified_unix_millis(metadata),
+        created_unix_millis: created_unix_millis(metadata),
+        accessed_unix_millis: accessed_unix_millis(metadata),
     })
 }
 
@@ -571,6 +625,8 @@ pub fn capture_entry_metadata(
         group: None,
         permissions: save_metadata.then(|| u32::from(metadata.permissions().readonly())),
         modified_unix_millis: modified_unix_millis(metadata),
+        created_unix_millis: created_unix_millis(metadata),
+        accessed_unix_millis: accessed_unix_millis(metadata),
     })
 }
 
@@ -583,7 +639,12 @@ pub fn capture_entry_metadata(
     if save_metadata {
         return Err("metadata preservation is unsupported on this platform".into());
     }
-    Ok(entry_date_metadata(path, modified_unix_millis(metadata)))
+    Ok(entry_date_metadata(
+        path,
+        modified_unix_millis(metadata),
+        created_unix_millis(metadata),
+        accessed_unix_millis(metadata),
+    ))
 }
 
 pub fn push_unique_path(

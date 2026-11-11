@@ -110,8 +110,24 @@ pub(crate) enum Command {
             help = "Save platform-specific owner, group, and permissions"
         )]
         metadata: bool,
-        #[arg(long, help = "Save the modification time of each entry")]
-        dates: bool,
+        #[arg(
+            long = "modification-time",
+            alias = "mt",
+            help = "Save each entry's modification time"
+        )]
+        modification_time: bool,
+        #[arg(
+            long = "creation-time",
+            alias = "ct",
+            help = "Save each entry's creation time; fail if unavailable"
+        )]
+        creation_time: bool,
+        #[arg(
+            long = "access-time",
+            alias = "at",
+            help = "Save each entry's access time; fail if unavailable"
+        )]
+        access_time: bool,
         #[arg(long, help = "Save the current OS username in the commit metadata")]
         user: bool,
         #[arg(
@@ -273,8 +289,24 @@ pub(crate) enum Command {
             help = "Save platform-specific owner, group, and permissions"
         )]
         metadata: bool,
-        #[arg(long, help = "Save the modification time of each entry")]
-        dates: bool,
+        #[arg(
+            long = "modification-time",
+            alias = "mt",
+            help = "Save each entry's modification time"
+        )]
+        modification_time: bool,
+        #[arg(
+            long = "creation-time",
+            alias = "ct",
+            help = "Save each entry's creation time; fail if unavailable"
+        )]
+        creation_time: bool,
+        #[arg(
+            long = "access-time",
+            alias = "at",
+            help = "Save each entry's access time; fail if unavailable"
+        )]
+        access_time: bool,
         #[arg(long, help = "Save the current OS username in the commit metadata")]
         user: bool,
         #[arg(

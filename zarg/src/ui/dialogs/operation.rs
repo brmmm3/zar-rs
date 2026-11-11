@@ -1211,6 +1211,8 @@ impl ZargApp {
             "Preserve platform-specific metadata",
         );
         ui.checkbox(&mut self.operation.dates, "Save modification dates");
+        ui.checkbox(&mut self.operation.creation_time, "Save creation times");
+        ui.checkbox(&mut self.operation.access_time, "Save access times");
         ui.checkbox(
             &mut self.operation.special_files,
             "Include named pipes and device nodes",

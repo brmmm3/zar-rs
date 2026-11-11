@@ -359,14 +359,21 @@ physical commit order.
 
 ## API
 
+Timestamp options are opt-in. Creation- or access-time recording fails if the
+filesystem does not provide it for a stored entry. Access times depend on
+filesystem policies and may change during reads. Imported archives use
+staging-time filesystem timestamps, and extraction does not restore them.
+
 - `create_archive(archive, paths, *, strict=False, overwrite=False,`
-  `save_metadata=False, save_dates=False, include_special_files=False,`
+  `save_metadata=False, save_modification_time=False, save_creation_time=False, save_access_time=False,`
+  `include_special_files=False,`
   `verbose=False, block_size=8388608, compression_level=3, password=None,`
   `include_files=None, exclude_files=None, include_folders=None,`
   `exclude_folders=None)`
   creates an archive and returns its resolved block size and warnings.
 - `add_archive(archive, paths, *, strict=False, save_metadata=False,`
-  `save_dates=False, include_special_files=False, verbose=False,`
+  `save_modification_time=False, save_creation_time=False, save_access_time=False,`
+  `include_special_files=False, verbose=False,`
   `block_size=8388608, compression_level=3, include_files=None,`
   `exclude_files=None, include_folders=None, exclude_folders=None)`
   appends a commit and returns warnings.
