@@ -319,10 +319,10 @@ jobs:
         run: cargo build --locked --manifest-path Cargo.toml --release -p czarlib
       - name: Build JNI library (Linux)
         if: matrix.module == 'jzarlib-jni' && runner.os == 'Linux'
-        run: ./jzarlib-jni/build-native.sh
+        run: sh jzarlib-jni/build-native.sh
       - name: Build JNI library (macOS)
         if: matrix.module == 'jzarlib-jni' && runner.os == 'macOS'
-        run: ./jzarlib-jni/build-native.sh
+        run: sh jzarlib-jni/build-native.sh
       - name: Build JNI library (Windows)
         if: matrix.module == 'jzarlib-jni' && runner.os == 'Windows'
         shell: pwsh

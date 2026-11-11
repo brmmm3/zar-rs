@@ -8,7 +8,7 @@ license.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-czarlib = { path = "../czarlib" }
+czarlib = { path = "../czarlib", default-features = false }
 
 [target.'cfg(target_os = "wasi")'.dependencies]
 wit-bindgen = "0.63"
