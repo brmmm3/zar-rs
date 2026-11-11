@@ -65,7 +65,7 @@ class PackagingDispatchTests(unittest.TestCase):
                         run_packaging, "require", side_effect=lambda name: name
                     ),
                     mock.patch.object(
-                        run_packaging, "workspace_version", return_value="0.10.0"
+                        run_packaging, "workspace_version", return_value="0.11.0"
                     ),
                     mock.patch.object(
                         run_packaging, "inno_setup_compiler", return_value="ISCC.exe"
