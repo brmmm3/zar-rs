@@ -64,13 +64,14 @@ pub(crate) enum Command {
             deduplicates identical contents using xxhash64 and content comparison, compresses data \
             blocks using Zstandard, and optionally encrypts block payloads and headers using AEAD \
             (AES-256-GCM or ChaCha20-Poly1305) with an Argon2id-derived key.\n\n\
-            ZIP, 7z, RAR, TAR, TAR.GZ, TGZ, and GZ input paths are imported using their internal entry paths (standalone GZ files use their basename without `.gz`), not stored as a single source archive. \
-            Encrypted ZIP/7z/RAR sources, ZIP/7z/RAR links, multi-volume RAR archives, and RAR special entries are not supported. TAR symbolic links are preserved where the host supports them; hard links are imported as regular files. TAR special entries are not supported.\n\n\
+            ZIP, 7z, RAR, ISO, TAR, TAR.GZ, TGZ, and GZ input paths are imported using their internal entry paths (standalone GZ files use their basename without `.gz`), not stored as a single source archive. \
+            ISO imports support ISO 9660, Joliet, and Rock Ridge; ISO links and special entries are rejected. Encrypted ZIP/7z/RAR sources, ZIP/7z/RAR links, multi-volume RAR archives, and RAR special entries are not supported. TAR symbolic links are preserved where the host supports them; hard links are imported as regular files. TAR special entries are not supported.\n\n\
             USAGE EXAMPLES:\n  \
               zarc create archive.zar docs/ src/ file.txt\n  \
               zarc create converted.zar downloaded.zip\n  \
               zarc create converted.zar downloaded.7z\n  \
               zarc create converted.zar downloaded.rar\n  \
+              zarc create converted.zar disc.iso\n  \
               zarc create converted.zar downloaded.tar\n  \
               zarc create converted.zar downloaded.tar.gz\n  \
               zarc create converted.zar downloaded.tgz\n  \
@@ -95,7 +96,7 @@ pub(crate) enum Command {
             value_name = "PATH",
             required = true,
             num_args = 1..,
-            help = "Input files, directories, or ZIP, 7z, RAR, TAR, TAR.GZ, TGZ, and GZ archives to include"
+            help = "Input files, directories, or ZIP, 7z, RAR, ISO, TAR, TAR.GZ, TGZ, and GZ archives to include"
         )]
         paths: Vec<PathBuf>,
         #[arg(
@@ -191,7 +192,7 @@ pub(crate) enum Command {
 
     #[command(
         about = "Convert supported archives in a folder to ZAR",
-        long_about = "Convert supported ZIP, 7z, RAR, TAR, TAR.GZ, TGZ, and GZ files in one folder into separate ZAR archives.\n\n\
+        long_about = "Convert supported ZIP, 7z, RAR, ISO, TAR, TAR.GZ, TGZ, and GZ files in one folder into separate ZAR archives.\n\n\
             The optional fnmatch --filter is matched against source filenames; by default all \
             supported archive files are selected. Output filenames use the source name with its \
             archive extension replaced by `.zar`. The output folder defaults to the input folder.\n\n\
@@ -248,13 +249,14 @@ pub(crate) enum Command {
             independently with --password, --aead, and --encryption-scope; use --password-for \
             repeatedly to unlock earlier commits that use different passwords. Existing files with matching \
             archive paths will be updated in the new commit's table of contents (TOC), while \
-            untouched files from earlier commits remain preserved. ZIP, 7z, RAR, TAR, TAR.GZ, and TGZ input paths are imported \
-            using their internal entry paths. Encrypted ZIP/7z/RAR sources, ZIP/7z/RAR links, multi-volume RAR archives, and RAR special entries are not supported. TAR symbolic links are preserved where the host supports them; hard links are imported as regular files. TAR special entries are not supported.\n\n\
+            untouched files from earlier commits remain preserved. ZIP, 7z, RAR, ISO, TAR, TAR.GZ, TGZ, and GZ input paths are imported \
+            using their internal entry paths. ISO imports support ISO 9660, Joliet, and Rock Ridge; ISO links and special entries are rejected. Encrypted ZIP/7z/RAR sources, ZIP/7z/RAR links, multi-volume RAR archives, and RAR special entries are not supported. TAR symbolic links are preserved where the host supports them; hard links are imported as regular files. TAR special entries are not supported.\n\n\
             USAGE EXAMPLES:\n  \
               zarc add archive.zar newfile.txt extra_docs/\n  \
               zarc add archive.zar downloaded.zip\n  \
               zarc add archive.zar downloaded.7z\n  \
               zarc add archive.zar downloaded.rar\n  \
+              zarc add archive.zar disc.iso\n  \
               zarc add archive.zar downloaded.tar\n  \
               zarc add archive.zar downloaded.tar.gz\n  \
               zarc add archive.zar downloaded.tgz\n  \
@@ -282,7 +284,7 @@ pub(crate) enum Command {
             value_name = "PATH",
             required = true,
             num_args = 1..,
-            help = "Input files, directories, or ZIP, 7z, RAR, TAR, TAR.GZ, and TGZ archives to add or update"
+            help = "Input files, directories, or ZIP, 7z, RAR, ISO, TAR, TAR.GZ, TGZ, and GZ archives to add or update"
         )]
         paths: Vec<PathBuf>,
         #[arg(

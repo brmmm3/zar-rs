@@ -16,6 +16,8 @@ until a version is released.
 
 ### Added
 
+- Added ISO 9660 image import for create/add, direct extraction, and `zarc convert`,
+  including Rock Ridge and Joliet filenames. ISO links and special entries are rejected.
 - Added RAR archive import for create/add, direct extraction, and `zarc convert`.
   Encrypted and multi-volume RAR archives, links, and special entries are rejected.
 - Added opt-in creation- and access-time recording for create/add via

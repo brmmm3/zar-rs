@@ -2641,6 +2641,7 @@ fn file_icons_follow_mime_type_extensions() {
     assert_eq!(file_icon("archives/backup.ZAR"), UiIcon::ZarArchive);
     assert_eq!(file_icon("archives/backup.zip"), UiIcon::Archive);
     assert_eq!(file_icon("archives/backup.7z"), UiIcon::Archive);
+    assert_eq!(file_icon("archives/backup.iso"), UiIcon::Archive);
     assert_eq!(file_icon("archives/backup.tar"), UiIcon::Archive);
     assert_eq!(file_icon("archives/backup.tar.gz"), UiIcon::Archive);
     assert_eq!(file_icon("archives/backup.tgz"), UiIcon::Archive);

@@ -22,6 +22,7 @@ tempfile = "3"
 tar = { version = "0.4", default-features = false }
 sevenz-rust2 = { version = "0.25", default-features = false, features = ["bzip2", "ppmd", "brotli", "deflate", "lz4", "zstd"] }
 rars = { version = "0.12.4", default-features = false }
+libmkiso = { version = "0.1.5", default-features = false }
 zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]

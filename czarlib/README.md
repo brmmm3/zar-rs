@@ -54,11 +54,15 @@ bytes should use the Rust or Python APIs. A request containing a password
 contains plaintext credentials; avoid logging it and clear mutable request
 buffers after use.
 
-`create_archive` and `add_archive` import the contents of `.zip`, `.7z`, `.rar`, `.tar`,
-`.tar.gz`, and `.tgz` paths in their `paths` arrays, preserving the entry paths
+`create_archive` and `add_archive` import the contents of `.zip`, `.7z`, `.rar`, `.iso`, `.tar`,
+`.tar.gz`, `.tgz`, and `.gz` paths in their `paths` arrays, preserving the entry paths
 inside each source archive. This behavior is shared by the C, C++, Go, C#, Java,
 Python, and WASI bindings. Encrypted ZIP/7z/RAR sources and ZIP/7z/RAR links are not
 supported. Multi-volume RAR archives and RAR special entries are rejected.
+ISO import reads ISO 9660, preferring Rock Ridge over Joliet and the primary
+namespace. ISO links, special entries, and UDF-only images are not supported.
+ISO import is limited to 100,000 entries, 16 MiB of directory metadata, and
+64 directory levels.
 TAR symbolic links are preserved where the host supports them, hard
 links are imported as regular files, and TAR special entries are not supported.
 

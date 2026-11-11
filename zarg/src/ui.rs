@@ -397,7 +397,7 @@ pub(crate) fn file_icon(path: &str) -> UiIcon {
         Some("mp3" | "wav" | "flac" | "ogg" | "m4a" | "aac") => UiIcon::Audio,
         Some("mp4" | "mkv" | "mov" | "avi" | "webm" | "mpeg" | "mpg") => UiIcon::Video,
         Some("zar") => UiIcon::ZarArchive,
-        Some("zip" | "7z" | "rar" | "tar" | "gz" | "tgz" | "bz2" | "xz") => UiIcon::Archive,
+        Some("zip" | "7z" | "rar" | "iso" | "tar" | "gz" | "tgz" | "bz2" | "xz") => UiIcon::Archive,
         Some("pdf") => UiIcon::Pdf,
         Some("py") => UiIcon::Python,
         Some("java" | "kt") => UiIcon::Java,
@@ -1222,6 +1222,7 @@ impl ZargApp {
                     .add_filter("ZIP archive", &["zip"])
                     .add_filter("7z archive", &["7z"])
                     .add_filter("RAR archive", &["rar"])
+                    .add_filter("ISO image", &["iso"])
                     .add_filter("TAR archive", &["tar"])
                     .add_filter("gz archive", &["tgz", "tar.gz"])
                     .pick_file()

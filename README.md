@@ -44,7 +44,7 @@ Highlights:
   The [archive benchmark workflow](./.github/workflows/benchmark-archives.yml)
   runs on Windows, Linux, and macOS; each run uploads its generated report and
   chart from the `doc/benchmarks/` folder as workflow artifacts.
-- **ZIP, 7z, RAR, TAR, and gzip extraction/import.** Pass a `.zip`, `.7z`, `.rar`, `.tar`,
+- **ZIP, 7z, RAR, ISO, TAR, and gzip extraction/import.** Pass a `.zip`, `.7z`, `.rar`, `.iso`, `.tar`,
   `.tar.gz`, `.tgz`, or standalone `.gz` file to `zarc extract` to write its
   contents directly; regular files are written in parallel. Standalone gzip
   extraction removes the `.gz` suffix from the output filename. These formats
@@ -52,7 +52,11 @@ Highlights:
   their paths in the new ZAR commit. This works through `zarlib`, `zarc`,
   `zarg`, and the language bindings. Encrypted ZIP/7z/RAR archives and
   ZIP/7z/RAR links are not supported. Multi-volume RAR archives and RAR
-  special entries are rejected. TAR symbolic links are preserved where the host supports
+  special entries are rejected. ISO images use their ISO 9660 filesystem
+  (Rock Ridge preferred, then Joliet, then primary); ISO links and special entries
+  are rejected, and UDF-only images are not supported. ISO import is limited
+  to 100,000 entries, 16 MiB of directory metadata, and 64 directory levels.
+  TAR symbolic links are preserved where the host supports
   them; hard links are imported as regular files. TAR paths with harmless `.`
   components are normalized; parent traversal and special entries are rejected.
   Source archive timestamps are not retained; timestamp options record the

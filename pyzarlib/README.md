@@ -3,10 +3,13 @@
 `pyzarlib` provides Python bindings to the Rust `zarlib` archive library.
 The package exposes high-level create, add, remove, join, undo, commit
 encryption/decryption, check, info, list, and extract operations.
-ZIP, 7z, RAR, TAR, TAR.GZ, and TGZ paths in `create_archive` and `add_archive` are
+ZIP, 7z, RAR, ISO, TAR, TAR.GZ, TGZ, and GZ paths in `create_archive` and `add_archive` are
 imported by their internal entry paths. Encrypted ZIP/7z/RAR sources and
 ZIP/7z/RAR links are not supported. Multi-volume RAR archives and RAR special
-entries are rejected. TAR symbolic links are preserved where the host
+entries are rejected. ISO import reads ISO 9660, preferring Rock Ridge over
+Joliet and the primary namespace. ISO links, special entries, and UDF-only
+images are not supported. ISO import is limited to 100,000 entries, 16 MiB of
+directory metadata, and 64 directory levels. TAR symbolic links are preserved where the host
 supports them, hard links are imported as regular files, and TAR special
 entries are not supported.
 

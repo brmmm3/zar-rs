@@ -1,5 +1,5 @@
 use super::*;
-use std::io::{Cursor, Write};
+use std::io::{Cursor, Read, Write};
 
 fn append_tar_entries<W: Write>(archive: &mut tar::Builder<W>, entries: &[(&str, &[u8])]) {
     for (name, contents) in entries {
@@ -52,6 +52,7 @@ fn supported_archive_import_types_are_detected_case_insensitively() {
         "backup.zip",
         "backup.7z",
         "backup.RAR",
+        "backup.ISO",
         "backup.tar",
         "backup.tar.gz",
         "backup.TGZ",
@@ -64,6 +65,160 @@ fn supported_archive_import_types_are_detected_case_insensitively() {
     assert!(!crate::operations::is_supported_import_archive(
         std::path::Path::new("backup.rarx")
     ));
+}
+
+fn iso_fixture(compressed: &[u8]) -> Vec<u8> {
+    let mut image = Vec::new();
+    flate2::read::GzDecoder::new(compressed)
+        .read_to_end(&mut image)
+        .unwrap();
+    image
+}
+
+#[test]
+fn iso_imports_primary_joliet_and_rock_ridge_images() {
+    for (fixture, hello, empty, unicode, empty_directory) in [
+        (
+            &include_bytes!("../tests/fixtures/iso-primary.iso.gz")[..],
+            "NESTED/HELLO.TXT",
+            "EMPTY.TXT",
+            None,
+            "EMPTYDIR",
+        ),
+        (
+            &include_bytes!("../tests/fixtures/iso-joliet.iso.gz")[..],
+            "nested/hello.txt",
+            "empty.txt",
+            Some("nested/café.txt"),
+            "emptydir",
+        ),
+        (
+            &include_bytes!("../tests/fixtures/iso-rockridge.iso.gz")[..],
+            "nested/hello.txt",
+            "empty.txt",
+            Some("nested/café.txt"),
+            "emptydir",
+        ),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let iso = directory.path().join("input.ISO");
+        let archive = directory.path().join("archive.zar");
+        std::fs::write(&iso, iso_fixture(fixture)).unwrap();
+        crate::operations::create_archive(archive.to_str().unwrap(), std::slice::from_ref(&iso))
+            .unwrap();
+        let contents = crate::operations::extract_archive_to_memory(
+            archive.to_str().unwrap(),
+            None,
+            None,
+            None,
+            0,
+        )
+        .unwrap();
+        assert_eq!(contents[hello], b"ISO content");
+        assert_eq!(contents[empty], b"");
+        if let Some(unicode) = unicode {
+            assert_eq!(contents[unicode], b"unicode");
+        }
+        let output = directory.path().join("output");
+        crate::operations::extract_archive(iso.to_str().unwrap(), &output, false).unwrap();
+        assert_eq!(std::fs::read(output.join(hello)).unwrap(), b"ISO content");
+        assert!(output.join(empty_directory).is_dir());
+
+        let existing = directory.path().join("existing.txt");
+        std::fs::write(&existing, b"existing").unwrap();
+        let added = directory.path().join("added.zar");
+        crate::operations::create_archive(added.to_str().unwrap(), &[existing]).unwrap();
+        crate::operations::add_archive(added.to_str().unwrap(), &[iso]).unwrap();
+        let contents = crate::operations::extract_archive_to_memory(
+            added.to_str().unwrap(),
+            None,
+            None,
+            None,
+            0,
+        )
+        .unwrap();
+        assert_eq!(contents["existing.txt"], b"existing");
+        assert_eq!(contents[hello], b"ISO content");
+    }
+}
+
+#[test]
+fn iso_import_rejects_unsupported_and_corrupt_images_without_changing_archive() {
+    let directory = tempfile::tempdir().unwrap();
+    let iso = directory.path().join("input.iso");
+    let original = directory.path().join("original.txt");
+    let archive = directory.path().join("archive.zar");
+    std::fs::write(&original, b"original").unwrap();
+    crate::operations::create_archive(archive.to_str().unwrap(), &[original]).unwrap();
+    let before = std::fs::read(&archive).unwrap();
+    for (fixture, expected) in [
+        (
+            &include_bytes!("../tests/fixtures/iso-link.iso.gz")[..],
+            "symbolic links",
+        ),
+        (
+            &include_bytes!("../tests/fixtures/iso-special.iso.gz")[..],
+            "special entries",
+        ),
+    ] {
+        std::fs::write(&iso, iso_fixture(fixture)).unwrap();
+        let error =
+            crate::operations::add_archive(archive.to_str().unwrap(), std::slice::from_ref(&iso))
+                .unwrap_err();
+        assert!(error.to_string().contains(expected), "{error}");
+        assert_eq!(std::fs::read(&archive).unwrap(), before);
+    }
+    let image = iso_fixture(include_bytes!("../tests/fixtures/iso-primary.iso.gz"));
+    std::fs::write(&iso, &image[..image.len() - 2048]).unwrap();
+    assert!(
+        crate::operations::add_archive(archive.to_str().unwrap(), std::slice::from_ref(&iso),)
+            .is_err()
+    );
+    assert_eq!(std::fs::read(&archive).unwrap(), before);
+}
+
+#[test]
+fn iso_import_rejects_unsafe_entry_paths() {
+    let directory = tempfile::tempdir().unwrap();
+    let iso = directory.path().join("unsafe.iso");
+    let archive = directory.path().join("archive.zar");
+    let mut image = iso_fixture(include_bytes!("../tests/fixtures/iso-primary.iso.gz"));
+    let name = b"HELLO.TXT;1";
+    let offset = image
+        .windows(name.len())
+        .position(|window| window == name)
+        .unwrap();
+    image[offset..offset + name.len()].copy_from_slice(b"../EVIL.TXT");
+    std::fs::write(&iso, image).unwrap();
+    let error = crate::operations::create_archive(archive.to_str().unwrap(), &[iso]).unwrap_err();
+    assert!(
+        error.to_string().contains("invalid") || error.to_string().contains("malformed"),
+        "{error}"
+    );
+    assert!(!archive.exists());
+    assert!(!directory.path().join("EVIL.TXT").exists());
+}
+
+#[test]
+fn iso_import_streams_large_file_contents() {
+    let directory = tempfile::tempdir().unwrap();
+    let iso = directory.path().join("large.iso");
+    let archive = directory.path().join("archive.zar");
+    std::fs::write(
+        &iso,
+        iso_fixture(include_bytes!("../tests/fixtures/iso-large.iso.gz")),
+    )
+    .unwrap();
+    crate::operations::create_archive(archive.to_str().unwrap(), &[iso]).unwrap();
+    let contents = crate::operations::extract_archive_to_memory(
+        archive.to_str().unwrap(),
+        None,
+        None,
+        None,
+        0,
+    )
+    .unwrap();
+    assert_eq!(contents["large.bin"], vec![0; 300 * 1024]);
 }
 
 fn write_rar(path: &std::path::Path, version: rars::ArchiveVersion, solid: bool) {

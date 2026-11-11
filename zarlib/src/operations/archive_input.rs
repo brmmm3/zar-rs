@@ -4,7 +4,7 @@ use crate::ArchivePath;
 use flate2::read::MultiGzDecoder;
 use sevenz_rust2::{ArchiveReader, Password};
 use std::fs::{File, OpenOptions};
-use std::io::{self, Read};
+use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 use zip::ZipArchive;
@@ -19,6 +19,7 @@ pub(super) enum ImportArchiveKind {
     Zip,
     SevenZip,
     Rar,
+    Iso,
     Tar,
     TarGz,
     Gzip,
@@ -56,6 +57,7 @@ pub(super) fn scan_input_paths(
                 ImportArchiveKind::Zip => extract_zip(&source, &temporary_root, &progress)?,
                 ImportArchiveKind::SevenZip => extract_7z(&source, &temporary_root, &progress)?,
                 ImportArchiveKind::Rar => extract_rar(&source, &temporary_root, &progress)?,
+                ImportArchiveKind::Iso => extract_iso(&source, &temporary_root, &progress)?,
                 ImportArchiveKind::Tar => {
                     extract_tar(File::open(&source)?, &temporary_root, &progress)?
                 }
@@ -108,11 +110,96 @@ pub(super) fn import_archive_kind(path: &Path) -> Option<ImportArchiveKind> {
         Some(ImportArchiveKind::SevenZip)
     } else if extension.eq_ignore_ascii_case("rar") {
         Some(ImportArchiveKind::Rar)
+    } else if extension.eq_ignore_ascii_case("iso") {
+        Some(ImportArchiveKind::Iso)
     } else if extension.eq_ignore_ascii_case("tar") {
         Some(ImportArchiveKind::Tar)
     } else {
         None
     }
+}
+
+struct InterruptibleIsoReader<'a, 'b> {
+    file: File,
+    progress: &'a ProgressReporter<'b>,
+}
+
+impl Read for InterruptibleIsoReader<'_, '_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.progress.is_cancelled() {
+            return Err(io::Error::other("operation cancelled"));
+        }
+        self.file.read(buf)
+    }
+}
+
+impl Seek for InterruptibleIsoReader<'_, '_> {
+    fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+        self.progress.check_cancelled()?;
+        self.file.seek(position)
+    }
+}
+
+pub(super) fn extract_iso(
+    source: &Path,
+    destination: &Path,
+    progress: &ProgressReporter<'_>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    progress.check_cancelled()?;
+    let reader = InterruptibleIsoReader {
+        file: File::open(source)?,
+        progress,
+    };
+    let options = libmkiso::IsoReadOptions {
+        namespace: libmkiso::IsoNamespace::PreferRockRidge,
+        ..Default::default()
+    };
+    let iso = libmkiso::IsoReader::open_with_options(reader, options)?;
+    let (mut reader, index) = iso.into_parts();
+    for (entry, extents) in index.entries.iter().zip(&index.extents) {
+        progress.check_cancelled()?;
+        if entry.link_target.is_some() {
+            return Err(format!("ISO symbolic links are not supported: {:?}", entry.name).into());
+        }
+        if let Some(metadata) = &entry.unix {
+            let file_type = metadata.mode & 0o170000;
+            let expected = if entry.directory { 0o040000 } else { 0o100000 };
+            if file_type != 0 && file_type != expected {
+                return Err(
+                    format!("ISO special entries are not supported: {:?}", entry.name).into(),
+                );
+            }
+        }
+        let archive_path = ArchivePath::new(entry.name.clone())
+            .map_err(|error| format!("invalid ISO entry path {:?}: {error}", entry.name))?;
+        let output_path = destination.join(archive_path.as_str());
+        if entry.directory {
+            std::fs::create_dir_all(&output_path)?;
+            continue;
+        }
+        let parent = output_path
+            .parent()
+            .ok_or("ISO entry has no parent directory")?;
+        std::fs::create_dir_all(parent)?;
+        let mut output = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&output_path)?;
+        let mut total = 0_u64;
+        for extent in extents {
+            reader.seek(SeekFrom::Start(extent.offset))?;
+            let copied =
+                copy_interruptibly(&mut (&mut reader).take(extent.size), &mut output, progress)?;
+            if copied != extent.size {
+                return Err(format!("truncated ISO entry: {:?}", entry.name).into());
+            }
+            total = total.checked_add(copied).ok_or("ISO entry size overflow")?;
+        }
+        if total != entry.size {
+            return Err(format!("ISO entry size mismatch: {:?}", entry.name).into());
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn extract_rar(
@@ -663,5 +750,65 @@ mod rar_path_tests {
         ] {
             assert!(rar_entry_path(path, false).is_err(), "{path:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod iso_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct CancellingProgress(AtomicUsize);
+
+    impl Progress for CancellingProgress {
+        fn message(&self, _: &str) {}
+        fn advance(&self, _: u64) {}
+        fn is_cancelled(&self) -> bool {
+            self.0.fetch_add(1, Ordering::Relaxed) >= 5
+        }
+    }
+
+    #[test]
+    fn cancels_iso_index_reads() {
+        let directory = tempfile::tempdir().unwrap();
+        let iso = directory.path().join("input.iso");
+        let mut fixture = flate2::read::GzDecoder::new(
+            &include_bytes!("../../tests/fixtures/iso-primary.iso.gz")[..],
+        );
+        io::copy(&mut fixture, &mut File::create(&iso).unwrap()).unwrap();
+        let callback = CancellingProgress(AtomicUsize::new(0));
+        let progress = ProgressReporter::new(Some(&callback));
+        let error = extract_iso(&iso, directory.path(), &progress).unwrap_err();
+        assert!(error.to_string().contains("cancelled"), "{error}");
+        assert!(callback.0.load(Ordering::Relaxed) > 5);
+    }
+
+    struct CancelAfterFirstChunk(PathBuf);
+
+    impl Progress for CancelAfterFirstChunk {
+        fn message(&self, _: &str) {}
+        fn advance(&self, _: u64) {}
+        fn is_cancelled(&self) -> bool {
+            std::fs::metadata(&self.0).is_ok_and(|metadata| metadata.len() > 0)
+        }
+    }
+
+    #[test]
+    fn cancels_iso_payload_copy() {
+        let directory = tempfile::tempdir().unwrap();
+        let iso = directory.path().join("input.iso");
+        let mut fixture = flate2::read::GzDecoder::new(
+            &include_bytes!("../../tests/fixtures/iso-large.iso.gz")[..],
+        );
+        io::copy(&mut fixture, &mut File::create(&iso).unwrap()).unwrap();
+        let output = directory.path().join("output");
+        std::fs::create_dir(&output).unwrap();
+        let target = output.join("large.bin");
+        let callback = CancelAfterFirstChunk(target.clone());
+        let progress = ProgressReporter::new(Some(&callback));
+        let error = extract_iso(&iso, &output, &progress).unwrap_err();
+        assert!(error.to_string().contains("cancelled"), "{error}");
+        let written = std::fs::metadata(target).unwrap().len();
+        assert!(written > 0 && written < 300 * 1024);
     }
 }

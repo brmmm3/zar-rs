@@ -92,11 +92,14 @@ create_archive(
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-`create_archive` and `add_archive` also accept `.zip`, `.7z`, `.rar`, `.tar`, `.tar.gz`,
-and `.tgz` paths in their input lists. Entries are imported using their internal
-paths, then processed like other inputs. Encrypted ZIP/7z sources and ZIP/7z
+`create_archive` and `add_archive` also accept `.zip`, `.7z`, `.rar`, `.iso`, `.tar`, `.tar.gz`,
+`.tgz`, and `.gz` paths in their input lists. Entries are imported using their internal
+paths, then processed like other inputs. Encrypted ZIP/7z/RAR sources and ZIP/7z/RAR
 links are rejected. Multi-volume RAR archives and RAR special entries are
-rejected. TAR symbolic links are preserved where the host supports
+rejected. ISO import reads ISO 9660, preferring Rock Ridge over Joliet and the
+primary namespace. ISO links, special entries, and UDF-only images are not
+supported. ISO imports are limited to 100,000 entries, 16 MiB of directory
+metadata, and 64 directory levels. TAR symbolic links are preserved where the host supports
 them, hard links are imported as regular files, and TAR special entries are
 rejected. Safe TAR paths with leading `./` components are normalized, but
 parent traversal is rejected. Source archive timestamps are not retained;

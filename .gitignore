@@ -16,6 +16,7 @@ testresults/
 *.zip
 *.7z
 *.gz
+!zarlib/tests/fixtures/*.iso.gz
 __pycache__/
 *.pyc
 .pytest_cache/

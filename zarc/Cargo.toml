@@ -16,6 +16,7 @@ libc = "0.2"
 zarlib = { path = "../zarlib" }
 
 [dev-dependencies]
+flate2 = "1.1"
 rars = { version = "0.12.4", default-features = false, features = ["write"] }
 
 [target.'cfg(windows)'.dependencies]

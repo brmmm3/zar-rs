@@ -2382,6 +2382,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "libmkiso"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "262387b6106a83fc5a389eba8a513fee4024ef83e60f22aff8a3bbe462b03289"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "libredox"
 version = "0.1.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5603,6 +5612,7 @@ name = "zarc"
 version = "0.10.0"
 dependencies = [
  "clap",
+ "flate2",
  "indicatif",
  "libc",
  "mimalloc",
@@ -5640,6 +5650,7 @@ dependencies = [
  "getrandom 0.4.3",
  "globset",
  "libc",
+ "libmkiso",
  "rars",
  "rayon",
  "scandir",

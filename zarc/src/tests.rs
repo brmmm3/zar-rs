@@ -647,6 +647,7 @@ fn conversion_output_names_replace_supported_archive_extensions() {
         ("backup.zip", "backup.zar"),
         ("backup.7z", "backup.zar"),
         ("backup.RAR", "backup.zar"),
+        ("backup.ISO", "backup.zar"),
         ("backup.tar", "backup.zar"),
         ("backup.tar.gz", "backup.zar"),
         ("backup.tgz", "backup.zar"),
@@ -656,6 +657,45 @@ fn conversion_output_names_replace_supported_archive_extensions() {
         assert_eq!(zar_output_filename(source).as_deref(), Some(expected));
     }
     assert_eq!(zar_output_filename("backup.zipx"), None);
+}
+
+#[test]
+fn cli_convert_imports_iso_contents() {
+    use std::io::Read;
+
+    let directory = TestDirectory::new();
+    let source = directory.path().join("input");
+    let output = directory.path().join("output");
+    std::fs::create_dir(&source).unwrap();
+    let mut image = Vec::new();
+    flate2::read::GzDecoder::new(
+        &include_bytes!("../../zarlib/tests/fixtures/iso-rockridge.iso.gz")[..],
+    )
+    .read_to_end(&mut image)
+    .unwrap();
+    std::fs::write(source.join("sample.ISO"), image).unwrap();
+    assert_eq!(
+        run([
+            "convert",
+            source.to_str().unwrap(),
+            "--output-folder",
+            output.to_str().unwrap()
+        ]
+        .into_iter()
+        .map(str::to_owned))
+        .unwrap(),
+        0
+    );
+    let contents = zarlib::operations::extract_archive_to_memory(
+        output.join("sample.zar").to_str().unwrap(),
+        None,
+        None,
+        None,
+        0,
+    )
+    .unwrap();
+    assert_eq!(contents["nested/hello.txt"], b"ISO content");
+    assert_eq!(contents["nested/café.txt"], b"unicode");
 }
 
 #[test]
