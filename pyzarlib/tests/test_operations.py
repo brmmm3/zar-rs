@@ -319,9 +319,31 @@ def test_encrypted_archive_operations_authenticate_password(
 
     with pytest.raises(RuntimeError):
         pyzarlib.check_archive(encrypted, password=b"wrong password")
-    with pytest.raises(RuntimeError):
-        pyzarlib.extract_archive(encrypted, tmp_path / "locked")
-    assert not (tmp_path / "locked").exists()
+    locked = tmp_path / "locked"
+    plan = pyzarlib.extract_archive(encrypted, locked)
+    assert plan["files"] == []
+    assert pyzarlib.list_archive(encrypted) == []
+    assert pyzarlib.extract_archive_to_memory(encrypted) == {}
+    assert not (locked / "input" / "alpha.txt").exists()
+
+    (tmp_path / "visible.txt").write_bytes(b"visible")
+    pyzarlib.add_archive(
+        encrypted,
+        [Path("visible.txt")],
+        passwords={"00000001": b"correct password"},
+        block_size=64 * 1024,
+    )
+    assert pyzarlib.extract_archive_to_memory(encrypted) == {
+        "visible.txt": b"visible"
+    }
+    partial = tmp_path / "partial"
+    plan = pyzarlib.extract_archive(encrypted, partial)
+    assert {Path(item["path"]).name for item in plan["files"]} == {"visible.txt"}
+    assert (partial / "visible.txt").read_bytes() == b"visible"
+    assert not (partial / "input" / "alpha.txt").exists()
+    assert pyzarlib.extract_archive_to_memory(
+        encrypted, passwords={"00000001": b"correct password"}
+    ) == {"input/alpha.txt": b"alpha contents", "visible.txt": b"visible"}
 
 
 @pytest.mark.parametrize("aead", ["aes-256-gcm", "chacha20-poly1305"])

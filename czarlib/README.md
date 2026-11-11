@@ -119,6 +119,11 @@ inspect it without a password, while extraction of its data blocks still
 requires the password. `info_archive` reports each commit's header/data
 encryption status and AEAD algorithm.
 
+Listing and extraction skip commits whose encrypted headers have no supplied
+password, so their results can be a partial view of the archive. Extraction
+still fails when a visible commit's data is encrypted and its password is
+unavailable. An incorrect password fails authentication.
+
 The optional `"passwords"` object maps eight-hex-digit commit IDs to passwords.
 The `"password"` field remains a default password and is tried for every
 encrypted commit without a specific entry. For example, callers can append a

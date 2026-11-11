@@ -130,6 +130,11 @@ The `encryption_scope` argument accepts `"data"`, `"header"`, or
 data still requires one. `info_archive` reports each commit's header/data
 encryption status and AEAD algorithm.
 
+Listing and extraction skip commits whose encrypted headers have no supplied
+password, so their results can be a partial view of the archive. Extraction
+still fails when a visible commit's data is encrypted and its password is
+unavailable. An incorrect password fails authentication.
+
 The `aead` argument accepts `"aes-256-gcm"` or `"chacha20-poly1305"` and
 defaults to AES-256-GCM. Each commit has its own encryption descriptor. For
 operations over multiple commits, pass `passwords={commit_id: password_bytes}`.

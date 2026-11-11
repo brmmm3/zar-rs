@@ -38,7 +38,13 @@ static void expect_error(const char *operation, const char *request,
     char *response = NULL;
     char *error = NULL;
     int status = czarlib_execute_json(operation, request, &response, &error);
-    REQUIRE(status == 1);
+    if (status != 1) {
+        fprintf(stderr, "%s: expected error containing '%s', got status %d\n",
+                operation, message_fragment, status);
+        czarlib_string_free(response);
+        czarlib_string_free(error);
+        exit(1);
+    }
     REQUIRE(response == NULL);
     REQUIRE(error != NULL);
     if (strstr(error, message_fragment) == NULL) {
@@ -413,17 +419,48 @@ static void test_extract_policies_memory_and_encryption(void) {
         "check_archive",
         "{\"archive\":\"encrypted.zar\",\"password\":\"wrong\"}",
         "authentication");
-    expect_error(
+    plan = invoke(
         "extract_archive",
-        "{\"archive\":\"encrypted.zar\",\"destination\":\"locked\"}",
-        "password");
-    REQUIRE(access("locked", F_OK) != 0);
+        "{\"archive\":\"encrypted.zar\",\"destination\":\"locked\"}");
+    REQUIRE(strstr(plan, "\"files\":[]") != NULL);
+    czarlib_string_free(plan);
+    REQUIRE(access("locked/input/alpha.txt", F_OK) != 0);
+    char *locked_list = invoke("list_archive", "{\"archive\":\"encrypted.zar\"}");
+    REQUIRE(strcmp(locked_list, "[]") == 0);
+    czarlib_string_free(locked_list);
+    char *locked_memory = invoke("extract_archive_to_memory", "{\"archive\":\"encrypted.zar\"}");
+    REQUIRE(strcmp(locked_memory, "{}") == 0);
+    czarlib_string_free(locked_memory);
     copy_file("encrypted.zar", "encrypted-before-failed-add.zar");
     expect_error(
         "add_archive",
         "{\"archive\":\"encrypted.zar\",\"paths\":[\"keep.txt\"]}",
         "encrypted");
     require_same_file("encrypted.zar", "encrypted-before-failed-add.zar");
+
+    char *added = invoke(
+        "add_archive",
+        "{\"archive\":\"encrypted.zar\",\"paths\":[\"keep.txt\"],"
+        "\"passwords\":{\"00000001\":\"secret\"}}");
+    czarlib_string_free(added);
+    char *partial_memory = invoke("extract_archive_to_memory", "{\"archive\":\"encrypted.zar\"}");
+    REQUIRE(strcmp(partial_memory, "{\"keep.txt\":[107,101,101,112]}") == 0);
+    czarlib_string_free(partial_memory);
+    plan = invoke("extract_archive",
+                  "{\"archive\":\"encrypted.zar\",\"destination\":\"partial\"}");
+    REQUIRE(strstr(plan, "partial/keep.txt") != NULL);
+    REQUIRE(strstr(plan, "input/alpha.txt") == NULL);
+    czarlib_string_free(plan);
+    char partial_contents[4];
+    read_file("partial/keep.txt", partial_contents, sizeof(partial_contents));
+    REQUIRE(memcmp(partial_contents, "keep", sizeof(partial_contents)) == 0);
+    REQUIRE(access("partial/input/alpha.txt", F_OK) != 0);
+    unlocked_memory = invoke(
+        "extract_archive_to_memory",
+        "{\"archive\":\"encrypted.zar\",\"password\":\"secret\"}");
+    REQUIRE(strstr(unlocked_memory, "\"input/alpha.txt\":[114,101,112,108,97,99,101,100]") != NULL);
+    REQUIRE(strstr(unlocked_memory, "\"keep.txt\":[107,101,101,112]") != NULL);
+    czarlib_string_free(unlocked_memory);
 
     encrypted = invoke(
         "create_archive",
@@ -458,6 +495,11 @@ static void test_extract_policies_memory_and_encryption(void) {
         "\"passwords\":{\"00000001\":\"secret\"},"
         "\"aead\":\"aes-256-gcm\",\"encryption_scope\":\"data\"}");
     czarlib_string_free(encrypted);
+    expect_error(
+        "extract_archive",
+        "{\"archive\":\"chacha.zar\",\"destination\":\"data-locked\"}",
+        "password");
+    REQUIRE(access("data-locked/input/alpha.txt", F_OK) != 0);
     unlocked_memory = invoke(
         "extract_archive_to_memory",
         "{\"archive\":\"chacha.zar\",\"passwords\":{"

@@ -168,12 +168,30 @@ public sealed class ZarLibTests : IDisposable
         Assert.Contains("input/alpha.txt", ZarLibrary.ListArchive(new { archive = "encrypted.zar", password = "secret" }));
         AssertFile(ZarLibrary.ExtractArchiveToMemory(new { archive = "encrypted.zar", password = "secret" }), "input/alpha.txt", "alpha contents");
         ExpectError(() => ZarLibrary.CheckArchive(new { archive = "encrypted.zar", password = "wrong" }), "authentication");
-        ExpectError(() => ZarLibrary.ExtractArchive(new { archive = "encrypted.zar", destination = "locked" }), "password");
-        Assert.False(Directory.Exists("locked"));
+        Assert.Empty(PlannedFiles(ZarLibrary.ExtractArchive(new { archive = "encrypted.zar", destination = "locked" })));
+        Assert.Empty(ZarLibrary.ExtractArchiveToMemory(new { archive = "encrypted.zar" }));
+        Assert.Equal("[]", ZarLibrary.ListArchive(new { archive = "encrypted.zar" }));
+        Assert.False(File.Exists("locked/input/alpha.txt"));
 
         var before = File.ReadAllBytes("encrypted.zar");
         ExpectError(() => ZarLibrary.AddArchive(new { archive = "encrypted.zar", paths = new[] { "keep.txt" } }), "encrypted");
         Assert.Equal(before, File.ReadAllBytes("encrypted.zar"));
+        ZarLibrary.AddArchive(new
+        {
+            archive = "encrypted.zar", paths = new[] { "keep.txt" },
+            passwords = new Dictionary<string, string> { ["00000001"] = "secret" },
+        });
+        var partial = ZarLibrary.ExtractArchiveToMemory(new { archive = "encrypted.zar" });
+        Assert.Single(partial);
+        AssertFile(partial, "keep.txt", "keep");
+        var partialPlan = ZarLibrary.ExtractArchive(new { archive = "encrypted.zar", destination = "partial" });
+        Assert.Equal(new[] { Path.GetFullPath("partial/keep.txt") }, PlannedFiles(partialPlan));
+        Assert.Equal("keep", File.ReadAllText("partial/keep.txt"));
+        Assert.False(File.Exists("partial/input/alpha.txt"));
+        var complete = ZarLibrary.ExtractArchiveToMemory(new { archive = "encrypted.zar", password = "secret" });
+        Assert.Equal(2, complete.Count);
+        AssertFile(complete, "input/alpha.txt", "alpha contents");
+        AssertFile(complete, "keep.txt", "keep");
 
         created = ZarLibrary.CreateArchive(new { archive = "chacha.zar", paths = new[] { "input/alpha.txt" }, block_size = 65536, password = "secret", aead = "chacha20-poly1305" });
         Assert.Contains("\"aead\":\"chacha20-poly1305\"", created);
@@ -185,6 +203,8 @@ public sealed class ZarLibTests : IDisposable
             password = "second-secret", passwords = new Dictionary<string, string> { ["00000001"] = "secret" },
             aead = "aes-256-gcm", encryption_scope = "data",
         });
+        ExpectError(() => ZarLibrary.ExtractArchive(new { archive = "chacha.zar", destination = "data-locked" }), "password");
+        Assert.False(File.Exists("data-locked/input/alpha.txt"));
         var memory = ZarLibrary.ExtractArchiveToMemory(new
         {
             archive = "chacha.zar",
