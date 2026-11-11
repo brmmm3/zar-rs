@@ -76,8 +76,8 @@ Options:
 - `--overwrite`: replace the target archive if it already exists.
 - `--metadata`: record supported platform-specific owner, group, and
   permission metadata.
-- `--dates`: record each entry's modification time (requires readers that
-  support logical-header version 7; shown and sortable in `zarg`).
+- `--dates`: record each entry's modification time (shown and sortable in
+  `zarg`; current readers support logical-header version 8).
 - `--special-files`: include named pipes and Unix device nodes; these are
   otherwise skipped with warnings.
 - `--verbose`: print the warning when storing a symbolic link. By default,

@@ -5,6 +5,11 @@ until a version is released.
 
 ## Unreleased
 
+### Changed
+
+- Write and read only logical-header version 8. Archives containing earlier
+  unreleased logical-header versions 0–7 are no longer supported.
+
 ### Added
 
 - `zarg` now has a Qt6 Fusion appearance and follows the system light/dark

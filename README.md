@@ -1,9 +1,8 @@
 # ZAR
 
-ZAR is a lightning fast archive with good compression, deduplication,
-history/multiple commits. It is written in memory-safe Rust and comes with a
-command-line tool, a desktop GUI, a reusable library, bindings for many
-languages, and a lightning fast network copy tool.
+ZAR is an archive format and toolkit with compression, deduplication, and
+commit-based history. It is written in Rust and includes a command-line tool,
+a desktop GUI, a reusable library, language bindings, and a network copy tool.
 
 See the [changelog](./CHANGELOG.md) for recent project updates. See
 [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, checks, and pull
@@ -14,11 +13,8 @@ request guidance.
 - **[`zarlib`](./doc/zarlib-developer-guide.md)** is the reusable archive
   format and operations library.
 - **[`zcopy`](./zcopy/README.md)** copies file trees between machines over the
-  network, compressed and optionally encrypted, sending only missing or newer
-  files. `zcopy` uses the fast compression and decompression pipeline of zarlib
-  and the data is streamed over the network. There is no need to
-  create/decompress archives anymore to copy a filetree from one host do
-  another.
+  network using compressed, optionally encrypted ZAR batches. It can update
+  missing or newer files on the destination or save a complete packed archive.
 
 ## What makes ZAR different
 
@@ -26,8 +22,8 @@ request guidance.
 |---|---|---|---|---|
 | Fast parallel compression (zstd, block based) | ✅ | ❌ (deflate) | ❌ (single-threaded gzip) | ❌ (slow LZMA) |
 | Random access to a single file | ✅ | ✅ | ❌ (stream must be read) | ⚠️ solid blocks |
-| Append, remove, and join without rewriting data | ✅ (commits) | ⚠️ append only | ❌ | ❌ |
-| History: older versions stay recoverable | ✅ | ❌ | ❌ | ❌ |
+| Commit-based updates and compaction | ✅ | ⚠️ append only | ❌ | ❌ |
+| History retained until explicitly compacted or removed | ✅ | ❌ | ❌ | ❌ |
 | Content deduplication (within one create/add) | ✅ | ❌ | ❌ | ⚠️ solid only |
 | Modern authenticated encryption (AES-256-GCM / ChaCha20-Poly1305, Argon2id) | ✅ | ⚠️ weak ZipCrypto or AES | ❌ needs wrapper | ✅ AES-CBC |
 | Encrypt data only, header only, or both; per-commit passwords | ✅ | ❌ | ❌ | ⚠️ |
@@ -37,12 +33,13 @@ request guidance.
 
 Highlights:
 
-- **Speed.** Data is split into blocks compressed in parallel with Zstandard. On
-  the Linux 4.0.1 source tree (525 MiB, 48,945 files, 8 cores, hot cache) zarlib
-  compressed in 4.6 s versus 19.6 s for zip, 17.5 s for tar.gz and 93 s for 7z,
-  and extracted in 4.9 s versus 10.9 s for zip. Encryption costs only about 30%
-  extra time. 7z produces smaller archives, at 20 times the compression time.
-  See [how to run benchmarks](./doc/benchmarks/README.md#running-benchmarks) and
+- **Speed.** Data is split into blocks compressed in parallel with Zstandard.
+  In one [Linux Core i7 benchmark](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7.md)
+  of the 525 MiB Linux 4.0.1 source tree, hot-cache unencrypted ZAR creation
+  took 0.86 s and full extraction took 0.88–1.10 s. The same run produced a
+  smaller 7z archive, but 7z creation took 24.91–24.94 s. Results depend on
+  hardware, data, settings, and cache state. See
+  [how to run benchmarks](./doc/benchmarks/README.md#running-benchmarks) and
   the [benchmark overview](./doc/benchmarks/README.md) for reports and charts.
   The [archive benchmark workflow](./.github/workflows/benchmark-archives.yml)
   runs on Windows, Linux, and macOS; each run uploads its generated report and
@@ -63,9 +60,10 @@ Highlights:
 - **Batch archive conversion.** `zarc convert FOLDER` converts supported
   archive files directly inside a folder into separate `.zar` files, with an
   optional fnmatch filename filter and a separate output folder.
-- **Commit-based history.** `add`, `remove`, and `join` append or compact
-  commits instead of rewriting the archive; the archive is published atomically,
-  and the original survives any failure.
+- **Commit-based history.** `add` records new versions, while `remove` records
+  tombstones. Historical states remain available until commits are removed or
+  compacted with `join`. Mutations stage a replacement archive; joining can
+  rewrite compressed data.
 - **Security by design.** Authenticated encryption with flexible scope,
   commit-specific passwords, bounded KDF parameters, strict canonical UTF-8
   archive paths, and extraction that cannot escape the destination.
@@ -73,20 +71,42 @@ Highlights:
   archive, and recovery scans past damaged regions.
 - **One core, many front ends.** CLI, GUI, seven language bindings, and a
   server-side WASI component share the same Rust implementation and behavior.
-- **Network copy.** `zcopy` reuses the pipelines to send only new or changed
-  files, compressed and encrypted, between machines.
+- **Network copy.** `zcopy` transfers files missing from the destination or
+  newer by modification time, or sends a complete packed archive. Encryption
+  is optional; without a password the connection is not authenticated.
 
-Limitations to be aware of: ZAR does not restore symlinks or devices unless
-asked, archive metadata has no modification times (`zcopy` transfers them
-separately), and `remove`/`join` do not yet support encrypted headers. 7z still
-wins on compression ratio.
+## Limitations
+
+- `zarc extract` restores symlinks and devices only when explicitly requested.
+  Device creation may require privileges, and symlink targets must remain
+  within the extraction root.
+- `create --dates` and `add --dates` can record entry modification times.
+  Current archive extraction does not restore them. `zcopy` transfers and
+  restores file modification times separately in its unpack mode.
+- Only logical-header version 8 is supported. Archives created by unreleased
+  versions that used logical-header versions 0–7 cannot be interpreted by
+  current readers; all new commits use version 8.
+- `zarc add` can use passwords for existing encrypted commits. The CLI
+  `remove` and `join` commands do not accept those passwords: `remove` cannot
+  operate when encrypted commits need passwords, and `join` skips locked
+  commits rather than including them. Password-aware Rust library operations
+  support removal and joining with credentials, subject to their own validation
+  rules.
+- Listing and extraction without passwords can omit commits with locked
+  headers, producing a partial view. A visible data-encrypted commit still
+  requires its password for extraction. Use passwords for all relevant
+  commits when a complete result is required.
+- `zcopy` is a one-way copy, not a mirror: it does not propagate deletions
+  and compares whole-second modification times rather than file contents.
+  See its [README](./zcopy/README.md) for cache and concurrency details.
+- Compression ratio depends on data and settings. Some 7z configurations
+  produce smaller archives in the provided benchmarks.
 
 ## Language bindings and runtime packages
 
 `zarlib` is available through language bindings and a WASI component. They
-expose the same operations (create, add, remove, join, undo, check, info, list,
-extract, and in-memory extract) through their respective language or runtime
-interfaces.
+expose archive operations through their respective language or runtime
+interfaces; see each package's documentation for its API and limitations.
 
 | Package | Language/runtime | Mechanism |
 |---------|----------|-----------|
@@ -127,6 +147,7 @@ Run the CLI directly from the workspace:
 ```sh
 cargo run --release -p zarc -- --help
 cargo run --release -p zarg
+cargo run --release -p zcopy -- --help
 ```
 
 Build the server-side WASI component separately:
@@ -205,9 +226,10 @@ directly.
   extraction root. Unix extraction uses no-follow directory-relative file
   operations; the non-Unix fallback does not provide equivalent resistance to
   path races.
-- `zarc add`, `remove`, and `join` currently do not support archives whose
-  logical state requires decrypting an encrypted header. `join` is for readable,
-  unencrypted state.
+- `zarc add` accepts passwords for existing encrypted commits; `remove` and
+  `join` do not. `join` operates on readable commits and leaves locked commits
+  unchanged; some histories cannot be joined without unlocking a preceding
+  header. The password-aware Rust library API provides more options.
 - `zarc check --recover` scans past damaged framing without modifying the
   archive. It reports recovered gaps as warnings; logical state is restarted
   after each gap.

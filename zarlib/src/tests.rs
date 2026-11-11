@@ -66,6 +66,75 @@ fn supported_archive_import_types_are_detected_case_insensitively() {
 }
 
 #[test]
+fn archive_operations_reject_older_logical_header_versions() {
+    let directory = tempfile::tempdir().unwrap();
+    for version in 0u16..=8 {
+        let archive = directory.path().join(format!("version-{version}.zar"));
+        let mut logical = b"ZHDR".to_vec();
+        logical.extend_from_slice(&version.to_le_bytes());
+        if matches!(version, 1 | 3) {
+            logical.extend_from_slice(&65536u32.to_le_bytes());
+        } else if version >= 4 {
+            logical.extend_from_slice(&0u32.to_le_bytes());
+            logical.extend_from_slice(&0u32.to_le_bytes());
+            if version >= 5 {
+                logical.extend_from_slice(&0u32.to_le_bytes());
+            }
+        }
+        logical.extend_from_slice(&0u32.to_le_bytes());
+        let staged = HeaderFrame::from_uncompressed(
+            CommitHeader::new(0, [1, 0, 0, 0], 0, 0).unwrap(),
+            &logical,
+            UNENCRYPTED_DESCRIPTOR.to_vec(),
+            3,
+        )
+        .unwrap();
+        let frame = HeaderFrame::from_uncompressed(
+            CommitHeader::new(
+                0,
+                [1, 0, 0, 0],
+                0,
+                u32::try_from(staged.encoded_size().unwrap()).unwrap(),
+            )
+            .unwrap(),
+            &logical,
+            UNENCRYPTED_DESCRIPTOR.to_vec(),
+            3,
+        )
+        .unwrap();
+        let offset = CONTAINER_HEADER_SIZE + HEADER_OFFSET_SIZE;
+        let mut output = std::fs::File::create(&archive).unwrap();
+        ContainerHeader::new(offset).write_to(&mut output).unwrap();
+        output.write_all(&0u64.to_le_bytes()).unwrap();
+        frame.write_to(&mut output).unwrap();
+        output.write_all(&offset.to_le_bytes()).unwrap();
+        drop(output);
+
+        let archive = archive.to_str().unwrap();
+        let listing = crate::operations::list_archive(archive, None, None);
+        let info = crate::operations::info_archive(archive, false);
+        let check = crate::operations::check_archive_with_recovery(archive, false, None);
+        let extracted = crate::operations::extract_archive_to_memory(archive, None, None, None, 0);
+        if version == 8 {
+            assert!(listing.unwrap().is_empty());
+            assert_eq!(info.unwrap().len(), 1);
+            assert_eq!(check.unwrap().commits, 1);
+            assert!(extracted.unwrap().is_empty());
+        } else {
+            let expected = format!("unsupported logical-header version {version}");
+            for error in [
+                listing.unwrap_err().to_string(),
+                info.unwrap_err().to_string(),
+                check.unwrap_err().to_string(),
+                extracted.unwrap_err().to_string(),
+            ] {
+                assert!(error.contains(&expected), "{error}");
+            }
+        }
+    }
+}
+
+#[test]
 fn commits_record_creation_time_and_optional_user() {
     let directory = tempfile::tempdir().unwrap();
     let first_input = directory.path().join("first.txt");
