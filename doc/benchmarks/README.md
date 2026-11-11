@@ -26,7 +26,7 @@ archive formats on the same Linux source tree used by the reports.
 2. Open a saved ZAR archive and unlock it if needed. The Benchmark action is
    unavailable for imported non-ZAR archives and while another operation runs.
 3. Choose **Tools → Benchmark**. Select a block size and compression level;
-   optionally enable owner/permissions and modification dates or change
+   optionally enable owner/permissions and modification times or change
    whether to include symbolic links and special files. Defaults are 8 MiB,
    level 3, metadata off, and special files on.
 4. Click **Start**. The result shows regular-file count and original size,

@@ -309,7 +309,7 @@ impl ZargApp {
                                         &mut state.settings.owner_permissions,
                                         "Save owner and permissions",
                                     );
-                                    ui.checkbox(&mut state.settings.dates, "Save modification dates");
+                                    ui.checkbox(&mut state.settings.dates, "Save modification times");
                                     ui.checkbox(&mut state.settings.creation_time, "Save creation times");
                                     ui.checkbox(&mut state.settings.access_time, "Save access times");
                                     ui.checkbox(

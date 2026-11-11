@@ -198,7 +198,7 @@ impl ZargApp {
             egui::ViewportId::from_hash_of(format!("operation-dialog:{}", kind.title()));
         let mut open = true;
         let default_size = if kind == OperationKind::NewArchive {
-            [500.0, 250.0]
+            [500.0, 300.0]
         } else if kind == OperationKind::AddToArchive {
             [500.0, 360.0]
         } else if kind == OperationKind::TestArchive {
@@ -1210,7 +1210,7 @@ impl ZargApp {
             &mut self.operation.metadata,
             "Preserve platform-specific metadata",
         );
-        ui.checkbox(&mut self.operation.dates, "Save modification dates");
+        ui.checkbox(&mut self.operation.dates, "Save modification times");
         ui.checkbox(&mut self.operation.creation_time, "Save creation times");
         ui.checkbox(&mut self.operation.access_time, "Save access times");
         ui.checkbox(

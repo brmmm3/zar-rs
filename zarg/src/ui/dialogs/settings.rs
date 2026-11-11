@@ -58,7 +58,7 @@ impl ZargApp {
 
         let viewport_id = egui::ViewportId::from_hash_of("settings-dialog");
         let size_key = "settings";
-        let size = self.dialog_size(size_key, [420.0, 260.0]);
+        let size = self.dialog_size(size_key, [420.0, 300.0]);
         let mut actual_size = None;
         let mut open = true;
         let mut selected_theme = self.theme_mode;
@@ -227,7 +227,7 @@ impl ZargApp {
                                 if self.settings_tab == SettingsTab::Advanced {
                                     ui.weak("Defaults for New archive and Add to archive; each operation can override them.");
                                     ui.checkbox(&mut archive_defaults.metadata, "Preserve platform-specific metadata");
-                                    ui.checkbox(&mut archive_defaults.dates, "Save modification dates");
+                                    ui.checkbox(&mut archive_defaults.dates, "Save modification times");
                                     ui.checkbox(&mut archive_defaults.creation_time, "Save creation times");
                                     ui.checkbox(&mut archive_defaults.access_time, "Save access times");
                                     ui.checkbox(&mut archive_defaults.special_files, "Include named pipes and device nodes");

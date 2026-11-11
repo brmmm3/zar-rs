@@ -68,18 +68,22 @@ desktop entry.
   are shown as a dash; filters do not change these totals.
 - Switch the archive contents between Normal icon tiles, Compact multi-column
   rows, Details with size, ratio, owner, permissions, and type columns, and a
-  Structured expandable directory tree. Structured view shows file sizes,
-  folder item counts, and stored modification times. Modified, Owner, and
-  Permissions columns appear only when the archive stores that metadata.
+  Structured expandable directory tree. Structured view shows file sizes and
+  folder item counts. In Details and Structured views, Modified, Created,
+  Accessed, Owner, and Permissions columns appear only when the displayed
+  archive revision contains that metadata. In Details view, time columns follow
+  the Type column.
   Compressed sizes are estimates based on the average compression ratio of
   their blocks; packed files use their shared block's ratio. Encrypted block
   ratios are unavailable unless the commit can be unlocked.
-- Create and Add can store modification dates with the "Save modification dates"
-  option.
-- Sort archive contents by name, modification date, compressed size,
-  uncompressed size, ratio, or type. Dates and sizes sort
-  newest/largest first, ratio sorts lowest (best compression) first, and entries
-  without the value come last.
+- Create and Add can optionally store modification, creation, and access times.
+- Sort archive contents by name, modification, creation, or access time,
+  compressed size, uncompressed size, ratio, or type. Time-based sort options
+  appear only when the displayed archive revision contains that timestamp.
+  When a saved time sort is unavailable, the list temporarily sorts by name.
+  By default, times and sizes sort newest/largest first, ratio sorts lowest
+  (best compression) first, and entries without the value come last. Reversing
+  a sort reverses that order.
 - In Details and Structured views, click a column header to sort by it (click
   again to reverse; a small arrow shows the active order) and drag the column
   borders to resize columns. Column widths and the main window's normal size

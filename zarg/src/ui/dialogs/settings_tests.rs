@@ -39,7 +39,7 @@ fn settings_tabs_show_only_their_own_fields_and_preserve_values() {
             SettingsTab::Advanced,
             &[
                 "Preserve platform-specific metadata",
-                "Save modification dates",
+                "Save modification times",
                 "Include named pipes and device nodes",
                 "Strict input validation",
                 "Save current OS username (new archives)",

@@ -2454,6 +2454,8 @@ fn archive_entries_sort_by_requested_criterion() {
             "b.txt".to_owned(),
             ArchiveEntryDetails {
                 modified_unix_millis: Some(100),
+                created_unix_millis: Some(300),
+                accessed_unix_millis: Some(200),
                 ..ArchiveEntryDetails::default()
             },
         ),
@@ -2461,6 +2463,8 @@ fn archive_entries_sort_by_requested_criterion() {
             "a.rs".to_owned(),
             ArchiveEntryDetails {
                 modified_unix_millis: Some(300),
+                created_unix_millis: Some(100),
+                accessed_unix_millis: Some(300),
                 ..ArchiveEntryDetails::default()
             },
         ),
@@ -2468,6 +2472,8 @@ fn archive_entries_sort_by_requested_criterion() {
             "dir".to_owned(),
             ArchiveEntryDetails {
                 modified_unix_millis: Some(200),
+                created_unix_millis: Some(200),
+                accessed_unix_millis: Some(100),
                 ..ArchiveEntryDetails::default()
             },
         ),
@@ -2476,8 +2482,12 @@ fn archive_entries_sort_by_requested_criterion() {
 
     sort_entry_indices(&mut indices, &entries, &details, SortBy::Name);
     assert_eq!(indices, [1, 0, 3, 2]);
-    sort_entry_indices(&mut indices, &entries, &details, SortBy::Date);
+    sort_entry_indices(&mut indices, &entries, &details, SortBy::MTime);
     assert_eq!(indices, [1, 2, 0, 3]);
+    sort_entry_indices(&mut indices, &entries, &details, SortBy::CTime);
+    assert_eq!(indices, [0, 2, 1, 3]);
+    sort_entry_indices(&mut indices, &entries, &details, SortBy::ATime);
+    assert_eq!(indices, [1, 0, 2, 3]);
     sort_entry_indices(&mut indices, &entries, &details, SortBy::UncompressedSize);
     assert_eq!(indices, [1, 3, 0, 2]);
     sort_entry_indices(&mut indices, &entries, &details, SortBy::Type);
@@ -2514,6 +2524,355 @@ fn archive_entries_sort_by_requested_criterion() {
     // Ratios: a.rs 20%, b.txt 50%, c.txt 90%; the folder has none.
     sort_entry_indices(&mut indices, &entries, &sizes, SortBy::Ratio);
     assert_eq!(indices, [1, 0, 3, 2]);
+}
+
+#[test]
+fn time_columns_and_menu_options_follow_available_metadata() {
+    for mask in 0..8 {
+        let details = BTreeMap::from([(
+            "entry".to_owned(),
+            ArchiveEntryDetails {
+                modified_unix_millis: (mask & 1 != 0).then_some(0),
+                created_unix_millis: (mask & 2 != 0).then_some(-1),
+                accessed_unix_millis: (mask & 4 != 0).then_some(1),
+                ..Default::default()
+            },
+        )]);
+        let times = EntryTimes::from_details(&details);
+        let columns = times.columns().collect::<Vec<_>>();
+        let expected = TIME_COLUMNS
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, column)| (mask & (1 << index) != 0).then_some(column))
+            .collect::<Vec<_>>();
+        assert_eq!(columns, expected);
+    }
+}
+
+#[test]
+fn details_time_columns_and_values_follow_type() {
+    let details = ArchiveEntryDetails {
+        compressed_size: Some(50),
+        compression_ratio: Some(0.5),
+        owner: Some(42),
+        permissions: Some(0o644),
+        metadata_platform: Some("unix".to_owned()),
+        modified_unix_millis: Some(0),
+        created_unix_millis: Some(86_400_000),
+        accessed_unix_millis: Some(172_800_000),
+        ..Default::default()
+    };
+    for mask in 0..8 {
+        let times = EntryTimes {
+            modified: mask & 1 != 0,
+            created: mask & 2 != 0,
+            accessed: mask & 4 != 0,
+        };
+        for has_owner in [false, true] {
+            for has_permissions in [false, true] {
+                let columns = details_columns(times, has_owner, has_permissions);
+                let mut expected = vec![
+                    ("Name", Some(SortBy::Name)),
+                    ("Compressed", Some(SortBy::CompressedSize)),
+                    ("Uncompressed", Some(SortBy::UncompressedSize)),
+                    ("Ratio", Some(SortBy::Ratio)),
+                ];
+                let mut values = vec!["50 B".to_owned(), "100 B".to_owned(), "50.0%".to_owned()];
+                if has_owner {
+                    expected.push(("Owner", None));
+                    values.push("42".to_owned());
+                }
+                if has_permissions {
+                    expected.push(("Permissions", None));
+                    values.push("0644".to_owned());
+                }
+                expected.push(("Type", Some(SortBy::Type)));
+                values.push("File".to_owned());
+                for (index, (label, _, sort)) in TIME_COLUMNS.into_iter().enumerate() {
+                    if mask & (1 << index) != 0 {
+                        expected.push((label, Some(sort)));
+                        values.push(format_unix_millis(index as i64 * 86_400_000));
+                    }
+                }
+                assert_eq!(
+                    columns
+                        .iter()
+                        .map(|(label, _, sort)| (*label, *sort))
+                        .collect::<Vec<_>>(),
+                    expected
+                );
+                assert_eq!(
+                    details_row_values(
+                        &EntryData::File(100),
+                        Some(&details),
+                        times,
+                        has_owner,
+                        has_permissions
+                    ),
+                    values
+                );
+                let missing = details_row_values(
+                    &EntryData::Directory,
+                    None,
+                    times,
+                    has_owner,
+                    has_permissions,
+                );
+                assert_eq!(missing.len() + 1, columns.len());
+                assert_eq!(
+                    missing[3 + usize::from(has_owner) + usize::from(has_permissions)],
+                    "Folder"
+                );
+                assert!(
+                    missing
+                        .iter()
+                        .skip(4 + usize::from(has_owner) + usize::from(has_permissions))
+                        .all(|value| value == "—")
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn structured_view_renders_only_available_time_columns_and_values() {
+    fn collect_text(shape: &egui::Shape, texts: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(text) => texts.push(text.galley.job.text.clone()),
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    collect_text(shape, texts);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    for mask in 0..8 {
+        let detail = ArchiveEntryDetails {
+            modified_unix_millis: (mask & 1 != 0).then_some(0),
+            created_unix_millis: (mask & 2 != 0).then_some(86_400_000),
+            accessed_unix_millis: (mask & 4 != 0).then_some(172_800_000),
+            ..Default::default()
+        };
+        let details = BTreeMap::from([("entry".to_owned(), detail)]);
+        let mut app = ZargApp {
+            entry_times: EntryTimes::from_details(&details),
+            entries: vec![("entry".to_owned(), EntryData::Directory)],
+            entry_details: details,
+            structured_rows_dirty: true,
+            ..Default::default()
+        };
+        app.rebuild_visible_entry_indices();
+        let context = egui::Context::default();
+        context
+            .run_ui(egui::RawInput::default(), |ui| {
+                app.render_structured_archive_list(ui)
+            })
+            .drop_without_applying_deltas();
+        let output = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1800.0, 600.0),
+                )),
+                ..Default::default()
+            },
+            |ui| app.render_structured_archive_list(ui),
+        );
+        let mut texts = Vec::new();
+        for shape in &output.shapes {
+            collect_text(&shape.shape, &mut texts);
+        }
+        output.drop_without_applying_deltas();
+        for (index, (label, _, _)) in TIME_COLUMNS.into_iter().enumerate() {
+            assert_eq!(
+                texts.iter().any(|text| text == label),
+                mask & (1 << index) != 0,
+                "mask {mask}, texts {texts:?}"
+            );
+            let value = format_unix_millis(index as i64 * 86_400_000);
+            assert_eq!(
+                texts.iter().any(|text| text == &value),
+                mask & (1 << index) != 0,
+                "mask {mask}, texts {texts:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn time_availability_tracks_archive_changes_and_preserves_saved_sort() {
+    use zarlib::TocChange;
+
+    let modified = ArchivePath::new("modified".to_owned()).unwrap();
+    let created = ArchivePath::new("created".to_owned()).unwrap();
+    let mut toc = Toc::default();
+    toc.apply_commit(&[
+        TocChange::PutDirectory {
+            path: modified.clone(),
+        },
+        TocChange::PutDirectory {
+            path: created.clone(),
+        },
+    ])
+    .unwrap();
+    let details = BTreeMap::from([
+        (
+            modified.clone(),
+            ArchiveEntryDetails {
+                modified_unix_millis: Some(1),
+                ..Default::default()
+            },
+        ),
+        (
+            created.clone(),
+            ArchiveEntryDetails {
+                created_unix_millis: Some(2),
+                ..Default::default()
+            },
+        ),
+    ]);
+    let mut app = ZargApp {
+        sort_by: SortBy::CTime,
+        sort_reversed: true,
+        ..Default::default()
+    };
+    app.set_entries(toc.clone(), details);
+    assert_eq!(
+        app.entry_times,
+        EntryTimes {
+            modified: true,
+            created: true,
+            accessed: false
+        }
+    );
+    assert_eq!(app.active_sort(), (SortBy::CTime, true));
+
+    app.remove_entries(&["created".to_owned()]);
+    assert_eq!(
+        app.entry_times,
+        EntryTimes {
+            modified: true,
+            created: false,
+            accessed: false
+        }
+    );
+    assert_eq!(app.active_sort(), (SortBy::Name, false));
+    assert_eq!(app.sort_by, SortBy::CTime);
+    app.set_entries(
+        toc,
+        BTreeMap::from([(
+            created,
+            ArchiveEntryDetails {
+                created_unix_millis: Some(2),
+                ..Default::default()
+            },
+        )]),
+    );
+    assert_eq!(app.active_sort(), (SortBy::CTime, true));
+    app.set_entries(Toc::default(), BTreeMap::new());
+    assert_eq!(app.entry_times, EntryTimes::default());
+    assert_eq!(app.active_sort(), (SortBy::Name, false));
+}
+
+#[test]
+fn time_sort_settings_round_trip_and_support_legacy_date() {
+    for sort in [SortBy::MTime, SortBy::CTime, SortBy::ATime] {
+        assert_eq!(SortBy::from_setting(sort.as_setting()), Some(sort));
+    }
+    assert_eq!(SortBy::from_setting("date"), Some(SortBy::MTime));
+}
+
+#[test]
+fn time_sort_orders_flat_and_structured_views_and_reverses() {
+    let entries = vec![
+        ("a".to_owned(), EntryData::Directory),
+        ("b".to_owned(), EntryData::Directory),
+        ("c".to_owned(), EntryData::Directory),
+        ("missing".to_owned(), EntryData::Directory),
+    ];
+    let details = BTreeMap::from([
+        (
+            "a".to_owned(),
+            ArchiveEntryDetails {
+                modified_unix_millis: Some(-1),
+                created_unix_millis: Some(0),
+                accessed_unix_millis: Some(3),
+                ..Default::default()
+            },
+        ),
+        (
+            "b".to_owned(),
+            ArchiveEntryDetails {
+                modified_unix_millis: Some(0),
+                created_unix_millis: Some(3),
+                accessed_unix_millis: Some(-1),
+                ..Default::default()
+            },
+        ),
+        (
+            "c".to_owned(),
+            ArchiveEntryDetails {
+                modified_unix_millis: Some(0),
+                created_unix_millis: Some(-1),
+                accessed_unix_millis: Some(0),
+                ..Default::default()
+            },
+        ),
+    ]);
+    let mut app = ZargApp {
+        entry_times: EntryTimes::from_details(&details),
+        entries,
+        entry_details: details,
+        ..Default::default()
+    };
+    for (sort, expected) in [
+        (SortBy::MTime, ["b", "c", "a", "missing"]),
+        (SortBy::CTime, ["b", "a", "c", "missing"]),
+        (SortBy::ATime, ["a", "c", "b", "missing"]),
+    ] {
+        app.apply_sort_choice(sort);
+        let flat = app
+            .visible_entry_indices
+            .iter()
+            .map(|&index| app.entries[index].0.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(flat, expected);
+        let rows = structured_rows(
+            &app.entries,
+            &app.visible_entry_indices,
+            &BTreeSet::new(),
+            false,
+            &app.entry_details,
+            app.active_sort().0,
+            app.active_sort().1,
+        );
+        assert_eq!(
+            rows.iter().map(|row| row.path.as_str()).collect::<Vec<_>>(),
+            expected
+        );
+        app.apply_sort_choice(sort);
+        let flat = app
+            .visible_entry_indices
+            .iter()
+            .map(|&index| app.entries[index].0.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(flat, expected.into_iter().rev().collect::<Vec<_>>());
+        let rows = structured_rows(
+            &app.entries,
+            &app.visible_entry_indices,
+            &BTreeSet::new(),
+            false,
+            &app.entry_details,
+            app.active_sort().0,
+            app.active_sort().1,
+        );
+        assert_eq!(
+            rows.iter().map(|row| row.path.as_str()).collect::<Vec<_>>(),
+            expected.into_iter().rev().collect::<Vec<_>>()
+        );
+    }
 }
 
 #[test]

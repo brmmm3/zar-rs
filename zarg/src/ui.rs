@@ -147,11 +147,79 @@ enum ArchiveView {
 enum SortBy {
     #[default]
     Name,
-    Date,
+    MTime,
+    CTime,
+    ATime,
     CompressedSize,
     UncompressedSize,
     Ratio,
     Type,
+}
+
+const TIME_COLUMNS: [(&str, &str, SortBy); 3] = [
+    ("Modified", "Modification time", SortBy::MTime),
+    ("Created", "Creation time", SortBy::CTime),
+    ("Accessed", "Access time", SortBy::ATime),
+];
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct EntryTimes {
+    modified: bool,
+    created: bool,
+    accessed: bool,
+}
+
+impl EntryTimes {
+    fn from_details(details: &BTreeMap<String, ArchiveEntryDetails>) -> Self {
+        let mut times = Self::default();
+        for entry in details.values() {
+            times.modified |= entry.modified_unix_millis.is_some();
+            times.created |= entry.created_unix_millis.is_some();
+            times.accessed |= entry.accessed_unix_millis.is_some();
+        }
+        times
+    }
+
+    fn supports(self, sort: SortBy) -> bool {
+        match sort {
+            SortBy::MTime => self.modified,
+            SortBy::CTime => self.created,
+            SortBy::ATime => self.accessed,
+            _ => true,
+        }
+    }
+
+    fn columns(self) -> impl Iterator<Item = (&'static str, &'static str, SortBy)> {
+        TIME_COLUMNS
+            .into_iter()
+            .filter(move |(_, _, sort)| self.supports(*sort))
+    }
+}
+
+fn details_columns(
+    times: EntryTimes,
+    has_owner: bool,
+    has_permissions: bool,
+) -> Vec<(&'static str, f32, Option<SortBy>)> {
+    let mut columns = vec![
+        ("Name", 360.0, Some(SortBy::Name)),
+        ("Compressed", 110.0, Some(SortBy::CompressedSize)),
+        ("Uncompressed", 110.0, Some(SortBy::UncompressedSize)),
+        ("Ratio", 80.0, Some(SortBy::Ratio)),
+    ];
+    if has_owner {
+        columns.push(("Owner", 110.0, None));
+    }
+    if has_permissions {
+        columns.push(("Permissions", 100.0, None));
+    }
+    columns.push(("Type", 110.0, Some(SortBy::Type)));
+    columns.extend(
+        times
+            .columns()
+            .map(|(label, _, sort)| (label, 160.0, Some(sort))),
+    );
+    columns
 }
 
 #[derive(Clone)]
@@ -851,7 +919,7 @@ pub struct ZargApp {
     session_passwords: HashMap<PathBuf, BTreeMap<[u8; 4], String>>,
     open_password_dialog: Option<OpenPasswordDialog>,
     column_widths: HashMap<String, f32>,
-    has_entry_dates: bool,
+    entry_times: EntryTimes,
     has_entry_owner: bool,
     has_entry_permissions: bool,
     expanded_tree_dirs: BTreeSet<String>,
@@ -940,7 +1008,7 @@ impl Default for ZargApp {
             session_passwords: HashMap::new(),
             open_password_dialog: None,
             column_widths: HashMap::new(),
-            has_entry_dates: false,
+            entry_times: EntryTimes::default(),
             has_entry_owner: false,
             has_entry_permissions: false,
             expanded_tree_dirs: BTreeSet::new(),
@@ -2401,10 +2469,7 @@ impl ZargApp {
             .entry_details
             .values()
             .any(|details| details.permissions.is_some());
-        self.has_entry_dates = self
-            .entry_details
-            .values()
-            .any(|details| details.modified_unix_millis.is_some());
+        self.entry_times = EntryTimes::from_details(&self.entry_details);
         self.entries.sort_by(|left, right| left.0.cmp(&right.0));
         self.entry_summary = EntrySummary::from_entries(&self.entries, &self.entry_details);
         self.rebuild_visible_entry_indices();
@@ -2440,10 +2505,7 @@ impl ZargApp {
             .entry_details
             .values()
             .any(|details| details.permissions.is_some());
-        self.has_entry_dates = self
-            .entry_details
-            .values()
-            .any(|details| details.modified_unix_millis.is_some());
+        self.entry_times = EntryTimes::from_details(&self.entry_details);
         self.rebuild_visible_entry_indices();
         self.structured_rows_dirty = true;
     }
@@ -2454,20 +2516,30 @@ impl ZargApp {
         self.filter_invalid = matcher.is_err();
         self.visible_entry_indices =
             filtered_entry_indices(&self.entries, &matcher.unwrap_or(EntryFilter::All));
+        let (sort_by, reversed) = self.active_sort();
         sort_entry_indices(
             &mut self.visible_entry_indices,
             &self.entries,
             &self.entry_details,
-            self.sort_by,
+            sort_by,
         );
-        if self.sort_reversed {
+        if reversed {
             self.visible_entry_indices.reverse();
         }
     }
 
+    fn active_sort(&self) -> (SortBy, bool) {
+        if self.entry_times.supports(self.sort_by) {
+            (self.sort_by, self.sort_reversed)
+        } else {
+            (SortBy::Name, false)
+        }
+    }
+
     fn apply_sort_choice(&mut self, sort_by: SortBy) {
-        if self.sort_by == sort_by {
-            self.sort_reversed = !self.sort_reversed;
+        if self.active_sort().0 == sort_by {
+            self.sort_reversed = !self.active_sort().1;
+            self.sort_by = sort_by;
         } else {
             self.sort_by = sort_by;
             self.sort_reversed = false;
@@ -2784,14 +2856,19 @@ impl ZargApp {
                     ui.label("Sort by");
                     for (sort_by, label) in [
                         (SortBy::Name, "Name"),
-                        (SortBy::Date, "Date"),
                         (SortBy::CompressedSize, "Compressed size"),
                         (SortBy::UncompressedSize, "Uncompressed size"),
                         (SortBy::Ratio, "Ratio"),
                         (SortBy::Type, "Type"),
-                    ] {
+                    ]
+                    .into_iter()
+                    .chain(
+                        self.entry_times
+                            .columns()
+                            .map(|(_, label, sort)| (sort, label)),
+                    ) {
                         if ui
-                            .selectable_label(self.sort_by == sort_by, label)
+                            .selectable_label(self.active_sort().0 == sort_by, label)
                             .clicked()
                         {
                             self.sort_reversed = false;
@@ -3598,8 +3675,8 @@ impl ZargApp {
                 &self.expanded_tree_dirs,
                 !self.filter_text.trim().is_empty(),
                 &self.entry_details,
-                self.sort_by,
-                self.sort_reversed,
+                self.active_sort().0,
+                self.active_sort().1,
             );
             self.structured_rows_dirty = false;
         }
@@ -3607,10 +3684,10 @@ impl ZargApp {
         let mut labels = vec!["Name", "Size"];
         let mut defaults = vec![390.0, 120.0];
         let mut sorts = vec![Some(SortBy::Name), Some(SortBy::UncompressedSize)];
-        if self.has_entry_dates {
-            labels.push("Modified");
+        for (label, _, sort) in self.entry_times.columns() {
+            labels.push(label);
             defaults.push(140.0);
-            sorts.push(Some(SortBy::Date));
+            sorts.push(Some(sort));
         }
         if self.has_entry_owner {
             labels.push("Owner");
@@ -3647,7 +3724,7 @@ impl ZargApp {
                     list_id.with("header"),
                     &columns,
                     &mut widths,
-                    (self.sort_by, self.sort_reversed),
+                    self.active_sort(),
                     &HeaderLayout {
                         offset: 0.0,
                         trim: 0.0,
@@ -3672,6 +3749,8 @@ impl ZargApp {
         let name_width = width_of("Name");
         let size_width = width_of("Size");
         let modified_width = width_of("Modified");
+        let created_width = width_of("Created");
+        let accessed_width = width_of("Accessed");
         let owner_width = width_of("Owner");
         let permissions_width = width_of("Permissions");
         ui.separator();
@@ -3778,21 +3857,23 @@ impl ZargApp {
                         font.clone(),
                         text_color,
                     );
-                    if modified_width > 0.0 {
-                        painter.text(
-                            egui::pos2(
-                                row_rect.left() + name_width + size_width + 8.0,
-                                row_rect.center().y,
-                            ),
-                            egui::Align2::LEFT_CENTER,
-                            format_modified(self.entry_details.get(&row.path)),
-                            font.clone(),
-                            text_color,
-                        );
-                    }
-                    let mut column_left =
-                        row_rect.left() + name_width + size_width + modified_width;
+                    let mut column_left = row_rect.left() + name_width + size_width;
                     for (width, text) in [
+                        (
+                            modified_width,
+                            (modified_width > 0.0)
+                                .then(|| format_modified(self.entry_details.get(&row.path))),
+                        ),
+                        (
+                            created_width,
+                            (created_width > 0.0)
+                                .then(|| format_created(self.entry_details.get(&row.path))),
+                        ),
+                        (
+                            accessed_width,
+                            (accessed_width > 0.0)
+                                .then(|| format_accessed(self.entry_details.get(&row.path))),
+                        ),
                         (
                             owner_width,
                             (owner_width > 0.0)
@@ -3877,7 +3958,9 @@ impl SortBy {
     fn as_setting(self) -> &'static str {
         match self {
             Self::Name => "name",
-            Self::Date => "date",
+            Self::MTime => "mtime",
+            Self::CTime => "ctime",
+            Self::ATime => "atime",
             Self::CompressedSize => "compressed_size",
             Self::UncompressedSize => "uncompressed_size",
             Self::Ratio => "ratio",
@@ -3886,9 +3969,14 @@ impl SortBy {
     }
 
     fn from_setting(value: &str) -> Option<Self> {
+        if value == "date" {
+            return Some(Self::MTime);
+        }
         [
             Self::Name,
-            Self::Date,
+            Self::MTime,
+            Self::CTime,
+            Self::ATime,
             Self::CompressedSize,
             Self::UncompressedSize,
             Self::Ratio,
@@ -4298,62 +4386,24 @@ impl eframe::App for ZargApp {
                     self.render_icon_archive_list(ui, &context);
                     return;
                 }
-                let has_dates = self.has_entry_dates;
-                let has_creation_time = self
-                    .entry_details
-                    .values()
-                    .any(|details| details.created_unix_millis.is_some());
-                let has_access_time = self
-                    .entry_details
-                    .values()
-                    .any(|details| details.accessed_unix_millis.is_some());
+                let times = self.entry_times;
                 let (has_owner, has_permissions) =
                     (self.has_entry_owner, self.has_entry_permissions);
-                let mut labels = vec!["Name"];
-                let mut defaults = vec![360.0];
-                let mut sorts = vec![Some(SortBy::Name)];
-                if has_dates {
-                    labels.push("Modified");
-                    defaults.push(160.0);
-                    sorts.push(Some(SortBy::Date));
-                }
-                if has_creation_time {
-                    labels.push("Created");
-                    defaults.push(160.0);
-                    sorts.push(None);
-                }
-                if has_access_time {
-                    labels.push("Accessed");
-                    defaults.push(160.0);
-                    sorts.push(None);
-                }
-                labels.extend(["Compressed", "Uncompressed", "Ratio"]);
-                defaults.extend([110.0, 110.0, 80.0]);
-                sorts.extend([
-                    Some(SortBy::CompressedSize),
-                    Some(SortBy::UncompressedSize),
-                    Some(SortBy::Ratio),
-                ]);
-                if has_owner {
-                    labels.push("Owner");
-                    defaults.push(110.0);
-                    sorts.push(None);
-                }
-                if has_permissions {
-                    labels.push("Permissions");
-                    defaults.push(100.0);
-                    sorts.push(None);
-                }
-                labels.push("Type");
-                defaults.push(110.0);
-                sorts.push(Some(SortBy::Type));
+                let column_specs = details_columns(times, has_owner, has_permissions);
+                let labels = column_specs
+                    .iter()
+                    .map(|(label, _, _)| *label)
+                    .collect::<Vec<_>>();
+                let defaults = column_specs
+                    .iter()
+                    .map(|(_, width, _)| *width)
+                    .collect::<Vec<_>>();
                 let mut columns = self.column_widths_for("details", &labels, &defaults);
                 let content_width = columns.iter().sum::<f32>() + 8.0 * columns.len() as f32;
                 let spacing = ui.spacing().item_spacing.x;
-                let header_columns = labels
+                let header_columns = column_specs
                     .iter()
-                    .copied()
-                    .zip(sorts.iter().copied())
+                    .map(|(label, _, sort)| (*label, *sort))
                     .collect::<Vec<_>>();
                 let row_height = ui.spacing().interact_size.y;
                 let clicked_sort = egui::ScrollArea::horizontal()
@@ -4368,7 +4418,7 @@ impl eframe::App for ZargApp {
                             ui.scope_id().with("details-header"),
                             &header_columns,
                             &mut columns,
-                            (self.sort_by, self.sort_reversed),
+                            self.active_sort(),
                             &HeaderLayout {
                                 offset: 24.0 + spacing,
                                 trim: 28.0,
@@ -4470,56 +4520,13 @@ impl eframe::App for ZargApp {
                                         self.selected = selection.selected;
                                         self.selection_anchor = selection.anchor;
                                     }
-                                    let details = self.entry_details.get(path);
-                                    let (compressed, uncompressed, ratio, kind) = match data {
-                                        EntryData::File(size) => {
-                                            let (compressed, uncompressed, ratio) =
-                                                file_size_columns(*size, details);
-                                            (compressed, uncompressed, ratio, "File")
-                                        }
-                                        EntryData::Directory => (
-                                            "—".to_owned(),
-                                            "—".to_owned(),
-                                            "—".to_owned(),
-                                            "Folder",
-                                        ),
-                                        EntryData::Symlink(_) => (
-                                            "—".to_owned(),
-                                            "—".to_owned(),
-                                            "—".to_owned(),
-                                            "Symbolic link",
-                                        ),
-                                        EntryData::NamedPipe => (
-                                            "—".to_owned(),
-                                            "—".to_owned(),
-                                            "—".to_owned(),
-                                            "Named pipe",
-                                        ),
-                                        EntryData::Device(kind) => (
-                                            "—".to_owned(),
-                                            "—".to_owned(),
-                                            "—".to_owned(),
-                                            kind.as_str(),
-                                        ),
-                                    };
-                                    let mut values = Vec::with_capacity(7);
-                                    if has_dates {
-                                        values.push(format_modified(details));
-                                    }
-                                    if has_creation_time {
-                                        values.push(format_created(details));
-                                    }
-                                    if has_access_time {
-                                        values.push(format_accessed(details));
-                                    }
-                                    values.extend([compressed, uncompressed, ratio]);
-                                    if has_owner {
-                                        values.push(format_owner(details));
-                                    }
-                                    if has_permissions {
-                                        values.push(format_permissions(details));
-                                    }
-                                    values.push(kind.to_owned());
+                                    let values = details_row_values(
+                                        data,
+                                        self.entry_details.get(path),
+                                        times,
+                                        has_owner,
+                                        has_permissions,
+                                    );
                                     for (value, width) in
                                         values.into_iter().zip(columns[1..].iter().copied())
                                     {
@@ -4561,6 +4568,53 @@ impl eframe::App for ZargApp {
             context.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
+}
+
+fn details_row_values(
+    data: &EntryData,
+    details: Option<&ArchiveEntryDetails>,
+    times: EntryTimes,
+    has_owner: bool,
+    has_permissions: bool,
+) -> Vec<String> {
+    let (compressed, uncompressed, ratio, kind) = match data {
+        EntryData::File(size) => {
+            let (compressed, uncompressed, ratio) = file_size_columns(*size, details);
+            (compressed, uncompressed, ratio, "File")
+        }
+        EntryData::Directory => ("—".to_owned(), "—".to_owned(), "—".to_owned(), "Folder"),
+        EntryData::Symlink(_) => (
+            "—".to_owned(),
+            "—".to_owned(),
+            "—".to_owned(),
+            "Symbolic link",
+        ),
+        EntryData::NamedPipe => ("—".to_owned(), "—".to_owned(), "—".to_owned(), "Named pipe"),
+        EntryData::Device(kind) => (
+            "—".to_owned(),
+            "—".to_owned(),
+            "—".to_owned(),
+            kind.as_str(),
+        ),
+    };
+    let mut values = vec![compressed, uncompressed, ratio];
+    if has_owner {
+        values.push(format_owner(details));
+    }
+    if has_permissions {
+        values.push(format_permissions(details));
+    }
+    values.push(kind.to_owned());
+    if times.modified {
+        values.push(format_modified(details));
+    }
+    if times.created {
+        values.push(format_created(details));
+    }
+    if times.accessed {
+        values.push(format_accessed(details));
+    }
+    values
 }
 
 fn file_size_columns(size: u64, details: Option<&ArchiveEntryDetails>) -> (String, String, String) {
@@ -5282,10 +5336,24 @@ fn sort_key(
 ) -> SortKey {
     let (number, text) = match sort_by {
         SortBy::Name => (Some(0), String::new()),
-        SortBy::Date => (
+        SortBy::MTime => (
             details
                 .get(path)
                 .and_then(|details| details.modified_unix_millis)
+                .map(|date| -i128::from(date)),
+            String::new(),
+        ),
+        SortBy::CTime => (
+            details
+                .get(path)
+                .and_then(|details| details.created_unix_millis)
+                .map(|date| -i128::from(date)),
+            String::new(),
+        ),
+        SortBy::ATime => (
+            details
+                .get(path)
+                .and_then(|details| details.accessed_unix_millis)
                 .map(|date| -i128::from(date)),
             String::new(),
         ),
