@@ -40,11 +40,11 @@ history, and extract the original Makefile from the first commit. The final
 `cmp` verifies it against the original. The displayed timings are from this
 one run and depend on the machine, storage, and cache state.
 
-![Terminal recording of creating a Linux kernel archive, adding a commit, viewing history, and restoring an earlier Makefile](./doc/kernel-history-demo.gif)
+![Terminal recording of creating a Linux kernel archive, adding a commit, viewing history, and restoring an earlier Makefile](./doc/media/zar-history.gif)
 
 The release build of `zarg` can browse the same archive and select a commit:
 
-![ZAR Archive Manager showing the Linux kernel archive with two commits](./doc/zarg-kernel-screenshot.png)
+![ZAR Archive Manager showing the Linux kernel archive with two commits](./doc/media/zarg-kernel.png)
 
 ## What makes ZAR different
 
