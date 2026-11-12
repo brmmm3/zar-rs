@@ -1,11 +1,26 @@
 # Packaging
 
-Installers for `zarc` (CLI) and `zarg` (GUI). Output goes to `dist/`.
+Installers for `zarc` (CLI) and `zarg` (GUI). The Windows suite installer
+also includes `zcopy`. Output goes to `dist/`.
 
-The release workflows reuse binaries from the latest successful CI run on
-`master` for the exact tagged commit when those artifacts are still retained.
-If no matching artifact is available, the workflow builds the binaries from
-source. Flatpak continues to build inside its Freedesktop SDK.
+The normal [CI](../.github/workflows/ci.yml) and
+[packaging](../.github/workflows/packaging.yml) workflows run on tag pushes
+matching `*.*.*-v3` and attach their assets to that tagged release. They also
+run on non-`master` branch pushes and support manual dispatch. The CI workflow
+additionally runs on pull requests. A manually selected non-`-v1` tag can
+also publish; selecting a branch builds workflow artifacts without attaching
+them to a release.
+
+The normal workflows attempt to reuse binaries from the latest successful CI
+run on `master` for the exact commit when those artifacts are still retained.
+If no matching artifact is available, they build from source. Flatpak
+continues to build inside its Freedesktop SDK. The normal CI binary job sets
+`RUSTFLAGS`, overriding the repository's configured CPU flags; the `-v3`
+release tag alone does not verify the CPU features of its binaries.
+
+The reusable Windows CI archives contain `zarc.exe` and `zarg.exe`, but the
+Inno installer also requires `zcopy.exe`. Reusing those archives leaves the
+installer build without that file; a source build supplies all three binaries.
 
 The separate `x.y.z-v1` release includes baseline x86-64 packages built by
 `.github/workflows/packaging-v1.yml`. It reuses only the matching v1 release
@@ -14,17 +29,19 @@ sets baseline compiler flags inside the Flatpak SDK. Package filenames carry a
 `-v1` suffix; their internal package versions are unchanged. OS, system
 library, and Flatpak runtime requirements still apply. The workflow runs after
 the v1 release workflow or can be dispatched manually with its source tag.
+The source `x.y.z` and normal `x.y.z-v3` tags are independent; point them at
+the same commit when both releases should use the same source.
 
 ## Windows (Inno Setup)
 
 ```powershell
 cargo build --release --bins
-iscc /DAppVersion=0.9.0 packaging\windows\zar-rs.iss
+iscc /DAppVersion=0.11.0 packaging\windows\zar-rs.iss
 ```
 
 Use `/DSourceDir=target\<triple>\release` when building with `--target`, and
 `/DArch=arm64` for Windows on ARM. The installer can add `zarc` to the system
-`PATH`, create Start menu and desktop shortcuts, and register Explorer verbs
+`PATH` along with `zcopy`, create Start menu and desktop shortcuts, and register Explorer verbs
 for files, folders and `.zar` archives. Explorer passes multiple selections to
 the create actions. Windows does not support substituting the selected
 filename into a registry verb's display text, so the named actions use fixed

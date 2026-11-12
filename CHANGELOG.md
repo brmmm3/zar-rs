@@ -7,8 +7,12 @@ until a version is released.
 
 ### Changed
 
+- Normal CI and packaging tag-push releases now use tags matching `*.*.*-v3`;
+  baseline x86-64 releases use a separate stable source tag and `-v1` release.
 - Renamed the CLI and GUI workspace packages to `zarlib-cli` and
   `zarlib-gui`; their executables remain `zarc` and `zarg`.
+- Renamed the `zcopy` workspace package to `zarlib-zcopy`; its executable
+  remains `zcopy`.
 - Write and read only logical-header version 8. Archives containing earlier
   unreleased logical-header versions 0–7 are no longer supported.
 - Renamed the create/add `--dates` option to `--modification-time` (`--mt`)
@@ -18,6 +22,10 @@ until a version is released.
 
 ### Added
 
+- Added local winget, Chocolatey, and Scoop package definitions for `zarc`,
+  `zarg`, and `zcopy`; their installation behavior differs by package.
+- Added a separate `x.y.z-v1` GitHub release for baseline x86-64 binaries
+  and Python wheels, with Linux, Windows, and macOS installer packages.
 - Added `zarmcp`, a local stdio MCP server for inspecting, reading, and
   managing ZAR archives, including password-encrypted commits and configurable
   read-only or tool-allowlist restrictions.

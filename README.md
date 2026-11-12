@@ -294,7 +294,7 @@ Run the CLI directly from the workspace:
 ```sh
 cargo run --release -p zarlib-cli -- --help
 cargo run --release -p zarlib-gui
-cargo run --release -p zcopy -- --help
+cargo run --release -p zarlib-zcopy -- --help
 ```
 
 For MCP clients, build `zarmcp` with `cargo build --release -p zarmcp` and
@@ -315,18 +315,30 @@ cargo install --path zarlib-cli
 
 ## Installers and packages
 
+Two x86-64 release types are available:
+
+- **`x.y.z-v3`** is intended for newer CPUs with x86-64-v3 features,
+  including AVX2.
+- **`x.y.z-v1`** targets the baseline x86-64 instruction set for older CPUs.
+
+See [x86-64 release compatibility](#x86-64-release-compatibility) for
+platform requirements and a caveat about the current `-v3` build flags.
+
 The [packaging](./packaging) directory contains installer definitions for the
-`zarc` CLI and the `zarg` GUI:
+`zarc` CLI and the `zarg` GUI. The Windows suite installer also includes
+`zcopy`:
 
 - **Windows:** an [Inno Setup](https://jrsoftware.org/isinfo.php) script
-  (`packaging/windows/zar-rs.iss`) that can also add `zarc` to the `PATH`.
+  (`packaging/windows/zar-rs.iss`) that can add `zarc` and `zcopy` to the
+  `PATH`. Local winget, Chocolatey, and Scoop package definitions are also
+  provided; see the packaging guide for their installation behavior.
 - **Linux:** `packaging/linux/build-packages.sh [deb|rpm|appimage|flatpak|all]`
   builds `.deb`, `.rpm`, AppImage and Flatpak packages into `dist/`.
 - **macOS:** `packaging/macos/build-packages.sh [dmg|pkg|all]` builds a `.dmg`
   with `Zarg.app` and a `.pkg` that also installs `zarc`.
 
 ```sh
-iscc /DAppVersion=0.9.0 packaging\windows\zar-rs.iss   # Windows
+iscc /DAppVersion=0.11.0 packaging\windows\zar-rs.iss  # Windows
 packaging/linux/build-packages.sh deb                  # Linux
 ```
 
@@ -472,12 +484,52 @@ mode is a one-way update, not a deletion-propagating mirror.
   archive. It reports recovered gaps as warnings; logical state is restarted
   after each gap.
 
-## Important notes to binaries in release
+## x86-64 release compatibility
 
-All binaries and libraries for X86-64 CPUs are built with `target-cpu=x86-64-v3`,
-which means that these binaries and libraries won't run on CPUs before 2013!
-If you have a CPU which does not have AVX2 support then you must compile these
-binaries and libraries yourself.
+The repository's default x86-64 build configuration targets `x86-64-v3`,
+which requires AVX2 and other CPU features. The normal CI and packaging
+workflows run on pushes of tags matching `*.*.*-v3` and publish to the
+corresponding tagged release. They also run on non-`master` branch pushes and
+can be dispatched manually; CI additionally runs for pull requests.
+
+The `-v3` tag identifies a release workflow, not a verified CPU minimum for
+every asset. In particular, the normal binary job sets `RUSTFLAGS`, which
+overrides the repository's configured Rust flags. Check the effective build
+flags and platform requirements rather than assuming that the tag guarantees
+`x86-64-v3` code.
+
+For older x86-64 CPUs, the
+separate `x.y.z-v1` GitHub release contains baseline x86-64 CLI and GUI
+binaries and Python wheels for Linux, macOS, and Windows. The Linux binaries
+include both GNU and static musl builds. These artifacts are built from the
+same commit as the `x.y.z` tag, using Rust's `x86-64` baseline CPU target.
+Operating-system and library requirements still apply.
+
+Wheel filenames use standard Python platform tags and do not identify their
+CPU level; download the desired wheels from the appropriate release. The v1
+release also includes x86-64 Linux packages, a Windows installer, and macOS
+packages. Their filenames end in `-v1` before the extension. The Flatpak
+still requires its Freedesktop runtime; OS and runtime requirements apply to
+all packages. The release does not include non-x86-64 artifacts.
+
+The [v1 release workflow](./.github/workflows/ci-v1.yml) runs for stable
+`x.y.z` tag pushes. To build an existing tag, run it manually with that tag,
+for example `gh workflow run ci-v1.yml -f tag=0.11.0`. The tag must match the
+workspace and Python package versions. The v1 release is not marked as latest.
+The `x.y.z` source tag and `x.y.z-v3` tag are independent: create both at the
+same commit if both releases should use the same source. The v1 workflow
+creates `x.y.z-v1` from the source tag; it does not create the `-v3` tag.
+The [v1 packaging workflow](./.github/workflows/packaging-v1.yml) runs after
+the baseline release is published. To rebuild its packages separately, run
+`gh workflow run packaging-v1.yml -f tag=0.11.0` for an existing v1 release.
+
+To build locally for the baseline, override the repository's Rust flags:
+
+```sh
+RUSTFLAGS="-C target-cpu=x86-64" cargo build --release --bins
+```
+
+Alternatively, build for the current machine:
 
 ```sh
 RUSTFLAGS="-C target-cpu=native" cargo build --release --bins
