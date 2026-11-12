@@ -13,7 +13,7 @@ mimalloc = ["dep:mimalloc"]
 clap.workspace = true
 indicatif.workspace = true
 libc = "0.2"
-zarlib = { path = "../zarlib" }
+zarlib = { version = "0.11.0", path = "../zarlib" }
 
 [dev-dependencies]
 flate2 = "1.1"
