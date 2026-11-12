@@ -1,5 +1,9 @@
 [package]
 name = "zarlib"
+description = "ZAR archive library with compression, deduplication, and commit-based history"
+documentation = "https://github.com/brmmm3/zar-rs/blob/master/doc/zarlib-developer-guide.md"
+homepage = "https://github.com/brmmm3/zar-rs"
+repository = "https://github.com/brmmm3/zar-rs"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
