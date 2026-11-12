@@ -1,5 +1,9 @@
 [package]
 name = "zcopy"
+description = "Command-line tool for transferring directory trees using ZAR"
+documentation = "https://github.com/brmmm3/zar-rs/blob/master/zcopy/README.md"
+homepage = "https://github.com/brmmm3/zar-rs"
+repository = "https://github.com/brmmm3/zar-rs"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
