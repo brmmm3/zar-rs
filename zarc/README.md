@@ -107,8 +107,6 @@ Options:
 - `--filelist PATH`: read patterns from a text file, one per line. Lines
   beginning with `-` exclude the pattern; other lines include it. File-list
   patterns apply to files and folders.
-- `-p, --progress`: show progress information.
-
 Patterns match archive-relative paths with `/` separators. `*`, `?`, and
 bracket expressions such as `[ab]` are supported; `*` can match across `/`.
 When any include patterns are provided, unmatched files are omitted. Excludes
@@ -180,15 +178,19 @@ keys starting with `zar.` are reserved.
   readable. Encrypted headers are copied without passwords and their effects
   cannot be validated by this command.
 
+Progress bars, speed, and transfer summaries are displayed by default for
+create, add, remove, join, check, and extract. Pass `--no-progress` to suppress
+them.
+
 `add` accepts `--block-size`, `--compression-level`, `--metadata`,
 `--modification-time` (`--mt`), `--creation-time` (`--ct`), `--access-time` (`--at`),
 `--special-files`, `--strict`, `--verbose`, the include/exclude filter options
-above, and `--progress`. Unreadable files are skipped with a warning unless
+above, and `--no-progress`. Unreadable files are skipped with a warning unless
 `--strict` is set, in which case a permission error fails the operation. Named
 pipes and Unix device nodes are skipped with warnings unless `--special-files`
 is set. Device nodes are only created during extraction with `extract --devices`
 and may require privileges. `join` accepts `--from`, `--to`, `--block-size`,
-`--compression-level`, and `--progress`. The commands stage and validate the
+`--compression-level`, and `--no-progress`. The commands stage and validate the
 replacement before publishing it. These state-changing operations currently
 reject archives whose accumulated TOC depends on encrypted headers; encrypted
 archive append/removal/compaction is not supported. `remove-commits` copies
@@ -285,7 +287,7 @@ reconstructed file sizes.
 - `--include-file`, `--exclude-file`, `--include-folder`, `--exclude-folder`,
   and `--filelist`: select archive-relative paths using the filter rules
   described above.
-- `-p, --progress`: show extraction progress.
+- `--no-progress`: suppress extraction progress.
 
 `ask` requires an interactive terminal. Unix extraction uses directory-relative
 no-follow operations to guard against symlink traversal and path-component

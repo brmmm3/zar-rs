@@ -21,6 +21,49 @@ fn form(kind: OperationKind, archive: &str) -> OperationForm {
 }
 
 #[test]
+fn encrypted_commit_indicators_follow_encryption_and_verified_password_state() {
+    let id = "00000001";
+    let encrypted = std::collections::BTreeSet::from([id.to_owned()]);
+    let mut passwords = std::collections::BTreeMap::new();
+
+    assert_eq!(
+        commit_indicator_icon(id, &encrypted, &passwords),
+        Some(UiIcon::Lock)
+    );
+    assert_eq!(
+        commit_indicator_icon("00000002", &encrypted, &passwords),
+        None
+    );
+
+    passwords.insert(1_u32.to_le_bytes(), "verified".to_owned());
+    assert_eq!(
+        commit_indicator_icon(id, &encrypted, &passwords),
+        Some(UiIcon::Unlock)
+    );
+    assert_eq!(
+        commit_indicator_icon("not-a-commit-id", &encrypted, &passwords),
+        None
+    );
+}
+
+#[test]
+fn locked_commit_count_excludes_verified_commit_passwords() {
+    let encrypted = std::collections::BTreeSet::from([
+        "00000001".to_owned(),
+        "00000002".to_owned(),
+        "00000003".to_owned(),
+    ]);
+    let passwords =
+        std::collections::BTreeMap::from([(2_u32.to_le_bytes(), "verified".to_owned())]);
+
+    assert_eq!(locked_commit_count(&encrypted, &passwords), 2);
+    assert_eq!(
+        locked_commit_count(&std::collections::BTreeSet::new(), &passwords),
+        0
+    );
+}
+
+#[test]
 fn saved_default_password_prefills_new_and_add_forms_and_enables_encryption() {
     let app = ZargApp {
         default_password: "from-password-safe".into(),

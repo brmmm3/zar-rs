@@ -548,6 +548,7 @@ pub(super) struct OperationForm {
     existing: usize,
     to: String,
     commit_ids: Vec<String>,
+    encrypted_commit_ids: BTreeSet<String>,
     remove_text: String,
 }
 
@@ -729,7 +730,10 @@ enum UiEvent {
         path: String,
     },
     FirstCommitEmpty(bool),
-    CommitIds(Vec<String>),
+    CommitIds {
+        ids: Vec<String>,
+        encrypted: BTreeSet<String>,
+    },
     SelectedCommit(String),
     ArchivePath {
         path: String,
@@ -780,6 +784,15 @@ struct OpenPasswordRow {
 struct OpenPasswordDialog {
     rows: Vec<OpenPasswordRow>,
     answers: Sender<Option<BTreeMap<[u8; 4], String>>>,
+    error: Option<String>,
+    busy: bool,
+}
+
+type UnlockCommitsResult = Receiver<Result<BTreeMap<[u8; 4], String>, String>>;
+
+struct UnlockCommitsDialog {
+    rows: Vec<OpenPasswordRow>,
+    result: Option<UnlockCommitsResult>,
     error: Option<String>,
     busy: bool,
 }
@@ -918,6 +931,7 @@ pub struct ZargApp {
     archive_passwords: BTreeMap<[u8; 4], String>,
     session_passwords: HashMap<PathBuf, BTreeMap<[u8; 4], String>>,
     open_password_dialog: Option<OpenPasswordDialog>,
+    unlock_commits_dialog: Option<UnlockCommitsDialog>,
     column_widths: HashMap<String, f32>,
     entry_times: EntryTimes,
     has_entry_owner: bool,
@@ -943,6 +957,7 @@ pub struct ZargApp {
     theme_controller: Option<crate::theme::ThemeController>,
     opening_archive: bool,
     commit_ids: Vec<String>,
+    encrypted_commit_ids: BTreeSet<String>,
     selected_commit: String,
     file_dialog: dialogs::file_picker::FileDialog,
 }
@@ -1007,6 +1022,7 @@ impl Default for ZargApp {
             archive_passwords: BTreeMap::new(),
             session_passwords: HashMap::new(),
             open_password_dialog: None,
+            unlock_commits_dialog: None,
             column_widths: HashMap::new(),
             entry_times: EntryTimes::default(),
             has_entry_owner: false,
@@ -1032,6 +1048,7 @@ impl Default for ZargApp {
             theme_controller: None,
             opening_archive: false,
             commit_ids: Vec::new(),
+            encrypted_commit_ids: BTreeSet::new(),
             selected_commit: String::new(),
             file_dialog: dialogs::file_picker::FileDialog::new(),
         }
@@ -1187,6 +1204,11 @@ impl ZargApp {
                                 .any(|commit| commit.header_encrypted || commit.data_encrypted);
                             app.operation.commit_ids = commits
                                 .iter()
+                                .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                                .collect();
+                            app.operation.encrypted_commit_ids = commits
+                                .iter()
+                                .filter(|commit| commit.header_encrypted || commit.data_encrypted)
                                 .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
                                 .collect();
                             app.operation.to =
@@ -1423,11 +1445,19 @@ impl ZargApp {
                     return;
                 }
             };
-            let ids = match operations::info_archive(&archive_to_read, false) {
-                Ok(commits) => commits
-                    .iter()
-                    .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
-                    .collect(),
+            let (ids, encrypted) = match operations::info_archive(&archive_to_read, false) {
+                Ok(commits) => {
+                    let ids = commits
+                        .iter()
+                        .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                        .collect();
+                    let encrypted = commits
+                        .iter()
+                        .filter(|commit| commit.header_encrypted || commit.data_encrypted)
+                        .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                        .collect();
+                    (ids, encrypted)
+                }
                 Err(error) => {
                     finish_with_events(
                         events_tx,
@@ -1461,7 +1491,7 @@ impl ZargApp {
                     });
                 }
             }
-            let _ = events_tx.send(UiEvent::CommitIds(ids));
+            let _ = events_tx.send(UiEvent::CommitIds { ids, encrypted });
             let count = toc.0.len();
             let _ = events_tx.send(UiEvent::SelectedCommit(String::new()));
             let _ = events_tx.send(UiEvent::Loaded(Ok(toc)));
@@ -1476,6 +1506,7 @@ impl ZargApp {
     }
 
     fn discard_current_archive(&mut self) {
+        self.unlock_commits_dialog = None;
         self.clear_archive_info();
         self.add_archive_settings = None;
         if self.operation.kind == Some(OperationKind::AddToArchive) {
@@ -1492,6 +1523,7 @@ impl ZargApp {
         self.archive_password = None;
         self.archive_passwords.clear();
         self.commit_ids.clear();
+        self.encrypted_commit_ids.clear();
         self.selected_commit.clear();
         self.selected.clear();
         self.selection_anchor = None;
@@ -2030,7 +2062,12 @@ impl ZargApp {
                             .iter()
                             .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
                             .collect();
-                        let _ = events_tx.send(UiEvent::CommitIds(ids));
+                        let encrypted = commits
+                            .iter()
+                            .filter(|commit| commit.header_encrypted || commit.data_encrypted)
+                            .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                            .collect();
+                        let _ = events_tx.send(UiEvent::CommitIds { ids, encrypted });
                     }
                     Err(error) => {
                         outcome = Err(format!(
@@ -2226,12 +2263,14 @@ impl ZargApp {
                 }
                 UiEvent::OpeningArchive { archive, passwords } => {
                     self.open_password_dialog = None;
+                    self.unlock_commits_dialog = None;
                     self.clear_archive_info();
                     self.add_archive_settings = None;
                     if self.operation.kind == Some(OperationKind::AddToArchive) {
                         self.operation = OperationForm::default();
                     }
                     self.commit_ids.clear();
+                    self.encrypted_commit_ids.clear();
                     self.selected_commit.clear();
                     self.latest_archive_empty = None;
                     self.imported_archive_dir = None;
@@ -2249,7 +2288,10 @@ impl ZargApp {
                     self.remember_commit_passwords(&BTreeMap::new());
                     self.opening_archive = true;
                 }
-                UiEvent::CommitIds(ids) => self.commit_ids = ids,
+                UiEvent::CommitIds { ids, encrypted } => {
+                    self.commit_ids = ids;
+                    self.encrypted_commit_ids = encrypted;
+                }
                 UiEvent::SelectedCommit(id) => {
                     self.selected_commit = if id.is_empty() {
                         self.commit_ids.last().cloned().unwrap_or_default()
@@ -2261,6 +2303,7 @@ impl ZargApp {
                     if path != self.read_archive {
                         self.clear_archive_info();
                         self.archive_passwords.clear();
+                        self.encrypted_commit_ids.clear();
                         self.archive.clone_from(&path);
                         self.read_archive = path.clone();
                         self.location = path;
@@ -2294,6 +2337,7 @@ impl ZargApp {
                         self.set_entries(Toc::default(), Default::default());
                         self.latest_archive_empty = None;
                         self.commit_ids.clear();
+                        self.encrypted_commit_ids.clear();
                         self.selected_commit.clear();
                     }
                     self.archive.clone_from(&logical_path);
@@ -2955,6 +2999,24 @@ impl ZargApp {
                     if icon_button(
                         ui,
                         &self.icons,
+                        UiIcon::Unlock,
+                        "Unlock commits",
+                        !self.busy
+                            && self.has_current_archive()
+                            && dialogs::operation::locked_commit_count(
+                                &self.encrypted_commit_ids,
+                                &self.archive_passwords,
+                            ) > 0
+                            && !is_imported_archive,
+                    )
+                    .clicked()
+                    {
+                        self.show_unlock_commits();
+                        ui.close();
+                    }
+                    if icon_button(
+                        ui,
+                        &self.icons,
                         UiIcon::TestArchive,
                         "Test archive",
                         !self.busy && !self.archive.is_empty() && !is_imported_archive,
@@ -3112,6 +3174,8 @@ impl ZargApp {
         } else {
             self.archive.clone()
         };
+        let mut operation_commit_ids = None;
+        let mut operation_encrypted_commit_ids = None;
         let encrypted_commits = if matches!(
             kind,
             OperationKind::AddToArchive | OperationKind::ExtractArchive
@@ -3122,18 +3186,35 @@ impl ZargApp {
                 &self.read_archive
             };
             match operations::info_archive(path, false) {
-                Ok(commits) => commits
-                    .into_iter()
-                    .filter(|commit| commit.header_encrypted || commit.data_encrypted)
-                    .map(|commit| {
-                        let password = self.archive_passwords.get(&commit.id).cloned();
-                        CommitUnlock {
-                            id: commit.id,
-                            selected: password.is_some(),
-                            password: password.unwrap_or_default(),
-                        }
-                    })
-                    .collect(),
+                Ok(commits) => {
+                    if kind == OperationKind::ExtractArchive {
+                        operation_commit_ids = Some(
+                            commits
+                                .iter()
+                                .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                                .collect(),
+                        );
+                        operation_encrypted_commit_ids = Some(
+                            commits
+                                .iter()
+                                .filter(|commit| commit.header_encrypted || commit.data_encrypted)
+                                .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                                .collect(),
+                        );
+                    }
+                    commits
+                        .into_iter()
+                        .filter(|commit| commit.header_encrypted || commit.data_encrypted)
+                        .map(|commit| {
+                            let password = self.archive_passwords.get(&commit.id).cloned();
+                            CommitUnlock {
+                                id: commit.id,
+                                selected: password.is_some(),
+                                password: password.unwrap_or_default(),
+                            }
+                        })
+                        .collect()
+                }
                 Err(error) => {
                     self.status = format!("Cannot inspect archive commits: {error}");
                     return;
@@ -3143,6 +3224,12 @@ impl ZargApp {
             Vec::new()
         };
         self.operation = self.new_operation_form(kind, &archive);
+        self.operation
+            .encrypted_commit_ids
+            .clone_from(&self.encrypted_commit_ids);
+        if let Some(encrypted_commit_ids) = operation_encrypted_commit_ids {
+            self.operation.encrypted_commit_ids = encrypted_commit_ids;
+        }
         if archive == self.archive {
             self.operation
                 .archive_passwords
@@ -3174,7 +3261,11 @@ impl ZargApp {
             kind,
             OperationKind::ListArchive | OperationKind::ExtractArchive
         ) {
-            self.operation.commit_ids.clone_from(&self.commit_ids);
+            if let Some(commit_ids) = operation_commit_ids {
+                self.operation.commit_ids = commit_ids;
+            } else {
+                self.operation.commit_ids.clone_from(&self.commit_ids);
+            }
             self.operation.to.clone_from(&self.selected_commit);
         }
         if kind == OperationKind::CustomMetadata {
@@ -4260,13 +4351,47 @@ impl eframe::App for ZargApp {
                             if !self.commit_ids.is_empty() {
                                 let mut choice = self.selected_commit.clone();
                                 ui.add_enabled_ui(!self.busy, |ui| {
-                                    egui::ComboBox::from_id_salt("main_commit_selector")
-                                        .selected_text(&choice)
-                                        .show_ui(ui, |ui| {
-                                            for id in &self.commit_ids {
-                                                ui.selectable_value(&mut choice, id.clone(), id);
+                                    ui.horizontal(|ui| {
+                                        let locked_count =
+                                            dialogs::operation::locked_commit_count(
+                                                &self.encrypted_commit_ids,
+                                                &self.archive_passwords,
+                                            );
+                                        if locked_count > 0 {
+                                            let response = icon_button(
+                                                ui,
+                                                &self.icons,
+                                                UiIcon::Lock,
+                                                locked_count.to_string(),
+                                                true,
+                                            )
+                                            .on_hover_text(format!(
+                                                "{locked_count} encrypted commit(s) locked"
+                                            ));
+                                            if response.clicked() {
+                                                self.show_unlock_commits();
                                             }
-                                        });
+                                        }
+                                        egui::ComboBox::from_id_salt("main_commit_selector")
+                                            .selected_text(&choice)
+                                            .show_ui(ui, |ui| {
+                                                for id in &self.commit_ids {
+                                                    let response =
+                                                        dialogs::operation::commit_selectable_option(
+                                                            ui,
+                                                            &self.icons,
+                                                            id,
+                                                            id,
+                                                            choice == *id,
+                                                            &self.encrypted_commit_ids,
+                                                            &self.archive_passwords,
+                                                        );
+                                                    if response.clicked() {
+                                                        choice.clone_from(id);
+                                                    }
+                                                }
+                                            });
+                                    });
                                 });
                                 if choice != self.selected_commit {
                                     self.select_commit(choice);
@@ -4344,6 +4469,15 @@ impl eframe::App for ZargApp {
                             token.store(true, Ordering::Relaxed);
                         }
                     }
+                });
+            } else if self
+                .unlock_commits_dialog
+                .as_ref()
+                .is_some_and(|dialog| dialog.busy)
+            {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label("Unlocking commits...");
                 });
             } else if self.info_loading.is_some() {
                 ui.horizontal(|ui| {
@@ -4554,6 +4688,7 @@ impl eframe::App for ZargApp {
         self.render_operation_dialog(&context);
         self.render_archive_info(&context);
         self.render_open_password_dialog(&context);
+        self.render_unlock_commits_dialog(&context);
         self.poll_benchmark(&context);
         self.render_benchmark(&context);
         self.render_confirmation_dialog(&context);

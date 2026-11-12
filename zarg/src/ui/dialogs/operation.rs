@@ -4,6 +4,78 @@ use super::super::*;
 #[path = "operation_tests.rs"]
 mod tests;
 
+fn commit_indicator_icon(
+    id: &str,
+    encrypted_commit_ids: &BTreeSet<String>,
+    passwords: &BTreeMap<[u8; 4], String>,
+) -> Option<UiIcon> {
+    if !encrypted_commit_ids.contains(id) {
+        return None;
+    }
+    let unlocked = u32::from_str_radix(id, 16)
+        .ok()
+        .map(u32::to_le_bytes)
+        .is_some_and(|commit_id| passwords.contains_key(&commit_id));
+    Some(if unlocked {
+        UiIcon::Unlock
+    } else {
+        UiIcon::Lock
+    })
+}
+
+pub(in crate::ui) fn locked_commit_count(
+    encrypted_commit_ids: &BTreeSet<String>,
+    passwords: &BTreeMap<[u8; 4], String>,
+) -> usize {
+    encrypted_commit_ids
+        .iter()
+        .filter(|id| {
+            u32::from_str_radix(id, 16)
+                .ok()
+                .map(u32::to_le_bytes)
+                .is_none_or(|commit_id| !passwords.contains_key(&commit_id))
+        })
+        .count()
+}
+
+pub(in crate::ui) fn render_commit_indicator(
+    ui: &mut egui::Ui,
+    icons: &IconCache,
+    id: &str,
+    encrypted_commit_ids: &BTreeSet<String>,
+    passwords: &BTreeMap<[u8; 4], String>,
+) {
+    if let Some(icon) = commit_indicator_icon(id, encrypted_commit_ids, passwords) {
+        let texture = icon_texture(ui.ctx(), icons, icon);
+        ui.add(egui::Image::new(&texture).fit_to_exact_size(egui::vec2(16.0, 16.0)));
+    }
+}
+
+pub(in crate::ui) fn commit_selectable_option(
+    ui: &mut egui::Ui,
+    icons: &IconCache,
+    id: &str,
+    label: &str,
+    selected: bool,
+    encrypted_commit_ids: &BTreeSet<String>,
+    passwords: &BTreeMap<[u8; 4], String>,
+) -> egui::Response {
+    match commit_indicator_icon(id, encrypted_commit_ids, passwords) {
+        Some(icon) => {
+            let texture = icon_texture(ui.ctx(), icons, icon);
+            ui.add(
+                egui::Button::image_and_text(
+                    egui::Image::new(&texture).fit_to_exact_size(egui::vec2(16.0, 16.0)),
+                    label,
+                )
+                .selected(selected)
+                .frame_when_inactive(selected),
+            )
+        }
+        None => ui.selectable_label(selected, label),
+    }
+}
+
 pub(super) fn render_filter_patterns(
     ui: &mut egui::Ui,
     include_files: &mut String,
@@ -373,11 +445,29 @@ impl ZargApp {
             OperationKind::RemoveCommits => {
                 ui.label("Remove the selected inclusive range of commits. At least one commit must remain. Remaining history may change; encrypted headers cannot be validated.");
                 Self::render_combo_row(ui, "First commit", |ui| {
+                    render_commit_indicator(
+                        ui,
+                        &self.icons,
+                        &self.operation.from_id,
+                        &self.operation.encrypted_commit_ids,
+                        &self.operation.archive_passwords,
+                    );
                     egui::ComboBox::from_id_salt("remove-first-commit")
                         .selected_text(&self.operation.from_id)
                         .show_ui(ui, |ui| {
                             for id in &self.operation.commit_ids {
-                                ui.selectable_value(&mut self.operation.from_id, id.clone(), id);
+                                let response = commit_selectable_option(
+                                    ui,
+                                    &self.icons,
+                                    id,
+                                    id,
+                                    self.operation.from_id == *id,
+                                    &self.operation.encrypted_commit_ids,
+                                    &self.operation.archive_passwords,
+                                );
+                                if response.clicked() {
+                                    self.operation.from_id.clone_from(id);
+                                }
                             }
                         });
                 });
@@ -397,11 +487,29 @@ impl ZargApp {
                     self.operation.to_id = self.operation.from_id.clone();
                 }
                 Self::render_combo_row(ui, "Last commit", |ui| {
+                    render_commit_indicator(
+                        ui,
+                        &self.icons,
+                        &self.operation.to_id,
+                        &self.operation.encrypted_commit_ids,
+                        &self.operation.archive_passwords,
+                    );
                     egui::ComboBox::from_id_salt("remove-last-commit")
                         .selected_text(&self.operation.to_id)
                         .show_ui(ui, |ui| {
                             for id in self.operation.commit_ids.iter().skip(first) {
-                                ui.selectable_value(&mut self.operation.to_id, id.clone(), id);
+                                let response = commit_selectable_option(
+                                    ui,
+                                    &self.icons,
+                                    id,
+                                    id,
+                                    self.operation.to_id == *id,
+                                    &self.operation.encrypted_commit_ids,
+                                    &self.operation.archive_passwords,
+                                );
+                                if response.clicked() {
+                                    self.operation.to_id.clone_from(id);
+                                }
                             }
                         });
                 });
@@ -450,15 +558,40 @@ impl ZargApp {
                 ui.separator();
                 ui.label("Transform encryption for the selected inclusive commit range.");
                 Self::render_combo_row(ui, "From commit:", |ui| {
+                    render_commit_indicator(
+                        ui,
+                        &self.icons,
+                        &self.operation.from_id,
+                        &self.operation.encrypted_commit_ids,
+                        &self.operation.archive_passwords,
+                    );
                     egui::ComboBox::from_id_salt("change-commits-from")
                         .selected_text(&self.operation.from_id)
                         .show_ui(ui, |ui| {
                             for id in &self.operation.commit_ids {
-                                ui.selectable_value(&mut self.operation.from_id, id.clone(), id);
+                                let response = commit_selectable_option(
+                                    ui,
+                                    &self.icons,
+                                    id,
+                                    id,
+                                    self.operation.from_id == *id,
+                                    &self.operation.encrypted_commit_ids,
+                                    &self.operation.archive_passwords,
+                                );
+                                if response.clicked() {
+                                    self.operation.from_id.clone_from(id);
+                                }
                             }
                         });
                 });
                 Self::render_combo_row(ui, "To commit:", |ui| {
+                    render_commit_indicator(
+                        ui,
+                        &self.icons,
+                        &self.operation.to_id,
+                        &self.operation.encrypted_commit_ids,
+                        &self.operation.archive_passwords,
+                    );
                     egui::ComboBox::from_id_salt("change-commits-to")
                         .selected_text(&self.operation.to_id)
                         .show_ui(ui, |ui| {
@@ -469,7 +602,18 @@ impl ZargApp {
                                 .position(|id| id == &self.operation.from_id)
                                 .unwrap_or(0);
                             for id in self.operation.commit_ids.iter().skip(start) {
-                                ui.selectable_value(&mut self.operation.to_id, id.clone(), id);
+                                let response = commit_selectable_option(
+                                    ui,
+                                    &self.icons,
+                                    id,
+                                    id,
+                                    self.operation.to_id == *id,
+                                    &self.operation.encrypted_commit_ids,
+                                    &self.operation.archive_passwords,
+                                );
+                                if response.clicked() {
+                                    self.operation.to_id.clone_from(id);
+                                }
                             }
                         });
                 });
@@ -574,11 +718,29 @@ impl ZargApp {
             }
             OperationKind::JoinCommits => {
                 Self::render_combo_row(ui, "From commit", |ui| {
+                    render_commit_indicator(
+                        ui,
+                        &self.icons,
+                        &self.operation.from_id,
+                        &self.operation.encrypted_commit_ids,
+                        &self.operation.archive_passwords,
+                    );
                     egui::ComboBox::from_id_salt("join-from-commit")
                         .selected_text(&self.operation.from_id)
                         .show_ui(ui, |ui| {
                             for id in &self.operation.commit_ids {
-                                ui.selectable_value(&mut self.operation.from_id, id.clone(), id);
+                                let response = commit_selectable_option(
+                                    ui,
+                                    &self.icons,
+                                    id,
+                                    id,
+                                    self.operation.from_id == *id,
+                                    &self.operation.encrypted_commit_ids,
+                                    &self.operation.archive_passwords,
+                                );
+                                if response.clicked() {
+                                    self.operation.from_id.clone_from(id);
+                                }
                             }
                         });
                 });
@@ -589,11 +751,29 @@ impl ZargApp {
                     .position(|id| id == &self.operation.from_id)
                     .unwrap_or(0);
                 Self::render_combo_row(ui, "To commit", |ui| {
+                    render_commit_indicator(
+                        ui,
+                        &self.icons,
+                        &self.operation.to_id,
+                        &self.operation.encrypted_commit_ids,
+                        &self.operation.archive_passwords,
+                    );
                     egui::ComboBox::from_id_salt("join-to-commit")
                         .selected_text(&self.operation.to_id)
                         .show_ui(ui, |ui| {
                             for id in self.operation.commit_ids.iter().skip(min_to_position) {
-                                ui.selectable_value(&mut self.operation.to_id, id.clone(), id);
+                                let response = commit_selectable_option(
+                                    ui,
+                                    &self.icons,
+                                    id,
+                                    id,
+                                    self.operation.to_id == *id,
+                                    &self.operation.encrypted_commit_ids,
+                                    &self.operation.archive_passwords,
+                                );
+                                if response.clicked() {
+                                    self.operation.to_id.clone_from(id);
+                                }
                             }
                         });
                 });
@@ -738,21 +918,41 @@ impl ZargApp {
                 }
             }
             OperationKind::ListArchive => {
-                egui::ComboBox::from_label("Last commit")
-                    .selected_text(selected_commit_label(
+                Self::render_combo_row(ui, "Last commit", |ui| {
+                    render_commit_indicator(
+                        ui,
+                        &self.icons,
                         &self.operation.to,
-                        &self.operation.commit_ids,
-                    ))
-                    .show_ui(ui, |ui| {
-                        for (index, commit_id) in self.operation.commit_ids.iter().enumerate() {
-                            let label = if index + 1 == self.operation.commit_ids.len() {
-                                format!("Last commit ({commit_id})")
-                            } else {
-                                commit_id.clone()
-                            };
-                            ui.selectable_value(&mut self.operation.to, commit_id.clone(), label);
-                        }
-                    });
+                        &self.operation.encrypted_commit_ids,
+                        &self.operation.archive_passwords,
+                    );
+                    egui::ComboBox::from_id_salt("list-last-commit")
+                        .selected_text(selected_commit_label(
+                            &self.operation.to,
+                            &self.operation.commit_ids,
+                        ))
+                        .show_ui(ui, |ui| {
+                            for (index, commit_id) in self.operation.commit_ids.iter().enumerate() {
+                                let label = if index + 1 == self.operation.commit_ids.len() {
+                                    format!("Last commit ({commit_id})")
+                                } else {
+                                    commit_id.clone()
+                                };
+                                let response = commit_selectable_option(
+                                    ui,
+                                    &self.icons,
+                                    commit_id,
+                                    &label,
+                                    self.operation.to == *commit_id,
+                                    &self.operation.encrypted_commit_ids,
+                                    &self.operation.archive_passwords,
+                                );
+                                if response.clicked() {
+                                    self.operation.to.clone_from(commit_id);
+                                }
+                            }
+                        });
+                });
                 ui.checkbox(
                     &mut self.operation.password_is_set,
                     "Unlock encrypted headers",
@@ -808,6 +1008,13 @@ impl ZargApp {
                     );
                 });
                 Self::render_combo_row(ui, "Last commit", |ui| {
+                    render_commit_indicator(
+                        ui,
+                        &self.icons,
+                        &self.operation.to,
+                        &self.operation.encrypted_commit_ids,
+                        &self.operation.archive_passwords,
+                    );
                     egui::ComboBox::from_id_salt("extract-last-commit")
                         .selected_text(selected_commit_label(
                             &self.operation.to,
@@ -820,11 +1027,18 @@ impl ZargApp {
                                 } else {
                                     commit_id.clone()
                                 };
-                                ui.selectable_value(
-                                    &mut self.operation.to,
-                                    commit_id.clone(),
-                                    label,
+                                let response = commit_selectable_option(
+                                    ui,
+                                    &self.icons,
+                                    commit_id,
+                                    &label,
+                                    self.operation.to == *commit_id,
+                                    &self.operation.encrypted_commit_ids,
+                                    &self.operation.archive_passwords,
                                 );
+                                if response.clicked() {
+                                    self.operation.to.clone_from(commit_id);
+                                }
                             }
                         });
                 });

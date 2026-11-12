@@ -615,6 +615,10 @@ fn extract_dialog_detects_encryption_for_main_and_context_actions() {
         assert_eq!(app.operation.kind, Some(OperationKind::ExtractArchive));
         assert_eq!(app.operation.extract_has_encrypted_commits, scope.is_some());
         assert_eq!(
+            app.operation.encrypted_commit_ids.len(),
+            if scope.is_some() { 1 } else { 0 }
+        );
+        assert_eq!(
             app.operation.destination,
             directory.path().to_string_lossy()
         );
@@ -641,6 +645,10 @@ fn extract_dialog_detects_encryption_for_main_and_context_actions() {
             scope.is_some()
         );
         assert!(!context_app.operation.commit_ids.is_empty());
+        assert_eq!(
+            context_app.operation.encrypted_commit_ids.len(),
+            if scope.is_some() { 1 } else { 0 }
+        );
         assert_eq!(
             context_app.operation.to,
             *context_app.operation.commit_ids.last().unwrap()

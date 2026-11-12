@@ -80,7 +80,7 @@ pub(crate) enum Command {
               zarc create --password --aead chacha20-poly1305 archive.zar secrets/\n  \
               zarc create --user archive.zar docs/\n  \
               zarc create --block-size 4M --compression-level 7 archive.zar large_dataset/\n  \
-              zarc create --metadata -p archive.zar /var/log/\n  \
+              zarc create --no-progress --metadata archive.zar /var/log/\n  \
               zarc create --special-files archive.zar /dev/\n  \
                 zarc create --verbose archive.zar source/\n  \
               zarc create --overwrite archive.zar updated_source/\n  \
@@ -149,12 +149,8 @@ pub(crate) enum Command {
         filelist: Vec<PathBuf>,
         #[arg(long, help = "Replace the target archive if it already exists")]
         overwrite: bool,
-        #[arg(
-            short = 'p',
-            long,
-            help = "Display real-time progress bar, speed, and transfer statistics"
-        )]
-        progress: bool,
+        #[arg(long, help = "Suppress progress bars and transfer summaries")]
+        no_progress: bool,
         #[arg(
             long,
             help = "Prompt for a default password without echoing input to encrypt the new archive"
@@ -260,7 +256,7 @@ pub(crate) enum Command {
               zarc add archive.zar downloaded.tar\n  \
               zarc add archive.zar downloaded.tar.gz\n  \
               zarc add archive.zar downloaded.tgz\n  \
-              zarc add --metadata -p archive.zar updated_src/\n  \
+              zarc add --metadata --no-progress archive.zar updated_src/\n  \
               zarc add --user archive.zar updated_src/\n  \
               zarc add --block-size 1M --compression-level 5 archive.zar photos/\n  \
               zarc add --special-files archive.zar /dev/\n  \
@@ -274,12 +270,8 @@ pub(crate) enum Command {
             help = "Existing archive file path to append to (.zar)"
         )]
         archive: String,
-        #[arg(
-            short = 'p',
-            long,
-            help = "Display real-time progress bar, speed, and transfer statistics"
-        )]
-        progress: bool,
+        #[arg(long, help = "Suppress progress bars and transfer summaries")]
+        no_progress: bool,
         #[arg(
             value_name = "PATH",
             required = true,
@@ -389,17 +381,13 @@ pub(crate) enum Command {
             forward, while historical commits preserve previous states.\n\n\
             USAGE EXAMPLES:\n  \
               zarc remove archive.zar obsolete.log old_directory/\n  \
-              zarc remove -p archive.zar temp_files/"
+              zarc remove --no-progress archive.zar temp_files/"
     )]
     Remove {
         #[arg(value_name = "ARCHIVE", help = "Existing archive file path (.zar)")]
         archive: String,
-        #[arg(
-            short = 'p',
-            long,
-            help = "Display real-time progress bar during removal"
-        )]
-        progress: bool,
+        #[arg(long, help = "Suppress the real-time progress bar")]
+        no_progress: bool,
         #[arg(
             value_name = "PATH",
             required = true,
@@ -482,8 +470,8 @@ pub(crate) enum Command {
     Join {
         #[arg(value_name = "ARCHIVE", help = "Archive file path to compact (.zar)")]
         archive: String,
-        #[arg(short = 'p', long, help = "Display real-time compaction progress")]
-        progress: bool,
+        #[arg(long, help = "Suppress real-time compaction progress")]
+        no_progress: bool,
         #[arg(
             long,
             value_name = "ID",
@@ -652,8 +640,8 @@ pub(crate) enum Command {
     Check {
         #[arg(value_name = "ARCHIVE", help = "Archive file path to check (.zar)")]
         archive: String,
-        #[arg(short = 'p', long, help = "Display real-time verification progress")]
-        progress: bool,
+        #[arg(long, help = "Suppress real-time verification progress")]
+        no_progress: bool,
         #[arg(
             long,
             help = "Attempt to scan past damaged framing gaps and resynchronize at valid commits"
@@ -788,11 +776,10 @@ pub(crate) enum Command {
         #[arg(value_name = "ARCHIVE", help = "Archive file path to extract (.zar)")]
         archive: String,
         #[arg(
-            short = 'p',
             long,
-            help = "Display real-time extraction progress bar and speed"
+            help = "Suppress the real-time extraction progress bar and speed"
         )]
-        progress: bool,
+        no_progress: bool,
         #[arg(
             short = 'o',
             long,

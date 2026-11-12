@@ -1403,11 +1403,28 @@ fn progress_flags_are_available_for_archive_operations() {
     ];
 
     for command in commands {
+        let parsed =
+            Cli::try_parse_from(std::iter::once("zarc").chain(command.iter().copied())).unwrap();
+        let no_progress = match parsed.command {
+            Command::Create { no_progress, .. }
+            | Command::Add { no_progress, .. }
+            | Command::Remove { no_progress, .. }
+            | Command::Join { no_progress, .. }
+            | Command::Check { no_progress, .. }
+            | Command::Extract { no_progress, .. } => no_progress,
+            _ => unreachable!("command list contains progress-enabled operations only"),
+        };
+        assert!(!no_progress, "{command:?} should show progress by default");
+
+        let args = std::iter::once("zarc")
+            .chain(command.iter().copied())
+            .chain(std::iter::once("--no-progress"));
+        assert!(Cli::try_parse_from(args).is_ok(), "{command:?}");
         for flag in ["-p", "--progress"] {
             let args = std::iter::once("zarc")
                 .chain(command.iter().copied())
                 .chain(std::iter::once(flag));
-            assert!(Cli::try_parse_from(args).is_ok(), "{command:?} {flag}");
+            assert!(Cli::try_parse_from(args).is_err(), "{command:?} {flag}");
         }
     }
 }
@@ -4285,7 +4302,7 @@ fn cli_archive_lifecycle_executes_commands_and_preserves_content() {
     assert_eq!(
         command(&[
             "create",
-            "--progress",
+            "--no-progress",
             "--modification-time",
             "--block-size",
             "auto",
@@ -4306,7 +4323,7 @@ fn cli_archive_lifecycle_executes_commands_and_preserves_content() {
     assert_eq!(
         command(&[
             "add",
-            "--progress",
+            "--no-progress",
             "--compression-level",
             "1",
             archive,
@@ -4318,7 +4335,7 @@ fn cli_archive_lifecycle_executes_commands_and_preserves_content() {
     assert_eq!(info_archive(archive, false).unwrap().len(), 2);
 
     for args in [
-        vec!["check", "--progress", archive],
+        vec!["check", "--no-progress", archive],
         vec!["info", archive],
         vec!["info", "-v", archive],
         vec!["info", "-vv", archive],
@@ -4341,7 +4358,7 @@ fn cli_archive_lifecycle_executes_commands_and_preserves_content() {
         command(&[
             "extract",
             "--dry-run",
-            "--progress",
+            "--no-progress",
             archive,
             "--output",
             destination,
@@ -4353,7 +4370,7 @@ fn cli_archive_lifecycle_executes_commands_and_preserves_content() {
     assert_eq!(
         command(&[
             "extract",
-            "--progress",
+            "--no-progress",
             "--existing",
             "overwrite",
             archive,
@@ -4372,7 +4389,7 @@ fn cli_archive_lifecycle_executes_commands_and_preserves_content() {
         b"second content"
     );
     assert_eq!(
-        command(&["remove", "-p", archive, "second.txt"]).unwrap(),
+        command(&["remove", "--no-progress", archive, "second.txt"]).unwrap(),
         0
     );
     assert!(
@@ -4440,7 +4457,16 @@ fn cli_metadata_and_join_commands_update_archive() {
     let first = commit_id_at(Path::new(archive), 0);
     let last = commit_id_at(Path::new(archive), 2);
     assert_eq!(
-        command(&["join", "-p", archive, "--from", &first, "--to", &last]).unwrap(),
+        command(&[
+            "join",
+            "--no-progress",
+            archive,
+            "--from",
+            &first,
+            "--to",
+            &last
+        ])
+        .unwrap(),
         0
     );
     assert_eq!(info_archive(archive, false).unwrap().len(), 1);

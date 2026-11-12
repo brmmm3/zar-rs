@@ -1048,7 +1048,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             exclude_folders,
             filelist,
             overwrite,
-            progress,
+            no_progress,
             password: encrypt,
             aead,
             encryption_scope,
@@ -1064,7 +1064,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                 &exclude_folders,
                 &filelist,
             )?;
-            let progress_callback = CliProgress::new(progress);
+            let progress_callback = CliProgress::new(!no_progress);
             let password = encrypt
                 .then(|| prompt_password("Archive password: "))
                 .transpose()?;
@@ -1113,13 +1113,17 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                 display_size(final_size),
                 ratio
             );
-            println!("Time: {} ({:.2} MB/s)", format_duration(elapsed), speed);
+            if no_progress {
+                println!("Time: {}", format_duration(elapsed));
+            } else {
+                println!("Time: {} ({:.2} MB/s)", format_duration(elapsed), speed);
+            }
             Ok(u8::from(has_warnings))
         }
         Command::Add {
             archive,
             paths,
-            progress,
+            no_progress,
             metadata,
             modification_time,
             creation_time,
@@ -1140,7 +1144,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             block_size,
             compression_level,
         } => {
-            let progress_callback = CliProgress::new(progress);
+            let progress_callback = CliProgress::new(!no_progress);
             let filters = FilterSet::from_patterns(
                 &include_files,
                 &exclude_files,
@@ -1209,7 +1213,11 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                 display_size(final_size),
                 ratio
             );
-            println!("Time: {} ({:.2} MB/s)", format_duration(elapsed), speed);
+            if no_progress {
+                println!("Time: {}", format_duration(elapsed));
+            } else {
+                println!("Time: {} ({:.2} MB/s)", format_duration(elapsed), speed);
+            }
             Ok(0)
         }
         Command::Convert {
@@ -1230,9 +1238,9 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
         Command::Remove {
             archive,
             paths,
-            progress,
+            no_progress,
         } => {
-            let progress_callback = CliProgress::new(progress);
+            let progress_callback = CliProgress::new(!no_progress);
             remove_archive_with_progress(
                 &archive,
                 &paths,
@@ -1282,11 +1290,11 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             archive,
             from,
             to,
-            progress,
+            no_progress,
             block_size,
             compression_level,
         } => {
-            let progress_callback = CliProgress::new(progress);
+            let progress_callback = CliProgress::new(!no_progress);
             join_archive_with_encoding_progress(
                 &archive,
                 &from,
@@ -1361,10 +1369,10 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             recover,
             password,
             password_for,
-            progress,
+            no_progress,
         } => {
             let passwords = prompt_password_set(password, &password_for)?;
-            let progress_callback = CliProgress::new(progress);
+            let progress_callback = CliProgress::new(!no_progress);
             let report = check_archive_with_recovery_and_passwords_progress(
                 &archive,
                 recover,
@@ -1552,7 +1560,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             metadata,
             password,
             password_for,
-            progress,
+            no_progress,
             symlinks,
             devices,
             strip_top_level,
@@ -1565,7 +1573,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             let collision = parse_cli_collision_policy(&collision)?;
             let existing = parse_cli_existing_policy(&existing)?;
             let passwords = prompt_password_set(password, &password_for)?;
-            let progress_callback = CliProgress::new(progress);
+            let progress_callback = CliProgress::new(!no_progress);
             let filters = FilterSet::from_patterns(
                 &include_files,
                 &exclude_files,
