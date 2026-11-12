@@ -80,6 +80,44 @@ Highlights:
   newer by modification time, or sends a complete packed archive. Encryption
   is optional; without a password the connection is not authenticated.
 
+## Benchmarks
+
+The [Linux Core i7 benchmark report](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7.md)
+measured the 525.1 MiB Linux 4.0.1 source tree on an Intel Core i7-10700
+with SSD/non-rotational storage. The table shows the report's minimum–maximum
+times for compression, full extraction, and extraction of three selected
+files; hot-cache configurations were measured twice and cold-cache
+configurations once.
+
+| Format | Encrypted | Cache | Archive size | Compression | Full extraction | Extract 3 files |
+|---|---|---|---:|---:|---:|---:|
+| ZAR | No | Hot | 115.5 MiB | 0.86–0.86 s | 0.88–1.10 s | 0.124–0.129 s |
+| ZAR | Yes | Hot | 115.4 MiB | 0.96–1.00 s | 1.21–1.22 s | 0.345–0.354 s |
+| ZIP | No | Hot | 151.1 MiB | 11.01–11.05 s | 3.84–3.90 s | 0.007–0.007 s |
+| ZIP | Yes | Hot | 152.4 MiB | 11.52–11.59 s | 4.96–4.97 s | 0.012–0.012 s |
+| 7z | No | Hot | 81.1 MiB | 24.91–24.94 s | 5.68–5.70 s | 3.407–3.434 s |
+| 7z | Yes | Hot | 81.1 MiB | 24.80–24.93 s | 5.83–5.86 s | 3.553–3.583 s |
+| tar | No | Hot | 562.7 MiB | 0.52–0.53 s | 0.91–1.00 s | 0.063–0.065 s |
+| tar | Yes | Hot | 562.7 MiB | 2.02–2.69 s | 2.07–2.49 s | 1.360–1.366 s |
+| tar.gz | No | Hot | 122.1 MiB | 12.76–12.79 s | 2.24–2.26 s | 2.170–2.222 s |
+| tar.gz | Yes | Hot | 122.1 MiB | 12.98–13.21 s | 2.49–2.96 s | 2.473–2.483 s |
+| ZAR | No | Cold | 115.4 MiB | 1.03–1.03 s | 1.13–1.13 s | 0.161–0.161 s |
+| ZAR | Yes | Cold | 115.4 MiB | 1.10–1.10 s | 1.33–1.33 s | 0.401–0.401 s |
+| ZIP | No | Cold | 151.1 MiB | 17.47–17.47 s | 4.13–4.13 s | 0.020–0.020 s |
+| ZIP | Yes | Cold | 152.4 MiB | 17.81–17.81 s | 5.19–5.19 s | 0.021–0.021 s |
+| 7z | No | Cold | 81.1 MiB | 26.75–26.75 s | 5.78–5.78 s | 3.519–3.519 s |
+| 7z | Yes | Cold | 81.1 MiB | 27.00–27.00 s | 5.83–5.83 s | 3.587–3.587 s |
+| tar | No | Cold | 562.7 MiB | 7.05–7.05 s | 1.10–1.10 s | 0.870–0.870 s |
+| tar | Yes | Cold | 562.7 MiB | 9.19–9.19 s | 3.25–3.25 s | 2.383–2.383 s |
+| tar.gz | No | Cold | 122.1 MiB | 13.63–13.63 s | 2.47–2.47 s | 2.292–2.292 s |
+| tar.gz | Yes | Cold | 122.1 MiB | 14.09–14.09 s | 3.44–3.44 s | 3.187–3.187 s |
+
+Tar is an uncompressed baseline. Encryption methods differ: the ZIP test uses
+legacy ZipCrypto, while tar and tar.gz use an OpenSSL encryption wrapper.
+Results depend on the hardware, data, settings, and cache state; see the
+[full report](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7.md) for
+throughput, verification limitations, tool settings, and methodology.
+
 ## Limitations
 
 - `zarc extract` restores symlinks and devices only when explicitly requested.
@@ -245,6 +283,17 @@ directly.
 - `zarc check --recover` scans past damaged framing without modifying the
   archive. It reports recovered gaps as warnings; logical state is restarted
   after each gap.
+
+## Important notes to binaries in release
+
+All binaries and libraries for X86-64 CPUs are built with `target-cpu=x86-64-v3`,
+which means that these binaries and libraries won't run on CPUs before 2013!
+If you have a CPU which does not have AVX2 support then you must compile these
+binaries and libraries yourself.
+
+```sh
+RUSTFLAGS="-C target-cpu=native" cargo build --release --bins
+```
 
 ## License
 
