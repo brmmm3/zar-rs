@@ -1,5 +1,9 @@
 [package]
 name = "zarc"
+description = "Command-line tool for creating and managing ZAR archives"
+documentation = "https://github.com/brmmm3/zar-rs/blob/master/zarc/README.md"
+homepage = "https://github.com/brmmm3/zar-rs"
+repository = "https://github.com/brmmm3/zar-rs"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
