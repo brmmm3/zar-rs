@@ -485,8 +485,12 @@ RUSTFLAGS="-C target-cpu=native" cargo build --release --bins
 This workspace is licensed under either of the licenses listed in the
 workspace manifests: [MIT](./LICENSE-MIT) or [Apache-2.0](./LICENSE-APACHE).
 
-## Notes to AI use
+## AI assistance
 
-This project is a refactoring of another, fully hand written project. The whole
-refactoring with several improvments in code and documentation were done with
-AI.
+This project refactors an originally hand-written project. AI tools assisted
+with the refactoring and improvements to the code and documentation. Changes
+should be reviewed by people and validated with tests, with particular care
+for security-sensitive behavior.
+
+An independent security audit is not documented in this repository. AI
+assistance and automated tests are not substitutes for a security review.
