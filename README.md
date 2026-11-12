@@ -15,6 +15,36 @@ request guidance.
 - **[`zcopy`](./zcopy/README.md)** copies file trees between machines over the
   network using compressed, optionally encrypted ZAR batches. It can update
   missing or newer files on the destination or save a complete packed archive.
+- **[`zarmcp`](./zarmcp/README.md)** provides local MCP tools for AI clients to
+  inspect, read, and manage archives, with read-only and tool-allowlist modes.
+
+## Choose your path
+
+- **New users:** [install](#installers-and-packages), then follow the
+  [quick start](#quick-start) to create, inspect, update, restore, and verify an
+  archive. Prefer a desktop interface? See the [zarg guide](./zarg/README.md).
+- **Developers:** start with the [Rust API quick start](#rust-api-quick-start),
+  then explore the [bindings](#language-bindings-and-runtime-packages),
+  [operation examples](./doc/zarlib-developer-guide.md#examples-matching-the-zarc-commands),
+  and API documentation. For AI clients, see the [MCP server](./zarmcp/README.md).
+- **Format implementers:** see the [format implementer path](#format-implementer-path)
+  for framing, versioning, integrity, encryption, and compatibility.
+- **Operators:** use the [backup and restore guidance](#backup-and-restore-operations),
+  check [limitations](#limitations), and consult [troubleshooting](#troubleshooting).
+
+## See ZAR in action
+
+This recording uses a release build of `zarc` to archive the 525 MiB Linux
+4.0.1 source tree, add an edited Makefile as a second commit, inspect the
+history, and extract the original Makefile from the first commit. The final
+`cmp` verifies it against the original. The displayed timings are from this
+one run and depend on the machine, storage, and cache state.
+
+![Terminal recording of creating a Linux kernel archive, adding a commit, viewing history, and restoring an earlier Makefile](./doc/kernel-history-demo.gif)
+
+The release build of `zarg` can browse the same archive and select a commit:
+
+![ZAR Archive Manager showing the Linux kernel archive with two commits](./doc/zarg-kernel-screenshot.png)
 
 ## What makes ZAR different
 
@@ -80,6 +110,74 @@ Highlights:
   newer by modification time, or sends a complete packed archive. Encryption
   is optional; without a password the connection is not authenticated.
 
+## Archive structure and history
+
+An archive contains a container header followed by one or more commits. Each
+commit carries data blocks and a header describing its changes; offset fields
+connect the commits. This simplified diagram shows their physical order:
+
+```text
+ZAR archive
+┌──────────────────┐
+│ Container header │
+├──────────────────┤
+│ Commit 1         │  data blocks + header (file additions)
+├──────────────────┤
+│ Commit 2         │  data blocks + header (updates or additions)
+├──────────────────┤
+│ Commit 3         │  header (removals)
+└──────────────────┘
+```
+
+**Current contents** are the files you see when the commit changes are
+applied in order through the latest commit. **Retained history** lets you
+inspect or extract an earlier state, even after a later commit updates or
+removes a file. **Compaction** with `join` combines a chosen contiguous range
+of commits into one, keeping the state at the end of that range but discarding
+the individual intermediate states within it.
+
+### Example: a file changes over time
+
+Run these commands in a new, empty directory. The shown commit IDs are for this
+fresh archive; use `zarc info` to find the IDs in an existing archive.
+
+```sh
+printf 'draft\n' > notes.txt
+printf 'obsolete\n' > old.txt
+zarc create history.zar notes.txt old.txt       # commit 00000001
+
+printf 'final\n' > notes.txt
+zarc add history.zar notes.txt                  # commit 00000002
+zarc remove history.zar old.txt                 # commit 00000003
+
+zarc info history.zar                           # show all three commits
+zarc list history.zar                           # current contents: notes.txt
+zarc extract history.zar --to 00000001 -o before # draft and old.txt
+```
+
+| After | Current contents | What history retains |
+|---|---|---|
+| `create` | `notes.txt` = `draft`, plus `old.txt` | The initial state in commit 1 |
+| `add` | `notes.txt` = `final`, plus `old.txt` | The draft in commit 1 and the update in commit 2 |
+| `remove` | `notes.txt` = `final` | Both earlier states, including `old.txt`; removal records a deletion rather than erasing its earlier data |
+
+`remove` changes the archive, not the original files on disk. Now compact all
+three commits:
+
+```sh
+zarc join history.zar --from 00000001 --to 00000003
+zarc info history.zar                           # one new joined commit
+zarc list history.zar                           # still just notes.txt
+```
+
+The joined archive still contains `notes.txt` with `final`, but the original
+three commit IDs and the earlier `draft` and `old.txt` states from that range
+are no longer available through that archive. Joining can rewrite data and may
+reduce size, but does not guarantee a smaller archive. Commits outside a joined
+range remain in place. Keep a separate copy before joining if you need the
+individual historical states. See the [CLI guide](./zarc/README.md#append-remove-and-compact-commits)
+for command details and encrypted-archive limitations.
+
 ## Benchmarks
 
 The [Linux Core i7 benchmark report](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7.md)
@@ -87,27 +185,29 @@ measured the 525.1 MiB Linux 4.0.1 source tree on an Intel Core i7-10700
 with SSD/non-rotational storage. The table shows the report's minimum–maximum
 times for compression, full extraction, and extraction of three selected
 files; hot-cache configurations were measured twice and cold-cache
-configurations once.
+configurations once. **Bold** marks the smallest archive or fastest observed
+time (the lower end of each range) for each encryption and cache combination;
+ties at the displayed precision are also marked.
 
 | Format | Encrypted | Cache | Archive size | Compression | Full extraction | Extract 3 files |
 |---|---|---|---:|---:|---:|---:|
-| ZAR | No | Hot | 115.5 MiB | 0.86–0.86 s | 0.88–1.10 s | 0.124–0.129 s |
-| ZAR | Yes | Hot | 115.4 MiB | 0.96–1.00 s | 1.21–1.22 s | 0.345–0.354 s |
-| ZIP | No | Hot | 151.1 MiB | 11.01–11.05 s | 3.84–3.90 s | 0.007–0.007 s |
-| ZIP | Yes | Hot | 152.4 MiB | 11.52–11.59 s | 4.96–4.97 s | 0.012–0.012 s |
-| 7z | No | Hot | 81.1 MiB | 24.91–24.94 s | 5.68–5.70 s | 3.407–3.434 s |
-| 7z | Yes | Hot | 81.1 MiB | 24.80–24.93 s | 5.83–5.86 s | 3.553–3.583 s |
-| tar | No | Hot | 562.7 MiB | 0.52–0.53 s | 0.91–1.00 s | 0.063–0.065 s |
+| ZAR | No | Hot | 115.5 MiB | 0.86–0.86 s | **0.88–1.10 s** | 0.124–0.129 s |
+| ZAR | Yes | Hot | 115.4 MiB | **0.96–1.00 s** | **1.21–1.22 s** | 0.345–0.354 s |
+| ZIP | No | Hot | 151.1 MiB | 11.01–11.05 s | 3.84–3.90 s | **0.007–0.007 s** |
+| ZIP | Yes | Hot | 152.4 MiB | 11.52–11.59 s | 4.96–4.97 s | **0.012–0.012 s** |
+| 7z | No | Hot | **81.1 MiB** | 24.91–24.94 s | 5.68–5.70 s | 3.407–3.434 s |
+| 7z | Yes | Hot | **81.1 MiB** | 24.80–24.93 s | 5.83–5.86 s | 3.553–3.583 s |
+| tar | No | Hot | 562.7 MiB | **0.52–0.53 s** | 0.91–1.00 s | 0.063–0.065 s |
 | tar | Yes | Hot | 562.7 MiB | 2.02–2.69 s | 2.07–2.49 s | 1.360–1.366 s |
 | tar.gz | No | Hot | 122.1 MiB | 12.76–12.79 s | 2.24–2.26 s | 2.170–2.222 s |
 | tar.gz | Yes | Hot | 122.1 MiB | 12.98–13.21 s | 2.49–2.96 s | 2.473–2.483 s |
-| ZAR | No | Cold | 115.4 MiB | 1.03–1.03 s | 1.13–1.13 s | 0.161–0.161 s |
-| ZAR | Yes | Cold | 115.4 MiB | 1.10–1.10 s | 1.33–1.33 s | 0.401–0.401 s |
-| ZIP | No | Cold | 151.1 MiB | 17.47–17.47 s | 4.13–4.13 s | 0.020–0.020 s |
-| ZIP | Yes | Cold | 152.4 MiB | 17.81–17.81 s | 5.19–5.19 s | 0.021–0.021 s |
-| 7z | No | Cold | 81.1 MiB | 26.75–26.75 s | 5.78–5.78 s | 3.519–3.519 s |
-| 7z | Yes | Cold | 81.1 MiB | 27.00–27.00 s | 5.83–5.83 s | 3.587–3.587 s |
-| tar | No | Cold | 562.7 MiB | 7.05–7.05 s | 1.10–1.10 s | 0.870–0.870 s |
+| ZAR | No | Cold | 115.4 MiB | **1.03–1.03 s** | 1.13–1.13 s | 0.161–0.161 s |
+| ZAR | Yes | Cold | 115.4 MiB | **1.10–1.10 s** | **1.33–1.33 s** | 0.401–0.401 s |
+| ZIP | No | Cold | 151.1 MiB | 17.47–17.47 s | 4.13–4.13 s | **0.020–0.020 s** |
+| ZIP | Yes | Cold | 152.4 MiB | 17.81–17.81 s | 5.19–5.19 s | **0.021–0.021 s** |
+| 7z | No | Cold | **81.1 MiB** | 26.75–26.75 s | 5.78–5.78 s | 3.519–3.519 s |
+| 7z | Yes | Cold | **81.1 MiB** | 27.00–27.00 s | 5.83–5.83 s | 3.587–3.587 s |
+| tar | No | Cold | 562.7 MiB | 7.05–7.05 s | **1.10–1.10 s** | 0.870–0.870 s |
 | tar | Yes | Cold | 562.7 MiB | 9.19–9.19 s | 3.25–3.25 s | 2.383–2.383 s |
 | tar.gz | No | Cold | 122.1 MiB | 13.63–13.63 s | 2.47–2.47 s | 2.292–2.292 s |
 | tar.gz | Yes | Cold | 122.1 MiB | 14.09–14.09 s | 3.44–3.44 s | 3.187–3.187 s |
@@ -199,6 +299,9 @@ cargo run --release -p zarg
 cargo run --release -p zcopy -- --help
 ```
 
+For MCP clients, build `zarmcp` with `cargo build --release -p zarmcp` and
+follow the [server configuration and security guidance](./zarmcp/README.md).
+
 Build the server-side WASI component separately:
 
 ```sh
@@ -233,34 +336,124 @@ See [packaging/README.md](./packaging/README.md) for prerequisites and options.
 
 ## Quick start
 
+Install `zarc` using an [installer or package](#installers-and-packages), or
+run `cargo install --path zarc` from a local checkout. The commands below use
+an unencrypted archive and existing input paths relative to your working
+directory; start with no `backup.zar` in that directory.
+
 ```sh
 # Create an archive from files and directories
 zarc create backup.zar documents/ src/ notes.txt
-
-# Convert a supported archive's contents into a ZAR archive
-zarc create backup.zar downloaded.zip
-zarc create backup-from-7z.zar downloaded.7z
-zarc create backup-from-rar.zar downloaded.rar
-zarc create backup-from-tar.zar downloaded.tar
-zarc create backup-from-tar-gz.zar downloaded.tar.gz
-zarc create backup-from-tgz.zar downloaded.tgz
-
-# Replace backup.zar atomically with a newly created archive
-zarc create --overwrite backup.zar documents/ src/ notes.txt
 
 # Inspect the archive and list its current contents
 zarc info -v backup.zar
 zarc list backup.zar
 
-# Verify the archive and extract its contents
+# After changing files, append their new versions
+zarc add backup.zar documents/
+
+# Verify the archive, then restore its current contents
 zarc check backup.zar
 zarc extract backup.zar --output ./restored/
+
+# Inspect and restore the initial state (commit ID from zarc info)
+zarc list backup.zar --to 00000001
+zarc extract backup.zar --to 00000001 --output ./restored-initial/
 ```
 
-Use `zarc <command> --help` for command-specific options. See the
-[CLI guide](./zarc/README.md) for workflows, options, and limitations, and the
-[library developer guide](./doc/zarlib-developer-guide.md) to call the Rust API
-directly.
+`add` updates the paths supplied to it; it does not automatically remove paths
+deleted from disk. Use `zarc remove` for archive paths you want to delete.
+`info` shows the actual commit IDs; the first commit in this fresh example is
+`00000001`. Use `zarc <command> --help` for options and the
+[CLI guide](./zarc/README.md) for encryption, conversion, and other workflows.
+
+## Rust API quick start
+
+For a Rust project alongside this checkout's `zarlib` directory, add a path
+dependency (adjust the path to your checkout):
+
+```toml
+[dependencies]
+zarlib = { path = "../zarlib" }
+```
+
+For example, create and check an unencrypted archive, propagating errors:
+
+```rust,no_run
+use std::path::PathBuf;
+use zarlib::operations::{check_archive_with_recovery, create_archive};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    create_archive("backup.zar", &[PathBuf::from("documents")])?;
+    let report = check_archive_with_recovery("backup.zar", false, None)?;
+    println!("Verified {} commits", report.commits);
+    Ok(())
+}
+```
+
+The input must exist and `backup.zar` must not already exist. See the
+[developer guide](./doc/zarlib-developer-guide.md#high-level-api) for listing,
+extraction, and [more examples](./doc/zarlib-developer-guide.md#examples-matching-the-zarc-commands),
+or use the [language bindings](#language-bindings-and-runtime-packages).
+For Rust API documentation, run `cargo doc -p zarlib --no-deps --open` from the
+workspace root.
+
+## Format implementer path
+
+The [file architecture](./doc/zar-file-format.md) describes the
+[container and commit layout](./doc/zar-file-format.md#physical-layout),
+[header frame and logical-header versioning](./doc/zar-file-format.md#header-frame),
+and [data block frames](./doc/zar-file-format.md#data-block-frame), including
+xxHash64 checksums. Checksums detect corruption, not malicious modification;
+encrypted payloads also require AEAD authentication. The
+[encryption reference](./doc/zarlib-developer-guide.md#encryption-and-operation-constraints)
+explains algorithms, scopes, and per-commit passwords. For the actual encoding
+and validation behavior, follow the linked implementation files in the format
+document and the [framing APIs](./doc/zarlib-developer-guide.md#framing-and-validation-apis).
+
+Only logical-header version 8 is supported; versions 0–7 are rejected when
+decoded. Earlier unreleased version 8 archives with entry metadata may also be
+incompatible because that layout changed. Locked headers cannot be
+version-checked until decrypted. See [limitations](#limitations) and the
+[header format](./doc/zar-file-format.md#header-frame) for details.
+
+## Backup and restore operations
+
+1. Archive a consistent source snapshot where possible. Review warnings and
+   nonzero exit statuses: unreadable or unsupported inputs can be skipped, so
+   an archive is not necessarily a complete backup of the source tree.
+2. Run `zarc check backup.zar` after creation and updates. For encrypted
+   archives, supply the relevant passwords, such as with `--password`; locked
+   content cannot be fully verified without them.
+3. Keep independent backup copies and protect the passwords separately. Before
+   `join`, `remove-commits`, or `create --overwrite`, retain a separate copy
+   if the existing history is needed.
+4. Periodically restore to a separate directory and compare the results with
+   the intended source, including metadata important to your use case.
+   `zarc extract backup.zar --dry-run` previews the extraction; `--to ID`
+   selects an earlier commit. Read the [limitations](#limitations) before
+   relying on timestamp, symlink, device, or encrypted-history restoration.
+
+For off-machine transfer, see the [zcopy guide](./zcopy/README.md); unpack
+mode is a one-way update, not a deletion-propagating mirror.
+
+### Troubleshooting
+
+- **Files are missing from a backup or restore:** inspect the command warnings
+  and filters, run `zarc list backup.zar`, and check whether encrypted headers
+  need passwords. A passwordless view can be partial.
+- **Verification reports damage:** preserve the original and other backup
+  copies. `zarc check --recover backup.zar` scans past damaged framing and
+  reports gaps; it does not repair the archive or establish that a recovered
+  view is complete.
+- **Restore encounters existing files or unexpected metadata:** use a separate
+  destination, review `zarc extract --help`, and see the
+  [extraction options](./zarc/README.md#extract-files) and
+  [limitations](#limitations).
+- **A command fails or reports warnings:** inspect its diagnostics and nonzero
+  exit status; see [CLI exit behavior](./zarc/README.md#exit-behavior). For
+  encrypted archives, also confirm the correct passwords and operation
+  restrictions.
 
 ## Format and safety notes
 

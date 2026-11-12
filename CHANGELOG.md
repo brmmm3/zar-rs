@@ -16,6 +16,9 @@ until a version is released.
 
 ### Added
 
+- Added `zarmcp`, a local stdio MCP server for inspecting, reading, and
+  managing ZAR archives, including password-encrypted commits and configurable
+  read-only or tool-allowlist restrictions.
 - Added ISO 9660 image import for create/add, direct extraction, and `zarc convert`,
   including Rock Ridge and Joliet filenames. ISO links and special entries are rejected.
 - Added RAR archive import for create/add, direct extraction, and `zarc convert`.
