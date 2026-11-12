@@ -21,7 +21,7 @@ archive formats on the same Linux source tree used by the reports.
 
 ### Benchmark an archive in zarg
 
-1. Run `cargo run --release -p zarg` from the repository root, or start an
+1. Run `cargo run --release -p zarlib-gui` from the repository root, or start an
    installed `zarg`.
 2. Open a saved ZAR archive and unlock it if needed. The Benchmark action is
    unavailable for imported non-ZAR archives and while another operation runs.

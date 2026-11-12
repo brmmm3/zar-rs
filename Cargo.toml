@@ -1,8 +1,8 @@
 [workspace]
 members = [
     "zarlib",
-    "zarc",
-    "zarg",
+    "zarlib-cli",
+    "zarlib-gui",
     "pyzarlib",
     "czarlib",
     "cxxzarlib",

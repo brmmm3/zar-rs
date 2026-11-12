@@ -114,7 +114,7 @@ zarc extract /data/backup/projects.zar --output /data/restored
 ```
 
 Use the password option supported by `zarc` when extracting an encrypted
-archive; see the [zarc documentation](../zarc/README.md). Packed archive
+archive; see the [zarc documentation](../zarlib-cli/README.md). Packed archive
 names can collide when different source folders have the same name.
 `--unpack` explicitly selects the default extracted-file mode and cannot be
 combined with `--pack`.

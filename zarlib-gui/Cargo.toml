@@ -1,9 +1,17 @@
 [package]
-name = "zarg"
+name = "zarlib-gui"
+description = "Graphical user interface for managing ZAR archives"
+documentation = "https://github.com/brmmm3/zar-rs/blob/master/zarlib-gui/README.md"
+homepage = "https://github.com/brmmm3/zar-rs"
+repository = "https://github.com/brmmm3/zar-rs"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+
+[[bin]]
+name = "zarg"
+path = "src/main.rs"
 
 [features]
 default = ["mimalloc"]
@@ -17,7 +25,9 @@ eframe = { version = "0.37", default-features = false, features = [
     "x11",
     "wayland",
 ] }
-catppuccin-egui = { version = "5.7.0", default-features = false, features = ["egui33"] }
+catppuccin-egui = { version = "5.7.0", default-features = false, features = [
+    "egui33",
+] }
 globset = { version = "0.4", default-features = false }
 image = { version = "0.25", default-features = false, features = ["png"] }
 keyring = { version = "4.2.0", default-features = false, features = ["v1"] }
@@ -29,7 +39,7 @@ regex = { version = "1.13.1", default-features = false, features = [
 dirs = "7"
 rfd = { version = "0.18", default-features = false, features = ["xdg-portal"] }
 tempfile = "3"
-zarlib = { path = "../zarlib" }
+zarlib = { version = "0.11.0", path = "../zarlib" }
 
 [target.'cfg(windows)'.dependencies]
 mimalloc = { version = "0.1", default-features = false, features = [

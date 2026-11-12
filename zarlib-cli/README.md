@@ -1,8 +1,8 @@
 # `zarc` command-line guide
 
 `zarc` creates and manages ZAR archives. Build it from the workspace root with
-`cargo build -p zarc --release`; run `cargo run -p zarc -- <command>` during
-development, or install it with `cargo install --path zarc`.
+`cargo build -p zarlib-cli --release`; run `cargo run -p zarlib-cli -- <command>` during
+development, or install it with `cargo install --path zarlib-cli`.
 For an alternate release allocator, build with `--features mimalloc`.
 
 Get the full command list with:

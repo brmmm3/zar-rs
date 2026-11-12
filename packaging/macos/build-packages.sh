@@ -49,7 +49,7 @@ build_binaries() {
 }
 
 make_icns() {
-    local set="$WORK/zarg.iconset" src="$ROOT/zarg/assets/zarg-icon.png"
+    local set="$WORK/zarg.iconset" src="$ROOT/zarlib-gui/assets/zarg-icon.png"
     mkdir -p "$set"
     for s in 16 32 64 128 256; do
         sips -z "$s" "$s" "$src" --out "$set/icon_${s}x${s}.png" >/dev/null
@@ -63,7 +63,7 @@ make_icns() {
 }
 
 make_zar_icns() {
-    local set="$WORK/zar.iconset" src="$ROOT/zarg/assets/application-x-zar.png"
+    local set="$WORK/zar.iconset" src="$ROOT/zarlib-gui/assets/application-x-zar.png"
     mkdir -p "$set"
     for s in 16 32 64 128 256; do
         sips -z "$s" "$s" "$src" --out "$set/icon_${s}x${s}.png" >/dev/null

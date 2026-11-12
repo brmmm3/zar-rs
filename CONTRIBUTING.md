@@ -90,7 +90,7 @@ nonzero exit status.
 |---|---|
 | [`README.md`](README.md) | Project overview, features, and workspace build instructions |
 | [`doc/`](doc/) | Archive format, library developer guide, and benchmark reports |
-| [`zarc/README.md`](zarc/README.md), [`zarg/README.md`](zarg/README.md) | CLI and desktop application |
+| [`zarlib-cli/README.md`](zarlib-cli/README.md), [`zarlib-gui/README.md`](zarlib-gui/README.md) | CLI and desktop application |
 | [`zarlib/`](zarlib/) | Core archive library |
 | [`pyzarlib/README.md`](pyzarlib/README.md), [`czarlib/README.md`](czarlib/README.md), [`cxxzarlib/README.md`](cxxzarlib/README.md), [`gozarlib/README.md`](gozarlib/README.md) | Python, C, C++, and Go bindings |
 | [`jzarlib-jni/README.md`](jzarlib-jni/README.md), [`jzarlib-ffm/README.md`](jzarlib-ffm/README.md), [`csharpzarlib/README.md`](csharpzarlib/README.md) | Java and C# bindings |

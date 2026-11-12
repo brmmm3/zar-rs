@@ -490,7 +490,7 @@ stop
 
 ## Behavior and implementation notes
 
-- CLI argument handling is in [`zarc/src/main.rs`](../zarc/src/main.rs);
+- CLI argument handling is in [`zarlib-cli/src/main.rs`](../zarlib-cli/src/main.rs);
   archive creation and append logic are in
   [`zarlib/src/operations/create.rs`](../zarlib/src/operations/create.rs) and
   [`zarlib/src/operations/add.rs`](../zarlib/src/operations/add.rs). The

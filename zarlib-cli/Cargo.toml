@@ -1,13 +1,17 @@
 [package]
-name = "zarc"
-description = "Command-line tool for creating and managing ZAR archives"
-documentation = "https://github.com/brmmm3/zar-rs/blob/master/zarc/README.md"
+name = "zarlib-cli"
+description = "Command-line interface for managing ZAR archives"
+documentation = "https://github.com/brmmm3/zar-rs/blob/master/zarlib-cli/README.md"
 homepage = "https://github.com/brmmm3/zar-rs"
 repository = "https://github.com/brmmm3/zar-rs"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+
+[[bin]]
+name = "zarc"
+path = "src/main.rs"
 
 [features]
 default = ["mimalloc"]

@@ -5,8 +5,8 @@ const path = require('node:path');
 const { chromium } = require('playwright');
 
 const root = path.resolve(__dirname, '..');
-const source = path.join(root, 'zarg/assets/crystal');
-const output = path.join(root, 'zarg/assets/flat');
+const source = path.join(root, 'zarlib-gui/assets/crystal');
+const output = path.join(root, 'zarlib-gui/assets/flat');
 const ink = '#27364f';
 const blue = '#2563eb';
 const cyan = '#0891b2';

@@ -8,8 +8,8 @@ See the [changelog](./CHANGELOG.md) for recent project updates. See
 [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, checks, and pull
 request guidance.
 
-- **[`zarc`](./zarc/README.md)** is the command-line application.
-- **[`zarg`](./zarg/README.md)** is the egui desktop archive manager.
+- **[`zarc`](./zarlib-cli/README.md)** is the command-line application.
+- **[`zarg`](./zarlib-gui/README.md)** is the egui desktop archive manager.
 - **[`zarlib`](./doc/zarlib-developer-guide.md)** is the reusable archive
   format and operations library.
 - **[`zcopy`](./zcopy/README.md)** copies file trees between machines over the
@@ -18,11 +18,14 @@ request guidance.
 - **[`zarmcp`](./zarmcp/README.md)** provides local MCP tools for AI clients to
   inspect, read, and manage archives, with read-only and tool-allowlist modes.
 
+The Rust package names for `zarc` and `zarg` are `zarlib-cli` and
+`zarlib-gui`, respectively; the executable names remain unchanged.
+
 ## Choose your path
 
 - **New users:** [install](#installers-and-packages), then follow the
   [quick start](#quick-start) to create, inspect, update, restore, and verify an
-  archive. Prefer a desktop interface? See the [zarg guide](./zarg/README.md).
+  archive. Prefer a desktop interface? See the [zarg guide](./zarlib-gui/README.md).
 - **Developers:** start with the [Rust API quick start](#rust-api-quick-start),
   then explore the [bindings](#language-bindings-and-runtime-packages),
   [operation examples](./doc/zarlib-developer-guide.md#examples-matching-the-zarc-commands),
@@ -175,7 +178,7 @@ three commit IDs and the earlier `draft` and `old.txt` states from that range
 are no longer available through that archive. Joining can rewrite data and may
 reduce size, but does not guarantee a smaller archive. Commits outside a joined
 range remain in place. Keep a separate copy before joining if you need the
-individual historical states. See the [CLI guide](./zarc/README.md#append-remove-and-compact-commits)
+individual historical states. See the [CLI guide](./zarlib-cli/README.md#append-remove-and-compact-commits)
 for command details and encrypted-archive limitations.
 
 ## Benchmarks
@@ -289,8 +292,8 @@ cargo test --workspace
 Run the CLI directly from the workspace:
 
 ```sh
-cargo run --release -p zarc -- --help
-cargo run --release -p zarg
+cargo run --release -p zarlib-cli -- --help
+cargo run --release -p zarlib-gui
 cargo run --release -p zcopy -- --help
 ```
 
@@ -307,7 +310,7 @@ cargo build --release -p wasizarlib --target wasm32-wasip2
 Or install the executable into Cargo's binary directory:
 
 ```sh
-cargo install --path zarc
+cargo install --path zarlib-cli
 ```
 
 ## Installers and packages
@@ -332,7 +335,7 @@ See [packaging/README.md](./packaging/README.md) for prerequisites and options.
 ## Quick start
 
 Install `zarc` using an [installer or package](#installers-and-packages), or
-run `cargo install --path zarc` from a local checkout. The commands below use
+run `cargo install --path zarlib-cli` from a local checkout. The commands below use
 an unencrypted archive and existing input paths relative to your working
 directory; start with no `backup.zar` in that directory.
 
@@ -360,7 +363,7 @@ zarc extract backup.zar --to 00000001 --output ./restored-initial/
 deleted from disk. Use `zarc remove` for archive paths you want to delete.
 `info` shows the actual commit IDs; the first commit in this fresh example is
 `00000001`. Use `zarc <command> --help` for options and the
-[CLI guide](./zarc/README.md) for encryption, conversion, and other workflows.
+[CLI guide](./zarlib-cli/README.md) for encryption, conversion, and other workflows.
 
 ## Rust API quick start
 
@@ -440,10 +443,10 @@ mode is a one-way update, not a deletion-propagating mirror.
   view is complete.
 - **Restore encounters existing files or unexpected metadata:** use a separate
   destination, review `zarc extract --help`, and see the
-  [extraction options](./zarc/README.md#extract-files) and
+  [extraction options](./zarlib-cli/README.md#extract-files) and
   [limitations](#limitations).
 - **A command fails or reports warnings:** inspect its diagnostics and nonzero
-  exit status; see [CLI exit behavior](./zarc/README.md#exit-behavior). For
+  exit status; see [CLI exit behavior](./zarlib-cli/README.md#exit-behavior). For
   encrypted archives, also confirm the correct passwords and operation
   restrictions.
 

@@ -4,7 +4,7 @@ const path = require('node:path');
 const { test } = require('node:test');
 const { chromium } = require('playwright');
 
-const root = path.resolve(__dirname, '../zarg/assets');
+const root = path.resolve(__dirname, '../zarlib-gui/assets');
 
 test('flat icons match every source name and size and have transparent backgrounds', async () => {
   const browser = await chromium.launch({ headless: true });

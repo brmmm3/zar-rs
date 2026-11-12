@@ -35,7 +35,7 @@ need() {
 
 build_binaries() {
     if [ "${SKIP_BUILD:-0}" != 1 ]; then
-        (cd "$ROOT" && cargo build --release --locked --bins -p zarc -p zarg)
+        (cd "$ROOT" && cargo build --release --locked --bins -p zarlib-cli -p zarlib-gui)
     fi
     [ -x "$BIN_DIR/zarc" ] && [ -x "$BIN_DIR/zarg" ] \
         || { echo "error: zarc and zarg not found in $BIN_DIR" >&2; exit 1; }
@@ -47,14 +47,14 @@ stage_files() {
     rm -rf "$stage"
     install -Dm755 "$BIN_DIR/zarc" "$stage/usr/bin/zarc"
     install -Dm755 "$BIN_DIR/zarg" "$stage/usr/bin/zarg"
-    install -Dm644 "$ROOT/zarg/data/zarg.desktop" "$stage/usr/share/applications/zarg.desktop"
-    install -Dm644 "$ROOT/zarg/data/zarg-error.desktop" \
+    install -Dm644 "$ROOT/zarlib-gui/data/zarg.desktop" "$stage/usr/share/applications/zarg.desktop"
+    install -Dm644 "$ROOT/zarlib-gui/data/zarg-error.desktop" \
         "$stage/usr/share/applications/zarg-error.desktop"
-    install -Dm644 "$ROOT/zarg/assets/zarg-icon.png" \
+    install -Dm644 "$ROOT/zarlib-gui/assets/zarg-icon.png" \
         "$stage/usr/share/icons/hicolor/256x256/apps/zarg.png"
-    install -Dm644 "$ROOT/zarg/assets/zarg-error.png" \
+    install -Dm644 "$ROOT/zarlib-gui/assets/zarg-error.png" \
         "$stage/usr/share/icons/hicolor/64x64/apps/zarg-error.png"
-    install -Dm644 "$ROOT/zarg/assets/application-x-zar.png" \
+    install -Dm644 "$ROOT/zarlib-gui/assets/application-x-zar.png" \
         "$stage/usr/share/icons/hicolor/64x64/mimetypes/application-x-zar.png"
     install -Dm644 "$HERE/zarg-mime.xml" \
         "$stage/usr/share/mime/packages/zar-rs.xml"
@@ -175,8 +175,8 @@ build_appimage() {
     local appdir="$DIST/work/ZAR.AppDir"
     stage_files "$appdir" portable
     install -m755 "$HERE/AppRun" "$appdir/AppRun"
-    install -m644 "$ROOT/zarg/data/zarg.desktop" "$appdir/zarg.desktop"
-    install -m644 "$ROOT/zarg/assets/zarg-icon.png" "$appdir/zarg.png"
+    install -m644 "$ROOT/zarlib-gui/data/zarg.desktop" "$appdir/zarg.desktop"
+    install -m644 "$ROOT/zarlib-gui/assets/zarg-icon.png" "$appdir/zarg.png"
     mkdir -p "$DIST"
     ARCH="$(uname -m)" "$tool" "$appdir" "$DIST/ZAR-${VERSION}-$(uname -m).AppImage"
     echo "Created $DIST/ZAR-${VERSION}-$(uname -m).AppImage"

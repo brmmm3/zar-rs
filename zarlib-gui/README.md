@@ -1,6 +1,6 @@
 # `zarg` — ZAR Archive Manager
 
-`zarg` is the native egui graphical companion to [`zarc`](../zarc/README.md).
+`zarg` is the native egui graphical companion to [`zarc`](../zarlib-cli/README.md).
 It uses the same `zarlib` operations, so GUI-created archives use the same
 format and validation as archives created by the CLI.
 
@@ -9,10 +9,10 @@ format and validation as archives created by the CLI.
 From the workspace root:
 
 ```sh
-cargo run --release -p zarg
+cargo run --release -p zarlib-gui
 ```
 
-For a release build using mimalloc, run `cargo build --release -p zarg --features mimalloc`.
+For a release build using mimalloc, run `cargo build --release -p zarlib-gui --features mimalloc`.
 
 The installer file-manager actions use the same startup interface as
 `zarg --context ACTION -- PATH...`, where `ACTION` is `create`, `add`,
@@ -42,10 +42,10 @@ matching desktop entry to show the app icon in the dock or app switcher;
 install the launcher and icon with:
 
 ```sh
-install -Dm644 zarg/data/zarg.desktop ~/.local/share/applications/zarg.desktop
-install -Dm644 zarg/assets/zarg-icon.png ~/.local/share/icons/hicolor/256x256/apps/zarg.png
-install -Dm644 zarg/data/zarg-error.desktop ~/.local/share/applications/zarg-error.desktop
-install -Dm644 zarg/assets/zarg-error.png ~/.local/share/icons/hicolor/64x64/apps/zarg-error.png
+install -Dm644 zarlib-gui/data/zarg.desktop ~/.local/share/applications/zarg.desktop
+install -Dm644 zarlib-gui/assets/zarg-icon.png ~/.local/share/icons/hicolor/256x256/apps/zarg.png
+install -Dm644 zarlib-gui/data/zarg-error.desktop ~/.local/share/applications/zarg-error.desktop
+install -Dm644 zarlib-gui/assets/zarg-error.png ~/.local/share/icons/hicolor/64x64/apps/zarg-error.png
 ```
 
 The error dialog uses the `zarg-error` desktop identity so Wayland compositors

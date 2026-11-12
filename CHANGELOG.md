@@ -7,6 +7,8 @@ until a version is released.
 
 ### Changed
 
+- Renamed the CLI and GUI workspace packages to `zarlib-cli` and
+  `zarlib-gui`; their executables remain `zarc` and `zarg`.
 - Write and read only logical-header version 8. Archives containing earlier
   unreleased logical-header versions 0–7 are no longer supported.
 - Renamed the create/add `--dates` option to `--modification-time` (`--mt`)

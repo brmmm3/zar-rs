@@ -34,7 +34,7 @@ DefaultDirName={autopf}\ZAR
 DefaultGroupName=ZAR
 DisableProgramGroupPage=yes
 LicenseFile=..\..\LICENSE-MIT
-SetupIconFile=..\..\zarg\assets\zarg-icon.ico
+SetupIconFile=..\..\zarlib-gui\assets\zarg-icon.ico
 OutputDir=..\..\dist
 OutputBaseFilename=zar-rs-{#AppVersion}-windows-{#Arch}-setup
 Compression=lzma2
@@ -63,12 +63,12 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut for the archive ma
 Source: "{#SourceDir}\zarc.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\zarg.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\zcopy.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\zarg\assets\zarg-icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\zarlib-gui\assets\zarg-icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE-MIT"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE-APACHE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\zarc\README.md"; DestDir: "{app}"; DestName: "zarc-README.md"; Flags: ignoreversion
-Source: "..\..\zarg\README.md"; DestDir: "{app}"; DestName: "zarg-README.md"; Flags: ignoreversion
+Source: "..\..\zarlib-cli\README.md"; DestDir: "{app}"; DestName: "zarc-README.md"; Flags: ignoreversion
+Source: "..\..\zarlib-gui\README.md"; DestDir: "{app}"; DestName: "zarg-README.md"; Flags: ignoreversion
 Source: "..\..\zcopy\README.md"; DestDir: "{app}"; DestName: "zcopy-README.md"; Flags: ignoreversion
 
 [Icons]

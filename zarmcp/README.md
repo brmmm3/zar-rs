@@ -86,7 +86,7 @@ MCP tool errors. Create and add results include library warnings: inspect them
 because inputs can be skipped. All operations in a server process are
 serialized; this does not coordinate with other processes accessing an archive.
 `join`, recovery scanning, and other advanced operations remain available in
-the [CLI](../zarc/README.md), but are not exposed by this server.
+the [CLI](../zarlib-cli/README.md), but are not exposed by this server.
 
 `read_file` returns base64-encoded bytes, an offset, and the number of bytes
 returned. `size_limit` defaults to 1 MiB and cannot exceed 1 MiB. A full-sized
