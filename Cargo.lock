@@ -5965,6 +5965,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "zarlib-zcopy"
+version = "0.11.0"
+dependencies = [
+ "clap",
+ "getrandom 0.4.3",
+ "indicatif",
+ "mimalloc",
+ "scandir",
+ "serde",
+ "serde_json",
+ "zarlib",
+ "zstd",
+]
+
+[[package]]
 name = "zarmcp"
 version = "0.11.0"
 dependencies = [
@@ -6061,21 +6076,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "939f186d9ecebe044315a5cb6d6f78568bbc21152adc954d5a0c2f58bdbc9920"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "zcopy"
-version = "0.11.0"
-dependencies = [
- "clap",
- "getrandom 0.4.3",
- "indicatif",
- "mimalloc",
- "scandir",
- "serde",
- "serde_json",
- "zarlib",
- "zstd",
 ]
 
 [[package]]

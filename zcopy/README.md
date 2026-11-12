@@ -17,10 +17,11 @@ point-in-time backup system.
 Install a Rust toolchain supporting the 2024 edition. From the repository root:
 
 ```sh
-cargo build --release -p zcopy
+cargo build --release -p zarlib-zcopy
 ```
 
-The executable is `target/release/zcopy` (`zcopy.exe` on Windows). Alternatively,
+The package is named `zarlib-zcopy`; the executable remains
+`target/release/zcopy` (`zcopy.exe` on Windows). Alternatively,
 install it into Cargo's binary directory with `cargo install --path zcopy`.
 Install the executable on both machines and make the server's TCP port
 reachable from the client.
