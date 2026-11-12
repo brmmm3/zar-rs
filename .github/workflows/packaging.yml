@@ -58,7 +58,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: zar-rs-binaries-linux-x86_64
+          name: zar-rs-binaries-verified-linux-x86_64
           path: reused
           run-id: ${{ needs.find-reusable-ci-run.outputs.run_id }}
           github-token: ${{ github.token }}
@@ -98,10 +98,35 @@ jobs:
                 org.freedesktop.Sdk.Extension.rust-stable//26.08
               ;;
           esac
+      - name: Set Flatpak x86-64-v3 compiler flags
+        if: matrix.format == 'flatpak'
+        run: |
+          manifest=packaging/linux/io.github.brmmm3.Zarg.yml
+          if [[ $(grep -c '^    CARGO_HOME:' "$manifest") -ne 1 ]]; then
+            echo "Cannot locate the Flatpak build environment in $manifest" >&2
+            exit 1
+          fi
+          if grep -Eq '^    (RUSTFLAGS|CFLAGS|CXXFLAGS):' "$manifest"; then
+            echo "Flatpak manifest already defines compiler flags; review the v3 override" >&2
+            exit 1
+          fi
+          sed -i '/^    CARGO_HOME:/a\    RUSTFLAGS: "-C target-cpu=x86-64-v3"\n    CFLAGS: "-march=x86-64-v3"\n    CXXFLAGS: "-march=x86-64-v3"' "$manifest"
       - name: Build package
         env:
           FORMAT: ${{ matrix.format }}
-        run: packaging/linux/build-packages.sh "$FORMAT"
+          RUSTFLAGS: -C target-cpu=x86-64-v3
+          CFLAGS: -march=x86-64-v3
+          CXXFLAGS: -march=x86-64-v3
+        run: |
+          packaging/linux/build-packages.sh "$FORMAT"
+          shopt -s nullglob
+          packages=(dist/*.deb dist/*.rpm dist/*.AppImage dist/*.flatpak)
+          if [[ ${#packages[@]} -ne 1 ]]; then
+            echo "Expected exactly one $FORMAT package" >&2
+            exit 1
+          fi
+          package="${packages[0]}"
+          mv "$package" "${package%.*}-v3.${package##*.}"
       - name: Upload package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -141,7 +166,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: zar-rs-binaries-${{ matrix.binary_platform }}
+          name: zar-rs-binaries-verified-${{ matrix.binary_platform }}
           path: reused
           run-id: ${{ needs.find-reusable-ci-run.outputs.run_id }}
           github-token: ${{ github.token }}
@@ -155,9 +180,10 @@ jobs:
           $destination = Join-Path $PWD "reused/extracted"
           Expand-Archive -LiteralPath $archive -DestinationPath $destination
           $binaryDir = Join-Path $destination "zar-rs-$env:BINARY_PLATFORM"
-          if (!(Test-Path (Join-Path $binaryDir "zarc.exe")) -or
-              !(Test-Path (Join-Path $binaryDir "zarg.exe"))) {
-            throw "Downloaded binary archive is incomplete: $binaryDir"
+          foreach ($binary in @('zarc.exe', 'zarg.exe', 'zcopy.exe')) {
+            if (!(Test-Path (Join-Path $binaryDir $binary))) {
+              throw "Downloaded binary archive is missing $binary`: $binaryDir"
+            }
           }
           "BINARY_DIR=$binaryDir" >> $env:GITHUB_ENV
       - name: Install Rust toolchain
@@ -170,6 +196,7 @@ jobs:
         if: steps.reuse.outcome != 'success'
         env:
           TARGET: ${{ matrix.target }}
+          RUSTFLAGS: ${{ matrix.arch == 'x64' && '-C target-cpu=x86-64-v3' || '' }}
         run: |
           cargo build --release --bins --locked --target $env:TARGET
           "BINARY_DIR=$PWD/target/$env:TARGET/release" >> $env:GITHUB_ENV
@@ -186,11 +213,18 @@ jobs:
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           & $iscc "/DAppVersion=$version" "/DArch=$env:ARCH" "/DSourceDir=$env:BINARY_DIR" packaging\windows\zar-rs.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($env:ARCH -eq 'x64') {
+            $packages = @(Get-ChildItem 'dist/*-setup.exe')
+            if ($packages.Count -ne 1) { throw 'Expected exactly one Windows installer' }
+            Rename-Item $packages[0].FullName ($packages[0].BaseName + '-v3.exe')
+          }
       - name: Upload installer
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: package-windows-${{ matrix.arch }}
-          path: dist/*-setup.exe
+          path: |
+            dist/*-setup.exe
+            dist/*-setup-v3.exe
           if-no-files-found: error
 
   macos-packages:
@@ -221,7 +255,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: zar-rs-binaries-${{ matrix.binary_platform }}
+          name: zar-rs-binaries-verified-${{ matrix.binary_platform }}
           path: reused
           run-id: ${{ needs.find-reusable-ci-run.outputs.run_id }}
           github-token: ${{ github.token }}
@@ -240,7 +274,23 @@ jobs:
         with:
           toolchain: stable
       - name: Build packages
-        run: packaging/macos/build-packages.sh all
+        env:
+          ARCH: ${{ matrix.arch }}
+          RUSTFLAGS: ${{ matrix.arch == 'x86_64' && '-C target-cpu=x86-64-v3' || '' }}
+          CFLAGS: ${{ matrix.arch == 'x86_64' && '-march=x86-64-v3' || '' }}
+          CXXFLAGS: ${{ matrix.arch == 'x86_64' && '-march=x86-64-v3' || '' }}
+        run: |
+          packaging/macos/build-packages.sh all
+          if [[ "$ARCH" == x86_64 ]]; then
+            for extension in dmg pkg; do
+              set -- dist/*."$extension"
+              if [[ $# -ne 1 || ! -f "$1" ]]; then
+                echo "Expected exactly one .$extension package" >&2
+                exit 1
+              fi
+              mv "$1" "${1%.*}-v3.$extension"
+            done
+          fi
       - name: Upload packages
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

@@ -47,6 +47,9 @@ until a version is released.
 
 ### Fixed
 
+- Build x86-64 v3 release binaries and packages with explicit v3 CPU flags,
+  preserve the CPU target for static builds, and include `zcopy` in reusable
+  Windows binary archives. Distinguish v3 package filenames from v1 packages.
 - Small files are now packed together into configured-size blocks. Logical
   header version 8 records each packed file's offset, preserving extraction and
   join behavior.

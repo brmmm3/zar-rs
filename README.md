@@ -322,7 +322,7 @@ Two x86-64 release types are available:
 - **`x.y.z-v1`** targets the baseline x86-64 instruction set for older CPUs.
 
 See [x86-64 release compatibility](#x86-64-release-compatibility) for
-platform requirements and a caveat about the current `-v3` build flags.
+platform requirements and release details.
 
 The [packaging](./packaging) directory contains installer definitions for the
 `zarc` CLI and the `zarg` GUI. The Windows suite installer also includes
@@ -492,14 +492,12 @@ workflows run on pushes of tags matching `*.*.*-v3` and publish to the
 corresponding tagged release. They also run on non-`master` branch pushes and
 can be dispatched manually; CI additionally runs for pull requests.
 
-The `-v3` tag identifies a release workflow, not a verified CPU minimum for
-every asset. In particular, the normal binary job sets `RUSTFLAGS`, which
-overrides the repository's configured Rust flags. Check the effective build
-flags and platform requirements rather than assuming that the tag guarantees
-`x86-64-v3` code.
+The normal workflows explicitly select `x86-64-v3` for Rust builds and native
+C/C++ builds where applicable, including static binaries and Flatpak builds.
+The x86-64 installer package filenames end in `-v3` before the extension.
+ARM packages in that release are not affected by the x86-64 CPU target.
 
-For older x86-64 CPUs, the
-separate `x.y.z-v1` GitHub release contains baseline x86-64 CLI and GUI
+For older x86-64 CPUs, the separate `x.y.z-v1` GitHub release contains baseline x86-64 CLI and GUI
 binaries and Python wheels for Linux, macOS, and Windows. The Linux binaries
 include both GNU and static musl builds. These artifacts are built from the
 same commit as the `x.y.z` tag, using Rust's `x86-64` baseline CPU target.

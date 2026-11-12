@@ -633,6 +633,15 @@ class RunnerTests(unittest.TestCase):
                     "linux-x86_64", "x86_64-unknown-linux-gnu", False, False
                 )
             build.assert_called_once()
+            self.assertEqual(
+                build.call_args.kwargs["env"]["RUSTFLAGS"], "-C target-cpu=x86-64-v3"
+            )
+            self.assertEqual(
+                build.call_args.kwargs["env"]["CFLAGS"], "-march=x86-64-v3"
+            )
+            self.assertEqual(
+                build.call_args.kwargs["env"]["CXXFLAGS"], "-march=x86-64-v3"
+            )
             artifact = root / "dist/zar-rs-linux-x86_64.tar.gz"
             with tarfile.open(artifact) as archive:
                 self.assertEqual(
@@ -650,6 +659,71 @@ class RunnerTests(unittest.TestCase):
                 self.assertEqual(
                     archive.extractfile("zar-rs-linux-x86_64/zcopy").read(), b"copy"
                 )
+
+    def test_static_binary_preserves_x86_cpu_target(self):
+        with (
+            mock.patch.object(run_ci, "require"),
+            mock.patch.object(run_ci, "command") as build,
+            mock.patch.object(run_ci, "copy_required"),
+            mock.patch.object(run_ci, "archive_directory"),
+        ):
+            run_ci.binaries(
+                "linux-x86_64-static", "x86_64-unknown-linux-musl", True, False
+            )
+        env = build.call_args.kwargs["env"]
+        self.assertEqual(
+            env["RUSTFLAGS"], "-C target-cpu=x86-64-v3 -C target-feature=+crt-static"
+        )
+        self.assertEqual(env["CFLAGS"], "-march=x86-64-v3")
+        self.assertEqual(env["CXXFLAGS"], "-march=x86-64-v3")
+        self.assertEqual(env["CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER"], "musl-gcc")
+
+    def test_x86_wheel_build_uses_v3_compiler_flags(self):
+        def build_wheel(args, **kwargs):
+            self.assertEqual(kwargs["cwd"], run_ci.ROOT / "pyzarlib")
+            (Path(args[4]) / "test.whl").touch()
+
+        with (
+            mock.patch.object(run_ci, "require", return_value="maturin"),
+            mock.patch.object(run_ci, "find_python", return_value="python"),
+            mock.patch.object(run_ci, "WHEEL_VERSIONS", ("3.11",)),
+            mock.patch.object(run_ci, "host_arch", return_value="x86_64"),
+            mock.patch.object(run_ci.platform, "system", return_value="Linux"),
+            mock.patch.object(run_ci, "command", side_effect=build_wheel) as build,
+            mock.patch.object(run_ci, "copy_required"),
+        ):
+            run_ci.wheels({})
+        env = build.call_args.kwargs["env"]
+        self.assertEqual(env["RUSTFLAGS"], "-C target-cpu=x86-64-v3")
+        self.assertEqual(env["CFLAGS"], "-march=x86-64-v3")
+        self.assertEqual(env["CXXFLAGS"], "-march=x86-64-v3")
+
+    def test_wheel_flags_do_not_apply_unix_x86_options_to_other_targets(self):
+        def build_wheel(args, **kwargs):
+            self.assertEqual(kwargs["cwd"], run_ci.ROOT / "pyzarlib")
+            (Path(args[4]) / "test.whl").touch()
+
+        for system, arch, rustflags in (
+            ("Linux", "aarch64", None),
+            ("Windows", "aarch64", None),
+            ("Windows", "x86_64", "-C target-cpu=x86-64-v3"),
+        ):
+            with (
+                self.subTest(system=system, arch=arch),
+                mock.patch.dict(run_ci.os.environ, {}, clear=True),
+                mock.patch.object(run_ci, "require", return_value="maturin"),
+                mock.patch.object(run_ci, "find_python", return_value="python"),
+                mock.patch.object(run_ci, "WHEEL_VERSIONS", ("3.11",)),
+                mock.patch.object(run_ci, "host_arch", return_value=arch),
+                mock.patch.object(run_ci.platform, "system", return_value=system),
+                mock.patch.object(run_ci, "command", side_effect=build_wheel) as build,
+                mock.patch.object(run_ci, "copy_required"),
+            ):
+                run_ci.wheels({})
+            env = build.call_args.kwargs["env"]
+            self.assertEqual(env.get("RUSTFLAGS"), rustflags)
+            self.assertNotIn("CFLAGS", env)
+            self.assertNotIn("CXXFLAGS", env)
 
     def test_windows_cross_binary_uses_xwin_and_packages_executables(self):
         with tempfile.TemporaryDirectory() as temp:

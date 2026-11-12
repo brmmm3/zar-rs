@@ -14,13 +14,12 @@ them to a release.
 The normal workflows attempt to reuse binaries from the latest successful CI
 run on `master` for the exact commit when those artifacts are still retained.
 If no matching artifact is available, they build from source. Flatpak
-continues to build inside its Freedesktop SDK. The normal CI binary job sets
-`RUSTFLAGS`, overriding the repository's configured CPU flags; the `-v3`
-release tag alone does not verify the CPU features of its binaries.
-
-The reusable Windows CI archives contain `zarc.exe` and `zarg.exe`, but the
-Inno installer also requires `zcopy.exe`. Reusing those archives leaves the
-installer build without that file; a source build supplies all three binaries.
+continues to build inside its Freedesktop SDK. x86-64 builds explicitly use
+the v3 CPU target for Rust and native C/C++ code where applicable; static
+builds retain that target. The workflow reuses only artifacts produced with
+these settings, and the Windows archives contain all three installer
+executables. x86-64 package filenames carry a `-v3` suffix; ARM packages
+retain their usual names.
 
 The separate `x.y.z-v1` release includes baseline x86-64 packages built by
 `.github/workflows/packaging-v1.yml`. It reuses only the matching v1 release
@@ -30,7 +29,10 @@ sets baseline compiler flags inside the Flatpak SDK. Package filenames carry a
 library, and Flatpak runtime requirements still apply. The workflow runs after
 the v1 release workflow or can be dispatched manually with its source tag.
 The source `x.y.z` and normal `x.y.z-v3` tags are independent; point them at
-the same commit when both releases should use the same source.
+the same commit when both releases should use the same source. The v1 and v3
+packages use the same internal package version and identity, so they replace
+one another rather than installing side by side. These workflow changes do
+not rebuild assets already published in older releases.
 
 ## Windows (Inno Setup)
 
@@ -95,8 +97,8 @@ Install a local manifest, for example:
 scoop install .\packaging\windows\scoop\zarg.json
 ```
 
-The `zarc` and `zarg` manifests use the release ZIPs. Since those ZIPs do
-not contain `zcopy`, its manifest extracts the suite installer with Scoop's
+The `zarc` and `zarg` manifests use the 0.11.0 release ZIPs. Since those ZIPs
+do not contain `zcopy`, its manifest extracts the suite installer with Scoop's
 Inno Setup helper and exposes only `zcopy` as a command. Scoop's portable
 packages do not register Explorer integration. Run `scoop update` if stale
 bucket metadata causes the helper's checksum verification to fail. The Scoop

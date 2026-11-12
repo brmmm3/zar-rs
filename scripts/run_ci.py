@@ -938,9 +938,18 @@ def binaries(
     cross_windows: bool = False,
 ) -> None:
     env = os.environ.copy()
+    if target.startswith("x86_64-"):
+        env["RUSTFLAGS"] = "-C target-cpu=x86-64-v3"
+        if not (windows or cross_windows):
+            env["CFLAGS"] = "-march=x86-64-v3"
+            env["CXXFLAGS"] = "-march=x86-64-v3"
     if static:
         require("musl-gcc")
-        env["RUSTFLAGS"] = "-C target-feature=+crt-static"
+        env["RUSTFLAGS"] = (
+            "-C target-cpu=x86-64-v3 -C target-feature=+crt-static"
+            if target.startswith("x86_64-")
+            else "-C target-feature=+crt-static"
+        )
         env[f"CARGO_TARGET_{target.upper().replace('-', '_')}_LINKER"] = "musl-gcc"
     if cross_windows:
         ensure_windows_cross_toolchain(target)
@@ -1001,11 +1010,18 @@ def windows_nuget(arch: str, target: str) -> None:
 def wheels(overrides: dict[str, str]) -> None:
     maturin = require("maturin")
     interpreters = [find_python(version, overrides) for version in WHEEL_VERSIONS]
+    env = os.environ.copy()
+    if host_arch() == "x86_64":
+        env["RUSTFLAGS"] = "-C target-cpu=x86-64-v3"
+        if platform.system() != "Windows":
+            env["CFLAGS"] = "-march=x86-64-v3"
+            env["CXXFLAGS"] = "-march=x86-64-v3"
     with tempfile.TemporaryDirectory(prefix="zar-ci-wheels-") as temp:
         command(
             [maturin, "build", "--release", "--out", temp, "--interpreter"]
             + interpreters,
             cwd=ROOT / "pyzarlib",
+            env=env,
         )
         files = list(Path(temp).glob("*.whl"))
         if len(files) < len(WHEEL_VERSIONS):
