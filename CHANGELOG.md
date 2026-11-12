@@ -3,7 +3,7 @@
 Notable changes to ZAR are recorded here. Entries remain under **Unreleased**
 until a version is released.
 
-## Unreleased
+## 0.11.0 - 2026-11-12
 
 ### Changed
 

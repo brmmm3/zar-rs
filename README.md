@@ -230,11 +230,6 @@ throughput, verification limitations, tool settings, and methodology.
   it. Access times can change as files or directories are read and depend on
   filesystem policies. Archive extraction does not restore these timestamps. `zcopy` transfers and
   restores file modification times separately in its unpack mode.
-- Only logical-header version 8 is supported. Archives created by unreleased
-  versions that used logical-header versions 0–7 cannot be interpreted by
-  current readers; all new commits use version 8.
-  The unreleased version 8 entry-metadata layout has changed: archives written
-  with its earlier layout may not be readable when they contain entry metadata.
 - `zarc add` can use passwords for existing encrypted commits. The CLI
   `remove` and `join` commands do not accept those passwords: `remove` cannot
   operate when encrypted commits need passwords, and `join` skips locked
@@ -411,11 +406,8 @@ explains algorithms, scopes, and per-commit passwords. For the actual encoding
 and validation behavior, follow the linked implementation files in the format
 document and the [framing APIs](./doc/zarlib-developer-guide.md#framing-and-validation-apis).
 
-Only logical-header version 8 is supported; versions 0–7 are rejected when
-decoded. Earlier unreleased version 8 archives with entry metadata may also be
-incompatible because that layout changed. Locked headers cannot be
-version-checked until decrypted. See [limitations](#limitations) and the
-[header format](./doc/zar-file-format.md#header-frame) for details.
+Locked headers cannot be version-checked until decrypted. See [limitations](#limitations)
+and the [header format](./doc/zar-file-format.md#header-frame) for details.
 
 ## Backup and restore operations
 
