@@ -1,0 +1,18 @@
+{
+    "version": "0.11.0",
+    "description": "Copy directory trees over TCP using ZAR compression.",
+    "homepage": "https://github.com/brmmm3/zar-rs",
+    "license": "MIT OR Apache-2.0",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/brmmm3/zar-rs/releases/download/0.11.0/zar-rs-0.11.0-windows-x64-setup.exe",
+            "hash": "96f1159d7ec3d70d4760e9bed7247f2e5844aa0ed71aa3b87d0a1999cec0e001"
+        },
+        "arm64": {
+            "url": "https://github.com/brmmm3/zar-rs/releases/download/0.11.0/zar-rs-0.11.0-windows-arm64-setup.exe",
+            "hash": "1f1542dcadd9e13cd0bab07599fc6304a6989e677568c3b2428e936d6a08d4ed"
+        }
+    },
+    "innosetup": true,
+    "bin": "zcopy.exe"
+}

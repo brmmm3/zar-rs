@@ -1,0 +1,15 @@
+PackageIdentifier: Brmmm3.Zcopy
+PackageVersion: 0.11.0
+PackageLocale: en-US
+Publisher: The ZAR contributors
+PublisherUrl: https://github.com/brmmm3
+PublisherSupportUrl: https://github.com/brmmm3/zar-rs/issues
+PackageName: zcopy
+PackageUrl: https://github.com/brmmm3/zar-rs
+License: MIT OR Apache-2.0
+LicenseUrl: https://github.com/brmmm3/zar-rs/blob/0.11.0/LICENSE-MIT
+ShortDescription: Copy directory trees over TCP using ZAR compression.
+Description: zcopy transfers directory trees between machines. This package installs the complete ZAR suite, including zarc and zarg.
+ReleaseNotesUrl: https://github.com/brmmm3/zar-rs/releases/tag/0.11.0
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

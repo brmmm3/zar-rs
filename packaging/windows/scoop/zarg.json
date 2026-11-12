@@ -1,0 +1,20 @@
+{
+    "version": "0.11.0",
+    "description": "Graphical ZAR archive manager.",
+    "homepage": "https://github.com/brmmm3/zar-rs",
+    "license": "MIT OR Apache-2.0",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/brmmm3/zar-rs/releases/download/0.11.0/zar-rs-windows-x86_64.zip",
+            "hash": "c2d74d1e17a129a928789bbb0c63b12bf04c9b57a65651f82a968c57e0412776",
+            "extract_dir": "zar-rs-windows-x86_64"
+        },
+        "arm64": {
+            "url": "https://github.com/brmmm3/zar-rs/releases/download/0.11.0/zar-rs-windows-aarch64.zip",
+            "hash": "fe6c910a88631d952d8484c0cac55c72b8562da229f5abfb2913eb4a5877350a",
+            "extract_dir": "zar-rs-windows-aarch64"
+        }
+    },
+    "bin": "zarg.exe",
+    "shortcuts": [["zarg.exe", "ZAR Archive Manager"]]
+}

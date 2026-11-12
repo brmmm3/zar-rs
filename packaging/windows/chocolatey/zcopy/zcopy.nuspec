@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>zcopy</id>
+    <version>0.11.0</version>
+    <title>zcopy</title>
+    <authors>The ZAR contributors</authors>
+    <owners>brmmm3</owners>
+    <projectUrl>https://github.com/brmmm3/zar-rs</projectUrl>
+    <licenseUrl>https://github.com/brmmm3/zar-rs/blob/0.11.0/LICENSE-MIT</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>Copy directory trees over TCP using ZAR compression. This package installs the complete machine-wide ZAR suite, including zarc and zarg.</description>
+    <tags>zcopy zar file-transfer compression</tags>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

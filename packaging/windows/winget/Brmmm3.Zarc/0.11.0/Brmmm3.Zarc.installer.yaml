@@ -1,0 +1,19 @@
+PackageIdentifier: Brmmm3.Zarc
+PackageVersion: 0.11.0
+InstallerType: zip
+NestedInstallerType: portable
+Installers:
+- Architecture: x64
+  NestedInstallerFiles:
+  - RelativeFilePath: zar-rs-windows-x86_64\zarc.exe
+    PortableCommandAlias: zarc
+  InstallerUrl: https://github.com/brmmm3/zar-rs/releases/download/0.11.0/zar-rs-windows-x86_64.zip
+  InstallerSha256: C2D74D1E17A129A928789BBB0C63B12BF04C9B57A65651F82A968C57E0412776
+- Architecture: arm64
+  NestedInstallerFiles:
+  - RelativeFilePath: zar-rs-windows-aarch64\zarc.exe
+    PortableCommandAlias: zarc
+  InstallerUrl: https://github.com/brmmm3/zar-rs/releases/download/0.11.0/zar-rs-windows-aarch64.zip
+  InstallerSha256: FE6C910A88631D952D8484C0CAC55C72B8562DA229F5ABFB2913EB4A5877350A
+ManifestType: installer
+ManifestVersion: 1.6.0

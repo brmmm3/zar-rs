@@ -1,0 +1,16 @@
+PackageIdentifier: Brmmm3.Zcopy
+PackageVersion: 0.11.0
+InstallerType: inno
+Scope: machine
+ProductCode: '{6F0B7A5C-3E57-4D5E-9B0A-5A1D6E2F7C11}_is1'
+InstallerSwitches:
+  Custom: /TASKS=addtopath
+Installers:
+- Architecture: x64
+  InstallerUrl: https://github.com/brmmm3/zar-rs/releases/download/0.11.0/zar-rs-0.11.0-windows-x64-setup.exe
+  InstallerSha256: 96F1159D7EC3D70D4760E9BED7247F2E5844AA0ED71AA3B87D0A1999CEC0E001
+- Architecture: arm64
+  InstallerUrl: https://github.com/brmmm3/zar-rs/releases/download/0.11.0/zar-rs-0.11.0-windows-arm64-setup.exe
+  InstallerSha256: 1F1542DCADD9E13CD0BAB07599FC6304A6989E677568C3B2428E936D6A08D4ED
+ManifestType: installer
+ManifestVersion: 1.6.0
