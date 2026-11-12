@@ -800,22 +800,10 @@ fn pipeline_groups_empty_tiny_small_and_big_files_properly() {
         Some(crate::TocEntry::File(file)) => file.block_indices[0],
         _ => panic!("missing tiny1 entry"),
     };
-    let small_block_index = match toc.get(&crate::ArchivePath::new("small.bin").unwrap()) {
-        Some(crate::TocEntry::File(file)) => file.block_indices[0],
-        _ => panic!("missing small entry"),
-    };
     assert_eq!(
         blocks
             .iter()
             .find(|block| block.index == tiny_block_index)
-            .unwrap()
-            .file_count,
-        2
-    );
-    assert_eq!(
-        blocks
-            .iter()
-            .find(|block| block.index == small_block_index)
             .unwrap()
             .file_count,
         2
@@ -868,6 +856,23 @@ fn pipeline_groups_empty_tiny_small_and_big_files_properly() {
         .map(|entry| entry.block_indices[0])
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(small_block_indices.len(), 2);
+    assert_ne!(small_entry.block_indices, small3_entry.block_indices);
+    assert!(
+        small2_entry.block_indices == small_entry.block_indices
+            || small2_entry.block_indices == small3_entry.block_indices
+    );
+    for block_index in small_block_indices {
+        let expected_count = [&small_entry, &small2_entry, &small3_entry]
+            .into_iter()
+            .filter(|entry| entry.block_indices[0] == block_index)
+            .count() as u64;
+        let block = blocks
+            .iter()
+            .find(|block| block.index == block_index)
+            .unwrap();
+        assert_eq!(block.file_count, expected_count);
+        assert!(block.file_groups.contains(&"small files"));
+    }
 
     let big_entry = match toc.get(&crate::ArchivePath::new("big.bin").unwrap()) {
         Some(crate::TocEntry::File(f)) => f.clone(),

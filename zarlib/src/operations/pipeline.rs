@@ -1950,9 +1950,51 @@ fn open_input_file(
 
 #[cfg(test)]
 mod tests {
-    use super::{TreeEntry, TreeEntryKind, archive_prefix, skip_permission_denied_file};
+    use super::{
+        SmallFilePacker, TreeEntry, TreeEntryKind, archive_prefix, skip_permission_denied_file,
+    };
     use std::path::Path;
     use std::sync::Mutex;
+
+    #[test]
+    fn small_file_packing_accepts_all_reader_completion_orders() {
+        let contents = [
+            b"hello small world".as_slice(),
+            b"second 99".as_slice(),
+            b"another small one".as_slice(),
+        ];
+        let mut first_file_paired = [false; 2];
+        for order in [
+            [0, 1, 2],
+            [0, 2, 1],
+            [1, 0, 2],
+            [1, 2, 0],
+            [2, 0, 1],
+            [2, 1, 0],
+        ] {
+            let mut packer = SmallFilePacker::new(32);
+            let mut next_index = 0;
+            let mut indices = [0; 3];
+            let mut blocks = Vec::new();
+            for file in order {
+                let (index, _, completed) = packer
+                    .add(contents[file].to_vec(), file as u64, false, || {
+                        let index = next_index;
+                        next_index += 1;
+                        Ok(index)
+                    })
+                    .unwrap();
+                indices[file] = index;
+                blocks.extend(completed);
+            }
+            blocks.extend(packer.take_block().unwrap());
+            assert_eq!(blocks.len(), 2);
+            assert_ne!(indices[0], indices[2]);
+            assert!(indices[1] == indices[0] || indices[1] == indices[2]);
+            first_file_paired[usize::from(indices[0] == indices[1])] = true;
+        }
+        assert_eq!(first_file_paired, [true, true]);
+    }
 
     #[test]
     fn absolute_paths_outside_working_directory_use_the_basename() {
