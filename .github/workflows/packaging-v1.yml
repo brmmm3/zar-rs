@@ -1,10 +1,18 @@
 name: x86-64-v1 packaging
 
 on:
-  push:
-    tags:
-      - '[0-9]*\.[0-9]*\.[0-9]*-v1'
+  workflow_call:
+    inputs:
+      tag:
+        description: Stable source tag (x.y.z)
+        required: true
+        type: string
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Stable source tag (x.y.z) with an existing v1 release
+        required: true
+        type: string
 
 permissions:
   contents: read
