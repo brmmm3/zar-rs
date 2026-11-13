@@ -2,22 +2,20 @@ name: x86-64-v1 release
 
 on:
   push:
+    branches-ignore:
+      - master
     tags:
-      - '[0-9]*.[0-9]*.[0-9]*'
-      - '!*-*'
+      - '[0-9]*.[0-9]*.[0-9]*-v1'
+      - '!*-v3'
+  pull_request:
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Existing source release tag (x.y.z)"
-        required: true
-        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ inputs.tag || github.ref_name }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
 
 jobs:
   prepare:
@@ -31,15 +29,15 @@ jobs:
       - name: Validate tag name
         id: validate
         env:
-          SOURCE_TAG: ${{ inputs.tag || github.ref_name }}
+          SOURCE_TAG: ${{ github.ref_name }}
         shell: bash
         run: |
-          if [[ ! "$SOURCE_TAG" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "Source tag must be a stable x.y.z version" >&2
+          if [[ ! "$SOURCE_TAG" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-v1$ ]]; then
+            echo "Source tag must be a stable x.y.z-v1 version" >&2
             exit 1
           fi
           echo "tag=$SOURCE_TAG" >> "$GITHUB_OUTPUT"
-          echo "release_tag=$SOURCE_TAG-v1" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$SOURCE_TAG" >> "$GITHUB_OUTPUT"
       - name: Checkout source tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -53,8 +51,8 @@ jobs:
         run: |
           workspace_version=$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p}' Cargo.toml)
           python_version=$(sed -n '/^\[project\]/,/^\[/{s/^version = "\(.*\)"/\1/p}' pyzarlib/pyproject.toml)
-          if [[ "$SOURCE_TAG" != "$workspace_version" || "$SOURCE_TAG" != "$python_version" ]]; then
-            echo "Tag $SOURCE_TAG must match workspace ($workspace_version) and Python ($python_version) versions" >&2
+          if [[ "$SOURCE_TAG" != "$workspace_version-v1" || "$SOURCE_TAG" != "$python_version-v1" ]]; then
+            echo "Tag $SOURCE_TAG must match workspace ($workspace_version) and Python ($python_version) versions with -v1 suffix" >&2
             exit 1
           fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"

@@ -5,7 +5,7 @@ on:
     branches-ignore:
       - master
     tags:
-      - '*.*.*-v3'
+      - '[0-9]*\.[0-9]*\.[0-9]*-v3'
       - '!*-v1'
   pull_request:
   workflow_dispatch:
