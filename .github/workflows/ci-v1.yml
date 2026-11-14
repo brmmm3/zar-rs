@@ -1,9 +1,12 @@
 name: x86-64-v1 release
 
 on:
-  push:
-    tags:
-      - '[0-9]*\.[0-9]*\.[0-9]*-v1'
+  workflow_call:
+    inputs:
+      tag:
+        description: "Existing source release tag (x.y.z)"
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       tag:
@@ -24,13 +27,12 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.validate.outputs.tag }}
-      release_tag: ${{ steps.validate.outputs.release_tag }}
       sha: ${{ steps.commit.outputs.sha }}
     steps:
       - name: Validate tag name
         id: validate
         env:
-          SOURCE_TAG: ${{ inputs.tag || github.ref_name }}
+          SOURCE_TAG: ${{ inputs.tag }}
         shell: bash
         run: |
           if [[ ! "$SOURCE_TAG" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
@@ -38,7 +40,6 @@ jobs:
             exit 1
           fi
           echo "tag=$SOURCE_TAG" >> "$GITHUB_OUTPUT"
-          echo "release_tag=$SOURCE_TAG-v1" >> "$GITHUB_OUTPUT"
       - name: Checkout source tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -48,6 +49,7 @@ jobs:
         id: commit
         env:
           SOURCE_TAG: ${{ steps.validate.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           workspace_version=$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p}' Cargo.toml)
@@ -56,6 +58,7 @@ jobs:
             echo "Tag $SOURCE_TAG must match workspace ($workspace_version) and Python ($python_version) versions" >&2
             exit 1
           fi
+          gh release view "$SOURCE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   binaries:
@@ -139,7 +142,7 @@ jobs:
       - name: Upload binary archive
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
         with:
-          name: v1-binaries-${{ matrix.platform.name }}
+          name: binaries-${{ matrix.platform.name }}-v1
           path: dist/zar-rs-${{ matrix.platform.name }}-v1.*
           if-no-files-found: error
 
@@ -188,49 +191,43 @@ jobs:
         run: |
           python -m pip install --no-deps pyzarlib/dist/*cp311*.whl
           python -c "import pyzarlib; print(pyzarlib.__file__)"
+      - name: Package baseline wheels
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform.name }}
+        run: |
+          cd pyzarlib/dist
+          shopt -s nullglob
+          wheels=(./*.whl)
+          if [[ ${#wheels[@]} -lt 5 ]]; then
+            echo "Expected at least five wheels for $PLATFORM, found ${#wheels[@]}" >&2
+            exit 1
+          fi
+          python -m zipfile -c "pyzarlib-wheels-$PLATFORM-v1.zip" "${wheels[@]}"
       - name: Upload wheel artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
         with:
-          name: v1-wheels-${{ matrix.platform.name }}
-          path: pyzarlib/dist/*.whl
+          name: wheels-${{ matrix.platform.name }}-v1
+          path: pyzarlib/dist/*-v1.zip
           if-no-files-found: error
 
   publish:
-    name: Publish baseline release
+    name: Attach baseline assets to release
     needs: [prepare, binaries, wheels]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Checkout source and existing tags
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.prepare.outputs.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Verify existing release tag
-        env:
-          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
-          SOURCE_SHA: ${{ needs.prepare.outputs.sha }}
-        shell: bash
-        run: |
-          if git rev-parse --verify --quiet "refs/tags/$RELEASE_TAG^{commit}" >/dev/null; then
-            existing_sha=$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")
-            if [[ "$existing_sha" != "$SOURCE_SHA" ]]; then
-              echo "Existing tag $RELEASE_TAG points to a different commit" >&2
-              exit 1
-            fi
-          fi
       - name: Download binary archives
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: v1-binaries-*
+          pattern: binaries-*-v1
           path: dist
           merge-multiple: true
       - name: Download wheels
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: v1-wheels-*
+          pattern: wheels-*-v1
           path: dist
           merge-multiple: true
       - name: Check release assets
@@ -238,24 +235,16 @@ jobs:
         run: |
           shopt -s nullglob
           binaries=(dist/zar-rs-*-v1.tar.gz dist/zar-rs-*-v1.zip)
-          wheels=(dist/*.whl)
-          [[ ${#binaries[@]} -eq 4 && ${#wheels[@]} -ge 15 ]]
-      - name: Publish GitHub release
+          wheels=(dist/pyzarlib-wheels-*-v1.zip)
+          [[ ${#binaries[@]} -eq 4 && ${#wheels[@]} -eq 3 ]]
+      - name: Upload GitHub release assets
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
-          SOURCE_TAG: ${{ needs.prepare.outputs.tag }}
-          SOURCE_SHA: ${{ needs.prepare.outputs.sha }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         shell: bash
         run: |
-          notes="x86-64 baseline (v1) binaries and Python wheels built from $SOURCE_TAG. Wheel filenames use standard platform tags and do not encode the CPU level."
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null; then
-            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --latest=false
-            gh release upload "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
-          else
-            gh release create "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" \
-              --target "$SOURCE_SHA" --title "$RELEASE_TAG" --notes "$notes" --latest=false
-          fi
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+          gh release upload "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
 
   packages:
     name: Package baseline release
