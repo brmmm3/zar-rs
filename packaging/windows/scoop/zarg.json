@@ -1,5 +1,5 @@
 {
-    "version": "0.11.0",
+    "version": "0.12.0",
     "description": "Graphical ZAR archive manager.",
     "homepage": "https://github.com/brmmm3/zar-rs",
     "license": "MIT OR Apache-2.0",
@@ -16,5 +16,10 @@
         }
     },
     "bin": "zarg.exe",
-    "shortcuts": [["zarg.exe", "ZAR Archive Manager"]]
+    "shortcuts": [
+        [
+            "zarg.exe",
+            "ZAR Archive Manager"
+        ]
+    ]
 }

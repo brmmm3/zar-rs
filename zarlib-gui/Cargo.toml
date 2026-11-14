@@ -39,7 +39,7 @@ regex = { version = "1.13.1", default-features = false, features = [
 dirs = "7"
 rfd = { version = "0.18", default-features = false, features = ["xdg-portal"] }
 tempfile = "3"
-zarlib = { version = "0.11.0", path = "../zarlib" }
+zarlib = { version = "0.12.0", path = "../zarlib" }
 
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
 drag = "2.1.1"

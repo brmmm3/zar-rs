@@ -1,5 +1,5 @@
 {
-    "version": "0.11.0",
+    "version": "0.12.0",
     "description": "Copy directory trees over TCP using ZAR compression.",
     "homepage": "https://github.com/brmmm3/zar-rs",
     "license": "MIT OR Apache-2.0",
