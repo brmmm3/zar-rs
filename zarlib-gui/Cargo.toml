@@ -41,6 +41,14 @@ rfd = { version = "0.18", default-features = false, features = ["xdg-portal"] }
 tempfile = "3"
 zarlib = { version = "0.11.0", path = "../zarlib" }
 
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+drag = "2.1.1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+raw-window-handle = "0.6"
+url = "2"
+wayland-client = { version = "0.31", features = ["system"] }
+
 [target.'cfg(windows)'.dependencies]
 mimalloc = { version = "0.1", default-features = false, features = [
     "win_direct_tls",

@@ -1,5 +1,6 @@
-use crate::{Toc, TocChange, TocEntry};
+use crate::{ArchivePath, Toc, TocChange, TocEntry};
 use globset::{GlobBuilder, GlobMatcher};
+use std::collections::BTreeSet;
 use std::io::BufRead;
 use std::path::Path;
 
@@ -19,6 +20,7 @@ struct FilterRule {
 #[derive(Default)]
 pub struct FilterSet {
     rules: Vec<FilterRule>,
+    selected_paths: Option<BTreeSet<ArchivePath>>,
 }
 
 impl FilterSet {
@@ -109,7 +111,20 @@ impl FilterSet {
         Ok(())
     }
 
+    /// Restrict matches to these exact archive paths and their descendants.
+    ///
+    /// This restriction intersects with the existing include and exclude rules.
+    pub fn restrict_to_paths(&mut self, paths: impl IntoIterator<Item = ArchivePath>) {
+        self.selected_paths = Some(paths.into_iter().collect());
+    }
+
     pub fn includes(&self, path: &str, is_directory: bool) -> bool {
+        if self.selected_paths.as_ref().is_some_and(|selected| {
+            !selected.contains(path)
+                && !path_ancestors(path).any(|ancestor| selected.contains(ancestor))
+        }) {
+            return false;
+        }
         if self.rules.is_empty() {
             return true;
         }
@@ -239,6 +254,33 @@ mod tests {
         assert!(!filters.includes("docs/private/key.txt", false));
         assert!(!filters.includes("image.png", false));
         assert!(filters.includes("docs", true));
+    }
+
+    #[test]
+    fn selected_paths_intersect_filters_and_match_whole_components() {
+        let mut filters = FilterSet::from_patterns(
+            &["*.txt".to_owned()],
+            &["*/skip.txt".to_owned()],
+            &[],
+            &[],
+            &[] as &[&Path],
+        )
+        .unwrap();
+        filters.restrict_to_paths(
+            ["docs/[selected]", "exact?.txt"]
+                .into_iter()
+                .map(|path| ArchivePath::new(path).unwrap()),
+        );
+
+        assert!(filters.includes("docs/[selected]/child/keep.txt", false));
+        assert!(filters.includes("exact?.txt", false));
+        assert!(!filters.includes("exact1.txt", false));
+        assert!(!filters.includes("docs/[selected]2/keep.txt", false));
+        assert!(!filters.includes("docs/[selected]/skip.txt", false));
+        assert!(!filters.includes("docs/[selected]/other.bin", false));
+
+        filters.restrict_to_paths([]);
+        assert!(!filters.includes("exact?.txt", false));
     }
 
     #[test]

@@ -4,6 +4,8 @@ mod password_store;
 mod settings;
 mod theme;
 mod ui;
+#[cfg(target_os = "linux")]
+mod wayland_drag;
 
 use std::ffi::OsString;
 use std::path::PathBuf;

@@ -1555,6 +1555,251 @@ fn commit_selector_tracks_history_and_archive_changes() {
 }
 
 #[test]
+fn extract_selected_items_snapshots_selection_and_preserves_filters() {
+    let directory = tempfile::tempdir().unwrap();
+    let input = directory.path().join("input");
+    let selected = input.join("[selected]");
+    std::fs::create_dir_all(selected.join("nested/empty")).unwrap();
+    std::fs::create_dir_all(input.join("[selected]2")).unwrap();
+    std::fs::write(selected.join("nested/keep.txt"), b"keep").unwrap();
+    std::fs::write(selected.join("skip.txt"), b"skip").unwrap();
+    std::fs::write(input.join("[selected]2/leak.txt"), b"leak").unwrap();
+    std::fs::write(input.join("file?.txt"), b"literal").unwrap();
+    std::fs::write(input.join("file1.txt"), b"unselected").unwrap();
+    let archive = directory.path().join("archive.zar");
+    operations::create_archive(archive.to_str().unwrap(), &[input]).unwrap();
+
+    let mut app = ZargApp::default();
+    app.open_archive(archive, None);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    app.show_operation_now(OperationKind::ExtractArchive);
+    assert!(app.operation.extract_selected_paths.is_empty());
+
+    app.selected = ["input/[selected]".to_owned(), "input/file?.txt".to_owned()]
+        .into_iter()
+        .collect();
+    app.show_operation_now(OperationKind::ExtractArchive);
+    assert!(!app.operation.extract_selected_only);
+    let captured = app.selected.clone();
+    app.selected.clear();
+    assert_eq!(app.operation.extract_selected_paths, captured);
+
+    let all_output = directory.path().join("all");
+    app.operation.destination = all_output.to_string_lossy().into_owned();
+    let form = std::mem::take(&mut app.operation);
+    app.start_operation(form);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(all_output.join("input/[selected]2/leak.txt").is_file());
+    assert!(all_output.join("input/file1.txt").is_file());
+
+    app.selected = captured;
+    app.show_operation_now(OperationKind::ExtractArchive);
+    app.operation.extract_selected_only = true;
+    app.operation.exclude_files = "*/skip.txt".to_owned();
+    let selected_output = directory.path().join("selected");
+    app.operation.destination = selected_output.to_string_lossy().into_owned();
+    let form = std::mem::take(&mut app.operation);
+    app.start_operation(form);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert_eq!(
+        std::fs::read(selected_output.join("input/[selected]/nested/keep.txt")).unwrap(),
+        b"keep"
+    );
+    assert!(
+        selected_output
+            .join("input/[selected]/nested/empty")
+            .is_dir()
+    );
+    assert_eq!(
+        std::fs::read(selected_output.join("input/file?.txt")).unwrap(),
+        b"literal"
+    );
+    assert!(!selected_output.join("input/[selected]/skip.txt").exists());
+    assert!(!selected_output.join("input/[selected]2").exists());
+    assert!(!selected_output.join("input/file1.txt").exists());
+}
+
+#[test]
+fn drag_preparation_extracts_selected_roots_and_their_children() {
+    let directory = tempfile::tempdir().unwrap();
+    let input = directory.path().join("input");
+    std::fs::create_dir_all(input.join("folder/empty")).unwrap();
+    std::fs::write(input.join("folder/child.txt"), b"child").unwrap();
+    std::fs::write(input.join("other.txt"), b"other").unwrap();
+    let archive = directory.path().join("archive.zar");
+    operations::create_archive(archive.to_str().unwrap(), &[input]).unwrap();
+    let selected = [
+        "input/folder".to_owned(),
+        "input/folder/child.txt".to_owned(),
+    ]
+    .into_iter()
+    .collect();
+    let prepared = prepare_drag(
+        archive.to_str().unwrap(),
+        &selected,
+        None,
+        &PasswordSet::default(),
+        None,
+    )
+    .unwrap();
+    assert_eq!(prepared.paths.len(), 1);
+    assert_eq!(
+        std::fs::read(prepared.paths[0].join("child.txt")).unwrap(),
+        b"child"
+    );
+    assert!(prepared.paths[0].join("empty").is_dir());
+    assert!(!prepared.directory.path().join("input/other.txt").exists());
+    let temporary_path = prepared.directory.path().to_path_buf();
+    drop(prepared);
+    assert!(!temporary_path.exists());
+}
+
+#[test]
+fn drag_preparation_reports_extraction_progress() {
+    use std::sync::atomic::AtomicU64;
+
+    struct RecordingProgress {
+        total: AtomicU64,
+        advanced: AtomicU64,
+    }
+    impl Progress for RecordingProgress {
+        fn message(&self, _: &str) {}
+        fn advance(&self, amount: u64) {
+            self.advanced.fetch_add(amount, Ordering::Relaxed);
+        }
+        fn set_total(&self, total: u64) {
+            self.total.store(total, Ordering::Relaxed);
+        }
+    }
+
+    let directory = tempfile::tempdir().unwrap();
+    let input = directory.path().join("input");
+    std::fs::create_dir_all(input.join("folder/empty")).unwrap();
+    std::fs::write(input.join("folder/child.txt"), b"actual content").unwrap();
+    let archive = directory.path().join("archive.zar");
+    operations::create_archive(archive.to_str().unwrap(), &[input]).unwrap();
+    let selected = ["input/folder".to_owned()].into_iter().collect();
+    let passwords = PasswordSet::default();
+    let progress = RecordingProgress {
+        total: AtomicU64::new(0),
+        advanced: AtomicU64::new(0),
+    };
+    let prepared = prepare_drag(
+        archive.to_str().unwrap(),
+        &selected,
+        None,
+        &passwords,
+        Some(&progress),
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read(prepared.paths[0].join("child.txt")).unwrap(),
+        b"actual content"
+    );
+    assert!(progress.total.load(Ordering::Relaxed) > 0);
+    assert!(progress.advanced.load(Ordering::Relaxed) > 0);
+}
+
+#[test]
+fn drag_preparation_respects_selected_commit_and_reports_missing_entries() {
+    let (_directory, app, _) = rewrite_fixture();
+    let passwords = PasswordSet::default();
+    let selected = ["second.txt".to_owned()].into_iter().collect();
+    assert!(
+        prepare_drag(
+            &app.read_archive,
+            &selected,
+            app.commit_ids.first().map(String::as_str),
+            &passwords,
+            None,
+        )
+        .is_err()
+    );
+    let prepared = prepare_drag(
+        &app.read_archive,
+        &selected,
+        app.commit_ids.last().map(String::as_str),
+        &passwords,
+        None,
+    )
+    .unwrap();
+    assert_eq!(std::fs::read(&prepared.paths[0]).unwrap(), b"second");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn drag_preparation_can_be_cancelled() {
+    let (_directory, app, _) = rewrite_fixture();
+    let selected = ["second.txt".to_owned()].into_iter().collect();
+    let (events, _event_receiver) = mpsc::channel();
+    let (_answers, answer_receiver) = mpsc::channel();
+    let progress = UiProgress {
+        events,
+        answers: Arc::new(Mutex::new(answer_receiver)),
+        cancellation: Some(Arc::new(AtomicBool::new(true))),
+        limit_status_updates: false,
+        last_status_update: Mutex::new(None),
+    };
+    let error = match prepare_drag(
+        &app.read_archive,
+        &selected,
+        None,
+        &PasswordSet::default(),
+        Some(&progress),
+    ) {
+        Ok(_) => panic!("cancelled preparation must not succeed"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("cancelled"));
+}
+
+#[cfg(unix)]
+#[test]
+fn drag_preparation_rejects_special_entries_inside_selected_folder() {
+    let directory = tempfile::tempdir().unwrap();
+    let input = directory.path().join("input");
+    std::fs::create_dir(&input).unwrap();
+    std::os::unix::fs::symlink("target", input.join("link")).unwrap();
+    let archive = directory.path().join("archive.zar");
+    operations::create_archive(archive.to_str().unwrap(), &[input]).unwrap();
+    let selected = ["input".to_owned()].into_iter().collect();
+    let error = match prepare_drag(
+        archive.to_str().unwrap(),
+        &selected,
+        None,
+        &PasswordSet::default(),
+        None,
+    ) {
+        Ok(_) => panic!("special entry must not be silently omitted"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("input/link"));
+}
+
+#[test]
+fn selected_extraction_uses_the_commit_chosen_in_the_dialog() {
+    let (directory, mut app, _) = rewrite_fixture();
+    app.select_commit(app.commit_ids[0].clone());
+    wait_for_worker(&mut app);
+    app.selected.insert("first.txt".to_owned());
+    app.show_operation_now(OperationKind::ExtractArchive);
+    app.operation.to = app.commit_ids.last().unwrap().clone();
+    app.operation.extract_selected_only = true;
+    let output = directory.path().join("selected-later-commit");
+    app.operation.destination = output.to_string_lossy().into_owned();
+    let form = std::mem::take(&mut app.operation);
+    app.start_operation(form);
+    wait_for_worker(&mut app);
+
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert_eq!(std::fs::read(output.join("first.txt")).unwrap(), b"first");
+    assert!(!output.join("second.txt").exists());
+}
+
+#[test]
 fn remove_archive_entries_is_staged_and_updates_ui_without_relisting() {
     let directory = tempfile::tempdir().unwrap();
     let input = directory.path().join("README");
@@ -1805,7 +2050,58 @@ fn dropping_files_and_folders_prefills_add_form_for_current_archive() {
 
     assert_eq!(app.operation.kind, Some(OperationKind::AddToArchive));
     assert_eq!(app.operation.archive, app.read_archive);
-    assert_eq!(app.operation.input_paths, vec![file, folder]);
+    assert_eq!(
+        app.operation.input_paths,
+        vec![file.clone(), folder.clone()]
+    );
+
+    app.add_dropped_paths(vec![folder, file]);
+    assert_eq!(app.operation.input_paths.len(), 2);
+    click_add_archive_action(&mut app);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(app.entries.iter().any(|(path, _)| path == "dropped.txt"));
+    assert!(app.entries.iter().any(|(path, _)| path == "dropped-folder"));
+}
+
+#[test]
+fn dropping_paths_does_not_replace_an_open_operation() {
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("dropped.txt");
+    std::fs::write(&file, b"contents").unwrap();
+    let mut app = ZargApp::default();
+    app.create_default_archive();
+    wait_for_worker(&mut app);
+
+    app.show_operation(OperationKind::ExtractArchive);
+    app.operation.destination = "keep this destination".to_owned();
+    app.add_dropped_paths(vec![file]);
+
+    assert_eq!(app.operation.kind, Some(OperationKind::ExtractArchive));
+    assert_eq!(app.operation.destination, "keep this destination");
+    assert!(app.status.contains("Close the current operation"));
+}
+
+#[test]
+fn dropping_paths_reports_why_they_cannot_be_added() {
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("dropped.txt");
+    std::fs::write(&file, b"contents").unwrap();
+    let mut app = ZargApp::default();
+
+    app.add_dropped_paths(vec![file.clone()]);
+    assert!(app.status.contains("Open an archive"));
+    app.create_default_archive();
+    wait_for_worker(&mut app);
+
+    app.add_dropped_paths(vec![directory.path().join("missing")]);
+    assert!(app.status.contains("does not exist"));
+    assert!(app.operation.kind.is_none());
+
+    app.imported_archive_dir = Some(tempfile::tempdir().unwrap());
+    app.add_dropped_paths(vec![file]);
+    assert!(app.status.contains("cannot be modified"));
+    assert!(app.operation.kind.is_none());
 }
 
 fn click_add_archive_action(app: &mut ZargApp) {

@@ -3,6 +3,13 @@
 Notable changes to ZAR are recorded here. Entries remain under **Unreleased**
 until a version is released.
 
+## Unreleased
+
+### Changed
+
+- Publish v3 and baseline v1 assets to one `x.y.z` release through sequential
+  CI and packaging workflows. Baseline wheels are grouped in `-v1` ZIP assets.
+
 ## 0.11.0 - 2026-11-12
 
 ### Changed

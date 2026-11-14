@@ -3,13 +3,12 @@
 Installers for `zarc` (CLI) and `zarg` (GUI). The Windows suite installer
 also includes `zcopy`. Output goes to `dist/`.
 
-The normal [CI](../.github/workflows/ci.yml) and
-[packaging](../.github/workflows/packaging.yml) workflows run on tag pushes
-matching `*.*.*-v3` and attach their assets to that tagged release. They also
-run on non-`master` branch pushes and support manual dispatch. The CI workflow
-additionally runs on pull requests. A manually selected non-`-v1` tag can
-also publish; selecting a branch builds workflow artifacts without attaching
-them to a release.
+Pushing a stable `x.y.z` tag on a `master` commit runs
+[CI](../.github/workflows/ci.yml), followed by
+[packaging](../.github/workflows/packaging.yml), baseline CI, and baseline
+packaging. Each attaches its assets to the `x.y.z` release. CI also runs on
+pull requests and supports manual dispatch; selecting a branch builds workflow
+artifacts without attaching them to a release.
 
 The normal workflows attempt to reuse binaries from the latest successful CI
 run on `master` for the exact commit when those artifacts are still retained.
@@ -21,16 +20,14 @@ these settings, and the Windows archives contain all three installer
 executables. x86-64 package filenames carry a `-v3` suffix; ARM packages
 retain their usual names.
 
-The separate `x.y.z-v1` release includes baseline x86-64 packages built by
+The `x.y.z` release includes baseline x86-64 packages built by
 `.github/workflows/packaging-v1.yml`. It reuses only the matching v1 release
 binaries, builds the Windows `zcopy` utility for the same CPU baseline, and
 sets baseline compiler flags inside the Flatpak SDK. Package filenames carry a
 `-v1` suffix; their internal package versions are unchanged. OS, system
 library, and Flatpak runtime requirements still apply. The workflow runs after
 the v1 release workflow or can be dispatched manually with its source tag.
-The source `x.y.z` and normal `x.y.z-v3` tags are independent; point them at
-the same commit when both releases should use the same source. The v1 and v3
-packages use the same internal package version and identity, so they replace
+The v1 and v3 packages use the same internal package version and identity, so they replace
 one another rather than installing side by side. These workflow changes do
 not rebuild assets already published in older releases.
 

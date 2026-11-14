@@ -1070,6 +1070,7 @@ impl ZargApp {
                             }
                         });
                 });
+                self.render_extract_selection(ui);
             }
             ExtractTab::Advanced => {
                 self.render_extract_advanced(ui);
@@ -1080,6 +1081,16 @@ impl ZargApp {
             ExtractTab::Filter => self.render_filter_fields_contents(ui),
         }
     }
+
+    fn render_extract_selection(&mut self, ui: &mut egui::Ui) -> Option<egui::Response> {
+        (!self.operation.extract_selected_paths.is_empty()).then(|| {
+            ui.checkbox(
+                &mut self.operation.extract_selected_only,
+                "Only extract selected items",
+            )
+        })
+    }
+
     fn render_extract_advanced(&mut self, ui: &mut egui::Ui) -> [egui::Response; 5] {
         [
             ui.checkbox(&mut self.operation.dry_run, "Dry run"),

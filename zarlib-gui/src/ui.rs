@@ -497,6 +497,8 @@ pub(super) struct OperationForm {
     add_archive_tab: dialogs::operation::AddArchiveTab,
     extract_tab: dialogs::operation::ExtractTab,
     extract_has_encrypted_commits: bool,
+    extract_selected_only: bool,
+    extract_selected_paths: BTreeSet<String>,
     archive: String,
     archive_backend: Option<(String, String)>,
     input_paths: Vec<PathBuf>,
@@ -805,6 +807,94 @@ fn password_set(passwords: &BTreeMap<[u8; 4], String>, default: Option<&str>) ->
     result
 }
 
+#[cfg(any(test, windows, target_os = "macos", target_os = "linux"))]
+struct PreparedDrag {
+    directory: tempfile::TempDir,
+    paths: Vec<PathBuf>,
+}
+
+#[cfg(any(test, windows, target_os = "macos", target_os = "linux"))]
+fn prepare_drag(
+    archive: &str,
+    selected: &BTreeSet<String>,
+    commit: Option<&str>,
+    passwords: &PasswordSet,
+    progress: Option<&dyn Progress>,
+) -> Result<PreparedDrag, Box<dyn std::error::Error>> {
+    let paths = selected
+        .iter()
+        .map(|path| ArchivePath::new(path.clone()))
+        .collect::<Result<Vec<_>, _>>()?;
+    if paths.is_empty() {
+        return Err("No archive entries are selected.".into());
+    }
+    let roots = paths
+        .iter()
+        .filter(|path| {
+            !path
+                .as_str()
+                .match_indices('/')
+                .any(|(index, _)| selected.contains(&path.as_str()[..index]))
+        })
+        .collect::<Vec<_>>();
+    let directory = tempfile::Builder::new().prefix("zarg-drag-").tempdir()?;
+    let mut filters = FilterSet::default();
+    filters.restrict_to_paths(paths.clone());
+    let toc = operations::list_archive_with_passwords(archive, commit, passwords)?;
+    for (path, entry) in toc.iter() {
+        if !matches!(entry, TocEntry::File(_) | TocEntry::Directory)
+            && filters.includes(path.as_str(), false)
+        {
+            return Err(format!("Cannot drag special archive entry: {path}").into());
+        }
+    }
+    operations::extract_archive_with_passwords_progress_and_filters(
+        archive,
+        directory.path(),
+        ExtractionOptions {
+            dry_run: false,
+            to: commit,
+            collision_policy: CollisionPolicy::Error,
+            existing_policy: ExistingPolicy::Error,
+            restore_metadata: false,
+            restore_symlinks: false,
+            restore_devices: false,
+            strip_top_level: false,
+        },
+        passwords,
+        progress,
+        &filters,
+    )?;
+    let paths = roots
+        .into_iter()
+        .map(|path| {
+            let output = directory.path().join(path.as_str());
+            if !output.exists() {
+                return Err(format!("Cannot extract selected item: {path}").into());
+            }
+            Ok(output)
+        })
+        .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
+    Ok(PreparedDrag { directory, paths })
+}
+
+#[cfg(target_os = "linux")]
+struct DragPreparation {
+    press: crate::wayland_drag::DragPress,
+    receiver: Receiver<Result<PreparedDrag, String>>,
+    events: Sender<UiEvent>,
+    cancellation: Arc<AtomicBool>,
+    thread: std::thread::JoinHandle<()>,
+}
+
+fn archive_entry_sense(drag_supported: bool) -> egui::Sense {
+    if drag_supported {
+        egui::Sense::click_and_drag()
+    } else {
+        egui::Sense::click()
+    }
+}
+
 /// Unpacks the archive to a scratch folder, then times creating and extracting a
 /// new archive from it with the given settings. Nothing outside the scratch folder is written.
 type OperationJob = Box<dyn FnOnce() -> Result<String, String> + Send>;
@@ -916,6 +1006,16 @@ pub struct ZargApp {
     details_horizontal_offset: f32,
     structured_horizontal_offset: f32,
     pending_open: Option<String>,
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+    pending_drag: bool,
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+    drag_directories: Vec<tempfile::TempDir>,
+    #[cfg(target_os = "linux")]
+    wayland_drag: Option<crate::wayland_drag::WaylandDrag>,
+    #[cfg(target_os = "linux")]
+    wayland_drag_initialized: bool,
+    #[cfg(target_os = "linux")]
+    preparing_drag: Option<DragPreparation>,
     recent_archives: Vec<String>,
     recent_check: Option<Receiver<Vec<String>>>,
     info_loading: Option<Receiver<Result<ArchiveInfoLoad, String>>>,
@@ -1007,6 +1107,16 @@ impl Default for ZargApp {
             details_horizontal_offset: 0.0,
             structured_horizontal_offset: 0.0,
             pending_open: None,
+            #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+            pending_drag: false,
+            #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+            drag_directories: Vec::new(),
+            #[cfg(target_os = "linux")]
+            wayland_drag: None,
+            #[cfg(target_os = "linux")]
+            wayland_drag_initialized: false,
+            #[cfg(target_os = "linux")]
+            preparing_drag: None,
             recent_archives: Vec::new(),
             recent_check: None,
             info_loading: None,
@@ -2154,6 +2264,178 @@ impl ZargApp {
         });
     }
 
+    fn drag_supported(&self) -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            self.wayland_drag.is_some()
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            cfg!(any(windows, target_os = "macos"))
+        }
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    fn start_selected_drag(&mut self, frame: &eframe::Frame) {
+        let passwords = password_set(&self.archive_passwords, self.archive_password.as_deref());
+        let commit = (!self.selected_commit.is_empty()).then_some(self.selected_commit.as_str());
+        let prepared =
+            match prepare_drag(&self.read_archive, &self.selected, commit, &passwords, None) {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    self.report = Some(format!(
+                        "Cannot prepare selected items for dragging: {error}"
+                    ));
+                    return;
+                }
+            };
+        let result = drag::start_drag(
+            frame,
+            drag::DragItem::Files(prepared.paths),
+            drag::Image::Raw(include_bytes!("../assets/zarg-icon.png").to_vec()),
+            |_, _| {},
+            drag::Options::default(),
+        );
+        match result {
+            Ok(()) => self.drag_directories.push(prepared.directory),
+            Err(error) => {
+                self.report = Some(format!("Cannot start dragging selected items: {error}"));
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn prepare_wayland_drag(&mut self) {
+        if self.preparing_drag.is_some()
+            || self.wayland_drag.as_ref().is_none_or(|drag| drag.active())
+        {
+            return;
+        }
+        let Some(press) = self.wayland_drag.as_ref().and_then(|drag| drag.pressed()) else {
+            self.report = Some("Cannot start dragging: mouse press is no longer active".into());
+            return;
+        };
+        let archive = self.read_archive.clone();
+        let selected = self.selected.clone();
+        let commit = (!self.selected_commit.is_empty()).then(|| self.selected_commit.clone());
+        let passwords = password_set(&self.archive_passwords, self.archive_password.as_deref());
+        let (sender, receiver) = mpsc::channel();
+        let (events_tx, events_rx) = mpsc::channel();
+        let (answer_tx, answer_rx) = mpsc::channel();
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let progress = UiProgress {
+            events: events_tx.clone(),
+            answers: Arc::new(Mutex::new(answer_rx)),
+            cancellation: Some(Arc::clone(&cancellation)),
+            limit_status_updates: false,
+            last_status_update: Mutex::new(None),
+        };
+        self.begin_worker_with_cancellation(
+            events_rx,
+            answer_tx,
+            "Extracting dragged items; keep the mouse button pressed",
+            Some(Arc::clone(&cancellation)),
+        );
+        let thread = std::thread::spawn(move || {
+            let result = prepare_drag(
+                &archive,
+                &selected,
+                commit.as_deref(),
+                &passwords,
+                Some(&progress),
+            )
+            .map_err(|error| error.to_string());
+            let _ = sender.send(result);
+        });
+        self.preparing_drag = Some(DragPreparation {
+            press,
+            receiver,
+            events: events_tx,
+            cancellation,
+            thread,
+        });
+        self.status = "Preparing drag; keep the mouse button pressed".into();
+    }
+
+    #[cfg(target_os = "linux")]
+    fn poll_wayland_drag(&mut self, context: &egui::Context) {
+        if let Some(drag) = &mut self.wayland_drag {
+            if let Err(error) = drag.poll() {
+                self.report = Some(format!("Wayland drag failed: {error}"));
+            }
+            let dropped_paths = drag.take_dropped_paths();
+            for paths in dropped_paths {
+                self.add_dropped_paths(paths);
+            }
+            // The guest Wayland queue does not itself wake eframe for incoming offers.
+            context.request_repaint_after(Duration::from_millis(100));
+        }
+        if let Some(preparation) = &self.preparing_drag
+            && self
+                .wayland_drag
+                .as_ref()
+                .is_none_or(|drag| !drag.press_is_active(preparation.press))
+            && !preparation.cancellation.swap(true, Ordering::Relaxed)
+        {
+            self.status = "Cancelling drag preparation".into();
+            self.report = Some(
+                "The mouse button was released before the selected items were ready to drag".into(),
+            );
+        }
+        if let Some(preparation) = &self.preparing_drag {
+            let press = preparation.press;
+            match preparation.receiver.try_recv() {
+                Ok(result) => {
+                    let preparation = self.preparing_drag.take().unwrap();
+                    let cancelled = preparation.cancellation.load(Ordering::Relaxed);
+                    let outcome = if preparation.thread.join().is_err() {
+                        Err("The drag preparation worker stopped unexpectedly".into())
+                    } else if cancelled {
+                        Ok("Drag preparation cancelled".into())
+                    } else {
+                        match result {
+                            Ok(prepared) => {
+                                let result = self
+                                    .wayland_drag
+                                    .as_mut()
+                                    .ok_or_else(|| "Wayland drag is unavailable".to_string())
+                                    .and_then(|drag| drag.start(&prepared.paths, press));
+                                match result {
+                                    Ok(()) => {
+                                        self.drag_directories.push(prepared.directory);
+                                        Ok("Drag started".into())
+                                    }
+                                    Err(error) => Err(format!(
+                                        "Cannot start dragging selected items: {error}"
+                                    )),
+                                }
+                            }
+                            Err(error) => Err(format!(
+                                "Cannot prepare selected items for dragging: {error}"
+                            )),
+                        }
+                    };
+                    finish_with_events(preparation.events, outcome);
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    if let Some(preparation) = self.preparing_drag.take() {
+                        let _ = preparation.thread.join();
+                        finish_with_events(
+                            preparation.events,
+                            Err("The drag preparation worker stopped unexpectedly".into()),
+                        );
+                    }
+                }
+                Err(mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        if self.preparing_drag.is_some()
+            || self.wayland_drag.as_ref().is_some_and(|drag| drag.active())
+        {
+            context.request_repaint_after(std::time::Duration::from_millis(16));
+        }
+    }
+
     fn select_commit(&mut self, id: String) {
         if self.busy || id == self.selected_commit || !self.commit_ids.contains(&id) {
             return;
@@ -3122,7 +3404,12 @@ impl ZargApp {
     }
 
     fn add_dropped_paths(&mut self, paths: Vec<PathBuf>) {
-        if paths.is_empty() || self.busy {
+        if paths.is_empty() {
+            return;
+        }
+        if self.busy {
+            self.status =
+                "Wait for the current operation to finish before dropping files.".to_owned();
             return;
         }
         if self.read_archive.is_empty() {
@@ -3135,6 +3422,12 @@ impl ZargApp {
         }
         if let Some(path) = paths.iter().find(|path| !path.exists()) {
             self.status = format!("Dropped path does not exist: {}", path.display());
+            return;
+        }
+        if self.operation.kind.is_some() && self.operation.kind != Some(OperationKind::AddToArchive)
+        {
+            self.status =
+                "Close the current operation before dropping files or folders.".to_owned();
             return;
         }
 
@@ -3151,6 +3444,8 @@ impl ZargApp {
         }
         self.operation.selected_input_paths.clear();
         self.operation.input_selection_anchor = None;
+        self.status =
+            "Choose options and select Add to add the dropped files and folders.".to_owned();
     }
 
     fn handle_dropped_files(&mut self, context: &egui::Context) {
@@ -3224,6 +3519,11 @@ impl ZargApp {
             Vec::new()
         };
         self.operation = self.new_operation_form(kind, &archive);
+        if kind == OperationKind::ExtractArchive {
+            self.operation
+                .extract_selected_paths
+                .clone_from(&self.selected);
+        }
         self.operation
             .encrypted_commit_ids
             .clone_from(&self.encrypted_commit_ids);
@@ -3581,7 +3881,7 @@ impl ZargApp {
                             };
                             let (rect, response) = ui.allocate_exact_size(
                                 egui::vec2(cell_width, row_height),
-                                egui::Sense::click(),
+                                archive_entry_sense(self.drag_supported()),
                             );
                             let selected = self.selected.contains(&path);
                             if selected {
@@ -3617,6 +3917,10 @@ impl ZargApp {
                                 EntryData::Symlink(target) => format!("{path} → {target}"),
                                 _ => path.clone(),
                             });
+                            #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+                            if response.drag_started() && selected && !self.busy {
+                                self.pending_drag = true;
+                            }
                             if response.double_clicked() {
                                 self.pending_open = Some(path.clone());
                             }
@@ -3682,7 +3986,7 @@ impl ZargApp {
                         let response = ui.interact(
                             cell_rect,
                             list_id.with(("compact-entry", visible_index)),
-                            egui::Sense::click(),
+                            archive_entry_sense(self.drag_supported()),
                         );
                         let painter = ui.painter().with_clip_rect(cell_rect);
                         if self.selected.contains(path) {
@@ -3733,6 +4037,10 @@ impl ZargApp {
                             _ => path.clone(),
                         };
                         let response = response.on_hover_text(hover_text);
+                        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+                        if response.drag_started() && self.selected.contains(path) && !self.busy {
+                            self.pending_drag = true;
+                        }
                         if response.double_clicked() {
                             self.pending_open = Some(path.clone());
                         }
@@ -3845,6 +4153,7 @@ impl ZargApp {
         let owner_width = width_of("Owner");
         let permissions_width = width_of("Permissions");
         ui.separator();
+        let drag_supported = self.drag_supported();
         let rows = &self.structured_rows_cache;
         let row_output = egui::ScrollArea::both()
             .id_salt("structured-rows-scroll")
@@ -3856,7 +4165,7 @@ impl ZargApp {
                     let response = ui.interact(
                         row_rect,
                         list_id.with(("structured-entry", row_index)),
-                        egui::Sense::click(),
+                        archive_entry_sense(drag_supported),
                     );
                     let painter = ui.painter().with_clip_rect(row_rect);
                     if self.selected.contains(&row.path) {
@@ -3989,6 +4298,10 @@ impl ZargApp {
                     }
 
                     let response = response.on_hover_text(&row.path);
+                    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+                    if response.drag_started() && self.selected.contains(&row.path) && !self.busy {
+                        self.pending_drag = true;
+                    }
                     if response.double_clicked() && !row.has_children {
                         self.pending_open = Some(row.path.clone());
                     }
@@ -4303,6 +4616,16 @@ impl ZargApp {
 
 impl eframe::App for ZargApp {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(preparation) = self.preparing_drag.take() {
+                preparation.cancellation.store(true, Ordering::Relaxed);
+                if preparation.thread.join().is_err() {
+                    eprintln!("zarg: drag preparation worker stopped unexpectedly");
+                }
+            }
+            self.wayland_drag = None;
+        }
         if let Err(error) = self.current_settings().save() {
             eprintln!("zarg: could not save settings: {error}");
         }
@@ -4310,6 +4633,20 @@ impl eframe::App for ZargApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let context = ui.ctx().clone();
+        #[cfg(target_os = "linux")]
+        {
+            if !self.wayland_drag_initialized {
+                self.wayland_drag_initialized = true;
+                match crate::wayland_drag::WaylandDrag::new(_frame, &context) {
+                    Ok(drag) => self.wayland_drag = drag,
+                    Err(error) => {
+                        self.report = Some(format!("Cannot initialize Wayland dragging: {error}"));
+                    }
+                }
+            }
+            self.poll_wayland_drag(&context);
+        }
+        let drag_supported = self.drag_supported();
         if context.input(|input| input.viewport().close_requested()) {
             self.request_quit(&context);
         }
@@ -4631,9 +4968,13 @@ impl eframe::App for ZargApp {
                                         .truncate()
                                         // The hover text below already shows the full path.
                                         .show_tooltip_when_elided(false)
-                                        .sense(egui::Sense::click()),
+                                        .sense(archive_entry_sense(drag_supported)),
                                     )
                                     .on_hover_text(hover_text);
+                                    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+                                    if name_response.drag_started() && selected && !self.busy {
+                                        self.pending_drag = true;
+                                    }
                                     if name_response.double_clicked() {
                                         self.pending_open = Some(path.clone());
                                     }
@@ -4682,6 +5023,16 @@ impl eframe::App for ZargApp {
 
         if let Some(path) = self.pending_open.take() {
             self.open_entry_externally(path);
+        }
+
+        #[cfg(any(windows, target_os = "macos"))]
+        if std::mem::take(&mut self.pending_drag) {
+            self.start_selected_drag(_frame);
+        }
+        #[cfg(target_os = "linux")]
+        if std::mem::take(&mut self.pending_drag) {
+            self.prepare_wayland_drag();
+            context.request_repaint();
         }
 
         self.poll_archive_info(&context);
@@ -5194,7 +5545,18 @@ fn build_job(
             })
         }
         OperationKind::ExtractArchive => {
-            let filters = form.filters()?;
+            let mut filters = form.filters()?;
+            if form.extract_selected_only {
+                if form.extract_selected_paths.is_empty() {
+                    return Err("Select at least one archive entry to extract.".into());
+                }
+                let selected = form
+                    .extract_selected_paths
+                    .iter()
+                    .map(|path| ArchivePath::new(path.clone()))
+                    .collect::<Result<Vec<_>, _>>()?;
+                filters.restrict_to_paths(selected);
+            }
             let destination = PathBuf::from(form.destination);
             let to = (!form.to.trim().is_empty()).then(|| form.to.clone());
             let dry_run = form.dry_run;

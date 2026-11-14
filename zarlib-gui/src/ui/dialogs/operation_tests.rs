@@ -347,6 +347,59 @@ fn extract_tabs_preserve_options_and_password() {
 }
 
 #[test]
+fn extract_selection_checkbox_is_conditional_and_toggleable() {
+    let context = egui::Context::default();
+    let mut app = ZargApp {
+        operation: form(OperationKind::ExtractArchive, "archive.zar"),
+        ..Default::default()
+    };
+    let mut checkbox = None;
+    run_frame(&context, |ui| {
+        checkbox = app
+            .render_extract_selection(ui)
+            .map(|response| response.rect);
+    });
+    assert!(checkbox.is_none());
+
+    app.operation
+        .extract_selected_paths
+        .insert("file.txt".into());
+    run_frame(&context, |ui| {
+        checkbox = app
+            .render_extract_selection(ui)
+            .map(|response| response.rect);
+    });
+    assert!(!app.operation.extract_selected_only);
+    let position = checkbox.unwrap().center();
+    for pressed in [true, false] {
+        context
+            .run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1400.0, 1400.0),
+                    )),
+                    events: vec![
+                        egui::Event::PointerMoved(position),
+                        egui::Event::PointerButton {
+                            pos: position,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ],
+                    ..Default::default()
+                },
+                |ui| {
+                    app.render_extract_selection(ui);
+                },
+            )
+            .drop_without_applying_deltas();
+    }
+    assert!(app.operation.extract_selected_only);
+}
+
+#[test]
 fn fields_cover_join_and_undo_ranges() {
     let context = egui::Context::default();
     let mut app = ZargApp {

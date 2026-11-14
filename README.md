@@ -315,11 +315,11 @@ cargo install --path zarlib-cli
 
 ## Installers and packages
 
-Two x86-64 release types are available:
+Each versioned release provides two x86-64 variants:
 
-- **`x.y.z-v3`** is intended for newer CPUs with x86-64-v3 features,
+- **v3** is intended for newer CPUs with x86-64-v3 features,
   including AVX2.
-- **`x.y.z-v1`** targets the baseline x86-64 instruction set for older CPUs.
+- **v1** targets the baseline x86-64 instruction set for older CPUs.
 
 See [x86-64 release compatibility](#x86-64-release-compatibility) for
 platform requirements and release details.
@@ -487,39 +487,36 @@ mode is a one-way update, not a deletion-propagating mirror.
 ## x86-64 release compatibility
 
 The repository's default x86-64 build configuration targets `x86-64-v3`,
-which requires AVX2 and other CPU features. The normal CI and packaging
-workflows run on pushes of tags matching `*.*.*-v3` and publish to the
-corresponding tagged release. They also run on non-`master` branch pushes and
-can be dispatched manually; CI additionally runs for pull requests.
+which requires AVX2 and other CPU features. Pushing a stable `x.y.z` tag
+pointing to a commit on `master` runs CI and publishes a release. The
+packaging, baseline CI, and baseline packaging workflows then run in that
+order and attach their assets to the same `x.y.z` release. The tag must match
+the workspace and Python package versions. CI also runs for pull requests
+and supports manual dispatch.
 
 The normal workflows explicitly select `x86-64-v3` for Rust builds and native
 C/C++ builds where applicable, including static binaries and Flatpak builds.
 The x86-64 installer package filenames end in `-v3` before the extension.
 ARM packages in that release are not affected by the x86-64 CPU target.
 
-For older x86-64 CPUs, the separate `x.y.z-v1` GitHub release contains baseline x86-64 CLI and GUI
+For older x86-64 CPUs, the `x.y.z` GitHub release contains baseline x86-64 CLI and GUI
 binaries and Python wheels for Linux, macOS, and Windows. The Linux binaries
 include both GNU and static musl builds. These artifacts are built from the
 same commit as the `x.y.z` tag, using Rust's `x86-64` baseline CPU target.
 Operating-system and library requirements still apply.
 
-Wheel filenames use standard Python platform tags and do not identify their
-CPU level; download the desired wheels from the appropriate release. The v1
-release also includes x86-64 Linux packages, a Windows installer, and macOS
+Baseline wheels are grouped in `pyzarlib-wheels-*-v1.zip` assets to distinguish
+them from v3 wheels; extract the ZIP before installing a wheel. Wheel filenames
+inside the ZIP use standard Python platform tags and do not identify CPU level.
+The release also includes baseline x86-64 Linux packages, a Windows installer, and macOS
 packages. Their filenames end in `-v1` before the extension. The Flatpak
 still requires its Freedesktop runtime; OS and runtime requirements apply to
-all packages. The release does not include non-x86-64 artifacts.
+all packages. ARM assets remain available separately in the same release.
 
-The [v1 release workflow](./.github/workflows/ci-v1.yml) runs for stable
-`x.y.z` tag pushes. To build an existing tag, run it manually with that tag,
-for example `gh workflow run ci-v1.yml -f tag=0.11.0`. The tag must match the
-workspace and Python package versions. The v1 release is not marked as latest.
-The `x.y.z` source tag and `x.y.z-v3` tag are independent: create both at the
-same commit if both releases should use the same source. The v1 workflow
-creates `x.y.z-v1` from the source tag; it does not create the `-v3` tag.
-The [v1 packaging workflow](./.github/workflows/packaging-v1.yml) runs after
-the baseline release is published. To rebuild its packages separately, run
-`gh workflow run packaging-v1.yml -f tag=0.11.0` for an existing v1 release.
+To rebuild baseline assets for an existing release, run
+`gh workflow run ci-v1.yml -f tag=0.11.0`. To rebuild just its packages,
+run `gh workflow run packaging-v1.yml -f tag=0.11.0` after the baseline
+binary assets have been published.
 
 To build locally for the baseline, override the repository's Rust flags:
 

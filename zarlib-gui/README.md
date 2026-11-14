@@ -92,6 +92,15 @@ desktop entry.
   restore window positions.
 - Double-click a file to extract it to a temporary folder and open it with the
   operating system's default program.
+- On Windows, macOS, and Wayland, drag selected archive entries from the file
+  list to another application. Selected folders include their contents.
+  Entries are extracted to temporary storage before dragging so applications
+  such as Dolphin can inspect the files during the drag. On Wayland, the status
+  bar shows extraction progress; keep the mouse button pressed until the drag
+  begins. On Windows and macOS, the window is unresponsive during extraction.
+  Temporary files remain until zarg exits and may include decrypted data.
+  Selections containing symbolic links or special files cannot be dragged.
+  Dragging entries out is not supported on X11.
 - Add, edit and remove custom archive metadata (key/value pairs) from the
   Custom metadata dialog.
 - Keep the 10 most recently opened archives available from File → Recent
@@ -105,6 +114,10 @@ desktop entry.
   with header/data scope selection; Add can also unlock existing commits. A
   saved default password preselects encryption in these dialogs, which can still
   be unchecked.
+- Drop files and folders onto the main window to populate the Add to archive
+  dialog. Review the options and select Add to include them in the current
+  archive. Imported read-only archives cannot be modified. File drops are
+  supported on Windows, macOS, X11, and Wayland.
 - Include a `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz` file among Create or Add
   inputs to import its contents using the paths stored inside the archive.
 - Open those formats directly for read-only browsing and extraction; zarg
@@ -139,6 +152,9 @@ desktop entry.
   dialog has General, Advanced, and Filter tabs, plus an Encryption tab when
   the archive contains encrypted commits. Its default destination is the
   archive's containing folder, or the current directory for an unsaved archive.
+  When entries are selected in the main window, General offers an option to
+  extract only those entries. Selected folders include their contents; Filter
+  tab rules still apply. The selection is captured when the dialog opens.
 - Configure block size, compression, strict input handling, special files,
   overwrite, and the CLI's fnmatch include/exclude filters and filter lists.
 - Set defaults for metadata, dates, special files, strict input validation,
