@@ -204,12 +204,12 @@ jobs:
             echo "Expected at least five wheels for $PLATFORM, found ${#wheels[@]}" >&2
             exit 1
           fi
-          python -m zipfile -c "pyzarlib-wheels-$PLATFORM-v3.zip" "${wheels[@]}"
+          python -m zipfile -c "$RUNNER_TEMP/pyzarlib-wheels-$PLATFORM-v3.zip" "${wheels[@]}"
       - name: Upload wheel artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
         with:
           name: wheels-${{ matrix.platform.name }}-v3
-          path: pyzarlib/dist/*-v3.zip
+          path: ${{ runner.temp }}/pyzarlib-wheels-${{ matrix.platform.name }}-v3.zip
           if-no-files-found: error
 
   publish:
