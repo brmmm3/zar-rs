@@ -93,7 +93,7 @@ jobs:
                 org.freedesktop.Sdk.Extension.rust-stable//26.08
               ;;
           esac
-      - name: Set Flatpak x86-64-v3 compiler flags
+      - name: Set Flatpak baseline compiler flags
         if: matrix.format == 'flatpak'
         run: |
           manifest=packaging/linux/io.github.brmmm3.Zarg.yml
@@ -102,16 +102,16 @@ jobs:
             exit 1
           fi
           if grep -Eq '^    (RUSTFLAGS|CFLAGS|CXXFLAGS):' "$manifest"; then
-            echo "Flatpak manifest already defines compiler flags; review the v3 override" >&2
+            echo "Flatpak manifest already defines compiler flags; review the baseline override" >&2
             exit 1
           fi
-          sed -i '/^    CARGO_HOME:/a\    RUSTFLAGS: "-C target-cpu=x86-64-v3"\n    CFLAGS: "-march=x86-64-v3"\n    CXXFLAGS: "-march=x86-64-v3"' "$manifest"
+          sed -i '/^    CARGO_HOME:/a\    RUSTFLAGS: "-C target-cpu=x86-64"\n    CFLAGS: "-march=x86-64"\n    CXXFLAGS: "-march=x86-64"' "$manifest"
       - name: Build package
         env:
           FORMAT: ${{ matrix.format }}
-          RUSTFLAGS: -C target-cpu=x86-64-v3
-          CFLAGS: -march=x86-64-v3
-          CXXFLAGS: -march=x86-64-v3
+          RUSTFLAGS: -C target-cpu=x86-64
+          CFLAGS: -march=x86-64
+          CXXFLAGS: -march=x86-64
         run: |
           packaging/linux/build-packages.sh "$FORMAT"
           shopt -s nullglob
@@ -120,8 +120,6 @@ jobs:
             echo "Expected exactly one $FORMAT package" >&2
             exit 1
           fi
-          package="${packages[0]}"
-          mv "$package" "${package%.*}-v3.${package##*.}"
       - name: Upload package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -191,7 +189,7 @@ jobs:
         if: steps.reuse.outcome != 'success'
         env:
           TARGET: ${{ matrix.target }}
-          RUSTFLAGS: ${{ matrix.arch == 'x64' && '-C target-cpu=x86-64-v3' || '' }}
+          RUSTFLAGS: ${{ matrix.arch == 'x64' && '-C target-cpu=x86-64' || '' }}
         run: |
           cargo build --release --bins --locked --target $env:TARGET
           "BINARY_DIR=$PWD/target/$env:TARGET/release" >> $env:GITHUB_ENV
@@ -208,18 +206,12 @@ jobs:
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           & $iscc "/DAppVersion=$version" "/DArch=$env:ARCH" "/DSourceDir=$env:BINARY_DIR" packaging\windows\zar-rs.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ($env:ARCH -eq 'x64') {
-            $packages = @(Get-ChildItem 'dist/*-setup.exe')
-            if ($packages.Count -ne 1) { throw 'Expected exactly one Windows installer' }
-            Rename-Item $packages[0].FullName ($packages[0].BaseName + '-v3.exe')
-          }
       - name: Upload installer
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: package-windows-${{ matrix.arch }}
           path: |
             dist/*-setup.exe
-            dist/*-setup-v3.exe
           if-no-files-found: error
 
   macos-packages:
@@ -271,21 +263,11 @@ jobs:
       - name: Build packages
         env:
           ARCH: ${{ matrix.arch }}
-          RUSTFLAGS: ${{ matrix.arch == 'x86_64' && '-C target-cpu=x86-64-v3' || '' }}
-          CFLAGS: ${{ matrix.arch == 'x86_64' && '-march=x86-64-v3' || '' }}
-          CXXFLAGS: ${{ matrix.arch == 'x86_64' && '-march=x86-64-v3' || '' }}
+          RUSTFLAGS: ${{ matrix.arch == 'x86_64' && '-C target-cpu=x86-64' || '' }}
+          CFLAGS: ${{ matrix.arch == 'x86_64' && '-march=x86-64' || '' }}
+          CXXFLAGS: ${{ matrix.arch == 'x86_64' && '-march=x86-64' || '' }}
         run: |
           packaging/macos/build-packages.sh all
-          if [[ "$ARCH" == x86_64 ]]; then
-            for extension in dmg pkg; do
-              set -- dist/*."$extension"
-              if [[ $# -ne 1 || ! -f "$1" ]]; then
-                echo "Expected exactly one .$extension package" >&2
-                exit 1
-              fi
-              mv "$1" "${1%.*}-v3.$extension"
-            done
-          fi
       - name: Upload packages
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -318,11 +300,11 @@ jobs:
           gh release view "$TAG" --repo "$REPO" >/dev/null
           gh release upload "$TAG" packages/* --repo "$REPO" --clobber
 
-  baseline:
-    name: Build baseline release assets
+  optimized:
+    name: Build x86-64-v3 release assets
     needs: attach-to-release
     permissions:
       contents: write
-    uses: ./.github/workflows/ci-v1.yml
+    uses: ./.github/workflows/ci-v3.yml
     with:
       tag: ${{ github.ref_name }}

@@ -1,4 +1,4 @@
-name: x86-64-v1 release
+name: x86-64-v3 release
 
 on:
   workflow_call:
@@ -62,7 +62,7 @@ jobs:
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   binaries:
-    name: Build baseline binaries (${{ matrix.platform.name }})
+    name: Build x86-64-v3 binaries (${{ matrix.platform.name }})
     needs: prepare
     runs-on: ${{ matrix.platform.runner }}
     strategy:
@@ -103,9 +103,9 @@ jobs:
           targets: ${{ matrix.platform.target }}
       - name: Build zarc and zarg
         env:
-          RUSTFLAGS: ${{ matrix.platform.static && '-C target-cpu=x86-64 -C target-feature=+crt-static' || '-C target-cpu=x86-64' }}
-          CFLAGS: ${{ runner.os != 'Windows' && '-march=x86-64' || '' }}
-          CXXFLAGS: ${{ runner.os != 'Windows' && '-march=x86-64' || '' }}
+          RUSTFLAGS: ${{ matrix.platform.static && '-C target-cpu=x86-64-v3 -C target-feature=+crt-static' || '-C target-cpu=x86-64-v3' }}
+          CFLAGS: ${{ runner.os != 'Windows' && '-march=x86-64-v3' || '' }}
+          CXXFLAGS: ${{ runner.os != 'Windows' && '-march=x86-64-v3' || '' }}
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: ${{ matrix.platform.static && 'musl-gcc' || '' }}
           TARGET: ${{ matrix.platform.target }}
         run: cargo build --release --locked --target ${{ matrix.platform.target }} --workspace --bin zarc --bin zarg
@@ -126,9 +126,9 @@ jobs:
           PLATFORM: ${{ matrix.platform.name }}
           TARGET: ${{ matrix.platform.target }}
         run: |
-          mkdir -p "dist/zar-rs-$PLATFORM-v1"
-          cp "target/$TARGET/release/zarc" "target/$TARGET/release/zarg" "dist/zar-rs-$PLATFORM-v1/"
-          tar -C dist -czf "dist/zar-rs-$PLATFORM-v1.tar.gz" "zar-rs-$PLATFORM-v1"
+          mkdir -p "dist/zar-rs-$PLATFORM-v3"
+          cp "target/$TARGET/release/zarc" "target/$TARGET/release/zarg" "dist/zar-rs-$PLATFORM-v3/"
+          tar -C dist -czf "dist/zar-rs-$PLATFORM-v3.tar.gz" "zar-rs-$PLATFORM-v3"
       - name: Package binaries (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -136,18 +136,18 @@ jobs:
           PLATFORM: ${{ matrix.platform.name }}
           TARGET: ${{ matrix.platform.target }}
         run: |
-          New-Item -ItemType Directory -Force -Path "dist/zar-rs-$env:PLATFORM-v1" | Out-Null
-          Copy-Item "target/$env:TARGET/release/zarc.exe", "target/$env:TARGET/release/zarg.exe" "dist/zar-rs-$env:PLATFORM-v1/"
-          Compress-Archive -Path "dist/zar-rs-$env:PLATFORM-v1" -DestinationPath "dist/zar-rs-$env:PLATFORM-v1.zip"
+          New-Item -ItemType Directory -Force -Path "dist/zar-rs-$env:PLATFORM-v3" | Out-Null
+          Copy-Item "target/$env:TARGET/release/zarc.exe", "target/$env:TARGET/release/zarg.exe" "dist/zar-rs-$env:PLATFORM-v3/"
+          Compress-Archive -Path "dist/zar-rs-$env:PLATFORM-v3" -DestinationPath "dist/zar-rs-$env:PLATFORM-v3.zip"
       - name: Upload binary archive
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
         with:
-          name: binaries-${{ matrix.platform.name }}-v1
-          path: dist/zar-rs-${{ matrix.platform.name }}-v1.*
+          name: binaries-${{ matrix.platform.name }}-v3
+          path: dist/zar-rs-${{ matrix.platform.name }}-v3.*
           if-no-files-found: error
 
   wheels:
-    name: Build baseline wheels (${{ matrix.platform.name }})
+    name: Build x86-64-v3 wheels (${{ matrix.platform.name }})
     needs: prepare
     runs-on: ${{ matrix.platform.runner }}
     strategy:
@@ -172,14 +172,15 @@ jobs:
       - name: Build wheels
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         env:
-          RUSTFLAGS: -C target-cpu=x86-64
-          CFLAGS: ${{ runner.os != 'Windows' && '-march=x86-64' || '' }}
-          CXXFLAGS: ${{ runner.os != 'Windows' && '-march=x86-64' || '' }}
+          RUSTFLAGS: -C target-cpu=x86-64-v3
+          CFLAGS: ${{ runner.os != 'Windows' && '-march=x86-64-v3' || '' }}
+          CXXFLAGS: ${{ runner.os != 'Windows' && '-march=x86-64-v3' || '' }}
         with:
           rust-toolchain: stable
           target: ${{ matrix.platform.target }}
           args: --release --locked --out dist --interpreter 3.11 3.12 3.13 3.14 3.15
-          manylinux: auto
+          # Selects quay.io/pypa/manylinux_2_28_x86_64 for the Linux build.
+          manylinux: '2_28'
           docker-options: -e RUSTFLAGS -e CFLAGS -e CXXFLAGS
           working-directory: pyzarlib
       - name: Set up Python for wheel smoke test
@@ -191,7 +192,7 @@ jobs:
         run: |
           python -m pip install --no-deps pyzarlib/dist/*cp311*.whl
           python -c "import pyzarlib; print(pyzarlib.__file__)"
-      - name: Package baseline wheels
+      - name: Package x86-64-v3 wheels
         shell: bash
         env:
           PLATFORM: ${{ matrix.platform.name }}
@@ -203,16 +204,16 @@ jobs:
             echo "Expected at least five wheels for $PLATFORM, found ${#wheels[@]}" >&2
             exit 1
           fi
-          python -m zipfile -c "pyzarlib-wheels-$PLATFORM-v1.zip" "${wheels[@]}"
+          python -m zipfile -c "pyzarlib-wheels-$PLATFORM-v3.zip" "${wheels[@]}"
       - name: Upload wheel artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
         with:
-          name: wheels-${{ matrix.platform.name }}-v1
-          path: pyzarlib/dist/*-v1.zip
+          name: wheels-${{ matrix.platform.name }}-v3
+          path: pyzarlib/dist/*-v3.zip
           if-no-files-found: error
 
   publish:
-    name: Attach baseline assets to release
+    name: Attach x86-64-v3 assets to release
     needs: [prepare, binaries, wheels]
     runs-on: ubuntu-latest
     permissions:
@@ -221,21 +222,21 @@ jobs:
       - name: Download binary archives
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: binaries-*-v1
+          pattern: binaries-*-v3
           path: dist
           merge-multiple: true
       - name: Download wheels
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: wheels-*-v1
+          pattern: wheels-*-v3
           path: dist
           merge-multiple: true
       - name: Check release assets
         shell: bash
         run: |
           shopt -s nullglob
-          binaries=(dist/zar-rs-*-v1.tar.gz dist/zar-rs-*-v1.zip)
-          wheels=(dist/pyzarlib-wheels-*-v1.zip)
+          binaries=(dist/zar-rs-*-v3.tar.gz dist/zar-rs-*-v3.zip)
+          wheels=(dist/pyzarlib-wheels-*-v3.zip)
           [[ ${#binaries[@]} -eq 4 && ${#wheels[@]} -eq 3 ]]
       - name: Upload GitHub release assets
         env:
@@ -247,10 +248,10 @@ jobs:
           gh release upload "$RELEASE_TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
 
   packages:
-    name: Package baseline release
+    name: Package x86-64-v3 release
     needs: [prepare, publish]
     permissions:
       contents: write
-    uses: ./.github/workflows/packaging-v1.yml
+    uses: ./.github/workflows/packaging-v3.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}

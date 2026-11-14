@@ -64,6 +64,10 @@ jobs:
   cargo-clippy:
     name: cargo clippy
     runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -C target-cpu=x86-64
+      CFLAGS: -march=x86-64
+      CXXFLAGS: -march=x86-64
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -80,6 +84,10 @@ jobs:
   cargo-test:
     name: Rust workspace tests
     runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -C target-cpu=x86-64
+      CFLAGS: -march=x86-64
+      CXXFLAGS: -march=x86-64
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -97,6 +105,10 @@ jobs:
   czarlib:
     name: C library and CLI tests
     runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -C target-cpu=x86-64
+      CFLAGS: -march=x86-64
+      CXXFLAGS: -march=x86-64
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -199,6 +211,10 @@ jobs:
   pyzarlib:
     name: pyzarlib tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -C target-cpu=x86-64
+      CFLAGS: -march=x86-64
+      CXXFLAGS: -march=x86-64
     strategy:
       fail-fast: false
       matrix:
@@ -248,6 +264,10 @@ jobs:
   csharp-test:
     name: Test ZarLib
     runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -C target-cpu=x86-64
+      CFLAGS: -march=x86-64
+      CXXFLAGS: -march=x86-64
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -270,6 +290,8 @@ jobs:
     name: Pack ZarLib (${{ matrix.arch.name }})
     needs: csharp-test
     runs-on: ${{ matrix.arch.runner }}
+    env:
+      RUSTFLAGS: ${{ matrix.arch.name == 'x64' && '-C target-cpu=x86-64' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -316,6 +338,10 @@ jobs:
   java-bindings:
     name: Java bindings (${{ matrix.module }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      RUSTFLAGS: ${{ matrix.os != 'macos-latest' && '-C target-cpu=x86-64' || '' }}
+      CFLAGS: ${{ matrix.os == 'ubuntu-latest' && '-march=x86-64' || '' }}
+      CXXFLAGS: ${{ matrix.os == 'ubuntu-latest' && '-march=x86-64' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -529,9 +555,9 @@ jobs:
       - name: Build zarc, zarg and zcopy
         if: steps.reuse.outcome != 'success'
         env:
-          RUSTFLAGS: ${{ startsWith(matrix.platform.target, 'x86_64-') && (matrix.platform.static && '-C target-cpu=x86-64-v3 -C target-feature=+crt-static' || '-C target-cpu=x86-64-v3') || (matrix.platform.static && '-C target-feature=+crt-static' || '') }}
-          CFLAGS: ${{ startsWith(matrix.platform.target, 'x86_64-') && runner.os != 'Windows' && '-march=x86-64-v3' || '' }}
-          CXXFLAGS: ${{ startsWith(matrix.platform.target, 'x86_64-') && runner.os != 'Windows' && '-march=x86-64-v3' || '' }}
+          RUSTFLAGS: ${{ startsWith(matrix.platform.target, 'x86_64-') && (matrix.platform.static && '-C target-cpu=x86-64 -C target-feature=+crt-static' || '-C target-cpu=x86-64') || (matrix.platform.static && '-C target-feature=+crt-static' || '') }}
+          CFLAGS: ${{ startsWith(matrix.platform.target, 'x86_64-') && runner.os != 'Windows' && '-march=x86-64' || '' }}
+          CXXFLAGS: ${{ startsWith(matrix.platform.target, 'x86_64-') && runner.os != 'Windows' && '-march=x86-64' || '' }}
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: ${{ matrix.platform.linker-env == 'CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER' && matrix.platform.linker || '' }}
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: ${{ matrix.platform.linker-env == 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER' && matrix.platform.linker || '' }}
         run: cargo build --release --bins --locked --target ${{ matrix.platform.target }}
@@ -599,9 +625,9 @@ jobs:
       - name: Build wheels
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         env:
-          RUSTFLAGS: ${{ (matrix.platform.target == 'x86_64' || matrix.platform.target == 'x64') && '-C target-cpu=x86-64-v3' || '' }}
-          CFLAGS: ${{ matrix.platform.target == 'x86_64' && '-march=x86-64-v3' || '' }}
-          CXXFLAGS: ${{ matrix.platform.target == 'x86_64' && '-march=x86-64-v3' || '' }}
+          RUSTFLAGS: ${{ (matrix.platform.target == 'x86_64' || matrix.platform.target == 'x64') && '-C target-cpu=x86-64' || '' }}
+          CFLAGS: ${{ matrix.platform.target == 'x86_64' && '-march=x86-64' || '' }}
+          CXXFLAGS: ${{ matrix.platform.target == 'x86_64' && '-march=x86-64' || '' }}
         with:
           rust-toolchain: stable
           target: ${{ matrix.platform.target }}
