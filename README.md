@@ -486,39 +486,30 @@ mode is a one-way update, not a deletion-propagating mirror.
 
 ## x86-64 release compatibility
 
-The repository's default x86-64 build configuration targets `x86-64-v3`,
-which requires AVX2 and other CPU features. Pushing a stable `x.y.z` tag
-pointing to a commit on `master` runs CI and publishes a release. The
-packaging, baseline CI, and baseline packaging workflows then run in that
-order and attach their assets to the same `x.y.z` release. The tag must match
-the workspace and Python package versions. CI also runs for pull requests
-and supports manual dispatch.
+The default x86-64 build targets the baseline instruction set. Pushing a
+stable `x.y.z` tag pointing to a commit on `master` runs CI and publishes a
+release. Baseline packaging, v3 CI, and v3 packaging then run in that order
+and attach their assets to the same release. The tag must match the workspace
+and Python package versions. CI also runs for pull requests and supports
+manual dispatch.
 
-The normal workflows explicitly select `x86-64-v3` for Rust builds and native
-C/C++ builds where applicable, including static binaries and Flatpak builds.
-The x86-64 installer package filenames end in `-v3` before the extension.
-ARM packages in that release are not affected by the x86-64 CPU target.
+The normal workflows build baseline x86-64 binaries, wheels, and packages.
+The separate v3 workflows target `x86-64-v3`, which requires AVX2 and other
+CPU features. Their binary archives and package filenames end in `-v3` before
+the extension. ARM assets are not affected by the x86-64 CPU target.
 
-For older x86-64 CPUs, the `x.y.z` GitHub release contains baseline x86-64 CLI and GUI
-binaries and Python wheels for Linux, macOS, and Windows. The Linux binaries
-include both GNU and static musl builds. These artifacts are built from the
-same commit as the `x.y.z` tag, using Rust's `x86-64` baseline CPU target.
-Operating-system and library requirements still apply.
+The v3 Python wheels are grouped in `pyzarlib-wheels-*-v3.zip` assets;
+extract the ZIP before installing a wheel. Wheel filenames inside the ZIP use
+standard Python platform tags and do not identify CPU level. Linux v3 wheels
+use `manylinux_2_28_x86_64`. Operating-system, system-library, and Flatpak
+runtime requirements still apply to all assets.
 
-Baseline wheels are grouped in `pyzarlib-wheels-*-v1.zip` assets to distinguish
-them from v3 wheels; extract the ZIP before installing a wheel. Wheel filenames
-inside the ZIP use standard Python platform tags and do not identify CPU level.
-The release also includes baseline x86-64 Linux packages, a Windows installer, and macOS
-packages. Their filenames end in `-v1` before the extension. The Flatpak
-still requires its Freedesktop runtime; OS and runtime requirements apply to
-all packages. ARM assets remain available separately in the same release.
+To rebuild v3 assets for an existing release, run
+`gh workflow run ci-v3.yml -f tag=0.11.0`. To rebuild just its packages,
+run `gh workflow run packaging-v3.yml -f tag=0.11.0` after the v3 binary assets
+have been published.
 
-To rebuild baseline assets for an existing release, run
-`gh workflow run ci-v1.yml -f tag=0.11.0`. To rebuild just its packages,
-run `gh workflow run packaging-v1.yml -f tag=0.11.0` after the baseline
-binary assets have been published.
-
-To build locally for the baseline, override the repository's Rust flags:
+To explicitly build locally for the baseline:
 
 ```sh
 RUSTFLAGS="-C target-cpu=x86-64" cargo build --release --bins

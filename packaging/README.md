@@ -5,28 +5,26 @@ also includes `zcopy`. Output goes to `dist/`.
 
 Pushing a stable `x.y.z` tag on a `master` commit runs
 [CI](../.github/workflows/ci.yml), followed by
-[packaging](../.github/workflows/packaging.yml), baseline CI, and baseline
-packaging. Each attaches its assets to the `x.y.z` release. CI also runs on
+[packaging](../.github/workflows/packaging.yml), v3 CI, and v3 packaging.
+Each attaches its assets to the `x.y.z` release. CI also runs on
 pull requests and supports manual dispatch; selecting a branch builds workflow
 artifacts without attaching them to a release.
 
 The normal workflows attempt to reuse binaries from the latest successful CI
 run on `master` for the exact commit when those artifacts are still retained.
 If no matching artifact is available, they build from source. Flatpak
-continues to build inside its Freedesktop SDK. x86-64 builds explicitly use
-the v3 CPU target for Rust and native C/C++ code where applicable; static
-builds retain that target. The workflow reuses only artifacts produced with
-these settings, and the Windows archives contain all three installer
-executables. x86-64 package filenames carry a `-v3` suffix; ARM packages
-retain their usual names.
+continues to build inside its Freedesktop SDK. Normal x86-64 builds explicitly
+use the baseline CPU target for Rust and native C/C++ code where applicable;
+static builds retain that target. Windows archives contain all three installer
+executables. Baseline and ARM package filenames retain their usual names.
 
-The `x.y.z` release includes baseline x86-64 packages built by
-`.github/workflows/packaging-v1.yml`. It reuses only the matching v1 release
-binaries, builds the Windows `zcopy` utility for the same CPU baseline, and
-sets baseline compiler flags inside the Flatpak SDK. Package filenames carry a
-`-v1` suffix; their internal package versions are unchanged. OS, system
+The `x.y.z` release also includes x86-64-v3 packages built by
+`.github/workflows/packaging-v3.yml`. It reuses the matching v3 release
+binaries, builds the Windows `zcopy` utility for v3, and sets v3 compiler
+flags inside the Flatpak SDK. Package filenames carry a `-v3` suffix; their
+internal package versions are unchanged. OS, system
 library, and Flatpak runtime requirements still apply. The workflow runs after
-the v1 release workflow or can be dispatched manually with its source tag.
+the v3 release workflow or can be dispatched manually with its source tag.
 The v1 and v3 packages use the same internal package version and identity, so they replace
 one another rather than installing side by side. These workflow changes do
 not rebuild assets already published in older releases.
