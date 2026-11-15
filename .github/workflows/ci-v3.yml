@@ -102,6 +102,7 @@ jobs:
           toolchain: stable
           targets: ${{ matrix.platform.target }}
       - name: Build zarc and zarg
+        if: runner.os != 'Windows'
         env:
           RUSTFLAGS: ${{ matrix.platform.static && '-C target-cpu=x86-64-v3 -C target-feature=+crt-static' || '-C target-cpu=x86-64-v3' }}
           CFLAGS: ${{ runner.os != 'Windows' && '-march=x86-64-v3' || '' }}
@@ -109,6 +110,11 @@ jobs:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: ${{ matrix.platform.static && 'musl-gcc' || '' }}
           TARGET: ${{ matrix.platform.target }}
         run: cargo build --release --locked --target ${{ matrix.platform.target }} --workspace --bin zarc --bin zarg
+      - name: Build zarc, zarg and zcopy (Windows)
+        if: runner.os == 'Windows'
+        env:
+          RUSTFLAGS: -C target-cpu=x86-64-v3
+        run: cargo build --release --locked --target ${{ matrix.platform.target }} --workspace --bin zarc --bin zarg --bin zcopy
       - name: Smoke test zarc
         shell: bash
         env:
@@ -137,7 +143,7 @@ jobs:
           TARGET: ${{ matrix.platform.target }}
         run: |
           New-Item -ItemType Directory -Force -Path "dist/zar-rs-$env:PLATFORM-v3" | Out-Null
-          Copy-Item "target/$env:TARGET/release/zarc.exe", "target/$env:TARGET/release/zarg.exe" "dist/zar-rs-$env:PLATFORM-v3/"
+          Copy-Item "target/$env:TARGET/release/zarc.exe", "target/$env:TARGET/release/zarg.exe", "target/$env:TARGET/release/zcopy.exe" "dist/zar-rs-$env:PLATFORM-v3/"
           Compress-Archive -Path "dist/zar-rs-$env:PLATFORM-v3" -DestinationPath "dist/zar-rs-$env:PLATFORM-v3.zip"
       - name: Upload binary archive
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1

@@ -2,6 +2,11 @@ name: Packaging
 
 on:
   workflow_call:
+    inputs:
+      ci_run_id:
+        description: Run containing same-commit CI binaries
+        required: false
+        type: string
   workflow_dispatch:
 
 permissions:
@@ -29,7 +34,17 @@ jobs:
         id: find
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash .github/scripts/find-successful-ci-run.sh
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
+        run: |
+          if [[ -n "$CI_RUN_ID" ]]; then
+            if [[ "$CI_RUN_ID" != "$GITHUB_RUN_ID" ]]; then
+              echo "The CI run ID must match the calling workflow run" >&2
+              exit 1
+            fi
+            echo "run_id=$CI_RUN_ID" >> "$GITHUB_OUTPUT"
+          else
+            bash .github/scripts/find-successful-ci-run.sh
+          fi
 
   linux-packages:
     name: Linux packages (${{ matrix.format }})

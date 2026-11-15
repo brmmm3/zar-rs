@@ -161,6 +161,7 @@ jobs:
           ref: ${{ needs.prepare.outputs.sha }}
           persist-credentials: false
       - name: Download x86-64-v3 Windows binaries
+        id: binaries
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -176,12 +177,15 @@ jobs:
             if (!(Test-Path (Join-Path $binaryDir $binary))) { throw "Missing $binary in $binaryDir" }
           }
           "BINARY_DIR=$binaryDir" >> $env:GITHUB_ENV
+          "has_zcopy=$((Test-Path (Join-Path $binaryDir 'zcopy.exe')).ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
       - name: Install Rust toolchain
+        if: steps.binaries.outputs.has_zcopy != 'true'
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
         with:
           toolchain: stable
           targets: x86_64-pc-windows-msvc
       - name: Build x86-64-v3 zcopy
+        if: steps.binaries.outputs.has_zcopy != 'true'
         env:
           RUSTFLAGS: -C target-cpu=x86-64-v3
         shell: pwsh
@@ -189,6 +193,9 @@ jobs:
           cargo build --release --locked --target x86_64-pc-windows-msvc --workspace --bin zcopy
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item target/x86_64-pc-windows-msvc/release/zcopy.exe $env:BINARY_DIR
+      - name: Verify zcopy
+        shell: pwsh
+        run: |
           & (Join-Path $env:BINARY_DIR 'zcopy.exe') --version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install Inno Setup
