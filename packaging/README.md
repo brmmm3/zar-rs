@@ -77,35 +77,48 @@ submitted and accepted. Update the version, URLs, and hashes for each release.
 
 ### Chocolatey
 
-Each package can be built and installed locally, for example:
+The `zar-rs` and `zar-rs-v3` packages install portable copies of `zarc`,
+`zarg`, and `zcopy` with Chocolatey shims. Build and install the baseline
+package locally, for example:
 
 ```powershell
-choco pack packaging\windows\chocolatey\zarc\zarc.nuspec --output-directory "$env:TEMP"
-choco install zarc --version 0.11.0 --source "$env:TEMP" -y
+Push-Location packaging\windows\chocolatey\zar-rs
+choco pack zarg.nuspec --output-directory "$env:TEMP"
+Pop-Location
+choco install zar-rs --version 0.13.0 --source "$env:TEMP" -y
 ```
 
-The `zarc` and `zarg` packages install portable executables with Chocolatey
-shims. The `zcopy` package requires administrator privileges and installs the
-complete ZAR suite with Explorer integration and `zarc` and `zcopy` on the
-system PATH. Uninstalling `zcopy` removes that suite. Avoid installing the
-suite through multiple package managers, or combining it with the portable
-packages, to prevent duplicate executables and conflicting ownership.
+For the x86-64-v3 package, pack
+`packaging\windows\chocolatey\zar-rs-v3\zarc.nuspec` and install `zar-rs-v3`.
+These portable packages do not register Explorer integration. The Chocolatey
+v3 package requires an x86-64-v3-compatible processor. Before downloading, it
+checks that Windows reports AVX2 support and fails if support cannot be
+confirmed. This check requires Windows 10 version 2004 or later and does not
+check every x86-64-v3 feature; AVX2 alone does not guarantee compatibility.
 
 ### Scoop
 
 Install a local manifest, for example:
 
 ```powershell
-scoop install .\packaging\windows\scoop\zarg.json
+scoop install .\packaging\windows\scoop\zar-rs.json
+# On a compatible x86-64-v3 system:
+scoop install .\packaging\windows\scoop\zar-rs-v3.json
 ```
 
-The `zarc` and `zarg` manifests use the 0.11.0 release ZIPs. Since those ZIPs
-do not contain `zcopy`, its manifest extracts the suite installer with Scoop's
-Inno Setup helper and exposes only `zcopy` as a command. Scoop's portable
-packages do not register Explorer integration. Run `scoop update` if stale
-bucket metadata causes the helper's checksum verification to fail. The Scoop
-and Chocolatey packages have not been published to their community
-repositories. Update versions, URLs and checksums for each release.
+Both Scoop manifests expose `zarc`, `zarg`, and `zcopy` and create a `zarg`
+Start menu shortcut. They do not register Explorer integration. The v3
+manifest checks that Windows reports AVX2 support; if it cannot confirm support,
+installation fails and the baseline package should be used instead. This check
+requires Windows 10 version 2004 or later and does not check every x86-64-v3
+feature, such as BMI2 and FMA. AVX2 alone does not guarantee v3 compatibility.
+Scoop may select the v3 x64 build under emulation on Windows ARM; use the
+baseline manifest for its native ARM64 build.
+
+Avoid installing baseline and v3 packages together or combining package
+managers, as they expose the same commands. The Scoop and Chocolatey packages
+have not been published to their community repositories. Update versions,
+URLs, and checksums for each release.
 
 ## Linux
 

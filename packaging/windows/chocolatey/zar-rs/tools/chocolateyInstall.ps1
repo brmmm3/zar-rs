@@ -21,5 +21,4 @@ Get-ChocolateyWebFile -PackageName 'zar-rs' -FileFullPath $archive `
     -Checksum $checksum -ChecksumType 'sha256' | Out-Null
 Get-ChocolateyUnzip -FileFullPath $archive -Destination $tools
 Remove-Item $archive
-Remove-Item (Join-Path $tools "zar-rs-windows-$arch\zarc.exe")
 New-Item -ItemType File -Path (Join-Path $tools "zar-rs-windows-$arch\zarg.exe.gui") -Force | Out-Null

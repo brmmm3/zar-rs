@@ -7,7 +7,7 @@
     <authors>Martin Bammer</authors>
     <owners>brmmm3</owners>
     <projectUrl>https://github.com/brmmm3/zar-rs</projectUrl>
-    <licenseUrl>https://github.com/brmmm3/zar-rs/LICENSE-MIT</licenseUrl>
+    <licenseUrl>https://github.com/brmmm3/zar-rs/blob/master/LICENSE-MIT</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <description>ZAR archive tools.</description>
     <tags>zarg zarc zcopy zar archiver compression</tags>

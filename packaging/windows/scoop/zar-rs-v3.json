@@ -10,11 +10,19 @@
             "extract_dir": "zar-rs-windows-x86_64-v3"
         }
     },
-    "bin": "zarg.exe",
+    "pre_install": [
+        "if (-not ('ZarRs.CpuFeatures' -as [type])) { Add-Type -TypeDefinition 'using System.Runtime.InteropServices; namespace ZarRs { public static class CpuFeatures { [DllImport(\"kernel32.dll\")] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool IsProcessorFeaturePresent(uint feature); } }' -ErrorAction Stop }",
+        "if (-not [ZarRs.CpuFeatures]::IsProcessorFeaturePresent(40)) { throw 'Windows could not confirm AVX2 support. Install the baseline zar-rs package instead.' }"
+    ],
+    "bin": [
+        "zarc.exe",
+        "zarg.exe",
+        "zcopy.exe"
+    ],
     "shortcuts": [
         [
             "zarg.exe",
-            "ZAR Archive Manager"
+            "ZAR Archive GUI Manager"
         ]
     ]
 }

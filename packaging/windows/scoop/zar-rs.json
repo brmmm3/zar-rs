@@ -15,11 +15,15 @@
             "extract_dir": "zar-rs-windows-aarch64"
         }
     },
-    "bin": "zarg.exe",
+    "bin": [
+        "zarc.exe",
+        "zarg.exe",
+        "zcopy.exe"
+    ],
     "shortcuts": [
         [
             "zarg.exe",
-            "ZAR Archive Manager"
+            "ZAR Archive GUI Manager"
         ]
     ]
 }
