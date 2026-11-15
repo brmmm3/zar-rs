@@ -32,6 +32,27 @@ By default the Java binding loads `../target/release/libczarlib.so` on Linux
 Override it with `-Dzar.library=/absolute/path/to/libczarlib.so`. The test
 runtime enables native access for the FFM API.
 
+## Maven Central bundle
+
+The Maven coordinates are `io.github.brmmm3:jzarlib-ffm`. To prepare a
+bundle for manual upload to the Central Publisher Portal, configure a GPG
+signing key and publish its public key, then run:
+
+```sh
+cargo build --release -p czarlib
+cd jzarlib-ffm
+mvn -Pcentral deploy
+```
+
+Upload `target/central-publishing/central-bundle.zip`, not the JAR. The
+`central` profile builds sources and Javadoc, signs the artifacts, and creates
+the Maven-layout bundle with checksums without uploading it. See
+[Sonatype's publishing requirements](https://central.sonatype.org/publish/requirements/).
+The normal `mvn deploy` still targets GitHub Packages.
+
+The JAR does not include `czarlib`; consumers must provide the native library
+for their platform and set `-Dzar.library` as described above.
+
 ## API
 
 Each operation is available as a static Java method accepting a UTF-8 JSON

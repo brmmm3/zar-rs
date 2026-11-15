@@ -39,6 +39,27 @@ equivalent) relative to the module working directory. Override it with
 On macOS, the JNI library looks for `libczarlib.dylib` alongside itself or in
 the repository's `target/release` directory.
 
+## Maven Central bundle
+
+The Maven coordinates are `io.github.brmmm3:jzarlib-jni`. To prepare a bundle
+for manual upload to the Central Publisher Portal, configure a GPG signing key
+and publish its public key, then run:
+
+```sh
+./jzarlib-jni/build-native.sh
+cd jzarlib-jni
+mvn -Pcentral deploy
+```
+
+Upload `target/central-publishing/central-bundle.zip`, not the JAR. The
+`central` profile builds sources and Javadoc, signs the artifacts, and creates
+the Maven-layout bundle with checksums without uploading it. See
+[Sonatype's publishing requirements](https://central.sonatype.org/publish/requirements/).
+The normal `mvn deploy` still targets GitHub Packages.
+
+The JAR does not include the JNI shim or `czarlib`; consumers must provide
+both native libraries for their platform.
+
 ## API
 
 Each operation has a static Java method accepting the same JSON object request
