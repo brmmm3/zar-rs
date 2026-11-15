@@ -30,6 +30,31 @@ a commit without file changes. Values are strings, signed integers, or finite
 numbers; updates require an unencrypted archive. See the
 [`czarlib` guide](../czarlib/README.md) for the request schema.
 
+## NuGet and native library
+
+The default `ZarLib` NuGet package contains the managed wrapper only. Install
+or build a compatible `czarlib` shared library separately for the application's
+operating system and architecture. Its filename must be `czarlib.dll` on
+Windows, `libczarlib.so` on Linux, or `libczarlib.dylib` on macOS. Put it in
+the application directory or set `ZAR_LIBRARY` to its absolute path. Otherwise
+native calls fail with a library-loading error.
+
+The release workflow also builds the `ZarLib.x64` and `ZarLib.arm64` packages
+with native binaries for `win-x64` and `win-arm64`, respectively. Packages
+built with `NativeLibraryPath` include only the library for the specified
+`RuntimeIdentifier`; other runtimes still need their own compatible library.
+For example, to bundle a locally built Linux x64 library:
+
+```sh
+cargo build --release -p czarlib
+dotnet pack csharpzarlib/ZarLib/ZarLib.csproj -c Release \
+  -p:RuntimeIdentifier=linux-x64 \
+  -p:NativeLibraryPath="$PWD/target/release/libczarlib.so"
+```
+
+Build the native library for the selected runtime and architecture before
+packing; the packaging process does not cross-compile or verify its architecture.
+
 ## Build the native library
 
 ```sh
