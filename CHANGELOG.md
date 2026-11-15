@@ -5,6 +5,45 @@ until a version is released.
 
 ## Unreleased
 
+### Added
+
+- Added Maven Central bundle generation for the Java FFM and JNI bindings,
+  including sources, Javadoc, signatures, and checksums for manual upload.
+
+### Changed
+
+- Configure Java packages for GitHub Packages deployment and add NuGet package
+  metadata and native-library installation guidance for the C# binding.
+
+### Fixed
+
+- Corrected PyPI and TestPyPI release-asset selection to include only
+  `pyzarlib` distributions.
+- Updated the Scoop and Chocolatey packages to expose `zarc`, `zarg`, and
+  `zcopy`. Their v3 packages check Windows AVX2 support before installation;
+  AVX2 alone does not guarantee full x86-64-v3 compatibility.
+
+## 0.13.0 - 2026-11-15
+
+### Added
+
+- Added APIs to read and update custom archive-level metadata in the Python,
+  C, C++, Go, Java FFM/JNI, and C# bindings. Updates append a metadata-only
+  commit.
+
+### Fixed
+
+- Fixed macOS JNI native-library linking and added a distribution smoke test.
+- Fixed Java native-library artifact layout in CI.
+
+## 0.12.0 - 2026-11-14
+
+### Added
+
+- Added drag-and-drop of files and folders into `zarg` and extraction by
+  dragging archive entries out on Windows, macOS, and Wayland.
+- Added an option to extract only the entries selected in `zarg`.
+
 ### Changed
 
 - Publish v3 and baseline v1 assets to one `x.y.z` release through sequential
