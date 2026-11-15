@@ -9,7 +9,10 @@
     <projectUrl>https://github.com/brmmm3/zar-rs</projectUrl>
     <licenseUrl>https://github.com/brmmm3/zar-rs/blob/master/LICENSE-MIT</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
-    <description>ZAR archive tools.</description>
+    <description>ZAR is an archive format and toolkit with compression, deduplication, and
+      commit-based history. It is written in Rust and includes a command-line tool,
+      a desktop GUI, a reusable library, language bindings, and a network copy tool.
+      This package contains binaries for x86_64 and aarch64 architectures.</description>
     <tags>zarg zarc zcopy zar archiver compression</tags>
   </metadata>
   <files>
