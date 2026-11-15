@@ -36,6 +36,8 @@ Rust shared library. Linux and macOS are supported by the build script. The
 default Java loader path is `target/native/libzarlib_jni.so` (or the platform
 equivalent) relative to the module working directory. Override it with
 `-Dzar.jni.library=/absolute/path/to/the/JNI/library`.
+On macOS, the JNI library looks for `libczarlib.dylib` alongside itself or in
+the repository's `target/release` directory.
 
 ## API
 

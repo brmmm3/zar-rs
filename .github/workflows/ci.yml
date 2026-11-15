@@ -481,6 +481,22 @@ jobs:
           else
             cp jzarlib-jni/target/native/libzarlib_jni.dylib target/release/libczarlib.dylib "dist/$MODULE/"
           fi
+      - name: Smoke test macOS JNI distribution
+        if: runner.os == 'macOS' && matrix.module == 'jzarlib-jni'
+        shell: bash
+        run: |
+          temp_dir="$(mktemp -d)"
+          trap 'rm -rf "$temp_dir"' EXIT
+          printf 'JNI distribution test\n' > "$temp_dir/input.txt"
+          jars=(dist/jzarlib-jni/jzarlib-jni-*.jar)
+          if [[ ${#jars[@]} -ne 1 || ! -f "${jars[0]}" ]]; then
+            echo "Expected exactly one JNI JAR" >&2
+            exit 1
+          fi
+          java --enable-native-access=ALL-UNNAMED \
+            "-Dzar.jni.library=$PWD/dist/jzarlib-jni/libzarlib_jni.dylib" \
+            -cp "${jars[0]}" org.zar.jarlib.jni.examples.BasicExample \
+            "$temp_dir/test.zar" "$temp_dir/input.txt"
       - name: Stage Windows distribution
         if: runner.os == 'Windows'
         shell: pwsh

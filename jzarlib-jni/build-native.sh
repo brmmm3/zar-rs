@@ -28,7 +28,7 @@ case "$OS" in
         JNI_PLATFORM=darwin
         LIBRARY=libzarlib_jni.dylib
         CZARLIB=libczarlib.dylib
-        LINK_FLAGS="-dynamiclib -Wl,-rpath,@loader_path/../../../target/release"
+        LINK_FLAGS="-dynamiclib -Wl,-rpath,@loader_path -Wl,-rpath,@loader_path/../../../target/release"
         ;;
     *)
         echo "Unsupported JNI build platform: $OS" >&2
@@ -46,4 +46,11 @@ cc -std=c11 -O2 -Wall -Wextra -Werror -fPIC $LINK_FLAGS \
     "$PROJECT/src/main/c/jzarlib_jni.c" \
     -L"$ROOT/target/release" -lczarlib \
     -o "$PROJECT/target/native/$LIBRARY"
+
+if [ "$OS" = Darwin ]; then
+    CZARLIB_ID=$(otool -D "$ROOT/target/release/$CZARLIB" | sed -n '2p')
+    [ -n "$CZARLIB_ID" ] || { echo "error: czarlib has no install name" >&2; exit 1; }
+    install_name_tool -change "$CZARLIB_ID" "@rpath/$CZARLIB" "$PROJECT/target/native/$LIBRARY"
+fi
+
 printf 'Built %s\n' "$PROJECT/target/native/$LIBRARY"
