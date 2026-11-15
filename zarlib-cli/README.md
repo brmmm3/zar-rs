@@ -160,8 +160,12 @@ zarc meta backup.zar
 ```
 
 `meta` lists, sets (`--set KEY=VALUE`) or removes (`--remove KEY`) custom
-key/value metadata. Changes are stored in a new commit without file changes;
-keys starting with `zar.` are reserved.
+key/value metadata. Repeat `--set` or `--remove` to change multiple keys.
+Values that parse as integers or finite floating-point numbers are stored
+numerically; other values are strings. Changes append a metadata-only commit,
+so existing commits are not rewritten. Later values override earlier ones,
+and removing a key hides its earlier value. Keys starting with `zar.` are
+reserved. `meta` currently requires an unencrypted archive.
 
 - `add` appends a commit. New or modified paths replace the corresponding
   entries in the latest TOC; untouched entries remain available.

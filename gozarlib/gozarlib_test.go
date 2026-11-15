@@ -378,6 +378,84 @@ func testConcurrentCalls(t *testing.T) {
 	}
 }
 
+func TestCustomMetadataOperations(t *testing.T) {
+	directory := t.TempDir()
+	input := filepath.Join(directory, "input.txt")
+	archive := filepath.Join(directory, "metadata.zar")
+	if err := os.WriteFile(input, []byte("metadata test"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CreateArchive(map[string]any{
+		"archive": archive,
+		"paths":   []string{input},
+	}); err != nil {
+		t.Fatalf("create archive: %v", err)
+	}
+	if got, err := ReadCustomMetadata(map[string]any{"archive": archive}); err != nil ||
+		string(got) != "{}" {
+		t.Fatalf("initial metadata = %s, err=%v; want {}", got, err)
+	}
+	if _, err := UpdateCustomMetadata(map[string]any{
+		"archive": archive,
+		"set": map[string]any{
+			"author":   "Jane",
+			"revision": 3,
+			"ratio":    1.5,
+		},
+	}); err != nil {
+		t.Fatalf("set metadata: %v", err)
+	}
+	metadataJSON, err := ReadCustomMetadata(map[string]any{"archive": archive})
+	if err != nil {
+		t.Fatalf("read metadata: %v", err)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(metadataJSON, &metadata); err != nil {
+		t.Fatalf("decode metadata: %v", err)
+	}
+	if metadata["author"] != "Jane" || metadata["revision"] != float64(3) ||
+		metadata["ratio"] != 1.5 {
+		t.Fatalf("unexpected metadata values: %#v", metadata)
+	}
+	if _, err := UpdateCustomMetadata(map[string]any{
+		"archive": archive,
+		"set":     map[string]any{"revision": 4},
+		"remove":  []string{"author"},
+	}); err != nil {
+		t.Fatalf("update and remove metadata: %v", err)
+	}
+	metadataJSON, err = ReadCustomMetadata(map[string]any{"archive": archive})
+	if err != nil {
+		t.Fatalf("read updated metadata: %v", err)
+	}
+	metadata = nil
+	if err := json.Unmarshal(metadataJSON, &metadata); err != nil {
+		t.Fatalf("decode updated metadata: %v", err)
+	}
+	if _, exists := metadata["author"]; exists || metadata["revision"] != float64(4) ||
+		metadata["ratio"] != 1.5 {
+		t.Fatalf("unexpected updated metadata: %#v", metadata)
+	}
+	var report struct {
+		Commits int `json:"commits"`
+	}
+	if err := json.Unmarshal(
+		[]byte(call(t, "check_archive", map[string]any{"archive": archive})),
+		&report,
+	); err != nil {
+		t.Fatalf("decode check report: %v", err)
+	}
+	if report.Commits != 3 {
+		t.Fatalf("metadata updates yielded %d commits, want 3", report.Commits)
+	}
+	if _, err := UpdateCustomMetadata(map[string]any{
+		"archive": archive,
+		"set":     map[string]any{"invalid": true},
+	}); err == nil || !strings.Contains(err.Error(), "metadata values must") {
+		t.Fatalf("boolean metadata error = %v", err)
+	}
+}
+
 func TestUndoArchiveRetainsFirstCommit(t *testing.T) {
 	temp := t.TempDir()
 	oldWorkingDirectory, err := os.Getwd()

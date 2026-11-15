@@ -2,7 +2,8 @@
 
 `pyzarlib` provides Python bindings to the Rust `zarlib` archive library.
 The package exposes high-level create, add, remove, join, undo, commit
-encryption/decryption, check, info, list, and extract operations.
+encryption/decryption, custom metadata read/update, check, info, list, and
+extract operations.
 ZIP, 7z, RAR, ISO, TAR, TAR.GZ, TGZ, and GZ paths in `create_archive` and `add_archive` are
 imported by their internal entry paths. Encrypted ZIP/7z/RAR sources and
 ZIP/7z/RAR links are not supported. Multi-volume RAR archives and RAR special
@@ -12,6 +13,21 @@ images are not supported. ISO import is limited to 100,000 entries, 16 MiB of
 directory metadata, and 64 directory levels. TAR symbolic links are preserved where the host
 supports them, hard links are imported as regular files, and TAR special
 entries are not supported.
+
+The Python API provides `read_custom_metadata` and `update_custom_metadata`
+for archive-level custom key/value metadata. The `zarc-py` CLI does not yet
+include a metadata command; with the separate `zarc` CLI, values can also be
+managed this way:
+
+```sh
+zarc meta backup.zar --set project=example
+zarc meta backup.zar
+zarc meta backup.zar --remove project
+```
+
+Each update appends a commit without file changes. This is distinct from
+per-file permissions and timestamps; see the
+[`zarc` guide](../zarlib-cli/README.md#append-remove-and-compact-commits).
 
 ## Python compatibility
 
@@ -123,6 +139,19 @@ contents = pyzarlib.extract_archive_to_memory(
 )
 for path, data in contents.items():
     print(path, len(data))
+```
+
+Read metadata as a dictionary of Python strings, integers, and floats. Set
+and/or remove keys with `update_custom_metadata`; keys beginning with `zar.`
+are reserved, and updates require an unencrypted archive:
+
+```python
+pyzarlib.update_custom_metadata(
+    "backup.zar",
+    set={"project": "example", "revision": 3},
+)
+metadata = pyzarlib.read_custom_metadata("backup.zar")
+pyzarlib.update_custom_metadata("backup.zar", remove=["revision"])
 ```
 
 ## Password encryption: AES-256-GCM and ChaCha20-Poly1305
@@ -404,6 +433,10 @@ staging-time filesystem timestamps, and extraction does not restore them.
   exclude_files=None, include_folders=None, exclude_folders=None)` extracts
   selected entries and returns the resulting plan as dictionaries. Set
   `dry_run=True` to plan without writing files.
+- `read_custom_metadata(archive)` returns the effective archive-level custom
+  metadata as a dictionary.
+- `update_custom_metadata(archive, *, set=None, remove=None)` sets and/or
+  removes custom metadata keys and appends a metadata-only commit.
 - `extract_archive_to_memory(archive, *, to=None, password=None,
   size_limit=None, offset=0, include_files=None, exclude_files=None,
   include_folders=None, exclude_folders=None)` returns a dictionary mapping

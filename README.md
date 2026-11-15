@@ -102,6 +102,10 @@ Highlights:
   tombstones. Historical states remain available until commits are removed or
   compacted with `join`. Mutations stage a replacement archive; joining can
   rewrite compressed data.
+- **Custom archive metadata.** Store arbitrary key/value pairs alongside the
+  archive history, independently of per-file permissions and timestamps. Use
+  `zarc meta` to list, set, or remove values; each update appends a
+  metadata-only commit.
 - **Security by design.** Authenticated encryption with flexible scope,
   commit-specific passwords, bounded KDF parameters, strict canonical UTF-8
   archive paths, and extraction that cannot escape the destination.
@@ -128,7 +132,7 @@ ZAR archive
 ├──────────────────┤
 │ Commit 2         │  data blocks + header (updates or additions)
 ├──────────────────┤
-│ Commit 3         │  header (removals)
+│ Commit 3         │  header (removals or metadata)
 └──────────────────┘
 ```
 
@@ -137,7 +141,11 @@ applied in order through the latest commit. **Retained history** lets you
 inspect or extract an earlier state, even after a later commit updates or
 removes a file. **Compaction** with `join` combines a chosen contiguous range
 of commits into one, keeping the state at the end of that range but discarding
-the individual intermediate states within it.
+the individual intermediate states within it. Custom archive-level key/value
+metadata is also stored in commits; later values replace earlier ones, and
+removals hide earlier values. Metadata updates append a commit with no file
+changes rather than rewriting existing commits. This is separate from optional
+per-entry metadata such as permissions and timestamps.
 
 ### Example: a file changes over time
 
@@ -279,6 +287,13 @@ deduplicated data blocks, an ordered logical table of contents (TOC), integrity
 checks, and optional password-based encryption. See the
 [format description](./doc/zar-file-format.md) for details.
 
+Language bindings expose `read_custom_metadata` and
+`update_custom_metadata` through their operation APIs. Reading returns the
+effective key/value map; updating accepts a `set` object and/or a `remove`
+array and appends a metadata-only commit. Use strings, signed integers, or
+finite floating-point values; `zar.` keys are reserved. These operations
+currently require an unencrypted archive.
+
 ## Build
 
 Install a Rust toolchain that supports the 2024 edition, then build or test the
@@ -369,6 +384,11 @@ zarc extract backup.zar --output ./restored/
 # Inspect and restore the initial state (commit ID from zarc info)
 zarc list backup.zar --to 00000001
 zarc extract backup.zar --to 00000001 --output ./restored-initial/
+
+# Store, inspect, and remove custom archive metadata
+zarc meta backup.zar --set project=example --set revision=3
+zarc meta backup.zar
+zarc meta backup.zar --remove revision
 ```
 
 `add` updates the paths supplied to it; it does not automatically remove paths
@@ -376,6 +396,14 @@ deleted from disk. Use `zarc remove` for archive paths you want to delete.
 `info` shows the actual commit IDs; the first commit in this fresh example is
 `00000001`. Use `zarc <command> --help` for options and the
 [CLI guide](./zarlib-cli/README.md) for encryption, conversion, and other workflows.
+Custom metadata values that parse as integers or finite floating-point numbers
+are stored numerically; other values are stored as strings. Keys beginning
+with `zar.` are reserved. `zarc meta` currently requires an unencrypted
+archive. The Rust API also exposes `read_custom_metadata` and
+`update_custom_metadata`; see the
+[developer guide](./doc/zarlib-developer-guide.md#custom-archive-metadata).
+The language bindings expose the same operations through their APIs; the
+Python CLI `zarc-py` does not yet include a `meta` command.
 
 ## Rust API quick start
 

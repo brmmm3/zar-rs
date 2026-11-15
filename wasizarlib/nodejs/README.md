@@ -35,3 +35,22 @@ console.log(JSON.parse(response));
 Operation errors are thrown. Archive paths must refer to configured preopens.
 The adapter exposes no environment variables, arguments, or network access to
 the component.
+
+The WASI operation dispatcher supports archive-level custom key/value metadata:
+
+```js
+execute(
+  "update_custom_metadata",
+  JSON.stringify({
+    archive: "/data/backup.zar",
+    set: { project: "example", revision: 3 },
+  }),
+);
+const metadata = JSON.parse(
+  execute("read_custom_metadata", JSON.stringify({ archive: "/data/backup.zar" })),
+);
+```
+
+Read returns a JSON object; update takes a `set` object and/or `remove` array
+and appends a metadata-only commit. Values are strings, signed integers, or
+finite numbers, and updates require an unencrypted archive.

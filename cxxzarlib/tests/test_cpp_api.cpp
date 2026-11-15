@@ -466,6 +466,40 @@ void test_concurrent_calls() {
     }
 }
 
+void test_custom_metadata() {
+    (void)invoke(
+        "create_archive",
+        R"({"archive":"metadata.zar","paths":["input/alpha.txt"]})");
+    require(invoke("read_custom_metadata", R"({"archive":"metadata.zar"})") == "{}",
+            "new archive should have no custom metadata");
+    (void)invoke(
+        "update_custom_metadata",
+        R"({"archive":"metadata.zar","set":{"author":"Jane","revision":3,"ratio":1.5}})");
+    auto metadata = invoke("read_custom_metadata", R"({"archive":"metadata.zar"})");
+    require(metadata.find(R"("author":"Jane")") != std::string::npos,
+            "metadata read omitted author");
+    require(metadata.find(R"("revision":3)") != std::string::npos,
+            "metadata read omitted integer value");
+    require(metadata.find(R"("ratio":1.5)") != std::string::npos,
+            "metadata read omitted float value");
+
+    (void)invoke(
+        "update_custom_metadata",
+        R"({"archive":"metadata.zar","set":{"revision":4},"remove":["author"]})");
+    metadata = invoke("read_custom_metadata", R"({"archive":"metadata.zar"})");
+    require(metadata.find(R"("author")") == std::string::npos,
+            "metadata removal did not hide author");
+    require(metadata.find(R"("revision":4)") != std::string::npos,
+            "metadata update did not replace revision");
+    require(invoke("check_archive", R"({"archive":"metadata.zar"})")
+                .find(R"("commits":3)") != std::string::npos,
+            "metadata updates did not append commits");
+    expect_error(
+        "update_custom_metadata",
+        R"({"archive":"metadata.zar","set":{"invalid":true}})",
+        "metadata values must");
+}
+
 }
 
 int main() {
@@ -481,6 +515,7 @@ int main() {
         create_fixture();
         test_request_validation();
         test_create_list_check_info_extract();
+        test_custom_metadata();
         test_options_filters_and_atomic_failures();
         test_add_replace_remove_and_to();
         test_join_and_suffix_preservation();

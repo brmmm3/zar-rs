@@ -165,6 +165,61 @@ static void test_create_list_check_extract(void) {
     REQUIRE(access("restored/input/empty.txt", F_OK) == 0);
 }
 
+static void test_custom_metadata(void) {
+    char *created = invoke(
+        "create_archive",
+        "{\"archive\":\"metadata.zar\",\"paths\":[\"input/alpha.txt\"]}");
+    czarlib_string_free(created);
+
+    char *metadata = invoke(
+        "read_custom_metadata",
+        "{\"archive\":\"metadata.zar\"}");
+    REQUIRE(strcmp(metadata, "{}") == 0);
+    czarlib_string_free(metadata);
+
+    char *updated = invoke(
+        "update_custom_metadata",
+        "{\"archive\":\"metadata.zar\",\"set\":{\"author\":\"Jane\","
+        "\"revision\":3,\"ratio\":1.5}}");
+    REQUIRE(strcmp(updated, "null") == 0);
+    czarlib_string_free(updated);
+
+    metadata = invoke(
+        "read_custom_metadata",
+        "{\"archive\":\"metadata.zar\"}");
+    REQUIRE(strstr(metadata, "\"author\":\"Jane\"") != NULL);
+    REQUIRE(strstr(metadata, "\"revision\":3") != NULL);
+    REQUIRE(strstr(metadata, "\"ratio\":1.5") != NULL);
+    czarlib_string_free(metadata);
+
+    updated = invoke(
+        "update_custom_metadata",
+        "{\"archive\":\"metadata.zar\",\"set\":{\"revision\":4},"
+        "\"remove\":[\"author\"]}");
+    czarlib_string_free(updated);
+    metadata = invoke(
+        "read_custom_metadata",
+        "{\"archive\":\"metadata.zar\"}");
+    REQUIRE(strstr(metadata, "\"author\"") == NULL);
+    REQUIRE(strstr(metadata, "\"revision\":4") != NULL);
+    REQUIRE(strstr(metadata, "\"ratio\":1.5") != NULL);
+    czarlib_string_free(metadata);
+
+    char *report = invoke(
+        "check_archive",
+        "{\"archive\":\"metadata.zar\"}");
+    REQUIRE(strstr(report, "\"commits\":3") != NULL);
+    czarlib_string_free(report);
+    expect_error(
+        "update_custom_metadata",
+        "{\"archive\":\"metadata.zar\",\"set\":{\"invalid\":true}}",
+        "metadata values must");
+    expect_error(
+        "update_custom_metadata",
+        "{\"archive\":\"metadata.zar\",\"set\":{\"zar.internal\":\"no\"}}",
+        "zar.");
+}
+
 static void test_options_filters_and_atomic_failures(void) {
     write_file("keep.txt", "keep", 4);
     write_file("drop.bin", "drop", 4);
@@ -573,6 +628,7 @@ int main(void) {
     REQUIRE(chdir(temporary) == 0);
     create_fixture();
     test_create_list_check_extract();
+    test_custom_metadata();
     test_options_filters_and_atomic_failures();
     test_add_replace_remove_and_to();
     test_join_and_suffix_preservation();

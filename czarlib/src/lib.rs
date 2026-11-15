@@ -7,7 +7,7 @@ use zarlib::operations::{
     self, AddInputOptions, CollisionPolicy, CreateFilterOptions, CreateInputOptions,
     EncodingOptions, ExistingPolicy, ExtractionOptions, FilterSet, Progress,
 };
-use zarlib::{ContentAead, EncryptionScope};
+use zarlib::{ContentAead, EncryptionScope, MetadataType};
 
 #[cfg(feature = "mimalloc")]
 #[global_allocator]
@@ -286,6 +286,59 @@ fn add(request: &Value) -> Result<Value, String> {
 fn remove(request: &Value) -> Result<Value, String> {
     operations::remove_archive(required_string(request, "archive")?, &paths(request)?)
         .map_err(|error| error.to_string())?;
+    Ok(Value::Null)
+}
+
+fn custom_metadata_value(value: &Value) -> Result<MetadataType, String> {
+    match value {
+        Value::String(value) => Ok(MetadataType::String(value.clone())),
+        Value::Number(number) => {
+            if let Some(value) = number.as_i64() {
+                Ok(MetadataType::I64(value))
+            } else if number.is_u64() {
+                Err("metadata integer values must fit in a signed 64-bit integer".to_owned())
+            } else if let Some(value) = number.as_f64().filter(|value| value.is_finite()) {
+                Ok(MetadataType::F64(value))
+            } else {
+                Err("metadata numeric values must be finite".to_owned())
+            }
+        }
+        _ => Err("metadata values must be strings, integers, or finite numbers".to_owned()),
+    }
+}
+
+fn read_custom_metadata(request: &Value) -> Result<Value, String> {
+    let metadata = operations::read_custom_metadata(required_string(request, "archive")?)
+        .map_err(|error| error.to_string())?;
+    let values = metadata
+        .into_iter()
+        .map(|(key, value)| {
+            let value = match value {
+                MetadataType::String(value) => json!(value),
+                MetadataType::I64(value) => json!(value),
+                MetadataType::F64(value) => json!(value),
+            };
+            (key, value)
+        })
+        .collect::<Map<_, _>>();
+    Ok(Value::Object(values))
+}
+
+fn update_custom_metadata(request: &Value) -> Result<Value, String> {
+    let set = match request.get("set") {
+        None => Vec::new(),
+        Some(Value::Object(values)) => values
+            .iter()
+            .map(|(key, value)| Ok((key.clone(), custom_metadata_value(value)?)))
+            .collect::<Result<Vec<_>, String>>()?,
+        Some(_) => return Err("'set' must be an object of metadata values".to_owned()),
+    };
+    operations::update_custom_metadata(
+        required_string(request, "archive")?,
+        &set,
+        &string_list(request, "remove")?,
+    )
+    .map_err(|error| error.to_string())?;
     Ok(Value::Null)
 }
 
@@ -616,6 +669,8 @@ fn execute(operation: &str, request: &Value) -> Result<Value, String> {
         "create_archive" => create(request),
         "add_archive" => add(request),
         "remove_archive" => remove(request),
+        "read_custom_metadata" => read_custom_metadata(request),
+        "update_custom_metadata" => update_custom_metadata(request),
         "join_archive" => join(request),
         "undo_archive" => undo(request),
         "encrypt_archive_commits" => encrypt_commits(request),

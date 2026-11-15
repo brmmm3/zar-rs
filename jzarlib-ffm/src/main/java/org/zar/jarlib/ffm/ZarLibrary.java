@@ -110,6 +110,14 @@ public final class ZarLibrary {
         return executeJson("remove_archive", requestJson);
     }
 
+    public static String readCustomMetadata(String requestJson) throws ZarException {
+        return executeJson("read_custom_metadata", requestJson);
+    }
+
+    public static String updateCustomMetadata(String requestJson) throws ZarException {
+        return executeJson("update_custom_metadata", requestJson);
+    }
+
     public static String joinArchive(String requestJson) throws ZarException {
         return executeJson("join_archive", requestJson);
     }

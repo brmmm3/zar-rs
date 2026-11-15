@@ -60,6 +60,35 @@ bytes returned per file after the specified offset. Directories and special
 entries are omitted. The filtered variant accepts the same `FilterSet` used by
 file extraction.
 
+## Custom archive metadata
+
+The Rust API can read and update arbitrary archive-level key/value metadata
+through `operations::read_custom_metadata` and
+`operations::update_custom_metadata`. Updates append a metadata-only commit;
+they do not rewrite existing commits. Values are `MetadataType` variants
+(`String`, `I64`, or `F64`), and keys beginning with `zar.` are reserved.
+Metadata updates currently require an unencrypted archive.
+
+```rust,no_run
+use zarlib::{MetadataType, operations::{read_custom_metadata, update_custom_metadata}};
+
+update_custom_metadata(
+    "backup.zar",
+    &[("project".to_owned(), MetadataType::String("example".to_owned()))],
+    &[],
+)?;
+
+let metadata = read_custom_metadata("backup.zar")?;
+println!("{metadata:?}");
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Later commits override earlier values; removing a key hides its earlier value.
+The CLI offers the same feature with `zarc meta backup.zar --set
+project=example`, `zarc meta backup.zar`, and
+`zarc meta backup.zar --remove project`. The GUI exposes it through its Custom
+metadata dialog.
+
 ## Examples matching the `zarc` commands
 
 These snippets use the same operations as the `zarc` create, add, remove,

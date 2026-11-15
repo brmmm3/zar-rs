@@ -121,6 +121,18 @@ public static class ZarLibrary
     public static string CreateArchive(object request) => Execute("create_archive", request);
     public static string AddArchive(object request) => Execute("add_archive", request);
     public static string RemoveArchive(object request) => Execute("remove_archive", request);
+    public static Dictionary<string, JsonElement> ReadCustomMetadata(object request)
+    {
+        using var document = JsonDocument.Parse(Execute("read_custom_metadata", request));
+        var metadata = new Dictionary<string, JsonElement>();
+        foreach (var property in document.RootElement.EnumerateObject())
+        {
+            metadata.Add(property.Name, property.Value.Clone());
+        }
+        return metadata;
+    }
+
+    public static string UpdateCustomMetadata(object request) => Execute("update_custom_metadata", request);
     public static string JoinArchive(object request) => Execute("join_archive", request);
     public static string UndoArchive(object request) => Execute("undo_archive", request);
     public static string EncryptArchiveCommits(object request) => Execute("encrypt_archive_commits", request);

@@ -3,6 +3,11 @@
 Installers for `zarc` (CLI) and `zarg` (GUI). The Windows suite installer
 also includes `zcopy`. Output goes to `dist/`.
 
+The installed `zarc` CLI and `zarg` GUI support custom archive-level key/value
+metadata. For example, use `zarc meta backup.zar --set project=example` to
+write a value and `zarc meta backup.zar` to list values; updates append a
+metadata-only commit. See the [CLI guide](../zarlib-cli/README.md#append-remove-and-compact-commits).
+
 Pushing a stable `x.y.z` tag on a `master` commit runs
 [CI](../.github/workflows/ci.yml), followed by
 [packaging](../.github/workflows/packaging.yml), v3 CI, and v3 packaging.
@@ -10,9 +15,10 @@ Each attaches its assets to the `x.y.z` release. CI also runs on
 pull requests and supports manual dispatch; selecting a branch builds workflow
 artifacts without attaching them to a release.
 
-The normal workflows attempt to reuse binaries from the latest successful CI
+The release packaging workflow reuses binaries from its calling CI run.
+Standalone packaging attempts to reuse binaries from the latest successful CI
 run on `master` for the exact commit when those artifacts are still retained.
-If no matching artifact is available, they build from source. Flatpak
+If no matching artifact is available, it builds from source. Flatpak
 continues to build inside its Freedesktop SDK. Normal x86-64 builds explicitly
 use the baseline CPU target for Rust and native C/C++ code where applicable;
 static builds retain that target. Windows archives contain all three installer
@@ -20,8 +26,9 @@ executables. Baseline and ARM package filenames retain their usual names.
 
 The `x.y.z` release also includes x86-64-v3 packages built by
 `.github/workflows/packaging-v3.yml`. It reuses the matching v3 release
-binaries, builds the Windows `zcopy` utility for v3, and sets v3 compiler
-flags inside the Flatpak SDK. Package filenames carry a `-v3` suffix; their
+binaries, including Windows `zcopy`, and sets v3 compiler flags inside the
+Flatpak SDK. Older v3 binary archives without `zcopy` are still supported by
+building it during packaging. Package filenames carry a `-v3` suffix; their
 internal package versions are unchanged. OS, system
 library, and Flatpak runtime requirements still apply. The workflow runs after
 the v3 release workflow or can be dispatched manually with its source tag.

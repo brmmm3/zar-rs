@@ -94,6 +94,19 @@ response may have more data; use the next byte offset to read another range.
 This supports binary files as well as text. A partial read is not a full-file
 checksum verification; use `check_archive` to verify the archive.
 
+ZAR supports archive-level custom key/value metadata, but this MCP server does
+not expose a metadata tool. Use `zarc` to set, list, or remove values:
+
+```sh
+zarc meta backup.zar --set project=example
+zarc meta backup.zar
+zarc meta backup.zar --remove project
+```
+
+Each update appends a commit without file changes. This is separate from
+per-file permissions and timestamps; see the
+[`zarc` guide](../zarlib-cli/README.md#append-remove-and-compact-commits).
+
 ### Encrypted archives
 
 `password` supplies a default password; `passwords` maps eight-digit commit IDs

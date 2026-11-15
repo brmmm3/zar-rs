@@ -1,6 +1,6 @@
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyDict, PyList, PyModule};
+use pyo3::types::{PyBool, PyBytes, PyDict, PyFloat, PyList, PyModule};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -9,7 +9,7 @@ use zarlib::operations::{
     CreateInputOptions, EncodingOptions, ExistingPolicy, ExtractedKind, ExtractionOptions,
     FilterSet, Progress,
 };
-use zarlib::{ContentAead, DeviceKind, EncryptionScope, Toc, TocEntry};
+use zarlib::{ContentAead, DeviceKind, EncryptionScope, MetadataType, Toc, TocEntry};
 
 #[cfg(all(
     feature = "mimalloc",
@@ -703,6 +703,69 @@ fn extract_archive_to_memory(
     Ok(result)
 }
 
+#[pyfunction]
+fn read_custom_metadata(py: Python<'_>, archive: PathBuf) -> PyResult<Bound<'_, PyDict>> {
+    let archive = archive_string(archive)?;
+    let metadata = py
+        .detach(|| operations::read_custom_metadata(&archive).map_err(|error| error.to_string()))
+        .map_err(runtime_error)?;
+    let result = PyDict::new(py);
+    for (key, value) in metadata {
+        match value {
+            MetadataType::String(value) => result.set_item(key, value)?,
+            MetadataType::I64(value) => result.set_item(key, value)?,
+            MetadataType::F64(value) => result.set_item(key, value)?,
+        }
+    }
+    Ok(result)
+}
+
+fn custom_metadata_value(value: &Bound<'_, PyAny>) -> PyResult<MetadataType> {
+    if value.is_instance_of::<PyBool>() {
+        return Err(value_error("metadata values cannot be booleans"));
+    }
+    if value.is_instance_of::<PyFloat>() {
+        let value = value.extract::<f64>()?;
+        if !value.is_finite() {
+            return Err(value_error("metadata float values must be finite"));
+        }
+        return Ok(MetadataType::F64(value));
+    }
+    if let Ok(value) = value.extract::<i64>() {
+        return Ok(MetadataType::I64(value));
+    }
+    if let Ok(value) = value.extract::<String>() {
+        return Ok(MetadataType::String(value));
+    }
+    Err(value_error(
+        "metadata values must be strings, signed integers, or finite floats",
+    ))
+}
+
+#[pyfunction]
+#[pyo3(signature = (archive, *, set = None, remove = None))]
+fn update_custom_metadata<'py>(
+    py: Python<'py>,
+    archive: PathBuf,
+    set: Option<Bound<'py, PyDict>>,
+    remove: Option<Vec<String>>,
+) -> PyResult<()> {
+    let archive = archive_string(archive)?;
+    let mut values = Vec::new();
+    if let Some(set) = set {
+        for (key, value) in set.iter() {
+            let key = key.extract::<String>()?;
+            values.push((key, custom_metadata_value(&value)?));
+        }
+    }
+    let remove = remove.unwrap_or_default();
+    py.detach(move || {
+        operations::update_custom_metadata(&archive, &values, &remove)
+            .map_err(|error| error.to_string())
+    })
+    .map_err(runtime_error)
+}
+
 fn display_path(path: &std::path::Path) -> String {
     path.to_string_lossy().into_owned()
 }
@@ -823,5 +886,7 @@ fn _pyzarlib(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(list_archive, module)?)?;
     module.add_function(wrap_pyfunction!(extract_archive, module)?)?;
     module.add_function(wrap_pyfunction!(extract_archive_to_memory, module)?)?;
+    module.add_function(wrap_pyfunction!(read_custom_metadata, module)?)?;
+    module.add_function(wrap_pyfunction!(update_custom_metadata, module)?)?;
     Ok(())
 }

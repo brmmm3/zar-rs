@@ -12,7 +12,9 @@ from ._pyzarlib import (
     join_archive,
     list_archive,
     remove_archive,
+    read_custom_metadata,
     undo_archive,
+    update_custom_metadata,
 )
 
 __all__ = [
@@ -27,5 +29,7 @@ __all__ = [
     "join_archive",
     "list_archive",
     "remove_archive",
+    "read_custom_metadata",
     "undo_archive",
+    "update_custom_metadata",
 ]

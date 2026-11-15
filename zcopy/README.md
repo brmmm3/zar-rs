@@ -120,6 +120,20 @@ names can collide when different source folders have the same name.
 `--unpack` explicitly selects the default extracted-file mode and cannot be
 combined with `--pack`.
 
+Unencrypted packed `.zar` archives also support custom archive-level key/value
+metadata. After one arrives, use `zarc` on the receiving machine to set, list,
+or remove values (`zarc meta` currently requires an unencrypted archive):
+
+```sh
+zarc meta /data/backup/projects.zar --set project=example
+zarc meta /data/backup/projects.zar
+zarc meta /data/backup/projects.zar --remove project
+```
+
+Each update appends a commit without file changes. This is distinct from
+zcopy's `--metadata` option, which transfers filesystem permissions and
+ownership; see the [zarc guide](../zarlib-cli/README.md#append-remove-and-compact-commits).
+
 ## Permissions, timestamps and temporary storage
 
 File modification times are transferred separately and restored in unpack

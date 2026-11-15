@@ -1,5 +1,6 @@
 package org.zar.jarlib.ffm;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -38,6 +39,31 @@ final class ZarLibraryTest {
                     .contains("\"id\":\"00000001\""));
             assertTrue(ZarLibrary.checkArchive("{\"archive\":" + quote(archive.toString()) + "}")
                     .contains("\"commits\":1"));
+
+            Path metadataArchive = directory.resolve("metadata.zar");
+            ZarLibrary.createArchive("{\"archive\":" + quote(metadataArchive.toString())
+                    + ",\"paths\":[" + quote(input.resolve("alpha.txt").toString()) + "]}");
+            assertEquals("{}", ZarLibrary.readCustomMetadata(
+                    "{\"archive\":" + quote(metadataArchive.toString()) + "}"));
+            assertEquals("null", ZarLibrary.updateCustomMetadata(
+                    "{\"archive\":" + quote(metadataArchive.toString())
+                            + ",\"set\":{\"author\":\"Jane\",\"revision\":3,"
+                            + "\"ratio\":1.5}}"));
+            String metadata = ZarLibrary.readCustomMetadata(
+                    "{\"archive\":" + quote(metadataArchive.toString()) + "}");
+            assertTrue(metadata.contains("\"author\":\"Jane\""));
+            assertTrue(metadata.contains("\"revision\":3"));
+            assertTrue(metadata.contains("\"ratio\":1.5"));
+            ZarLibrary.updateCustomMetadata(
+                    "{\"archive\":" + quote(metadataArchive.toString())
+                            + ",\"set\":{\"revision\":4},\"remove\":[\"author\"]}");
+            metadata = ZarLibrary.readCustomMetadata(
+                    "{\"archive\":" + quote(metadataArchive.toString()) + "}");
+            assertFalse(metadata.contains("\"author\""));
+            assertTrue(metadata.contains("\"revision\":4"));
+            assertThrows(ZarException.class, () -> ZarLibrary.updateCustomMetadata(
+                    "{\"archive\":" + quote(metadataArchive.toString())
+                            + ",\"set\":{\"invalid\":true}}"));
 
             String memory = ZarLibrary.extractArchiveToMemory(
                     "{\"archive\":" + quote(archive.toString())

@@ -3,15 +3,30 @@
 `cxxzarlib` provides a C++ interface to `zarlib` using the
 [CXX bridge](https://cxx.rs/). It exposes the same JSON operation dispatcher as
 [`czarlib`](../czarlib/README.md), but uses `rust::Str`, `rust::String`, and
-`rust::Error` at the C++ boundary instead of manually managed C strings. All
-twelve C-wrapper operations are supported: `create_archive`, `add_archive`,
-`remove_archive`, `join_archive`, `undo_archive`, `encrypt_archive_commits`,
-`decrypt_archive_commits`, `check_archive`, `info_archive`, `list_archive`,
-`extract_archive`, and `extract_archive_to_memory`. Request fields, validation,
-output shapes, password handling, filters, and archive semantics are shared with
-`czarlib`. Create and Add requests may include `.zip`, `.7z`, `.tar`, `.tar.gz`,
-or `.tgz` source paths; their contents are imported into the resulting ZAR using
-the source archive's internal paths.
+`rust::Error` at the C++ boundary instead of manually managed C strings. Its
+generic dispatcher supports all `czarlib` operations, including custom metadata
+read and update. Request fields, validation, output shapes, password handling,
+filters, and archive semantics are shared with `czarlib`. Create and Add
+requests may include `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz` source paths;
+their contents are imported into the resulting ZAR using the source archive's
+internal paths.
+
+The C++ wrapper's `execute_json` dispatcher supports archive-level custom
+key/value metadata through `read_custom_metadata` and
+`update_custom_metadata`. For example:
+
+```cpp
+auto response = cxxzarlib::execute_json(
+    "update_custom_metadata",
+    R"({"archive":"backup.zar","set":{"project":"example","revision":3}})");
+```
+
+`read_custom_metadata` returns the effective values as a JSON object.
+`update_custom_metadata` accepts a `set` object and/or `remove` array, returns
+JSON `null`, and appends a commit without file changes. Values are strings,
+signed integers, or finite numbers; metadata updates require an unencrypted
+archive. See the [`czarlib` guide](../czarlib/README.md) for the full request
+shape.
 
 ## Build
 
@@ -29,7 +44,7 @@ Build the C++ command-line example, which supports the same commands and
 shortcuts as the C example:
 
 ```sh
-BRIDGE_INCLUDE=$(find target/debug/build/cxxzarlib \
+BRIDGE_INCLUDE=$(find target/debug/build/cxxzarlib-* \
   -path '*/out/cxxbridge/include' -type d -print -quit)
 CXX_INCLUDE=$(find "$HOME/.cargo/registry/src" \
   -path '*/cxx-*/include' -type d -print -quit)
@@ -57,15 +72,15 @@ non-default Cargo target directory, update the bridge-header path accordingly.
 
 ## Tests
 
-The native C++ integration test exercises the bridge and all supported
-operations, including create/add/remove/join/undo, info/list/check, filesystem
-and in-memory extraction, commit encryption/decryption, filters, existing-file
-behavior, AES-GCM and ChaCha20-Poly1305 encryption, per-commit passwords, error
-handling, and concurrent calls.
+The native C++ integration test exercises the bridge and supported operations,
+including custom metadata, create/add/remove/join/undo, info/list/check,
+filesystem and in-memory extraction, commit encryption/decryption, filters,
+existing-file behavior, AES-GCM and ChaCha20-Poly1305 encryption, per-commit
+passwords, error handling, and concurrent calls.
 
 ```sh
 cargo build -p cxxzarlib
-BRIDGE_INCLUDE=$(find target/debug/build/cxxzarlib \
+BRIDGE_INCLUDE=$(find target/debug/build/cxxzarlib-* \
   -path '*/out/cxxbridge/include' -type d -print -quit)
 CXX_INCLUDE=$(find "$HOME/.cargo/registry/src" \
   -path '*/cxx-*/include' -type d -print -quit)

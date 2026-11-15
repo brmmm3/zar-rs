@@ -113,6 +113,16 @@ func RemoveArchive(request any) (json.RawMessage, error) {
 	return execute("remove_archive", request)
 }
 
+// ReadCustomMetadata returns the effective archive-level metadata map.
+func ReadCustomMetadata(request any) (json.RawMessage, error) {
+	return execute("read_custom_metadata", request)
+}
+
+// UpdateCustomMetadata sets and/or removes archive-level metadata keys.
+func UpdateCustomMetadata(request any) (json.RawMessage, error) {
+	return execute("update_custom_metadata", request)
+}
+
 // JoinArchive compacts the requested inclusive commit range.
 func JoinArchive(request any) (json.RawMessage, error) {
 	return execute("join_archive", request)

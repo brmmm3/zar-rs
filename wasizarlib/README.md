@@ -14,6 +14,17 @@ not supported. TAR symbolic links are preserved where the host supports them,
 hard links are imported as regular files, and TAR special entries are not
 supported.
 
+The WASI operation interface supports archive-level custom key/value metadata
+through `read_custom_metadata` and `update_custom_metadata`. Call
+`execute("read_custom_metadata", "{\"archive\":\"/data/backup.zar\"}")` to
+read it, and
+`execute("update_custom_metadata", "{\"archive\":\"/data/backup.zar\",\"set\":{\"project\":\"example\",\"revision\":3}}")`
+to set values.
+
+Read returns a JSON object; update takes a `set` object and/or `remove` array
+and appends a metadata-only commit. Values are strings, signed integers, or
+finite numbers, and updates require an unencrypted archive.
+
 ## Build
 
 Install the WASI Preview 2 target and build the component from the repository

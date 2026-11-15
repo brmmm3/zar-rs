@@ -6,10 +6,11 @@ extern "C" {
 #endif
 
 /*
- * Run a pyzarlib-compatible operation using a UTF-8 JSON object as input.
+ * Run a ZAR archive operation using a UTF-8 JSON object as input.
  *
  * Supported operation names:
- *   create_archive, add_archive, remove_archive, join_archive, undo_archive,
+ *   create_archive, add_archive, remove_archive, read_custom_metadata,
+ *   update_custom_metadata, join_archive, undo_archive,
  *   encrypt_archive_commits, decrypt_archive_commits, check_archive,
  *   info_archive, list_archive, extract_archive, extract_archive_to_memory
  *
@@ -19,7 +20,10 @@ extern "C" {
  * and 3 if a Rust panic is caught. The two output slots are initialized to
  * NULL. Release any returned string with czarlib_string_free().
  *
- * Request/response schemas and C examples are documented in README.md.
+ * read_custom_metadata accepts {"archive":"..."} and returns an object whose
+ * values are strings, signed integers, or finite numbers. update_custom_metadata
+ * accepts {"archive":"...","set":{"key":"value"},"remove":["key"]} and
+ * returns JSON null. See README.md for details and C examples.
  */
 int czarlib_execute_json(
     const char *operation,

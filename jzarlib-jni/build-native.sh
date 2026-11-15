@@ -6,18 +6,28 @@ PROJECT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 JAVA_HOME=${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")}
 OS=$(uname -s)
 
-cargo build --manifest-path "$ROOT/Cargo.toml" --release -p czarlib
+if [ "$#" -gt 1 ]; then
+    echo "Usage: $0 [--skip-czarlib-build]" >&2
+    exit 1
+fi
+case "${1:-}" in
+    "") cargo build --manifest-path "$ROOT/Cargo.toml" --release -p czarlib ;;
+    --skip-czarlib-build) ;;
+    *) echo "Usage: $0 [--skip-czarlib-build]" >&2; exit 1 ;;
+esac
 mkdir -p "$PROJECT/target/native"
 
 case "$OS" in
     Linux)
         JNI_PLATFORM=linux
         LIBRARY=libzarlib_jni.so
+        CZARLIB=libczarlib.so
         LINK_FLAGS="-shared -Wl,-rpath,\$ORIGIN/../../../target/release"
         ;;
     Darwin)
         JNI_PLATFORM=darwin
         LIBRARY=libzarlib_jni.dylib
+        CZARLIB=libczarlib.dylib
         LINK_FLAGS="-dynamiclib -Wl,-rpath,@loader_path/../../../target/release"
         ;;
     *)
@@ -25,6 +35,9 @@ case "$OS" in
         exit 1
         ;;
 esac
+
+[ -f "$ROOT/target/release/$CZARLIB" ] \
+    || { echo "error: prebuilt czarlib library is missing" >&2; exit 1; }
 
 # shellcheck disable=SC2086
 cc -std=c11 -O2 -Wall -Wextra -Werror -fPIC $LINK_FLAGS \

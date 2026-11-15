@@ -158,6 +158,53 @@ public sealed class ZarLibTests : IDisposable
     }
 
     [Fact]
+    public void CustomMetadataSupportsReadSetAndRemove()
+    {
+        Write("metadata-input.txt", "metadata test");
+        ZarLibrary.CreateArchive(new
+        {
+            archive = "metadata.zar",
+            paths = new[] { "metadata-input.txt" },
+        });
+
+        Assert.Empty(ZarLibrary.ReadCustomMetadata(new { archive = "metadata.zar" }));
+        ZarLibrary.UpdateCustomMetadata(new
+        {
+            archive = "metadata.zar",
+            set = new Dictionary<string, object>
+            {
+                ["author"] = "Jane",
+                ["revision"] = 3,
+                ["ratio"] = 1.5,
+            },
+        });
+        var metadata = ZarLibrary.ReadCustomMetadata(new { archive = "metadata.zar" });
+        Assert.Equal("Jane", metadata["author"].GetString());
+        Assert.Equal(3, metadata["revision"].GetInt32());
+        Assert.Equal(1.5, metadata["ratio"].GetDouble());
+
+        ZarLibrary.UpdateCustomMetadata(new
+        {
+            archive = "metadata.zar",
+            set = new Dictionary<string, object> { ["revision"] = 4 },
+            remove = new[] { "author" },
+        });
+        metadata = ZarLibrary.ReadCustomMetadata(new { archive = "metadata.zar" });
+        Assert.False(metadata.ContainsKey("author"));
+        Assert.Equal(4, metadata["revision"].GetInt32());
+        using var report = JsonDocument.Parse(
+            ZarLibrary.CheckArchive(new { archive = "metadata.zar" }));
+        Assert.Equal(3, report.RootElement.GetProperty("commits").GetInt32());
+        ExpectError(
+            () => ZarLibrary.UpdateCustomMetadata(new
+            {
+                archive = "metadata.zar",
+                set = new Dictionary<string, object> { ["invalid"] = true },
+            }),
+            "metadata values must");
+    }
+
+    [Fact]
     public void EncryptionAndPerCommitPasswords()
     {
         Fixture();

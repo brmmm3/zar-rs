@@ -25,6 +25,32 @@ and Add requests may include `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz` source
 paths; their contents are imported into the resulting ZAR using the source
 archive's internal paths.
 
+The Go wrapper provides `ReadCustomMetadata` and `UpdateCustomMetadata`.
+Requests use the same JSON fields as the C API:
+
+```go
+response, err := gozarlib.UpdateCustomMetadata(map[string]any{
+    "archive": "backup.zar",
+    "set": map[string]any{"project": "example", "revision": 3},
+})
+if err != nil {
+    return err
+}
+metadata, err := gozarlib.ReadCustomMetadata(map[string]any{
+    "archive": "backup.zar",
+})
+if err != nil {
+    return err
+}
+fmt.Println(string(metadata))
+```
+
+`ReadCustomMetadata` returns a JSON object in `json.RawMessage`.
+`UpdateCustomMetadata` accepts `set` and/or `remove` and appends a
+metadata-only commit. Values are strings, signed integers, or finite numbers;
+updates require an unencrypted archive. See the
+[`czarlib` guide](../czarlib/README.md) for the request schema.
+
 ## Requirements and build
 
 Install Go with cgo enabled, a C compiler, and the Rust toolchain. Build the
@@ -113,6 +139,6 @@ go run ./examples/zarc join backup.zar --from 00000001 --to 00000002
 go run ./examples/zarc undo backup.zar 1
 ```
 
-The tests cover all twelve operations, filters, extraction policies, memory
+The tests cover archive operations, custom metadata, filters, extraction policies, memory
 offset/size limits, both supported AEAD algorithms, per-commit passwords,
 validation and failure cases, and concurrent calls.

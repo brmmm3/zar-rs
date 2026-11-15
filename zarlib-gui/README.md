@@ -102,7 +102,10 @@ desktop entry.
   Selections containing symbolic links or special files cannot be dragged.
   Dragging entries out is not supported on X11.
 - Add, edit and remove custom archive metadata (key/value pairs) from the
-  Custom metadata dialog.
+  Custom metadata dialog. Values are archive-level and distinct from file
+  permissions and timestamps. Saving a metadata change appends a commit with
+  no file changes; later values override earlier ones, and removing a key hides
+  its earlier value.
 - Keep the 10 most recently opened archives available from File → Recent
   archives.
 - Show `.zar` files with the dedicated bundled ZAR archive icon.

@@ -1,13 +1,34 @@
 # csharpzarlib
 
 C# (.NET 10) wrapper for ZAR. It P/Invokes the `czarlib` JSON C ABI and exposes
-all twelve operations: create, add, remove, join, undo, encrypt/decrypt commit
-ranges, check, info, list, extract and in-memory extract. Request and response
-fields are documented in
+archive operations for create, add, remove, custom metadata, join, undo,
+encrypt/decrypt commit ranges, check, info, list, extract and in-memory extract.
+Request and response fields are documented in
 [../czarlib/README.md](../czarlib/README.md).
 Create and Add requests may include `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz`
 source paths; their contents are imported into the resulting ZAR using the
 source archive's internal paths.
+
+The C# wrapper provides `ReadCustomMetadata` and `UpdateCustomMetadata`:
+
+```csharp
+ZarLibrary.UpdateCustomMetadata(new
+{
+    archive = "backup.zar",
+    set = new Dictionary<string, object>
+    {
+        ["project"] = "example",
+        ["revision"] = 3,
+    },
+});
+var metadata = ZarLibrary.ReadCustomMetadata(new { archive = "backup.zar" });
+```
+
+`ReadCustomMetadata` returns a dictionary of `JsonElement` values.
+`UpdateCustomMetadata` accepts a `set` object and/or `remove` array and appends
+a commit without file changes. Values are strings, signed integers, or finite
+numbers; updates require an unencrypted archive. See the
+[`czarlib` guide](../czarlib/README.md) for the request schema.
 
 ## Build the native library
 
@@ -32,7 +53,9 @@ Dictionary<string, byte[]> files = ZarLibrary.ExtractArchiveToMemory(new { archi
 - Requests are JSON strings or any object serializable to a JSON object (null
   properties are omitted). Responses are JSON strings.
 - `ZarLibrary.Execute(operation, request)` and `ExecuteJson(operation, json)`
-  call any operation directly.
+  call any operation directly. `ReadCustomMetadata` returns a typed map of
+  `JsonElement` values; `UpdateCustomMetadata` takes `set` and/or `remove`
+  fields in its request object.
 - Failures throw `ZarException` (`Status`: 1 request/archive error, 2 invalid
   pointer/allocation, 3 Rust panic, 0 wrapper-side validation).
 - Calls are thread-safe. Encryption options (`password`, `passwords` per commit

@@ -66,6 +66,35 @@ ISO import is limited to 100,000 entries, 16 MiB of directory metadata, and
 TAR symbolic links are preserved where the host supports them, hard
 links are imported as regular files, and TAR special entries are not supported.
 
+The C operation dispatcher also supports archive-level custom key/value
+metadata:
+
+```sh
+zarc meta backup.zar --set project=example
+zarc meta backup.zar
+zarc meta backup.zar --remove project
+```
+
+The equivalent C requests use `read_custom_metadata` with
+`{"archive":"backup.zar"}` or `update_custom_metadata` with a `set` object
+and/or `remove` array:
+
+```c
+char *metadata = NULL;
+char *error = NULL;
+int status = czarlib_execute_json(
+    "update_custom_metadata",
+    "{\"archive\":\"backup.zar\",\"set\":{\"project\":\"example\",\"revision\":3}}",
+    &metadata,
+    &error
+);
+```
+
+`read_custom_metadata` returns a JSON object; `update_custom_metadata`
+returns JSON `null`. Values are strings, signed integers, or finite numbers.
+Each update appends a commit without file changes and requires an unencrypted
+archive. This metadata is separate from per-file permissions and timestamps.
+
 ```c
 #include "czarlib.h"
 #include <stdio.h>

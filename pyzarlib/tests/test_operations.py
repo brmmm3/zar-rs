@@ -508,3 +508,41 @@ def test_free_threaded_interpreter_keeps_gil_disabled() -> None:
     if sysconfig.get_config_var("Py_GIL_DISABLED") != 1:
         pytest.skip("requires a free-threaded CPython build")
     assert not sys._is_gil_enabled()
+
+
+def test_custom_metadata_reads_sets_replaces_and_removes_values(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "input.txt"
+    source.write_text("metadata test", encoding="utf-8")
+    archive = tmp_path / "metadata.zar"
+    pyzarlib.create_archive(archive, [source])
+
+    assert pyzarlib.read_custom_metadata(archive) == {}
+    pyzarlib.update_custom_metadata(
+        archive,
+        set={"author": "Jane", "revision": 3, "ratio": 1.5},
+    )
+    assert pyzarlib.read_custom_metadata(archive) == {
+        "author": "Jane",
+        "revision": 3,
+        "ratio": 1.5,
+    }
+
+    pyzarlib.update_custom_metadata(
+        archive,
+        set={"revision": 4},
+        remove=["author"],
+    )
+    assert pyzarlib.read_custom_metadata(archive) == {
+        "revision": 4,
+        "ratio": 1.5,
+    }
+    assert len(pyzarlib.info_archive(archive)) == 3
+
+    with pytest.raises(ValueError, match="booleans"):
+        pyzarlib.update_custom_metadata(archive, set={"enabled": True})
+    with pytest.raises(RuntimeError, match="zar."):
+        pyzarlib.update_custom_metadata(archive, set={"zar.internal": "no"})
+    with pytest.raises(ValueError, match="finite"):
+        pyzarlib.update_custom_metadata(archive, set={"invalid": float("inf")})
