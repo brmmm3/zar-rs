@@ -1,0 +1,20 @@
+{
+    "version": "0.13.0",
+    "description": "ZAR archive tools (AVX2 optimized).",
+    "homepage": "https://github.com/brmmm3/zar-rs",
+    "license": "MIT OR Apache-2.0",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/brmmm3/zar-rs/releases/download/0.13.0/zar-rs-windows-x86_64-v3.zip",
+            "hash": "92766931c66d7a202309517a62b03da8a0a0db179b0484298f3364d1bb504ab4",
+            "extract_dir": "zar-rs-windows-x86_64-v3"
+        }
+    },
+    "bin": "zarg.exe",
+    "shortcuts": [
+        [
+            "zarg.exe",
+            "ZAR Archive Manager"
+        ]
+    ]
+}

@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
-    <id>zarc</id>
-    <version>0.11.0</version>
-    <title>zarc</title>
-    <authors>The ZAR contributors</authors>
+    <id>zar-rs</id>
+    <version>0.13.0</version>
+    <title>zar-rs</title>
+    <authors>Martin Bammer</authors>
     <owners>brmmm3</owners>
     <projectUrl>https://github.com/brmmm3/zar-rs</projectUrl>
-    <licenseUrl>https://github.com/brmmm3/zar-rs/blob/0.11.0/LICENSE-MIT</licenseUrl>
+    <licenseUrl>https://github.com/brmmm3/zar-rs/LICENSE-MIT</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
-    <description>Command-line archiver for ZAR archives.</description>
-    <tags>zarc zar archiver compression</tags>
+    <description>ZAR archive tools.</description>
+    <tags>zarg zarc zcopy zar archiver compression</tags>
   </metadata>
   <files>
     <file src="tools\**" target="tools" />
