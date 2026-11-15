@@ -330,6 +330,11 @@ jobs:
         with:
           name: czarlib-release-java-windows-latest
           path: target/${{ matrix.arch.rust-target }}/release
+      - name: Verify native C library
+        shell: pwsh
+        run: |
+          $nativeLibrary = "target/${{ matrix.arch.rust-target }}/release/czarlib.dll"
+          if (!(Test-Path -PathType Leaf $nativeLibrary)) { throw "Missing native library: $nativeLibrary" }
       - name: Pack architecture-specific NuGet package
         shell: pwsh
         run: |
@@ -378,10 +383,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: czarlib-release-java-${{ matrix.os }}
-          path: |
-            target/release/libczarlib.so
-            target/release/libczarlib.dylib
-            target/x86_64-pc-windows-msvc/release/czarlib.dll*
+          path: ${{ runner.os == 'Linux' && 'target/release/libczarlib.so' || runner.os == 'macOS' && 'target/release/libczarlib.dylib' || 'target/x86_64-pc-windows-msvc/release/czarlib.dll*' }}
           if-no-files-found: error
 
   java-bindings:
@@ -416,6 +418,19 @@ jobs:
         with:
           name: czarlib-release-java-${{ matrix.os }}
           path: target/release
+      - name: Verify native C library
+        shell: pwsh
+        run: |
+          $files = switch ($env:RUNNER_OS) {
+            'Linux' { @('libczarlib.so') }
+            'macOS' { @('libczarlib.dylib') }
+            'Windows' { @('czarlib.dll', 'czarlib.dll.lib') }
+            default { throw "Unsupported runner OS: $env:RUNNER_OS" }
+          }
+          foreach ($file in $files) {
+            $path = Join-Path 'target/release' $file
+            if (!(Test-Path -PathType Leaf $path)) { throw "Missing native library: $path" }
+          }
       - name: Build JNI library (Linux)
         if: matrix.module == 'jzarlib-jni' && runner.os == 'Linux'
         run: sh jzarlib-jni/build-native.sh --skip-czarlib-build
