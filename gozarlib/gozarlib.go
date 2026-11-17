@@ -153,6 +153,11 @@ func InfoArchive(request any) (json.RawMessage, error) {
 	return execute("info_archive", request)
 }
 
+// CrossCommitReferences returns file references between commits.
+func CrossCommitReferences(request any) (json.RawMessage, error) {
+	return execute("cross_commit_references", request)
+}
+
 // ListArchive returns the effective archive table of contents.
 func ListArchive(request any) (json.RawMessage, error) {
 	return execute("list_archive", request)

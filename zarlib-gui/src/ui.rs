@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 use zarlib::operations::{
     self, AddInputOptions, ArchiveEntryDetails, BlockInfo, CheckReport, CollisionPolicy,
@@ -15,6 +15,60 @@ use zarlib::{ArchivePath, ContentAead, EncryptionScope, Toc, TocEntry};
 mod dialogs;
 use dialogs::OperationKind;
 use dialogs::benchmark::BenchmarkState;
+
+fn native_drop_position(frame: &eframe::Frame, context: &egui::Context) -> Option<egui::Pos2> {
+    #[cfg(any(windows, target_os = "linux"))]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        match frame.window_handle().ok()?.as_raw() {
+            #[cfg(windows)]
+            RawWindowHandle::Win32(window) => {
+                use windows_sys::Win32::Foundation::POINT;
+                use windows_sys::Win32::Graphics::Gdi::ScreenToClient;
+                use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
+                let mut point = POINT { x: 0, y: 0 };
+                let success = unsafe {
+                    GetCursorPos(&mut point) != 0
+                        && ScreenToClient(window.hwnd.get() as _, &mut point) != 0
+                };
+                success.then(|| {
+                    egui::pos2(point.x as f32, point.y as f32) / context.pixels_per_point()
+                })
+            }
+            #[cfg(target_os = "linux")]
+            RawWindowHandle::Xlib(window) => x11_drop_position(window.window as u32, context),
+            #[cfg(target_os = "linux")]
+            RawWindowHandle::Xcb(window) => x11_drop_position(window.window.get(), context),
+            _ => None,
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use core_graphics::event::CGEvent;
+        use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+        let _ = frame;
+        let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState).ok()?;
+        let location = CGEvent::new(source).ok()?.location();
+        let origin = context.input(|input| input.viewport().inner_rect)?.min;
+        let screen = egui::pos2(location.x as f32, location.y as f32) / context.zoom_factor();
+        Some(egui::pos2(screen.x - origin.x, screen.y - origin.y))
+    }
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+    {
+        let _ = (frame, context);
+        None
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn x11_drop_position(window: u32, context: &egui::Context) -> Option<egui::Pos2> {
+    use x11rb::protocol::xproto::ConnectionExt;
+    let (connection, _) = x11rb::connect(None).ok()?;
+    let pointer = connection.query_pointer(window).ok()?.reply().ok()?;
+    pointer.same_screen.then(|| {
+        egui::pos2(pointer.win_x as f32, pointer.win_y as f32) / context.pixels_per_point()
+    })
+}
 
 fn left_aligned_cell(
     ui: &mut egui::Ui,
@@ -232,6 +286,13 @@ struct StructuredRow {
     child_count: usize,
 }
 
+struct ArchiveSelectionBand {
+    origin: egui::Pos2,
+    base: BTreeSet<String>,
+    modifiers: egui::Modifiers,
+    rows: BTreeMap<String, egui::Rect>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContextAction {
     Create,
@@ -318,7 +379,7 @@ impl IconCache {
     }
 }
 
-fn icon_bytes(icon: UiIcon, theme: crate::settings::IconTheme) -> &'static [u8] {
+pub(crate) fn icon_bytes(icon: UiIcon, theme: crate::settings::IconTheme) -> &'static [u8] {
     macro_rules! themed_icon {
         ($path:literal) => {
             match theme {
@@ -502,6 +563,7 @@ pub(super) struct OperationForm {
     archive: String,
     archive_backend: Option<(String, String)>,
     input_paths: Vec<PathBuf>,
+    input_archive_folder: Option<ArchivePath>,
     selected_input_paths: BTreeSet<PathBuf>,
     input_selection_anchor: Option<PathBuf>,
     destination: String,
@@ -545,6 +607,7 @@ pub(super) struct OperationForm {
     restore_symlinks: bool,
     restore_devices: bool,
     strip_top_level: bool,
+    skip_unselected_frame_validation: bool,
     password_is_set: bool,
     collision: usize,
     existing: usize,
@@ -699,6 +762,8 @@ enum UiEvent {
         archive: String,
         passwords: BTreeMap<[u8; 4], String>,
     },
+    ArchiveLock(Option<ArchiveLock>),
+    BackgroundExtraction(BackgroundExtraction),
     Loaded(
         Result<
             (
@@ -720,6 +785,8 @@ enum UiEvent {
         new_archive_settings: Option<Box<AddArchiveSettings>>,
     },
     ArchiveModified,
+    ExpandDropFolder(String),
+    CacheEncryption(Option<(String, ContentAead, EncryptionScope)>),
     RewriteSnapshot(RewriteSnapshot),
     RewriteUndone {
         steps: usize,
@@ -749,6 +816,197 @@ struct RewriteSnapshot {
     dirty: bool,
     password: Option<String>,
     passwords: BTreeMap<[u8; 4], String>,
+}
+
+#[derive(Clone)]
+struct BackgroundExtraction {
+    archive: String,
+    commit: Option<String>,
+    to: Option<String>,
+    passwords: BTreeMap<[u8; 4], String>,
+    size: u64,
+    modified: std::time::SystemTime,
+    state: Arc<Mutex<BackgroundExtractionState>>,
+}
+
+type PreparedResult = Result<Arc<operations::PreparedExtraction>, String>;
+
+struct BackgroundExtractionState {
+    receiver: Receiver<PreparedResult>,
+    result: Option<PreparedResult>,
+}
+
+struct BackgroundProgress(Weak<Mutex<BackgroundExtractionState>>);
+
+struct ArchiveLock {
+    _file: std::fs::File,
+    path: PathBuf,
+}
+
+fn lock_archive(path: &Path) -> Option<ArchiveLock> {
+    let path = std::fs::canonicalize(path).ok()?;
+    #[cfg(windows)]
+    let file = {
+        use std::os::windows::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(&path)
+            .ok()?
+    };
+    #[cfg(not(windows))]
+    let file = {
+        let file = std::fs::File::open(&path).ok()?;
+        file.try_lock_shared().ok()?;
+        file
+    };
+    Some(ArchiveLock { _file: file, path })
+}
+
+impl Progress for BackgroundProgress {
+    fn message(&self, _: &str) {}
+    fn advance(&self, _: u64) {}
+    fn is_cancelled(&self) -> bool {
+        self.0.strong_count() == 0
+    }
+}
+
+impl BackgroundExtraction {
+    fn start(
+        archive: String,
+        commit: Option<String>,
+        to: Option<String>,
+        passwords: BTreeMap<[u8; 4], String>,
+        expected_toc: Toc,
+    ) -> Option<Self> {
+        let metadata = std::fs::metadata(&archive).ok()?;
+        let size = metadata.len();
+        let modified = metadata.modified().ok()?;
+        let (sender, receiver) = mpsc::channel();
+        let state = Arc::new(Mutex::new(BackgroundExtractionState {
+            receiver,
+            result: None,
+        }));
+        let progress = BackgroundProgress(Arc::downgrade(&state));
+        let worker_archive = archive.clone();
+        let worker_passwords = passwords.clone();
+        let worker_to = to.clone();
+        std::thread::spawn(move || {
+            let passwords = password_set(&worker_passwords, None);
+            let result = operations::PreparedExtraction::new_with_progress(
+                &worker_archive,
+                worker_to.as_deref(),
+                &passwords,
+                Some(&progress),
+            )
+            .and_then(|prepared| {
+                let metadata = std::fs::metadata(&worker_archive)?;
+                if metadata.len() != size
+                    || metadata.modified()? != modified
+                    || prepared.toc() != &expected_toc
+                {
+                    return Err("archive changed during background validation".into());
+                }
+                Ok(Arc::new(prepared))
+            })
+            .map_err(|error| error.to_string());
+            let _ = sender.send(result);
+        });
+        Some(Self {
+            archive,
+            commit,
+            to,
+            passwords,
+            size,
+            modified,
+            state,
+        })
+    }
+
+    fn matches(
+        &self,
+        archive: &str,
+        commit: Option<&str>,
+        passwords: &BTreeMap<[u8; 4], String>,
+    ) -> bool {
+        self.archive == archive
+            && if commit.is_none_or(str::is_empty) {
+                self.to.is_none()
+            } else {
+                commit == self.commit.as_deref()
+            }
+            && self.passwords == *passwords
+            && self.unchanged()
+    }
+
+    fn unchanged(&self) -> bool {
+        std::fs::metadata(&self.archive).is_ok_and(|metadata| {
+            metadata.len() == self.size && metadata.modified().ok() == Some(self.modified)
+        })
+    }
+
+    fn wait(
+        &self,
+        progress: Option<&dyn Progress>,
+    ) -> Result<Arc<operations::PreparedExtraction>, String> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "Background validation stopped unexpectedly".to_owned())?;
+        loop {
+            if let Some(result) = state.result.as_ref() {
+                return result.clone();
+            }
+            if progress.is_some_and(Progress::is_cancelled) {
+                return Err("operation cancelled".to_owned());
+            }
+            match state
+                .receiver
+                .recv_timeout(std::time::Duration::from_millis(100))
+            {
+                Ok(result) => state.result = Some(result),
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err("Background validation stopped unexpectedly".to_owned());
+                }
+            }
+        }
+    }
+}
+
+struct OverlayCache {
+    directory: tempfile::TempDir,
+    base_length: u64,
+    base_modified: std::time::SystemTime,
+    encryption: Option<(String, ContentAead, EncryptionScope)>,
+}
+
+impl OverlayCache {
+    fn new(base: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+        let metadata = std::fs::metadata(base)?;
+        let directory = tempfile::Builder::new()
+            .prefix("zarg-undo-cache-")
+            .tempdir()?;
+        operations::create_overlay_archive(base, &directory.path().join("cache.zar"))?;
+        Ok(Self {
+            directory,
+            base_length: metadata.len(),
+            base_modified: metadata.modified()?,
+            encryption: None,
+        })
+    }
+
+    fn path(&self) -> PathBuf {
+        self.directory.path().join("cache.zar")
+    }
+
+    fn verify_base(&self, base: &Path) -> Result<(), Box<dyn std::error::Error>> {
+        let metadata = std::fs::metadata(base)?;
+        if metadata.len() != self.base_length || metadata.modified()? != self.base_modified {
+            return Err("The archive changed externally; staged changes were not applied.".into());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
@@ -807,6 +1065,19 @@ fn password_set(passwords: &BTreeMap<[u8; 4], String>, default: Option<&str>) ->
     result
 }
 
+#[cfg(any(test, windows, target_os = "macos"))]
+fn drag_preview_icon() -> image::ImageResult<Vec<u8>> {
+    const DRAG_ICON_SIZE: u32 = 48;
+    let icon = image::load_from_memory(include_bytes!("../assets/zarg-icon.png"))?.resize(
+        DRAG_ICON_SIZE,
+        DRAG_ICON_SIZE,
+        image::imageops::FilterType::Lanczos3,
+    );
+    let mut encoded = std::io::Cursor::new(Vec::new());
+    icon.write_to(&mut encoded, image::ImageFormat::Png)?;
+    Ok(encoded.into_inner())
+}
+
 #[cfg(any(test, windows, target_os = "macos", target_os = "linux"))]
 struct PreparedDrag {
     directory: tempfile::TempDir,
@@ -820,7 +1091,9 @@ fn prepare_drag(
     commit: Option<&str>,
     passwords: &PasswordSet,
     progress: Option<&dyn Progress>,
+    extraction: (Option<&operations::PreparedExtraction>, bool),
 ) -> Result<PreparedDrag, Box<dyn std::error::Error>> {
+    let (prepared, validate_blocks) = extraction;
     let paths = selected
         .iter()
         .map(|path| ArchivePath::new(path.clone()))
@@ -840,7 +1113,13 @@ fn prepare_drag(
     let directory = tempfile::Builder::new().prefix("zarg-drag-").tempdir()?;
     let mut filters = FilterSet::default();
     filters.restrict_to_paths(paths.clone());
-    let toc = operations::list_archive_with_passwords(archive, commit, passwords)?;
+    let loaded_toc;
+    let toc = if let Some(prepared) = prepared {
+        prepared.toc()
+    } else {
+        loaded_toc = operations::list_archive_with_passwords(archive, commit, passwords)?;
+        &loaded_toc
+    };
     for (path, entry) in toc.iter() {
         if !matches!(entry, TocEntry::File(_) | TocEntry::Directory)
             && filters.includes(path.as_str(), false)
@@ -848,23 +1127,41 @@ fn prepare_drag(
             return Err(format!("Cannot drag special archive entry: {path}").into());
         }
     }
-    operations::extract_archive_with_passwords_progress_and_filters(
-        archive,
-        directory.path(),
-        ExtractionOptions {
-            dry_run: false,
-            to: commit,
-            collision_policy: CollisionPolicy::Error,
-            existing_policy: ExistingPolicy::Error,
-            restore_metadata: false,
-            restore_symlinks: false,
-            restore_devices: false,
-            strip_top_level: false,
-        },
-        passwords,
-        progress,
-        &filters,
-    )?;
+    let options = ExtractionOptions {
+        dry_run: false,
+        to: commit,
+        collision_policy: CollisionPolicy::Error,
+        existing_policy: ExistingPolicy::Error,
+        restore_metadata: false,
+        restore_symlinks: false,
+        restore_devices: false,
+        strip_top_level: false,
+    };
+    if let Some(prepared) = prepared {
+        prepared.extract_with_block_validation(
+            directory.path(),
+            ExtractionOptions {
+                to: prepared.to(),
+                ..options
+            },
+            progress,
+            &filters,
+            validate_blocks,
+        )?;
+    } else {
+        operations::extract_archive_with_validation_options(
+            archive,
+            directory.path(),
+            options,
+            passwords,
+            progress,
+            &filters,
+            operations::ExtractionFrameValidation {
+                skip_unselected: false,
+                validate_on_read: validate_blocks,
+            },
+        )?;
+    }
     let paths = roots
         .into_iter()
         .map(|path| {
@@ -876,6 +1173,63 @@ fn prepare_drag(
         })
         .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
     Ok(PreparedDrag { directory, paths })
+}
+
+#[cfg(any(test, windows, target_os = "macos", target_os = "linux"))]
+fn prepare_drag_with_overlay(
+    archive: &str,
+    overlay: Option<&Path>,
+    selected: &BTreeSet<String>,
+    commit: Option<&str>,
+    passwords: &PasswordSet,
+    progress: Option<&dyn Progress>,
+    extraction: (Option<&operations::PreparedExtraction>, bool),
+) -> Result<PreparedDrag, Box<dyn std::error::Error>> {
+    let (prepared, validate_blocks) = extraction;
+    if progress.is_some_and(|progress| progress.is_cancelled()) {
+        return Err("Drag preparation cancelled".into());
+    }
+    let view = if let Some(overlay) = overlay {
+        let directory = tempfile::Builder::new()
+            .prefix("zarg-drag-view-")
+            .tempdir()?;
+        operations::combine_archives_with_progress(
+            Path::new(archive),
+            overlay,
+            &directory.path().join("view.zar"),
+            progress,
+        )?;
+        Some(directory)
+    } else {
+        None
+    };
+    if progress.is_some_and(|progress| progress.is_cancelled()) {
+        return Err("Drag preparation cancelled".into());
+    }
+    let archive_path = view
+        .as_ref()
+        .map(|directory| directory.path().join("view.zar"));
+    let source = match &archive_path {
+        Some(path) => path
+            .to_str()
+            .ok_or("Temporary archive path is not valid UTF-8")?,
+        None => archive,
+    };
+    prepare_drag(
+        source,
+        selected,
+        commit,
+        passwords,
+        progress,
+        (prepared.filter(|_| view.is_none()), validate_blocks),
+    )
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+struct NativeDragPreparation {
+    receiver: Receiver<Result<PreparedDrag, String>>,
+    events: Sender<UiEvent>,
+    cancellation: Arc<AtomicBool>,
 }
 
 #[cfg(target_os = "linux")]
@@ -970,6 +1324,9 @@ pub struct ZargApp {
     displayed_window_title: Option<String>,
     imported_archive_dir: Option<tempfile::TempDir>,
     working_archive_dir: Option<tempfile::TempDir>,
+    overlay_cache: Option<OverlayCache>,
+    archive_lock: Option<ArchiveLock>,
+    background_extraction: Option<BackgroundExtraction>,
     rewrite_snapshots: Vec<RewriteSnapshot>,
     has_unsaved_changes: bool,
     latest_archive_empty: Option<bool>,
@@ -981,6 +1338,21 @@ pub struct ZargApp {
     visible_entry_indices: Vec<usize>,
     selected: BTreeSet<String>,
     selection_anchor: Option<String>,
+    selection_current: Option<String>,
+    selection_range_base: Option<BTreeSet<String>>,
+    archive_list_focused: bool,
+    archive_list_focus_id: Option<egui::Id>,
+    archive_list_columns: usize,
+    archive_list_page_rows: usize,
+    selection_press: Option<(String, egui::Modifiers, bool)>,
+    archive_list_rect: Option<egui::Rect>,
+    archive_row_rects: Vec<(String, egui::Rect)>,
+    selection_rubber_band: Option<ArchiveSelectionBand>,
+    archive_scroll_offset: f32,
+    archive_viewport_height: f32,
+    archive_scroll_to: Option<String>,
+    archive_scroll_override: Option<f32>,
+    archive_max_scroll: f32,
     status: String,
     operation: OperationForm,
     worker: Option<WorkerChannels>,
@@ -1006,10 +1378,15 @@ pub struct ZargApp {
     details_horizontal_offset: f32,
     structured_horizontal_offset: f32,
     pending_open: Option<String>,
+    rename_dialog: Option<(String, String)>,
+    internal_drag: bool,
+    drop_target: Option<String>,
     #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     pending_drag: bool,
     #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     drag_directories: Vec<tempfile::TempDir>,
+    #[cfg(any(windows, target_os = "macos"))]
+    native_drag_preparation: Option<NativeDragPreparation>,
     #[cfg(target_os = "linux")]
     wayland_drag: Option<crate::wayland_drag::WaylandDrag>,
     #[cfg(target_os = "linux")]
@@ -1048,6 +1425,8 @@ pub struct ZargApp {
     default_block_size: String,
     default_compression_level: i32,
     default_encryption_method: crate::settings::DefaultEncryptionMethod,
+    validate_blocks_before_extraction: bool,
+    validate_blocks_on_extraction: bool,
     archive_defaults: crate::settings::ArchiveDefaults,
     default_password: String,
     default_password_input: String,
@@ -1071,6 +1450,9 @@ impl Default for ZargApp {
             displayed_window_title: None,
             imported_archive_dir: None,
             working_archive_dir: None,
+            overlay_cache: None,
+            archive_lock: None,
+            background_extraction: None,
             rewrite_snapshots: Vec::new(),
             has_unsaved_changes: false,
             latest_archive_empty: None,
@@ -1082,6 +1464,21 @@ impl Default for ZargApp {
             visible_entry_indices: Vec::new(),
             selected: BTreeSet::new(),
             selection_anchor: None,
+            selection_current: None,
+            selection_range_base: None,
+            archive_list_focused: false,
+            archive_list_focus_id: None,
+            archive_list_columns: 1,
+            archive_list_page_rows: 1,
+            selection_press: None,
+            archive_list_rect: None,
+            archive_row_rects: Vec::new(),
+            selection_rubber_band: None,
+            archive_scroll_offset: 0.0,
+            archive_viewport_height: 0.0,
+            archive_scroll_to: None,
+            archive_scroll_override: None,
+            archive_max_scroll: 0.0,
             status: String::new(),
             operation: OperationForm::default(),
             worker: None,
@@ -1107,10 +1504,15 @@ impl Default for ZargApp {
             details_horizontal_offset: 0.0,
             structured_horizontal_offset: 0.0,
             pending_open: None,
+            rename_dialog: None,
+            internal_drag: false,
+            drop_target: None,
             #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
             pending_drag: false,
             #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
             drag_directories: Vec::new(),
+            #[cfg(any(windows, target_os = "macos"))]
+            native_drag_preparation: None,
             #[cfg(target_os = "linux")]
             wayland_drag: None,
             #[cfg(target_os = "linux")]
@@ -1149,6 +1551,8 @@ impl Default for ZargApp {
             default_block_size: "8M".to_owned(),
             default_compression_level: 3,
             default_encryption_method: crate::settings::DefaultEncryptionMethod::Aes256Gcm,
+            validate_blocks_before_extraction: false,
+            validate_blocks_on_extraction: true,
             archive_defaults: crate::settings::ArchiveDefaults::default(),
             default_password: String::new(),
             default_password_input: String::new(),
@@ -1233,6 +1637,19 @@ impl EntrySummary {
 }
 
 impl ZargApp {
+    fn release_archive_lock_for(&mut self, path: &Path) -> bool {
+        if self
+            .archive_lock
+            .as_ref()
+            .is_some_and(|lock| std::fs::canonicalize(path).is_ok_and(|path| path == lock.path))
+        {
+            self.archive_lock = None;
+            true
+        } else {
+            false
+        }
+    }
+
     fn remember_commit_passwords(&mut self, passwords: &BTreeMap<[u8; 4], String>) {
         self.archive_passwords.extend(passwords.clone());
         if !self.archive.is_empty() && !self.has_unsaved_changes {
@@ -1457,6 +1874,9 @@ impl ZargApp {
         std::thread::spawn(move || {
             let is_imported =
                 operations::is_supported_import_archive(PathBuf::from(&archive).as_path());
+            let mut archive_lock = (!is_imported)
+                .then(|| lock_archive(Path::new(&archive)))
+                .flatten();
             let mut selected_passwords = BTreeMap::new();
             if !is_imported {
                 let commits = match operations::info_archive(&archive, false) {
@@ -1524,17 +1944,7 @@ impl ZargApp {
                     Ok::<_, Box<dyn std::error::Error>>(Some((directory, imported_path)))
                 })()
             } else {
-                (|| {
-                    let directory = tempfile::Builder::new()
-                        .prefix("zarg-working-archive-")
-                        .tempdir()?;
-                    let working_path = directory.path().join("working.zar");
-                    std::fs::copy(&archive, &working_path)?;
-                    Ok::<_, Box<dyn std::error::Error>>(Some((
-                        directory,
-                        working_path.to_string_lossy().into_owned(),
-                    )))
-                })()
+                Ok(None)
             };
             let (archive_to_read, imported_directory) = match prepared_archive {
                 Ok(Some((directory, imported_path))) => (imported_path, Some(directory)),
@@ -1545,6 +1955,9 @@ impl ZargApp {
                     return;
                 }
             };
+            if is_imported {
+                archive_lock = lock_archive(Path::new(&archive_to_read));
+            }
             let set = password_set(&selected_passwords, None);
             let result =
                 operations::list_archive_with_details_and_passwords(&archive_to_read, None, &set);
@@ -1557,7 +1970,7 @@ impl ZargApp {
             };
             let (ids, encrypted) = match operations::info_archive(&archive_to_read, false) {
                 Ok(commits) => {
-                    let ids = commits
+                    let ids: Vec<String> = commits
                         .iter()
                         .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
                         .collect();
@@ -1576,6 +1989,13 @@ impl ZargApp {
                     return;
                 }
             };
+            let background = BackgroundExtraction::start(
+                archive_to_read.clone(),
+                ids.last().cloned(),
+                None,
+                selected_passwords.clone(),
+                toc.0.clone(),
+            );
             if events_tx
                 .send(UiEvent::OpeningArchive {
                     archive: archive.clone(),
@@ -1584,6 +2004,10 @@ impl ZargApp {
                 .is_err()
             {
                 return;
+            }
+            let _ = events_tx.send(UiEvent::ArchiveLock(archive_lock));
+            if let Some(background) = background {
+                let _ = events_tx.send(UiEvent::BackgroundExtraction(background));
             }
             if let Some(directory) = imported_directory {
                 if is_imported {
@@ -1616,6 +2040,8 @@ impl ZargApp {
     }
 
     fn discard_current_archive(&mut self) {
+        self.archive_lock = None;
+        self.background_extraction = None;
         self.unlock_commits_dialog = None;
         self.clear_archive_info();
         self.add_archive_settings = None;
@@ -1627,6 +2053,7 @@ impl ZargApp {
         self.location.clear();
         self.imported_archive_dir = None;
         self.working_archive_dir = None;
+        self.overlay_cache = None;
         self.rewrite_snapshots.clear();
         self.has_unsaved_changes = false;
         self.latest_archive_empty = None;
@@ -1637,6 +2064,10 @@ impl ZargApp {
         self.selected_commit.clear();
         self.selected.clear();
         self.selection_anchor = None;
+        self.selection_current = None;
+        self.selection_range_base = None;
+        self.selection_press = None;
+        self.archive_scroll_to = None;
         self.set_entries(Toc::default(), Default::default());
     }
 
@@ -1676,6 +2107,954 @@ impl ZargApp {
             answers,
             cancellation,
         });
+    }
+
+    fn start_cached_add(&mut self, form: OperationForm) {
+        let prepared = (|| -> Result<_, Box<dyn std::error::Error>> {
+            if form.input_paths.is_empty() {
+                return Err("Choose one or more files or folders to add.".into());
+            }
+            let options = form.encoding()?;
+            let filters = form.filters()?;
+            let passwords = form.unlock_passwords()?;
+            if self.overlay_cache.is_none() {
+                self.overlay_cache = Some(OverlayCache::new(Path::new(&self.read_archive))?);
+            }
+            let cache = self.overlay_cache.as_ref().ok_or("Missing undo cache")?;
+            cache.verify_base(Path::new(&self.read_archive))?;
+            let encryption = form.password_is_set.then(|| {
+                (
+                    form.password.clone(),
+                    [ContentAead::Aes256Gcm, ContentAead::ChaCha20Poly1305][form.aead.min(1)],
+                    [
+                        EncryptionScope::HeaderAndData,
+                        EncryptionScope::Data,
+                        EncryptionScope::Header,
+                    ][form.encryption_scope.min(2)],
+                )
+            });
+            if self.has_unsaved_changes && cache.encryption != encryption {
+                return Err("All staged additions must use the same encryption settings.".into());
+            }
+            Ok((options, filters, passwords, cache.path(), encryption))
+        })();
+        let (options, filters, mut passwords, cache_path, encryption) = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                self.status = error.to_string();
+                return;
+            }
+        };
+        let base = self.read_archive.clone();
+        let dirty = self.has_unsaved_changes;
+        let previous_password = self.archive_password.clone();
+        let previous_passwords = self.archive_passwords.clone();
+        let input = AddInputOptions {
+            save_metadata: form.metadata,
+            save_modification_time: form.dates,
+            save_creation_time: form.creation_time,
+            save_access_time: form.access_time,
+            save_user: false,
+            include_special_files: form.special_files,
+            strict: form.strict,
+            verbose: form.verbose,
+        };
+        let (events_tx, events_rx) = mpsc::channel();
+        let (answer_tx, answer_rx) = mpsc::channel();
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let progress = UiProgress {
+            events: events_tx.clone(),
+            answers: Arc::new(Mutex::new(answer_rx)),
+            cancellation: Some(Arc::clone(&cancellation)),
+            limit_status_updates: true,
+            last_status_update: Mutex::new(None),
+        };
+        self.begin_worker_with_cancellation(events_rx, answer_tx, "Adding", Some(cancellation));
+        self.report = None;
+        self.warnings.clear();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                let directory = tempfile::tempdir()?;
+                let snapshot_path = directory.path().join("before.zar");
+                std::fs::copy(&cache_path, &snapshot_path)?;
+                let snapshot = RewriteSnapshot {
+                    directory,
+                    dirty,
+                    password: previous_password,
+                    passwords: previous_passwords,
+                };
+                let cache = cache_path.to_str().ok_or("Cache path is not valid UTF-8")?;
+                let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                    let add_encryption = encryption
+                        .as_ref()
+                        .map(|(password, aead, scope)| (password.as_bytes(), *aead, *scope));
+                    if let Some(folder) = &form.input_archive_folder {
+                        operations::add_overlay_in_folder_with_encoding_progress_and_filters_and_encryption(
+                            &base, cache, &form.input_paths, folder, options, Some(&progress),
+                            input, &filters, add_encryption, &passwords,
+                        )?;
+                    } else {
+                        operations::add_overlay_with_encoding_progress_and_filters_and_encryption(
+                            &base, cache, &form.input_paths, options, Some(&progress), input,
+                            &filters, add_encryption, &passwords,
+                        )?;
+                    }
+                    let mut commits = operations::info_archive(&base, false)?;
+                    let overlay_commits = operations::info_archive(cache, false)?;
+                    let mut remembered: BTreeMap<_, _> = form
+                        .commit_unlocks
+                        .iter()
+                        .filter(|commit| commit.selected)
+                        .map(|commit| (commit.id, commit.password.clone()))
+                        .collect();
+                    if let (Some(last), Some((password, _, _))) =
+                        (overlay_commits.last(), &encryption)
+                    {
+                        passwords.insert_for_commit(last.id, password.as_bytes().to_vec());
+                        remembered.insert(last.id, password.clone());
+                    }
+                    commits.extend(overlay_commits);
+                    let toc = operations::list_archive_with_overlay_and_passwords(
+                        &base, cache, &passwords,
+                    )?;
+                    Ok((commits, toc, remembered))
+                })();
+                match result {
+                    Ok((commits, toc, remembered)) => {
+                        let ids = commits
+                            .iter()
+                            .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                            .collect();
+                        let encrypted = commits
+                            .iter()
+                            .filter(|commit| commit.header_encrypted || commit.data_encrypted)
+                            .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                            .collect();
+                        let _ = events_tx.send(UiEvent::RewriteSnapshot(snapshot));
+                        let _ = events_tx.send(UiEvent::CacheEncryption(encryption));
+                        let _ = events_tx.send(UiEvent::ArchiveModified);
+                        if let Some(folder) = &form.input_archive_folder {
+                            let _ = events_tx
+                                .send(UiEvent::ExpandDropFolder(folder.as_str().to_owned()));
+                        }
+                        let _ = events_tx.send(UiEvent::CommitIds { ids, encrypted });
+                        let _ = events_tx.send(UiEvent::RememberPasswords(remembered));
+                        let _ = events_tx.send(UiEvent::SelectedCommit(String::new()));
+                        let _ = events_tx.send(UiEvent::Loaded(Ok(toc)));
+                        Ok(format!("Added selected inputs to {base}"))
+                    }
+                    Err(error) => {
+                        save_archive_copy(&snapshot_path.to_string_lossy(), cache).map_err(
+                            |restore| format!("{error}; cannot restore undo cache: {restore}"),
+                        )?;
+                        Err(error)
+                    }
+                }
+            })()
+            .map_err(|error| error.to_string());
+            finish_with_events(events_tx, result);
+        });
+        self.operation = OperationForm::default();
+        self.status = "Adding in progress".into();
+    }
+
+    fn start_cached_undo(&mut self, steps: usize) {
+        if steps == 0 || steps > self.rewrite_snapshots.len() {
+            self.status = "Choose a valid number of undo steps.".into();
+            return;
+        }
+        let Some(cache) = &self.overlay_cache else {
+            self.status = "No undo cache is available.".into();
+            return;
+        };
+        if let Err(error) = cache.verify_base(Path::new(&self.read_archive)) {
+            self.status = error.to_string();
+            return;
+        }
+        let snapshot = &self.rewrite_snapshots[self.rewrite_snapshots.len() - steps];
+        let snapshot_path = snapshot.directory.path().join("before.zar");
+        let dirty = snapshot.dirty;
+        let password = snapshot.password.clone();
+        let passwords = snapshot.passwords.clone();
+        let cache_path = cache.path();
+        let base = self.read_archive.clone();
+        let (events_tx, events_rx) = mpsc::channel();
+        let (answer_tx, answer_rx) = mpsc::channel();
+        drop(answer_rx);
+        self.begin_worker(events_rx, answer_tx, "Undoing changes");
+        self.report = None;
+        std::thread::spawn(move || {
+            let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                let cache = cache_path.to_str().ok_or("Cache path is not valid UTF-8")?;
+                let set = password_set(&passwords, password.as_deref());
+                let mut commits = operations::info_archive(&base, false)?;
+                let toc = if dirty {
+                    let snapshot = snapshot_path
+                        .to_str()
+                        .ok_or("Snapshot path is not valid UTF-8")?;
+                    commits.extend(operations::info_archive(snapshot, false)?);
+                    operations::list_archive_with_overlay_and_passwords(&base, snapshot, &set)?
+                } else {
+                    operations::list_archive_with_details_and_passwords(&base, None, &set)?
+                };
+                save_archive_copy(&snapshot_path.to_string_lossy(), cache)?;
+                let ids = commits
+                    .iter()
+                    .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                    .collect();
+                let encrypted = commits
+                    .iter()
+                    .filter(|commit| commit.header_encrypted || commit.data_encrypted)
+                    .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                    .collect();
+                let _ = events_tx.send(UiEvent::RewriteUndone {
+                    steps,
+                    dirty,
+                    password,
+                    passwords,
+                });
+                if !dirty {
+                    let _ = events_tx.send(UiEvent::CacheEncryption(None));
+                }
+                let _ = events_tx.send(UiEvent::CommitIds { ids, encrypted });
+                let _ = events_tx.send(UiEvent::SelectedCommit(String::new()));
+                let _ = events_tx.send(UiEvent::Loaded(Ok(toc)));
+                Ok(format!("Undid {steps} step(s)"))
+            })()
+            .map_err(|error| error.to_string());
+            finish_with_events(events_tx, result);
+        });
+    }
+
+    fn handle_archive_shortcuts(&mut self, context: &egui::Context) {
+        if !self.busy
+            && self.operation.kind.is_none()
+            && self.rename_dialog.is_none()
+            && !context.text_edit_focused()
+            && self.archive_list_focused
+            && context.memory(|memory| {
+                memory
+                    .focused()
+                    .is_none_or(|id| Some(id) == self.archive_list_focus_id)
+            })
+        {
+            self.handle_archive_selection_keys(context);
+        }
+        if !self.busy
+            && self.operation.kind.is_none()
+            && self.rename_dialog.is_none()
+            && !context.text_edit_focused()
+            && context.input(|input| input.key_pressed(egui::Key::F2))
+            && self.selected.len() == 1
+        {
+            let path = self.selected.iter().next().unwrap().clone();
+            let name = path.rsplit('/').next().unwrap_or(&path).to_owned();
+            self.rename_dialog = Some((path, name));
+        }
+    }
+
+    fn archive_visible_paths(&mut self) -> Vec<String> {
+        if self.archive_view == ArchiveView::Structured {
+            self.refresh_structured_rows();
+            self.structured_rows_cache
+                .iter()
+                .map(|row| row.path.clone())
+                .collect()
+        } else {
+            self.visible_entry_indices
+                .iter()
+                .map(|index| self.entries[*index].0.clone())
+                .collect()
+        }
+    }
+
+    fn handle_archive_list_pointer(
+        &mut self,
+        context: &egui::Context,
+        selection_color: egui::Color32,
+    ) {
+        let (pressed, down, released, position, modifiers) = context.input(|input| {
+            (
+                input.pointer.primary_pressed(),
+                input.pointer.primary_down(),
+                input.pointer.primary_released(),
+                input.pointer.interact_pos(),
+                input.modifiers,
+            )
+        });
+        if pressed {
+            self.archive_list_focused = position.is_some_and(|position| {
+                self.archive_list_rect
+                    .is_some_and(|rect| rect.contains(position))
+            });
+            if self.archive_list_focused && context.text_edit_focused() {
+                context.memory_mut(|memory| {
+                    if let Some(id) = memory.focused() {
+                        memory.surrender_focus(id);
+                    }
+                });
+            }
+            self.archive_list_focus_id = if self.archive_list_focused {
+                context.memory(|memory| memory.focused())
+            } else {
+                None
+            };
+            if self.archive_list_focused
+                && let Some(position) = position
+                && !self
+                    .archive_row_rects
+                    .iter()
+                    .any(|(_, rect)| rect.contains(position))
+            {
+                let base = if modifiers.shift || modifiers.command || modifiers.ctrl {
+                    self.selected.clone()
+                } else {
+                    BTreeSet::new()
+                };
+                self.selected = base.clone();
+                self.selection_anchor = None;
+                self.selection_range_base = None;
+                self.selection_rubber_band = Some(ArchiveSelectionBand {
+                    origin: position + egui::vec2(0.0, self.archive_scroll_offset),
+                    base,
+                    modifiers,
+                    rows: BTreeMap::new(),
+                });
+            }
+        }
+        if down && let (Some(band), Some(position)) = (&mut self.selection_rubber_band, position) {
+            let scroll = egui::vec2(0.0, self.archive_scroll_offset);
+            let rect = egui::Rect::from_two_pos(band.origin, position + scroll);
+            self.selected = band.base.clone();
+            for (path, row_rect) in &self.archive_row_rects {
+                band.rows.insert(path.clone(), row_rect.translate(scroll));
+            }
+            for (path, row_rect) in &band.rows {
+                if rect.intersects(*row_rect) {
+                    if (band.modifiers.command || band.modifiers.ctrl) && band.base.contains(path) {
+                        self.selected.remove(path);
+                    } else {
+                        self.selected.insert(path.clone());
+                    }
+                }
+            }
+            if let Some(viewport) = self.archive_list_rect {
+                let margin = 16.0;
+                let delta = if position.y < viewport.top() + margin {
+                    (position.y - viewport.top() - margin).max(-16.0)
+                } else if position.y > viewport.bottom() - margin {
+                    (position.y - viewport.bottom() + margin).min(16.0)
+                } else {
+                    0.0
+                };
+                let next_offset =
+                    (self.archive_scroll_offset + delta).clamp(0.0, self.archive_max_scroll);
+                if next_offset != self.archive_scroll_offset {
+                    self.archive_scroll_override = Some(next_offset);
+                    context.request_repaint();
+                }
+            }
+            if rect.width() > 0.0 || rect.height() > 0.0 {
+                context
+                    .layer_painter(egui::LayerId::new(
+                        egui::Order::Foreground,
+                        egui::Id::unique("archive-selection-band"),
+                    ))
+                    .with_clip_rect(self.archive_list_rect.unwrap_or(egui::Rect::EVERYTHING))
+                    .rect_stroke(
+                        rect.translate(-scroll),
+                        0.0,
+                        egui::Stroke::new(1.0, selection_color),
+                        egui::StrokeKind::Inside,
+                    );
+            }
+        }
+        if released {
+            self.selection_rubber_band = None;
+            self.selection_press = None;
+            self.archive_scroll_override = None;
+        }
+    }
+
+    fn handle_archive_selection_keys(&mut self, context: &egui::Context) {
+        let (key, modifiers) = context.input(|input| {
+            let key = [
+                egui::Key::A,
+                egui::Key::ArrowUp,
+                egui::Key::ArrowDown,
+                egui::Key::ArrowLeft,
+                egui::Key::ArrowRight,
+                egui::Key::Home,
+                egui::Key::End,
+                egui::Key::PageUp,
+                egui::Key::PageDown,
+                egui::Key::Space,
+            ]
+            .into_iter()
+            .find(|key| input.key_pressed(*key));
+            (key, input.modifiers)
+        });
+        let Some(key) = key else { return };
+        let visible = self.archive_visible_paths();
+        if visible.is_empty() {
+            return;
+        }
+        let command = modifiers.command || modifiers.ctrl;
+        if key == egui::Key::A && command {
+            self.selected = visible.into_iter().collect();
+            self.selection_range_base = None;
+            return;
+        }
+        let current = self
+            .selection_current
+            .as_ref()
+            .and_then(|path| visible.iter().position(|item| item == path));
+        if key == egui::Key::Space {
+            if let Some(index) = current {
+                let path = &visible[index];
+                if command && self.selected.contains(path) {
+                    self.selected.remove(path);
+                } else {
+                    self.selected.insert(path.clone());
+                }
+                self.selection_anchor = Some(path.clone());
+                self.selection_range_base = None;
+            }
+            return;
+        }
+        let columns = if matches!(
+            self.archive_view,
+            ArchiveView::Normal | ArchiveView::Compact
+        ) {
+            self.archive_list_columns.max(1)
+        } else {
+            1
+        };
+        let page = self.archive_list_page_rows.max(1) * columns;
+        let index = current.unwrap_or(0);
+        if self.archive_view == ArchiveView::Structured && current.is_some() {
+            let row = &self.structured_rows_cache[index];
+            if key == egui::Key::ArrowRight && row.has_children && !row.expanded {
+                self.expanded_tree_dirs.insert(row.path.clone());
+                self.structured_rows_dirty = true;
+                return;
+            }
+            if key == egui::Key::ArrowLeft && row.has_children && row.expanded {
+                self.expanded_tree_dirs.remove(&row.path);
+                self.structured_rows_dirty = true;
+                return;
+            }
+        }
+        let next = match key {
+            egui::Key::ArrowUp => index.saturating_sub(columns),
+            egui::Key::ArrowDown => (index + columns).min(visible.len() - 1),
+            egui::Key::ArrowLeft if columns > 1 => index.saturating_sub(1),
+            egui::Key::ArrowRight if columns > 1 => (index + 1).min(visible.len() - 1),
+            egui::Key::ArrowRight
+                if self.archive_view == ArchiveView::Structured
+                    && self.structured_rows_cache[index].expanded =>
+            {
+                (index + 1).min(visible.len() - 1)
+            }
+            egui::Key::ArrowLeft if self.archive_view == ArchiveView::Structured => self
+                .structured_rows_cache[..index]
+                .iter()
+                .rposition(|row| row.depth < self.structured_rows_cache[index].depth)
+                .unwrap_or(index),
+            egui::Key::Home => 0,
+            egui::Key::End => visible.len() - 1,
+            egui::Key::PageUp => index.saturating_sub(page),
+            egui::Key::PageDown => (index + page).min(visible.len() - 1),
+            _ => return,
+        };
+        if current == Some(next) {
+            return;
+        }
+        self.archive_scroll_to = Some(visible[next].clone());
+        if command {
+            self.selection_current = Some(visible[next].clone());
+            self.selection_anchor = self.selection_current.clone();
+            self.selection_range_base = None;
+        } else {
+            select_archive_entry(
+                &visible,
+                &mut self.selected,
+                &mut self.selection_anchor,
+                &mut self.selection_current,
+                &mut self.selection_range_base,
+                &visible[next],
+                modifiers,
+            );
+        }
+    }
+
+    fn archive_scroll_to_current(
+        &mut self,
+        row_height: f32,
+        columns: usize,
+        spacing: f32,
+    ) -> Option<f32> {
+        if let Some(offset) = self.archive_scroll_override.take() {
+            return Some(offset);
+        }
+        let target = self.archive_scroll_to.take()?;
+        let index = self
+            .archive_visible_paths()
+            .iter()
+            .position(|path| path == &target)?;
+        let top = (index / columns.max(1)) as f32 * (row_height + spacing);
+        let bottom = top + row_height;
+        if top < self.archive_scroll_offset {
+            Some(top)
+        } else if bottom > self.archive_scroll_offset + self.archive_viewport_height {
+            Some((bottom - self.archive_viewport_height).max(0.0))
+        } else {
+            None
+        }
+    }
+
+    fn start_cached_move(&mut self, paths: Vec<(ArchivePath, ArchivePath)>) {
+        self.start_cached_move_to(paths, None);
+    }
+
+    fn start_cached_move_to(
+        &mut self,
+        paths: Vec<(ArchivePath, ArchivePath)>,
+        drop_folder: Option<String>,
+    ) {
+        if self.busy
+            || self.read_archive.is_empty()
+            || self.imported_archive_dir.is_some()
+            || (!self.selected_commit.is_empty()
+                && self.commit_ids.last() != Some(&self.selected_commit))
+        {
+            self.status = "Entries can only be moved in the current archive view.".into();
+            return;
+        }
+        let direct = self.working_archive_dir.is_some() || self.archive.is_empty();
+        if !direct && self.overlay_cache.is_none() {
+            match OverlayCache::new(Path::new(&self.read_archive)) {
+                Ok(cache) => self.overlay_cache = Some(cache),
+                Err(error) => {
+                    self.status = error.to_string();
+                    return;
+                }
+            }
+        }
+        if let Some(cache) = &self.overlay_cache
+            && let Err(error) = cache.verify_base(Path::new(&self.read_archive))
+        {
+            self.status = error.to_string();
+            return;
+        }
+        let cache_path = self
+            .overlay_cache
+            .as_ref()
+            .map_or_else(|| PathBuf::from(&self.read_archive), OverlayCache::path);
+        let encryption = self
+            .overlay_cache
+            .as_ref()
+            .and_then(|cache| cache.encryption.clone());
+        let base = self.read_archive.clone();
+        let dirty = self.has_unsaved_changes;
+        let previous_password = self.archive_password.clone();
+        let previous_passwords = self.archive_passwords.clone();
+        let mut passwords = password_set(&previous_passwords, previous_password.as_deref());
+        let (events_tx, events_rx) = mpsc::channel();
+        let (answer_tx, _answer_rx) = mpsc::channel();
+        let relock = direct && self.release_archive_lock_for(&cache_path);
+        self.begin_worker(events_rx, answer_tx, "Moving entries");
+        self.report = None;
+        self.warnings.clear();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                let directory = tempfile::tempdir()?;
+                let snapshot_path = directory.path().join("before.zar");
+                std::fs::copy(&cache_path, &snapshot_path)?;
+                let snapshot = RewriteSnapshot {
+                    directory,
+                    dirty,
+                    password: previous_password,
+                    passwords: previous_passwords,
+                };
+                let cache = cache_path.to_str().ok_or("Cache path is not valid UTF-8")?;
+                let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                    let commit_encryption = encryption
+                        .as_ref()
+                        .map(|(password, aead, scope)| (password.as_bytes(), *aead, *scope));
+                    if direct {
+                        operations::rename_archive_entries_with_encryption(
+                            cache,
+                            &paths,
+                            commit_encryption,
+                            &passwords,
+                        )?;
+                    } else {
+                        operations::rename_overlay_entries_with_encryption(
+                            &base,
+                            cache,
+                            &paths,
+                            commit_encryption,
+                            &passwords,
+                        )?;
+                    }
+                    let overlay_commits = operations::info_archive(cache, false)?;
+                    let mut remembered = BTreeMap::new();
+                    if let (Some(last), Some((password, _, _))) =
+                        (overlay_commits.last(), &encryption)
+                    {
+                        passwords.insert_for_commit(last.id, password.as_bytes().to_vec());
+                        remembered.insert(last.id, password.clone());
+                    }
+                    let (commits, toc) = if direct {
+                        (
+                            overlay_commits,
+                            operations::list_archive_with_details_and_passwords(
+                                cache, None, &passwords,
+                            )?,
+                        )
+                    } else {
+                        let mut commits = operations::info_archive(&base, false)?;
+                        commits.extend(overlay_commits);
+                        (
+                            commits,
+                            operations::list_archive_with_overlay_and_passwords(
+                                &base, cache, &passwords,
+                            )?,
+                        )
+                    };
+                    Ok((commits, toc, remembered))
+                })();
+                match result {
+                    Ok((commits, toc, remembered)) => {
+                        let ids = commits
+                            .iter()
+                            .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                            .collect();
+                        let encrypted = commits
+                            .iter()
+                            .filter(|commit| commit.header_encrypted || commit.data_encrypted)
+                            .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                            .collect();
+                        let _ = events_tx.send(UiEvent::RewriteSnapshot(snapshot));
+                        let _ = events_tx.send(UiEvent::ArchiveModified);
+                        if let Some(folder) = drop_folder {
+                            let _ = events_tx.send(UiEvent::ExpandDropFolder(folder));
+                        }
+                        let _ = events_tx.send(UiEvent::CommitIds { ids, encrypted });
+                        let _ = events_tx.send(UiEvent::RememberPasswords(remembered));
+                        let _ = events_tx.send(UiEvent::SelectedCommit(String::new()));
+                        let _ = events_tx.send(UiEvent::Loaded(Ok(toc)));
+                        Ok(format!("Moved {} archive path(s)", paths.len()))
+                    }
+                    Err(error) => {
+                        save_archive_copy(&snapshot_path.to_string_lossy(), cache).map_err(
+                            |restore| format!("{error}; cannot restore undo cache: {restore}"),
+                        )?;
+                        Err(error)
+                    }
+                }
+            })()
+            .map_err(|error| error.to_string());
+            if relock {
+                let _ = events_tx.send(UiEvent::ArchiveLock(lock_archive(&cache_path)));
+            }
+            finish_with_events(events_tx, result);
+        });
+    }
+
+    fn start_cached_removal(&mut self, form: OperationForm) {
+        let paths = match lines(&form.remove_text)
+            .into_iter()
+            .map(ArchivePath::new)
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(paths) if !paths.is_empty() => paths,
+            Ok(_) => {
+                self.status = "Enter or select one or more archive paths to remove.".into();
+                return;
+            }
+            Err(error) => {
+                self.status = error.to_string();
+                return;
+            }
+        };
+        if self.overlay_cache.is_none() {
+            match OverlayCache::new(Path::new(&self.read_archive)) {
+                Ok(cache) => self.overlay_cache = Some(cache),
+                Err(error) => {
+                    self.status = error.to_string();
+                    return;
+                }
+            }
+        }
+        let Some(cache) = &self.overlay_cache else {
+            return;
+        };
+        if let Err(error) = cache.verify_base(Path::new(&self.read_archive)) {
+            self.status = error.to_string();
+            return;
+        }
+        let cache_path = cache.path();
+        let encryption = cache.encryption.clone();
+        let base = self.read_archive.clone();
+        let dirty = self.has_unsaved_changes;
+        let previous_password = self.archive_password.clone();
+        let previous_passwords = self.archive_passwords.clone();
+        let mut passwords = password_set(&previous_passwords, previous_password.as_deref());
+        let (events_tx, events_rx) = mpsc::channel();
+        let (answer_tx, answer_rx) = mpsc::channel();
+        let progress = UiProgress {
+            events: events_tx.clone(),
+            answers: Arc::new(Mutex::new(answer_rx)),
+            cancellation: None,
+            limit_status_updates: false,
+            last_status_update: Mutex::new(None),
+        };
+        self.begin_worker(events_rx, answer_tx, "Removing entries");
+        self.report = None;
+        self.warnings.clear();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                let directory = tempfile::tempdir()?;
+                let snapshot_path = directory.path().join("before.zar");
+                std::fs::copy(&cache_path, &snapshot_path)?;
+                let snapshot = RewriteSnapshot {
+                    directory,
+                    dirty,
+                    password: previous_password,
+                    passwords: previous_passwords,
+                };
+                let cache = cache_path.to_str().ok_or("Cache path is not valid UTF-8")?;
+                let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                    operations::remove_overlay_entries_with_progress_and_encryption(
+                        &base,
+                        cache,
+                        &paths,
+                        Some(&progress),
+                        encryption
+                            .as_ref()
+                            .map(|(password, aead, scope)| (password.as_bytes(), *aead, *scope)),
+                        &passwords,
+                    )?;
+                    let mut commits = operations::info_archive(&base, false)?;
+                    let overlay_commits = operations::info_archive(cache, false)?;
+                    let mut remembered = BTreeMap::new();
+                    if let (Some(last), Some((password, _, _))) =
+                        (overlay_commits.last(), &encryption)
+                    {
+                        passwords.insert_for_commit(last.id, password.as_bytes().to_vec());
+                        remembered.insert(last.id, password.clone());
+                    }
+                    commits.extend(overlay_commits);
+                    let toc = operations::list_archive_with_overlay_and_passwords(
+                        &base, cache, &passwords,
+                    )?;
+                    Ok((commits, toc, remembered))
+                })();
+                match result {
+                    Ok((commits, toc, remembered)) => {
+                        let ids = commits
+                            .iter()
+                            .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                            .collect();
+                        let encrypted = commits
+                            .iter()
+                            .filter(|commit| commit.header_encrypted || commit.data_encrypted)
+                            .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                            .collect();
+                        let _ = events_tx.send(UiEvent::RewriteSnapshot(snapshot));
+                        let _ = events_tx.send(UiEvent::ArchiveModified);
+                        let _ = events_tx.send(UiEvent::CommitIds { ids, encrypted });
+                        let _ = events_tx.send(UiEvent::RememberPasswords(remembered));
+                        let _ = events_tx.send(UiEvent::SelectedCommit(String::new()));
+                        let _ = events_tx.send(UiEvent::Loaded(Ok(toc)));
+                        Ok(format!("Removed {} archive path(s)", paths.len()))
+                    }
+                    Err(error) => {
+                        save_archive_copy(&snapshot_path.to_string_lossy(), cache).map_err(
+                            |restore| format!("{error}; cannot restore undo cache: {restore}"),
+                        )?;
+                        Err(error)
+                    }
+                }
+            })()
+            .map_err(|error| error.to_string());
+            finish_with_events(events_tx, result);
+        });
+        self.operation = OperationForm::default();
+    }
+
+    fn start_cached_metadata(&mut self, form: OperationForm) {
+        let remove: Vec<_> = form
+            .meta_items
+            .iter()
+            .filter(|item| item.3)
+            .map(|item| item.0.clone())
+            .collect();
+        let mut set: Vec<_> = form
+            .meta_items
+            .iter()
+            .filter(|item| !item.3 && item.1 != item.2)
+            .map(|item| (item.0.clone(), operations::parse_metadata_value(&item.2)))
+            .collect();
+        for (key, value) in &form.meta_new {
+            if !key.trim().is_empty() {
+                set.push((
+                    key.trim().to_owned(),
+                    operations::parse_metadata_value(value),
+                ));
+            }
+        }
+        if set.is_empty() && remove.is_empty() {
+            self.status = "No metadata changes to apply.".into();
+            return;
+        }
+        if self.overlay_cache.is_none() {
+            match OverlayCache::new(Path::new(&self.read_archive)) {
+                Ok(cache) => self.overlay_cache = Some(cache),
+                Err(error) => {
+                    self.status = error.to_string();
+                    return;
+                }
+            }
+        }
+        let Some(cache) = &self.overlay_cache else {
+            return;
+        };
+        if let Err(error) = cache.verify_base(Path::new(&self.read_archive)) {
+            self.status = error.to_string();
+            return;
+        }
+        let cache_path = cache.path();
+        let base = self.read_archive.clone();
+        let dirty = self.has_unsaved_changes;
+        let previous_password = self.archive_password.clone();
+        let previous_passwords = self.archive_passwords.clone();
+        let passwords = password_set(&previous_passwords, previous_password.as_deref());
+        let (events_tx, events_rx) = mpsc::channel();
+        let (answer_tx, answer_rx) = mpsc::channel();
+        drop(answer_rx);
+        self.begin_worker(events_rx, answer_tx, "Updating metadata");
+        self.report = None;
+        std::thread::spawn(move || {
+            let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                let directory = tempfile::tempdir()?;
+                let snapshot_path = directory.path().join("before.zar");
+                std::fs::copy(&cache_path, &snapshot_path)?;
+                let snapshot = RewriteSnapshot {
+                    directory,
+                    dirty,
+                    password: previous_password,
+                    passwords: previous_passwords,
+                };
+                let cache = cache_path.to_str().ok_or("Cache path is not valid UTF-8")?;
+                let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                    operations::update_overlay_custom_metadata(&base, cache, &set, &remove)?;
+                    let mut commits = operations::info_archive(&base, false)?;
+                    commits.extend(operations::info_archive(cache, false)?);
+                    let toc = operations::list_archive_with_overlay_and_passwords(
+                        &base, cache, &passwords,
+                    )?;
+                    Ok((commits, toc))
+                })();
+                match result {
+                    Ok((commits, toc)) => {
+                        let ids = commits
+                            .iter()
+                            .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                            .collect();
+                        let encrypted = commits
+                            .iter()
+                            .filter(|commit| commit.header_encrypted || commit.data_encrypted)
+                            .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                            .collect();
+                        let _ = events_tx.send(UiEvent::RewriteSnapshot(snapshot));
+                        let _ = events_tx.send(UiEvent::ArchiveModified);
+                        let _ = events_tx.send(UiEvent::CommitIds { ids, encrypted });
+                        let _ = events_tx.send(UiEvent::SelectedCommit(String::new()));
+                        let _ = events_tx.send(UiEvent::Loaded(Ok(toc)));
+                        Ok(format!(
+                            "Metadata updated: {} set, {} removed",
+                            set.len(),
+                            remove.len()
+                        ))
+                    }
+                    Err(error) => {
+                        save_archive_copy(&snapshot_path.to_string_lossy(), cache).map_err(
+                            |restore| format!("{error}; cannot restore undo cache: {restore}"),
+                        )?;
+                        Err(error)
+                    }
+                }
+            })()
+            .map_err(|error| error.to_string());
+            finish_with_events(events_tx, result);
+        });
+        self.operation = OperationForm::default();
+    }
+
+    fn materialize_overlay(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let Some(cache) = &self.overlay_cache else {
+            return Ok(());
+        };
+        cache.verify_base(Path::new(&self.read_archive))?;
+        if !self.has_unsaved_changes {
+            self.overlay_cache = None;
+            return Ok(());
+        }
+        let directory = tempfile::Builder::new()
+            .prefix("zarg-working-archive-")
+            .tempdir()?;
+        let path = directory.path().join("working.zar");
+        operations::combine_archives(Path::new(&self.read_archive), &cache.path(), &path)?;
+        let mut snapshots = Vec::with_capacity(self.rewrite_snapshots.len());
+        for snapshot in &self.rewrite_snapshots {
+            let snapshot_directory = tempfile::tempdir()?;
+            let target = snapshot_directory.path().join("before.zar");
+            if snapshot.dirty {
+                operations::combine_archives(
+                    Path::new(&self.read_archive),
+                    &snapshot.directory.path().join("before.zar"),
+                    &target,
+                )?;
+            } else {
+                std::fs::copy(&self.read_archive, &target)?;
+            }
+            snapshots.push(RewriteSnapshot {
+                directory: snapshot_directory,
+                dirty: snapshot.dirty,
+                password: snapshot.password.clone(),
+                passwords: snapshot.passwords.clone(),
+            });
+        }
+        self.read_archive = path.to_string_lossy().into_owned();
+        self.working_archive_dir = Some(directory);
+        self.rewrite_snapshots = snapshots;
+        self.overlay_cache = None;
+        Ok(())
+    }
+
+    fn temporary_archive_view(
+        &self,
+    ) -> Result<Option<tempfile::TempDir>, Box<dyn std::error::Error>> {
+        let Some(cache) = self
+            .overlay_cache
+            .as_ref()
+            .filter(|_| self.has_unsaved_changes)
+        else {
+            return Ok(None);
+        };
+        cache.verify_base(Path::new(&self.read_archive))?;
+        let directory = tempfile::Builder::new()
+            .prefix("zarg-archive-view-")
+            .tempdir()?;
+        operations::combine_archives(
+            Path::new(&self.read_archive),
+            &cache.path(),
+            &directory.path().join("view.zar"),
+        )?;
+        Ok(Some(directory))
     }
 
     fn start_operation(&mut self, mut form: OperationForm) {
@@ -1809,6 +3188,50 @@ impl ZargApp {
             | OperationKind::ChangeCommits => !explicit_output,
             _ => false,
         };
+        if current_archive_operation
+            && !self.archive.is_empty()
+            && self.imported_archive_dir.is_none()
+            && self.working_archive_dir.is_none()
+        {
+            match kind {
+                OperationKind::AddToArchive => {
+                    self.start_cached_add(form);
+                    return;
+                }
+                OperationKind::RemoveEntries => {
+                    self.start_cached_removal(form);
+                    return;
+                }
+                OperationKind::CustomMetadata => {
+                    self.start_cached_metadata(form);
+                    return;
+                }
+                OperationKind::UndoCommits if self.overlay_cache.is_some() => {
+                    self.start_cached_undo(form.undo_commits);
+                    return;
+                }
+                _ => {}
+            }
+        }
+        if current_archive_operation
+            && changes_archive
+            && self.overlay_cache.is_some()
+            && let Err(error) = self.materialize_overlay()
+        {
+            self.status = format!("Cannot prepare working archive: {error}");
+            return;
+        }
+        let archive_view = if current_archive_operation && !changes_archive {
+            match self.temporary_archive_view() {
+                Ok(view) => view,
+                Err(error) => {
+                    self.status = format!("Cannot prepare archive view: {error}");
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         let mut new_working_archive = None;
         if kind == OperationKind::NewArchive {
             match tempfile::Builder::new()
@@ -1882,6 +3305,13 @@ impl ZargApp {
                     form.archive.clone()
                 }
             });
+        let archive = archive_view.as_ref().map_or(archive, |directory| {
+            directory
+                .path()
+                .join("view.zar")
+                .to_string_lossy()
+                .into_owned()
+        });
         form.archive.clone_from(&archive);
         if kind == OperationKind::UndoCommits
             && (!self.has_unsaved_changes
@@ -1965,6 +3395,21 @@ impl ZargApp {
             && self.commit_ids.last() == Some(&self.selected_commit)
             && self.latest_archive_empty.is_some())
         .then(|| lines(&form.remove_text));
+        let drop_folder = (kind == OperationKind::AddToArchive)
+            .then_some(form.input_archive_folder.as_ref())
+            .flatten()
+            .map(|folder| folder.as_str().to_owned());
+        let background = self
+            .background_extraction
+            .as_ref()
+            .filter(|background| {
+                kind == OperationKind::ExtractArchive
+                    && !self.validate_blocks_before_extraction
+                    && !self.has_unsaved_changes
+                    && !form.password_is_set
+                    && background.matches(&archive, Some(form.to.as_str()), &form.archive_passwords)
+            })
+            .cloned();
         let result = match if let Some((steps, source, dirty, password, passwords)) = undo_snapshots
         {
             let target = archive.clone();
@@ -1984,7 +3429,14 @@ impl ZargApp {
                 Ok(format!("Undid {steps} step(s)"))
             }) as OperationJob)
         } else {
-            build_job(kind, form, events_tx.clone(), progress)
+            build_job(
+                kind,
+                form,
+                events_tx.clone(),
+                progress,
+                background,
+                self.validate_blocks_on_extraction,
+            )
         } {
             Ok(job) => job,
             Err(error) => {
@@ -1992,10 +3444,12 @@ impl ZargApp {
                 return;
             }
         };
+        let relock = changes_archive && self.release_archive_lock_for(Path::new(&archive));
         self.begin_worker_with_cancellation(events_rx, answer_tx, kind.title(), cancellation);
         self.report = None;
         self.warnings.clear();
         std::thread::spawn(move || {
+            let _archive_view = archive_view;
             let skipped_encrypted = if transform_passwords
                 .as_ref()
                 .is_some_and(|(_, _, _, _, skip)| *skip)
@@ -2007,6 +3461,10 @@ impl ZargApp {
                         .map(|commit| commit.id)
                         .collect::<BTreeSet<_>>(),
                     Err(error) => {
+                        if relock {
+                            let _ = events_tx
+                                .send(UiEvent::ArchiveLock(lock_archive(Path::new(&archive))));
+                        }
                         finish_with_events(
                             events_tx,
                             Err(format!("Cannot inspect archive commits: {error}")),
@@ -2111,6 +3569,9 @@ impl ZargApp {
                 } else if changes_archive && !restoring_snapshot {
                     let _ = events_tx.send(UiEvent::ArchiveModified);
                 }
+                if let Some(folder) = drop_folder {
+                    let _ = events_tx.send(UiEvent::ExpandDropFolder(folder));
+                }
             }
             if outcome.is_ok() && refresh_commit_ids {
                 let result_password = refresh_password.clone();
@@ -2160,6 +3621,11 @@ impl ZargApp {
                             (&mut add_refresh_passwords, add_new_password)
                         {
                             let Some(commit) = commits.last() else {
+                                if relock {
+                                    let _ = events_tx.send(UiEvent::ArchiveLock(lock_archive(
+                                        Path::new(&archive),
+                                    )));
+                                }
                                 finish_with_events(
                                     events_tx,
                                     Err("Operation completed, but archive refresh failed: no commits found".to_owned()),
@@ -2235,6 +3701,9 @@ impl ZargApp {
                     }
                 }
             }
+            if relock {
+                let _ = events_tx.send(UiEvent::ArchiveLock(lock_archive(Path::new(&archive))));
+            }
             finish_with_events(events_tx, outcome);
         });
         self.operation = OperationForm::default();
@@ -2250,18 +3719,66 @@ impl ZargApp {
             return;
         }
 
+        let view = match self.temporary_archive_view() {
+            Ok(view) => view,
+            Err(error) => {
+                self.status = error.to_string();
+                return;
+            }
+        };
         let (events_tx, events_rx) = mpsc::channel();
         let (answer_tx, _answer_rx) = mpsc::channel();
         self.begin_worker(events_rx, answer_tx, "Extracting file");
         self.status = format!("Opening {path}");
         self.warnings.clear();
-        let archive = self.read_archive.clone();
+        let archive = view.as_ref().map_or_else(
+            || self.read_archive.clone(),
+            |directory| {
+                directory
+                    .path()
+                    .join("view.zar")
+                    .to_string_lossy()
+                    .into_owned()
+            },
+        );
         let passwords = password_set(&self.archive_passwords, self.archive_password.as_deref());
         let to = (!self.selected_commit.is_empty()).then(|| self.selected_commit.clone());
+        let background = self.matching_background(&archive, to.as_deref());
+        let validate_blocks = self.validate_blocks_on_extraction;
         std::thread::spawn(move || {
-            let outcome = extract_and_open(&archive, &path, &passwords, to.as_deref());
+            let _view = view;
+            let prepared = background.and_then(|background| {
+                background
+                    .wait(None)
+                    .ok()
+                    .filter(|_| background.unchanged())
+            });
+            let outcome = extract_and_open(
+                &archive,
+                &path,
+                &passwords,
+                to.as_deref(),
+                prepared.as_deref(),
+                validate_blocks,
+            );
             finish_with_events(events_tx, outcome);
         });
+    }
+
+    fn matching_background(
+        &self,
+        archive: &str,
+        commit: Option<&str>,
+    ) -> Option<BackgroundExtraction> {
+        self.background_extraction
+            .as_ref()
+            .filter(|background| {
+                !self.validate_blocks_before_extraction
+                    && !self.has_unsaved_changes
+                    && self.archive_password.is_none()
+                    && background.matches(archive, commit, &self.archive_passwords)
+            })
+            .cloned()
     }
 
     fn drag_supported(&self) -> bool {
@@ -2276,30 +3793,113 @@ impl ZargApp {
     }
 
     #[cfg(any(windows, target_os = "macos"))]
-    fn start_selected_drag(&mut self, frame: &eframe::Frame) {
+    fn start_selected_drag(&mut self) {
+        if self.busy || self.native_drag_preparation.is_some() {
+            return;
+        }
+        let overlay = self
+            .overlay_cache
+            .as_ref()
+            .filter(|_| self.has_unsaved_changes);
+        if let Some(cache) = overlay
+            && let Err(error) = cache.verify_base(Path::new(&self.read_archive))
+        {
+            self.report = Some(error.to_string());
+            return;
+        }
+        let overlay = overlay.map(OverlayCache::path);
+        let archive = self.read_archive.clone();
+        let selected = self.selected.clone();
         let passwords = password_set(&self.archive_passwords, self.archive_password.as_deref());
-        let commit = (!self.selected_commit.is_empty()).then_some(self.selected_commit.as_str());
-        let prepared =
-            match prepare_drag(&self.read_archive, &self.selected, commit, &passwords, None) {
-                Ok(prepared) => prepared,
-                Err(error) => {
-                    self.report = Some(format!(
-                        "Cannot prepare selected items for dragging: {error}"
-                    ));
-                    return;
-                }
-            };
-        let result = drag::start_drag(
-            frame,
-            drag::DragItem::Files(prepared.paths),
-            drag::Image::Raw(include_bytes!("../assets/zarg-icon.png").to_vec()),
-            |_, _| {},
-            drag::Options::default(),
+        let commit = (!self.selected_commit.is_empty()).then(|| self.selected_commit.clone());
+        let background = self.matching_background(&archive, commit.as_deref());
+        let validate_blocks = self.validate_blocks_on_extraction;
+        let (sender, receiver) = mpsc::channel();
+        let (events_tx, events_rx) = mpsc::channel();
+        let (answer_tx, answer_rx) = mpsc::channel();
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let progress = UiProgress {
+            events: events_tx.clone(),
+            answers: Arc::new(Mutex::new(answer_rx)),
+            cancellation: Some(Arc::clone(&cancellation)),
+            limit_status_updates: false,
+            last_status_update: Mutex::new(None),
+        };
+        self.begin_worker_with_cancellation(
+            events_rx,
+            answer_tx,
+            "Extracting dragged items; keep the mouse button pressed",
+            Some(Arc::clone(&cancellation)),
         );
-        match result {
-            Ok(()) => self.drag_directories.push(prepared.directory),
-            Err(error) => {
-                self.report = Some(format!("Cannot start dragging selected items: {error}"));
+        std::thread::spawn(move || {
+            let prepared = background.and_then(|background| {
+                background
+                    .wait(Some(&progress))
+                    .ok()
+                    .filter(|_| background.unchanged())
+            });
+            let result = prepare_drag_with_overlay(
+                &archive,
+                overlay.as_deref(),
+                &selected,
+                commit.as_deref(),
+                &passwords,
+                Some(&progress),
+                (prepared.as_deref(), validate_blocks),
+            )
+            .map_err(|error| error.to_string());
+            let _ = sender.send(result);
+        });
+        self.native_drag_preparation = Some(NativeDragPreparation {
+            receiver,
+            events: events_tx,
+            cancellation,
+        });
+        self.status = "Preparing drag; keep the mouse button pressed".into();
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    fn poll_native_drag(&mut self, context: &egui::Context, frame: &eframe::Frame) {
+        let Some(preparation) = &self.native_drag_preparation else {
+            return;
+        };
+        if !context.input(|input| input.pointer.primary_down()) {
+            preparation.cancellation.store(true, Ordering::Relaxed);
+        }
+        match preparation.receiver.try_recv() {
+            Ok(result) => {
+                let preparation = self.native_drag_preparation.take().unwrap();
+                let outcome = if preparation.cancellation.load(Ordering::Relaxed) {
+                    Err("The mouse button was released before the selected items were ready to drag".into())
+                } else {
+                    result.and_then(|prepared| {
+                        let icon = drag_preview_icon()
+                            .map_err(|error| format!("Cannot prepare drag icon: {error}"))?;
+                        drag::start_drag(
+                            frame,
+                            drag::DragItem::Files(prepared.paths),
+                            drag::Image::Raw(icon),
+                            |_, _| {},
+                            drag::Options::default(),
+                        )
+                        .map_err(|error| {
+                            format!("Cannot start dragging selected items: {error}")
+                        })?;
+                        self.drag_directories.push(prepared.directory);
+                        Ok("Drag started".into())
+                    })
+                };
+                finish_with_events(preparation.events, outcome);
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                let preparation = self.native_drag_preparation.take().unwrap();
+                finish_with_events(
+                    preparation.events,
+                    Err("The drag preparation worker stopped unexpectedly".into()),
+                );
+            }
+            Err(mpsc::TryRecvError::Empty) => {
+                context.request_repaint_after(Duration::from_millis(16))
             }
         }
     }
@@ -2315,10 +3915,23 @@ impl ZargApp {
             self.report = Some("Cannot start dragging: mouse press is no longer active".into());
             return;
         };
+        let overlay = self
+            .overlay_cache
+            .as_ref()
+            .filter(|_| self.has_unsaved_changes);
+        if let Some(cache) = overlay
+            && let Err(error) = cache.verify_base(Path::new(&self.read_archive))
+        {
+            self.report = Some(error.to_string());
+            return;
+        }
+        let overlay = overlay.map(OverlayCache::path);
         let archive = self.read_archive.clone();
         let selected = self.selected.clone();
         let commit = (!self.selected_commit.is_empty()).then(|| self.selected_commit.clone());
         let passwords = password_set(&self.archive_passwords, self.archive_password.as_deref());
+        let background = self.matching_background(&archive, commit.as_deref());
+        let validate_blocks = self.validate_blocks_on_extraction;
         let (sender, receiver) = mpsc::channel();
         let (events_tx, events_rx) = mpsc::channel();
         let (answer_tx, answer_rx) = mpsc::channel();
@@ -2337,12 +3950,20 @@ impl ZargApp {
             Some(Arc::clone(&cancellation)),
         );
         let thread = std::thread::spawn(move || {
-            let result = prepare_drag(
+            let prepared = background.and_then(|background| {
+                background
+                    .wait(Some(&progress))
+                    .ok()
+                    .filter(|_| background.unchanged())
+            });
+            let result = prepare_drag_with_overlay(
                 &archive,
+                overlay.as_deref(),
                 &selected,
                 commit.as_deref(),
                 &passwords,
                 Some(&progress),
+                (prepared.as_deref(), validate_blocks),
             )
             .map_err(|error| error.to_string());
             let _ = sender.send(result);
@@ -2364,8 +3985,12 @@ impl ZargApp {
                 self.report = Some(format!("Wayland drag failed: {error}"));
             }
             let dropped_paths = drag.take_dropped_paths();
-            for paths in dropped_paths {
-                self.add_dropped_paths(paths);
+            for (paths, position) in dropped_paths {
+                let folder = self
+                    .archive_folder_at(position.map(|position| position / context.zoom_factor()));
+                if self.add_dropped_paths_to(paths, folder) {
+                    Self::focus_add_dialog(context);
+                }
             }
             // The guest Wayland queue does not itself wake eframe for incoming offers.
             context.request_repaint_after(Duration::from_millis(100));
@@ -2441,6 +4066,15 @@ impl ZargApp {
             return;
         }
         let archive = self.read_archive.clone();
+        let overlay = self
+            .overlay_cache
+            .as_ref()
+            .filter(|_| self.has_unsaved_changes)
+            .map(OverlayCache::path);
+        let can_prepare =
+            overlay.is_none() && !self.has_unsaved_changes && self.archive_password.is_none();
+        let background_passwords = self.archive_passwords.clone();
+        let is_latest = self.commit_ids.last() == Some(&id);
         let passwords = password_set(&self.archive_passwords, self.archive_password.as_deref());
         let (events_tx, events_rx) = mpsc::channel();
         let (answer_tx, answer_rx) = mpsc::channel();
@@ -2448,13 +4082,30 @@ impl ZargApp {
         self.begin_worker(events_rx, answer_tx, "Reading commit");
         self.report = None;
         std::thread::spawn(move || {
-            match operations::list_archive_with_details_and_passwords(
-                &archive,
-                Some(&id),
-                &passwords,
-            ) {
+            let result = if let Some(overlay) = overlay {
+                operations::list_archive_with_overlay_through_and_passwords(
+                    &archive,
+                    &overlay.to_string_lossy(),
+                    Some(&id),
+                    &passwords,
+                )
+            } else {
+                operations::list_archive_with_details_and_passwords(&archive, Some(&id), &passwords)
+            };
+            match result {
                 Ok(toc) => {
                     let count = toc.0.len();
+                    if can_prepare
+                        && let Some(background) = BackgroundExtraction::start(
+                            archive.clone(),
+                            Some(id.clone()),
+                            (!is_latest).then(|| id.clone()),
+                            background_passwords,
+                            toc.0.clone(),
+                        )
+                    {
+                        let _ = events_tx.send(UiEvent::BackgroundExtraction(background));
+                    }
                     let _ = events_tx.send(UiEvent::SelectedCommit(id));
                     let _ = events_tx.send(UiEvent::Loaded(Ok(toc)));
                     finish_with_events(events_tx, Ok(format!("{count} entries loaded")));
@@ -2544,6 +4195,8 @@ impl ZargApp {
                     self.archive_passwords = passwords;
                 }
                 UiEvent::OpeningArchive { archive, passwords } => {
+                    self.archive_lock = None;
+                    self.background_extraction = None;
                     self.open_password_dialog = None;
                     self.unlock_commits_dialog = None;
                     self.clear_archive_info();
@@ -2557,6 +4210,7 @@ impl ZargApp {
                     self.latest_archive_empty = None;
                     self.imported_archive_dir = None;
                     self.working_archive_dir = None;
+                    self.overlay_cache = None;
                     self.rewrite_snapshots.clear();
                     self.has_unsaved_changes = false;
                     self.read_archive.clone_from(&archive);
@@ -2565,6 +4219,9 @@ impl ZargApp {
                     self.location = archive;
                     self.selected.clear();
                     self.selection_anchor = None;
+                    self.selection_current = None;
+                    self.selection_range_base = None;
+                    self.selection_press = None;
                     self.archive_password = None;
                     self.archive_passwords = passwords;
                     self.remember_commit_passwords(&BTreeMap::new());
@@ -2574,6 +4231,10 @@ impl ZargApp {
                     self.commit_ids = ids;
                     self.encrypted_commit_ids = encrypted;
                 }
+                UiEvent::BackgroundExtraction(background) => {
+                    self.background_extraction = Some(background);
+                }
+                UiEvent::ArchiveLock(lock) => self.archive_lock = lock,
                 UiEvent::SelectedCommit(id) => {
                     self.selected_commit = if id.is_empty() {
                         self.commit_ids.last().cloned().unwrap_or_default()
@@ -2583,6 +4244,8 @@ impl ZargApp {
                 }
                 UiEvent::ArchivePath { path, password } => {
                     if path != self.read_archive {
+                        self.archive_lock = lock_archive(Path::new(&path));
+                        self.background_extraction = None;
                         self.clear_archive_info();
                         self.archive_passwords.clear();
                         self.encrypted_commit_ids.clear();
@@ -2608,6 +4271,7 @@ impl ZargApp {
                 } => {
                     self.clear_archive_info();
                     if dirty {
+                        self.background_extraction = None;
                         if self.operation.kind == Some(OperationKind::AddToArchive) {
                             self.operation = OperationForm::default();
                         }
@@ -2630,9 +4294,21 @@ impl ZargApp {
                     self.has_unsaved_changes = dirty;
                 }
                 UiEvent::ArchiveModified => {
+                    self.background_extraction = None;
                     self.clear_archive_info();
                     self.has_unsaved_changes = true;
                     self.latest_archive_empty = None;
+                }
+                UiEvent::ExpandDropFolder(folder) => {
+                    if self.archive_view == ArchiveView::Structured {
+                        self.expanded_tree_dirs.insert(folder);
+                        self.structured_rows_dirty = true;
+                    }
+                }
+                UiEvent::CacheEncryption(encryption) => {
+                    if let Some(cache) = &mut self.overlay_cache {
+                        cache.encryption = encryption;
+                    }
                 }
                 UiEvent::RewriteSnapshot(snapshot) => self.rewrite_snapshots.push(snapshot),
                 UiEvent::RewriteUndone {
@@ -2661,12 +4337,14 @@ impl ZargApp {
                     self.latest_archive_empty = Some(self.entries.is_empty());
                 }
                 UiEvent::ArchiveSaved { path } => {
+                    self.background_extraction = None;
                     self.clear_archive_info();
                     self.archive.clone_from(&path);
                     self.read_archive.clone_from(&path);
                     self.location = path;
                     self.imported_archive_dir = None;
                     self.working_archive_dir = None;
+                    self.overlay_cache = None;
                     self.rewrite_snapshots.clear();
                     self.has_unsaved_changes = false;
                     self.remember_commit_passwords(&BTreeMap::new());
@@ -2760,6 +4438,14 @@ impl ZargApp {
             .map(|(path, _)| path.as_str().to_owned())
             .collect();
         self.selected.retain(|path| current_paths.contains(path));
+        self.selection_range_base = None;
+        if self
+            .selection_current
+            .as_ref()
+            .is_some_and(|path| !current_paths.contains(path))
+        {
+            self.selection_current = None;
+        }
         if self
             .selection_anchor
             .as_ref()
@@ -2816,6 +4502,14 @@ impl ZargApp {
             .retain(|entry, _| !is_removed(entry.as_str()));
         self.entry_summary = EntrySummary::from_entries(&self.entries, &self.entry_details);
         self.selected.retain(|entry| !is_removed(entry));
+        self.selection_range_base = None;
+        if self
+            .selection_current
+            .as_ref()
+            .is_some_and(|entry| is_removed(entry))
+        {
+            self.selection_current = None;
+        }
         if self
             .selection_anchor
             .as_ref()
@@ -2837,6 +4531,7 @@ impl ZargApp {
     }
 
     fn rebuild_visible_entry_indices(&mut self) {
+        self.selection_range_base = None;
         let matcher =
             EntryFilter::new(&self.filter_text, self.filter_regex, self.filter_match_case);
         self.filter_invalid = matcher.is_err();
@@ -2943,6 +4638,19 @@ impl ZargApp {
         if !self.can_save_archive_as() {
             return false;
         }
+        let destination = ensure_zar_extension(Path::new(&path));
+        if destination != Path::new(&path)
+            && destination.exists()
+            && rfd::MessageDialog::new()
+                .set_title("Replace archive?")
+                .set_description(format!("Replace {}?", destination.display()))
+                .set_buttons(rfd::MessageButtons::YesNo)
+                .show()
+                != rfd::MessageDialogResult::Yes
+        {
+            return false;
+        }
+        let path = destination.to_string_lossy().into_owned();
         let parent = Path::new(&path)
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
@@ -2953,6 +4661,11 @@ impl ZargApp {
                 .iter()
                 .chain(self.imported_archive_dir.iter())
                 .map(tempfile::TempDir::path)
+                .chain(
+                    self.overlay_cache
+                        .iter()
+                        .map(|cache| cache.directory.path()),
+                )
                 .chain(
                     self.rewrite_snapshots
                         .iter()
@@ -2967,7 +4680,86 @@ impl ZargApp {
                 return false;
             }
         }
+        if self.has_unsaved_changes
+            && let Some(cache) = &self.overlay_cache
+        {
+            if let Err(error) = cache.verify_base(Path::new(&self.read_archive)) {
+                self.status = error.to_string();
+                return false;
+            }
+            let base = self.read_archive.clone();
+            self.archive_lock = None;
+            let overlay = cache.path();
+            let encryption = cache.encryption.clone();
+            let base_length = cache.base_length;
+            let base_modified = cache.base_modified;
+            let mut remembered = self.archive_passwords.clone();
+            let passwords = password_set(&remembered, self.archive_password.as_deref());
+            let (events_tx, events_rx) = mpsc::channel();
+            let (answer_tx, answer_rx) = mpsc::channel();
+            drop(answer_rx);
+            self.begin_worker(events_rx, answer_tx, "Saving archive");
+            self.report = None;
+            self.warnings.clear();
+            std::thread::spawn(move || {
+                let mut saved = false;
+                let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                    let overlay_path = overlay.to_str().ok_or("Cache path is not valid UTF-8")?;
+                    let staged = operations::info_archive(overlay_path, false)?;
+                    let metadata = std::fs::metadata(&base)?;
+                    if metadata.len() != base_length || metadata.modified()? != base_modified {
+                        return Err("base archive changed since the undo cache was created".into());
+                    }
+                    let id = operations::save_overlay_archive(
+                        Path::new(&base),
+                        &overlay,
+                        Path::new(&path),
+                        EncodingOptions::default(),
+                        &passwords,
+                        encryption
+                            .as_ref()
+                            .map(|(password, aead, scope)| (password.as_bytes(), *aead, *scope)),
+                    )?;
+                    saved = true;
+                    for commit in staged {
+                        remembered.remove(&commit.id);
+                    }
+                    if let Some((password, _, _)) = encryption {
+                        remembered.insert(id, password);
+                    }
+                    let _ = events_tx.send(UiEvent::ArchiveSaved { path: path.clone() });
+                    let _ = events_tx.send(UiEvent::ReplacePasswords(remembered.clone()));
+                    let set = password_set(&remembered, None);
+                    let commits = operations::info_archive(&path, false)
+                        .map_err(|error| format!("Archive saved, but refresh failed: {error}"))?;
+                    let toc =
+                        operations::list_archive_with_details_and_passwords(&path, None, &set)
+                            .map_err(|error| {
+                                format!("Archive saved, but refresh failed: {error}")
+                            })?;
+                    let ids = commits
+                        .iter()
+                        .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                        .collect();
+                    let encrypted = commits
+                        .iter()
+                        .filter(|commit| commit.header_encrypted || commit.data_encrypted)
+                        .map(|commit| format!("{:08x}", u32::from_le_bytes(commit.id)))
+                        .collect();
+                    let _ = events_tx.send(UiEvent::CommitIds { ids, encrypted });
+                    let _ = events_tx.send(UiEvent::SelectedCommit(String::new()));
+                    let _ = events_tx.send(UiEvent::Loaded(Ok(toc)));
+                    Ok(format!("Saved archive {path}"))
+                })()
+                .map_err(|error| error.to_string());
+                let lock_path = if saved { &path } else { &base };
+                let _ = events_tx.send(UiEvent::ArchiveLock(lock_archive(Path::new(lock_path))));
+                finish_with_events(events_tx, result);
+            });
+            return true;
+        }
         let source = self.read_archive.clone();
+        self.archive_lock = None;
         let (events_tx, events_rx) = mpsc::channel();
         let (answer_tx, answer_rx) = mpsc::channel();
         drop(answer_rx);
@@ -2979,6 +4771,8 @@ impl ZargApp {
                 let _ = events_tx.send(UiEvent::ArchiveSaved { path: path.clone() });
                 format!("Saved archive {path}")
             });
+            let lock_path = if result.is_ok() { &path } else { &source };
+            let _ = events_tx.send(UiEvent::ArchiveLock(lock_archive(Path::new(lock_path))));
             finish_with_events(events_tx, result);
         });
         true
@@ -3118,13 +4912,12 @@ impl ZargApp {
                         &self.icons,
                         UiIcon::SelectAll,
                         "Select all",
-                        !self.selected.is_empty() && !self.busy,
+                        !self.visible_entry_indices.is_empty() && !self.busy,
                     )
                     .clicked()
                     {
-                        self.selected
-                            .extend(self.entries.iter().map(|(path, _)| path.clone()));
-                        self.selection_anchor = self.entries.first().map(|(path, _)| path.clone());
+                        self.selected = self.archive_visible_paths().into_iter().collect();
+                        self.selection_range_base = None;
                         ui.close();
                     }
                     if icon_button(
@@ -3136,13 +4929,10 @@ impl ZargApp {
                     )
                     .clicked()
                     {
-                        let visible = self
-                            .visible_entry_indices
-                            .iter()
-                            .map(|index| self.entries[*index].0.clone())
-                            .collect::<Vec<_>>();
+                        let visible = self.archive_visible_paths();
                         self.selected = invert_selection(&self.selected, &visible);
                         self.selection_anchor = None;
+                        self.selection_range_base = None;
                         ui.close();
                     }
                     if icon_button(
@@ -3156,6 +4946,7 @@ impl ZargApp {
                     {
                         self.selected.clear();
                         self.selection_anchor = None;
+                        self.selection_range_base = None;
                         ui.close();
                     }
                 },
@@ -3224,6 +5015,18 @@ impl ZargApp {
                 icon_texture(ui.ctx(), &self.icons, UiIcon::Tools),
                 "Tools",
                 |ui| {
+                    if icon_button(
+                        ui,
+                        &self.icons,
+                        UiIcon::Info,
+                        "Cross-commit references",
+                        !self.busy && !self.archive.is_empty() && !is_imported_archive,
+                    )
+                    .clicked()
+                    {
+                        self.show_archive_info();
+                        ui.close();
+                    }
                     if icon_button(
                         ui,
                         &self.icons,
@@ -3403,40 +5206,51 @@ impl ZargApp {
         self.show_operation_now(kind);
     }
 
-    fn add_dropped_paths(&mut self, paths: Vec<PathBuf>) {
+    fn add_dropped_paths(&mut self, paths: Vec<PathBuf>) -> bool {
+        self.add_dropped_paths_to(paths, None)
+    }
+
+    fn add_dropped_paths_to(&mut self, paths: Vec<PathBuf>, folder: Option<ArchivePath>) -> bool {
         if paths.is_empty() {
-            return;
+            return false;
         }
         if self.busy {
             self.status =
                 "Wait for the current operation to finish before dropping files.".to_owned();
-            return;
+            return false;
         }
         if self.read_archive.is_empty() {
             self.status = "Open an archive before dropping files or folders to add.".to_owned();
-            return;
+            return false;
         }
         if self.imported_archive_dir.is_some() {
             self.status = "Imported archives cannot be modified.".to_owned();
-            return;
+            return false;
         }
         if let Some(path) = paths.iter().find(|path| !path.exists()) {
             self.status = format!("Dropped path does not exist: {}", path.display());
-            return;
+            return false;
         }
         if self.operation.kind.is_some() && self.operation.kind != Some(OperationKind::AddToArchive)
         {
             self.status =
                 "Close the current operation before dropping files or folders.".to_owned();
-            return;
+            return false;
         }
 
         if self.operation.kind != Some(OperationKind::AddToArchive) {
             self.show_operation(OperationKind::AddToArchive);
         }
         if self.operation.kind != Some(OperationKind::AddToArchive) {
-            return;
+            return false;
         }
+        if !self.operation.input_paths.is_empty() && self.operation.input_archive_folder != folder {
+            self.status =
+                "Finish or clear the current Add operation before dropping into another folder."
+                    .to_owned();
+            return false;
+        }
+        self.operation.input_archive_folder = folder;
         for path in paths {
             if !self.operation.input_paths.contains(&path) {
                 self.operation.input_paths.push(path);
@@ -3446,10 +5260,15 @@ impl ZargApp {
         self.operation.input_selection_anchor = None;
         self.status =
             "Choose options and select Add to add the dropped files and folders.".to_owned();
+        true
     }
 
     fn handle_dropped_files(&mut self, context: &egui::Context) {
-        let paths = context.input(|input| {
+        self.handle_dropped_files_at(context, context.input(|input| input.pointer.latest_pos()));
+    }
+
+    fn handle_dropped_files_at(&mut self, context: &egui::Context, position: Option<egui::Pos2>) {
+        let paths: Vec<PathBuf> = context.input(|input| {
             input
                 .raw
                 .dropped_files
@@ -3457,7 +5276,135 @@ impl ZargApp {
                 .map(|file| file.path().to_path_buf())
                 .collect()
         });
-        self.add_dropped_paths(paths);
+        if paths.iter().any(|path| {
+            self.drag_directories
+                .iter()
+                .any(|directory| path.starts_with(directory.path()))
+        }) {
+            return;
+        }
+        let folder = self.archive_folder_at(position);
+        let added = if folder.is_some() {
+            self.add_dropped_paths_to(paths, folder)
+        } else {
+            self.add_dropped_paths(paths)
+        };
+        if added {
+            Self::focus_add_dialog(context);
+        }
+    }
+
+    fn archive_folder_at(&self, position: Option<egui::Pos2>) -> Option<ArchivePath> {
+        let position = position?;
+        if !self
+            .archive_list_rect
+            .is_some_and(|rect| rect.contains(position))
+        {
+            return None;
+        }
+        let (path, _) = self
+            .archive_row_rects
+            .iter()
+            .find(|(_, rect)| rect.contains(position))?;
+        let is_directory = if self.archive_view == ArchiveView::Structured {
+            self.structured_rows_cache
+                .iter()
+                .any(|row| row.path == *path && matches!(row.data, EntryData::Directory))
+        } else {
+            self.entries
+                .iter()
+                .any(|(entry, data)| entry == path && matches!(data, EntryData::Directory))
+        };
+        let folder = if is_directory {
+            path.as_str()
+        } else {
+            path.rsplit_once('/')?.0
+        };
+        ArchivePath::new(folder.to_owned()).ok()
+    }
+
+    fn handle_internal_archive_drag(
+        &mut self,
+        context: &egui::Context,
+        panel: egui::Rect,
+        window: egui::Rect,
+    ) {
+        if std::mem::take(&mut self.pending_drag) {
+            self.internal_drag = true;
+        }
+        if !self.internal_drag {
+            return;
+        }
+        let position = context.input(|input| input.pointer.interact_pos());
+        self.drop_target = self
+            .archive_folder_at(position)
+            .map(|path| path.as_str().to_owned());
+        if !context.input(|input| input.pointer.primary_released()) {
+            if let Some(position) = position.filter(|position| window.contains(*position)) {
+                let texture = icon_texture(context, &self.icons, UiIcon::Application);
+                let rect = egui::Rect::from_min_size(
+                    position + egui::vec2(12.0, 12.0),
+                    egui::vec2(48.0, 48.0),
+                );
+                context
+                    .layer_painter(egui::LayerId::new(
+                        egui::Order::Tooltip,
+                        egui::Id::unique("archive-drag-preview"),
+                    ))
+                    .image(
+                        texture.id(),
+                        rect,
+                        egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+                        egui::Color32::WHITE,
+                    );
+            }
+            return;
+        }
+        self.internal_drag = false;
+        if !position.is_some_and(|position| panel.contains(position)) {
+            return;
+        }
+        let target = self.drop_target.as_deref().unwrap_or("");
+        let paths = self
+            .selected
+            .iter()
+            .filter(|path| {
+                !self.selected.iter().any(|parent| {
+                    path.strip_prefix(parent)
+                        .is_some_and(|suffix| suffix.starts_with('/'))
+                })
+            })
+            .filter_map(|path| {
+                let name = path.rsplit('/').next().unwrap_or(path);
+                let destination = if target.is_empty() {
+                    name.to_owned()
+                } else {
+                    format!("{target}/{name}")
+                };
+                (destination != *path).then(|| {
+                    (
+                        ArchivePath::new(path.clone()),
+                        ArchivePath::new(destination),
+                    )
+                })
+            })
+            .map(|(from, to)| Ok((from?, to?)))
+            .collect::<Result<Vec<_>, zarlib::ArchivePathError>>();
+        match paths {
+            Ok(paths) if !paths.is_empty() => {
+                self.start_cached_move_to(paths, self.drop_target.clone());
+            }
+            Ok(_) => {}
+            Err(error) => self.status = error.to_string(),
+        }
+    }
+
+    fn focus_add_dialog(context: &egui::Context) {
+        let viewport_id = egui::ViewportId::from_hash_of(format!(
+            "operation-dialog:{}",
+            OperationKind::AddToArchive.title()
+        ));
+        context.send_viewport_cmd_to(viewport_id, egui::ViewportCommand::Focus);
     }
 
     fn show_operation_now(&mut self, kind: OperationKind) {
@@ -3481,7 +5428,19 @@ impl ZargApp {
                 &self.read_archive
             };
             match operations::info_archive(path, false) {
-                Ok(commits) => {
+                Ok(mut commits) => {
+                    if self.has_unsaved_changes
+                        && let Some(cache) = &self.overlay_cache
+                    {
+                        let path = cache.path();
+                        match operations::info_archive(&path.to_string_lossy(), false) {
+                            Ok(overlay_commits) => commits.extend(overlay_commits),
+                            Err(error) => {
+                                self.status = format!("Cannot inspect undo cache commits: {error}");
+                                return;
+                            }
+                        }
+                    }
                     if kind == OperationKind::ExtractArchive {
                         operation_commit_ids = Some(
                             commits
@@ -3569,7 +5528,17 @@ impl ZargApp {
             self.operation.to.clone_from(&self.selected_commit);
         }
         if kind == OperationKind::CustomMetadata {
-            match operations::read_custom_metadata(&self.read_archive) {
+            let metadata = if self.has_unsaved_changes
+                && let Some(cache) = &self.overlay_cache
+            {
+                operations::read_custom_metadata_with_overlay(
+                    &self.read_archive,
+                    &cache.path().to_string_lossy(),
+                )
+            } else {
+                operations::read_custom_metadata(&self.read_archive)
+            };
+            match metadata {
                 Ok(items) => {
                     self.operation.meta_items = items
                         .iter()
@@ -3860,91 +5829,116 @@ impl ZargApp {
             .max(item_width);
         let row_height = 104.0;
         let row_count = self.visible_entry_indices.len().div_ceil(column_count);
-
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show_rows(ui, row_height, row_count, |ui, row_range| {
-                for row in row_range {
-                    ui.horizontal(|ui| {
-                        for column in 0..column_count {
-                            let visible_index = row * column_count + column;
-                            if visible_index >= self.visible_entry_indices.len() {
-                                break;
-                            }
-                            let entry_index = self.visible_entry_indices[visible_index];
-                            let (path, data) = self.entries[entry_index].clone();
-                            let icon = match &data {
-                                EntryData::Directory => UiIcon::Folder,
-                                EntryData::File(_) => file_icon(&path),
-                                EntryData::Symlink(_) => UiIcon::Symlink,
-                                EntryData::NamedPipe | EntryData::Device(_) => UiIcon::SpecialData,
-                            };
-                            let (rect, response) = ui.allocate_exact_size(
-                                egui::vec2(cell_width, row_height),
-                                archive_entry_sense(self.drag_supported()),
-                            );
-                            let selected = self.selected.contains(&path);
-                            if selected {
-                                ui.painter()
-                                    .rect_filled(rect, 2.0, ui.visuals().selection.bg_fill);
-                            } else if response.hovered() {
-                                ui.painter().rect_filled(
-                                    rect,
-                                    2.0,
-                                    ui.visuals().widgets.hovered.bg_fill,
-                                );
-                            }
-                            let inner = rect.shrink(4.0);
-                            let layout = egui::Layout::top_down(egui::Align::Center);
-                            ui.scope_builder(
-                                egui::UiBuilder::new().max_rect(inner).layout(layout),
-                                |cell_ui| {
-                                    let texture = icon_texture(context, &self.icons, icon);
-                                    cell_ui.add_space(3.0);
-                                    cell_ui.add(
-                                        egui::Image::new(&texture)
-                                            .fit_to_exact_size(egui::vec2(48.0, 48.0)),
-                                    );
-                                    cell_ui.add_sized(
-                                        [inner.width(), 36.0],
-                                        egui::Label::new(&path)
-                                            .truncate()
-                                            .show_tooltip_when_elided(false),
-                                    );
-                                },
-                            );
-                            let response = response.on_hover_text(match data {
-                                EntryData::Symlink(target) => format!("{path} → {target}"),
-                                _ => path.clone(),
-                            });
-                            #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
-                            if response.drag_started() && selected && !self.busy {
-                                self.pending_drag = true;
-                            }
-                            if response.double_clicked() {
-                                self.pending_open = Some(path.clone());
-                            }
-                            if response.clicked() {
-                                let modifiers = ui.input(|input| input.modifiers);
-                                let visible_paths = self
-                                    .visible_entry_indices
-                                    .iter()
-                                    .map(|index| self.entries[*index].0.clone())
-                                    .collect::<Vec<_>>();
-                                let selection = extended_selection(
-                                    &visible_paths,
-                                    &self.selected,
-                                    &self.selection_anchor,
-                                    &path,
-                                    modifiers,
-                                );
-                                self.selected = selection.selected;
-                                self.selection_anchor = selection.anchor;
-                            }
+        self.archive_list_columns = column_count;
+        self.archive_list_page_rows = (ui.available_height()
+            / (row_height + ui.spacing().item_spacing.y))
+            .floor()
+            .max(1.0) as usize;
+        let mut scroll = egui::ScrollArea::vertical().auto_shrink([false, false]);
+        if let Some(offset) =
+            self.archive_scroll_to_current(row_height, column_count, ui.spacing().item_spacing.y)
+        {
+            scroll = scroll.vertical_scroll_offset(offset);
+        }
+        let output = scroll.show_rows(ui, row_height, row_count, |ui, row_range| {
+            for row in row_range {
+                ui.horizontal(|ui| {
+                    for column in 0..column_count {
+                        let visible_index = row * column_count + column;
+                        if visible_index >= self.visible_entry_indices.len() {
+                            break;
                         }
-                    });
-                }
-            });
+                        let entry_index = self.visible_entry_indices[visible_index];
+                        let (path, data) = self.entries[entry_index].clone();
+                        let icon = match &data {
+                            EntryData::Directory => UiIcon::Folder,
+                            EntryData::File(_) => file_icon(&path),
+                            EntryData::Symlink(_) => UiIcon::Symlink,
+                            EntryData::NamedPipe | EntryData::Device(_) => UiIcon::SpecialData,
+                        };
+                        let (rect, response) = ui.allocate_exact_size(
+                            egui::vec2(cell_width, row_height),
+                            archive_entry_sense(true),
+                        );
+                        self.archive_row_rects
+                            .push((path.clone(), rect.intersect(ui.clip_rect())));
+                        let selected = self.selected.contains(&path);
+                        if selected {
+                            ui.painter()
+                                .rect_filled(rect, 2.0, ui.visuals().selection.bg_fill);
+                        } else if response.hovered() {
+                            ui.painter().rect_filled(
+                                rect,
+                                2.0,
+                                ui.visuals().widgets.hovered.bg_fill,
+                            );
+                        }
+                        paint_archive_current(
+                            ui,
+                            rect,
+                            self.archive_list_focused
+                                && self.selection_current.as_deref() == Some(path.as_str()),
+                        );
+                        let inner = rect.shrink(4.0);
+                        let layout = egui::Layout::top_down(egui::Align::Center);
+                        ui.scope_builder(
+                            egui::UiBuilder::new().max_rect(inner).layout(layout),
+                            |cell_ui| {
+                                let texture = icon_texture(context, &self.icons, icon);
+                                cell_ui.add_space(3.0);
+                                cell_ui.add(
+                                    egui::Image::new(&texture)
+                                        .fit_to_exact_size(egui::vec2(48.0, 48.0)),
+                                );
+                                cell_ui.add_sized(
+                                    [inner.width(), 36.0],
+                                    egui::Label::new(&path)
+                                        .truncate()
+                                        .show_tooltip_when_elided(false),
+                                );
+                            },
+                        );
+                        let response = response.on_hover_text(match &data {
+                            EntryData::Symlink(target) => format!("{path} → {target}"),
+                            _ => path.clone(),
+                        });
+                        if response.is_pointer_button_down_on() || response.clicked() {
+                            let visible_paths = self
+                                .visible_entry_indices
+                                .iter()
+                                .map(|index| self.entries[*index].0.clone())
+                                .collect::<Vec<_>>();
+                            archive_row_selection(
+                                &response,
+                                &path,
+                                &visible_paths,
+                                &mut self.selected,
+                                (&mut self.selection_anchor, &mut self.selection_current),
+                                &mut self.selection_range_base,
+                                &mut self.selection_press,
+                            );
+                        }
+                        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+                        if response.drag_started() && self.selected.contains(&path) && !self.busy {
+                            self.pending_drag = true;
+                        }
+                        if (self.internal_drag || self.pending_drag)
+                            && matches!(data, EntryData::Directory)
+                            && ui.rect_contains_pointer(rect)
+                        {
+                            self.drop_target = Some(path.clone());
+                        }
+                        if response.double_clicked() {
+                            self.pending_open = Some(path.clone());
+                        }
+                    }
+                });
+            }
+        });
+        self.archive_list_rect = Some(output.inner_rect);
+        self.archive_scroll_offset = output.state.unclamped_offset().y;
+        self.archive_viewport_height = output.inner_rect.height();
+        self.archive_max_scroll = (output.content_size.y - output.inner_rect.height()).max(0.0);
     }
 
     fn render_compact_archive_list(&mut self, ui: &mut egui::Ui, context: &egui::Context) {
@@ -3959,114 +5953,135 @@ impl ZargApp {
             .max(min_cell_width);
         let row_height = ui.spacing().interact_size.y.max(24.0);
         let row_count = self.visible_entry_indices.len().div_ceil(column_count);
+        self.archive_list_columns = column_count;
+        self.archive_list_page_rows = (ui.available_height()
+            / (row_height + ui.spacing().item_spacing.y))
+            .floor()
+            .max(1.0) as usize;
         let text_font = egui::TextStyle::Body.resolve(ui.style());
         let list_id = ui.scope_id();
 
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show_rows(ui, row_height, row_count, |ui, row_range| {
-                for row in row_range {
-                    let (_, row_rect) =
-                        ui.allocate_space(egui::vec2(ui.available_width(), row_height));
-                    for column in 0..column_count {
-                        let visible_index = row * column_count + column;
-                        if visible_index >= self.visible_entry_indices.len() {
-                            break;
-                        }
+        let mut scroll = egui::ScrollArea::vertical().auto_shrink([false, false]);
+        if let Some(offset) =
+            self.archive_scroll_to_current(row_height, column_count, ui.spacing().item_spacing.y)
+        {
+            scroll = scroll.vertical_scroll_offset(offset);
+        }
+        let output = scroll.show_rows(ui, row_height, row_count, |ui, row_range| {
+            for row in row_range {
+                let (_, row_rect) = ui.allocate_space(egui::vec2(ui.available_width(), row_height));
+                for column in 0..column_count {
+                    let visible_index = row * column_count + column;
+                    if visible_index >= self.visible_entry_indices.len() {
+                        break;
+                    }
 
-                        let entry_index = self.visible_entry_indices[visible_index];
-                        let (path, data) = &self.entries[entry_index];
-                        let cell_rect = egui::Rect::from_min_size(
-                            egui::pos2(
-                                row_rect.left() + column as f32 * (cell_width + item_gap),
-                                row_rect.top(),
-                            ),
-                            egui::vec2(cell_width, row_height),
-                        );
-                        let response = ui.interact(
-                            cell_rect,
-                            list_id.with(("compact-entry", visible_index)),
-                            archive_entry_sense(self.drag_supported()),
-                        );
-                        let painter = ui.painter().with_clip_rect(cell_rect);
+                    let entry_index = self.visible_entry_indices[visible_index];
+                    let (path, data) = &self.entries[entry_index];
+                    let cell_rect = egui::Rect::from_min_size(
+                        egui::pos2(
+                            row_rect.left() + column as f32 * (cell_width + item_gap),
+                            row_rect.top(),
+                        ),
+                        egui::vec2(cell_width, row_height),
+                    );
+                    self.archive_row_rects
+                        .push((path.clone(), cell_rect.intersect(ui.clip_rect())));
+                    let response = ui.interact(
+                        cell_rect,
+                        list_id.with(("compact-entry", visible_index)),
+                        archive_entry_sense(true),
+                    );
+                    let painter = ui.painter().with_clip_rect(cell_rect);
+                    if self.selected.contains(path) {
+                        painter.rect_filled(cell_rect, 2.0, ui.visuals().selection.bg_fill);
+                    } else if response.hovered() {
+                        painter.rect_filled(cell_rect, 2.0, ui.visuals().widgets.hovered.bg_fill);
+                    }
+                    paint_archive_current(
+                        ui,
+                        cell_rect,
+                        self.archive_list_focused
+                            && self.selection_current.as_deref() == Some(path.as_str()),
+                    );
+
+                    let icon = match data {
+                        EntryData::Directory => UiIcon::Folder,
+                        EntryData::File(_) => file_icon(path),
+                        EntryData::Symlink(_) => UiIcon::Symlink,
+                        EntryData::NamedPipe | EntryData::Device(_) => UiIcon::SpecialData,
+                    };
+                    let texture = icon_texture(context, &self.icons, icon);
+                    let icon_size = 16.0;
+                    let icon_rect = egui::Rect::from_center_size(
+                        egui::pos2(
+                            cell_rect.left() + 4.0 + icon_size / 2.0,
+                            cell_rect.center().y,
+                        ),
+                        egui::vec2(icon_size, icon_size),
+                    );
+                    painter.image(
+                        texture.id(),
+                        icon_rect,
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        egui::Color32::WHITE,
+                    );
+                    painter.text(
+                        egui::pos2(icon_rect.right() + 6.0, cell_rect.center().y),
+                        egui::Align2::LEFT_CENTER,
+                        path,
+                        text_font.clone(),
                         if self.selected.contains(path) {
-                            painter.rect_filled(cell_rect, 2.0, ui.visuals().selection.bg_fill);
-                        } else if response.hovered() {
-                            painter.rect_filled(
-                                cell_rect,
-                                2.0,
-                                ui.visuals().widgets.hovered.bg_fill,
-                            );
-                        }
+                            ui.visuals().selection.stroke.color
+                        } else {
+                            ui.visuals().text_color()
+                        },
+                    );
 
-                        let icon = match data {
-                            EntryData::Directory => UiIcon::Folder,
-                            EntryData::File(_) => file_icon(path),
-                            EntryData::Symlink(_) => UiIcon::Symlink,
-                            EntryData::NamedPipe | EntryData::Device(_) => UiIcon::SpecialData,
-                        };
-                        let texture = icon_texture(context, &self.icons, icon);
-                        let icon_size = 16.0;
-                        let icon_rect = egui::Rect::from_center_size(
-                            egui::pos2(
-                                cell_rect.left() + 4.0 + icon_size / 2.0,
-                                cell_rect.center().y,
-                            ),
-                            egui::vec2(icon_size, icon_size),
-                        );
-                        painter.image(
-                            texture.id(),
-                            icon_rect,
-                            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                            egui::Color32::WHITE,
-                        );
-                        painter.text(
-                            egui::pos2(icon_rect.right() + 6.0, cell_rect.center().y),
-                            egui::Align2::LEFT_CENTER,
+                    let hover_text = match data {
+                        EntryData::Symlink(target) => format!("{path} → {target}"),
+                        _ => path.clone(),
+                    };
+                    let response = response.on_hover_text(hover_text);
+                    if response.is_pointer_button_down_on() || response.clicked() {
+                        let visible_paths = self
+                            .visible_entry_indices
+                            .iter()
+                            .map(|index| self.entries[*index].0.clone())
+                            .collect::<Vec<_>>();
+                        archive_row_selection(
+                            &response,
                             path,
-                            text_font.clone(),
-                            if self.selected.contains(path) {
-                                ui.visuals().selection.stroke.color
-                            } else {
-                                ui.visuals().text_color()
-                            },
+                            &visible_paths,
+                            &mut self.selected,
+                            (&mut self.selection_anchor, &mut self.selection_current),
+                            &mut self.selection_range_base,
+                            &mut self.selection_press,
                         );
-
-                        let hover_text = match data {
-                            EntryData::Symlink(target) => format!("{path} → {target}"),
-                            _ => path.clone(),
-                        };
-                        let response = response.on_hover_text(hover_text);
-                        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
-                        if response.drag_started() && self.selected.contains(path) && !self.busy {
-                            self.pending_drag = true;
-                        }
-                        if response.double_clicked() {
-                            self.pending_open = Some(path.clone());
-                        }
-                        if response.clicked() {
-                            let modifiers = ui.input(|input| input.modifiers);
-                            let visible_paths = self
-                                .visible_entry_indices
-                                .iter()
-                                .map(|index| self.entries[*index].0.clone())
-                                .collect::<Vec<_>>();
-                            let selection = extended_selection(
-                                &visible_paths,
-                                &self.selected,
-                                &self.selection_anchor,
-                                path,
-                                modifiers,
-                            );
-                            self.selected = selection.selected;
-                            self.selection_anchor = selection.anchor;
-                        }
+                    }
+                    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+                    if response.drag_started() && self.selected.contains(path) && !self.busy {
+                        self.pending_drag = true;
+                    }
+                    if (self.internal_drag || self.pending_drag)
+                        && matches!(data, EntryData::Directory)
+                        && response.contains_pointer()
+                    {
+                        self.drop_target = Some(path.clone());
+                    }
+                    if response.double_clicked() {
+                        self.pending_open = Some(path.clone());
                     }
                 }
-            });
+            }
+        });
+        self.archive_list_rect = Some(output.inner_rect);
+        self.archive_scroll_offset = output.state.unclamped_offset().y;
+        self.archive_viewport_height = output.inner_rect.height();
+        self.archive_max_scroll = (output.content_size.y - output.inner_rect.height()).max(0.0);
     }
 
-    fn render_structured_archive_list(&mut self, ui: &mut egui::Ui) {
+    fn refresh_structured_rows(&mut self) {
         if self.structured_rows_dirty {
             self.structured_rows_cache = structured_rows(
                 &self.entries,
@@ -4079,6 +6094,10 @@ impl ZargApp {
             );
             self.structured_rows_dirty = false;
         }
+    }
+
+    fn render_structured_archive_list(&mut self, ui: &mut egui::Ui) {
+        self.refresh_structured_rows();
         let viewport_width = ui.available_width();
         let mut labels = vec!["Name", "Size"];
         let mut defaults = vec![390.0, 120.0];
@@ -4102,6 +6121,11 @@ impl ZargApp {
         let content_width = widths.iter().sum::<f32>().max(viewport_width);
         let header_height = ui.spacing().interact_size.y;
         let row_height = header_height.max(28.0);
+        self.archive_list_columns = 1;
+        self.archive_list_page_rows = (ui.available_height()
+            / (row_height + ui.spacing().item_spacing.y))
+            .floor()
+            .max(1.0) as usize;
         let font = egui::TextStyle::Body.resolve(ui.style());
         let text_color = ui.visuals().text_color();
         let list_id = ui.scope_id();
@@ -4153,191 +6177,219 @@ impl ZargApp {
         let owner_width = width_of("Owner");
         let permissions_width = width_of("Permissions");
         ui.separator();
-        let drag_supported = self.drag_supported();
-        let rows = &self.structured_rows_cache;
-        let row_output = egui::ScrollArea::both()
+        let drag_supported = true;
+        let mut scroll = egui::ScrollArea::both()
             .id_salt("structured-rows-scroll")
-            .auto_shrink([false, false])
-            .show_rows(ui, row_height, rows.len(), |ui, row_range| {
-                for row_index in row_range {
-                    let row = rows[row_index].clone();
-                    let (_, row_rect) = ui.allocate_space(egui::vec2(content_width, row_height));
-                    let response = ui.interact(
-                        row_rect,
-                        list_id.with(("structured-entry", row_index)),
-                        archive_entry_sense(drag_supported),
-                    );
-                    let painter = ui.painter().with_clip_rect(row_rect);
-                    if self.selected.contains(&row.path) {
-                        painter.rect_filled(row_rect, 0.0, ui.visuals().selection.bg_fill);
-                    } else if response.hovered() {
-                        painter.rect_filled(row_rect, 0.0, ui.visuals().widgets.hovered.bg_fill);
-                    }
+            .auto_shrink([false, false]);
+        if let Some(offset) =
+            self.archive_scroll_to_current(row_height, 1, ui.spacing().item_spacing.y)
+        {
+            scroll = scroll.vertical_scroll_offset(offset);
+        }
+        let rows = &self.structured_rows_cache;
+        let row_output = scroll.show_rows(ui, row_height, rows.len(), |ui, row_range| {
+            for row_index in row_range {
+                let row = rows[row_index].clone();
+                let (_, row_rect) = ui.allocate_space(egui::vec2(content_width, row_height));
+                self.archive_row_rects
+                    .push((row.path.clone(), row_rect.intersect(ui.clip_rect())));
+                let response = ui.interact(
+                    row_rect,
+                    list_id.with(("structured-entry", row_index)),
+                    archive_entry_sense(drag_supported),
+                );
+                let painter = ui.painter().with_clip_rect(row_rect);
+                if self.selected.contains(&row.path) {
+                    painter.rect_filled(row_rect, 0.0, ui.visuals().selection.bg_fill);
+                } else if response.hovered() {
+                    painter.rect_filled(row_rect, 0.0, ui.visuals().widgets.hovered.bg_fill);
+                }
+                paint_archive_current(
+                    ui,
+                    row_rect,
+                    self.archive_list_focused
+                        && self.selection_current.as_deref() == Some(row.path.as_str()),
+                );
 
-                    let depth_width = row.depth as f32 * 20.0;
-                    let disclosure_rect = egui::Rect::from_min_size(
-                        egui::pos2(row_rect.left() + depth_width, row_rect.top()),
-                        egui::vec2(18.0, row_height),
-                    );
-                    if row.has_children {
-                        let center = disclosure_rect.center();
-                        let points = if row.expanded {
-                            vec![
-                                egui::pos2(center.x - 4.0, center.y - 2.0),
-                                egui::pos2(center.x + 4.0, center.y - 2.0),
-                                egui::pos2(center.x, center.y + 3.0),
-                            ]
-                        } else {
-                            vec![
-                                egui::pos2(center.x - 2.0, center.y - 4.0),
-                                egui::pos2(center.x - 2.0, center.y + 4.0),
-                                egui::pos2(center.x + 3.0, center.y),
-                            ]
-                        };
-                        painter.add(egui::Shape::convex_polygon(
-                            points,
-                            text_color,
-                            egui::Stroke::NONE,
-                        ));
-                    }
-
-                    let icon = match row.data {
-                        EntryData::Directory => UiIcon::Folder,
-                        EntryData::File(_) => file_icon(&row.path),
-                        EntryData::Symlink(_) => UiIcon::Symlink,
-                        EntryData::NamedPipe | EntryData::Device(_) => UiIcon::SpecialData,
+                let depth_width = row.depth as f32 * 20.0;
+                let disclosure_rect = egui::Rect::from_min_size(
+                    egui::pos2(row_rect.left() + depth_width, row_rect.top()),
+                    egui::vec2(18.0, row_height),
+                );
+                if row.has_children {
+                    let center = disclosure_rect.center();
+                    let points = if row.expanded {
+                        vec![
+                            egui::pos2(center.x - 4.0, center.y - 2.0),
+                            egui::pos2(center.x + 4.0, center.y - 2.0),
+                            egui::pos2(center.x, center.y + 3.0),
+                        ]
+                    } else {
+                        vec![
+                            egui::pos2(center.x - 2.0, center.y - 4.0),
+                            egui::pos2(center.x - 2.0, center.y + 4.0),
+                            egui::pos2(center.x + 3.0, center.y),
+                        ]
                     };
-                    let texture = icon_texture(ui.ctx(), &self.icons, icon);
-                    let icon_size = 22.0;
-                    let icon_rect = egui::Rect::from_center_size(
-                        egui::pos2(
-                            disclosure_rect.right() + 2.0 + icon_size / 2.0,
-                            row_rect.center().y,
-                        ),
-                        egui::vec2(icon_size, icon_size),
-                    );
-                    painter.image(
-                        texture.id(),
-                        icon_rect,
-                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                        egui::Color32::WHITE,
-                    );
-                    let name_rect = egui::Rect::from_min_max(
-                        egui::pos2(icon_rect.right() + 6.0, row_rect.top()),
-                        egui::pos2(row_rect.left() + name_width, row_rect.bottom()),
-                    );
-                    ui.painter().with_clip_rect(name_rect).text(
-                        egui::pos2(name_rect.left(), row_rect.center().y),
-                        egui::Align2::LEFT_CENTER,
-                        row.path.rsplit('/').next().unwrap_or(&row.path),
-                        font.clone(),
-                        if self.selected.contains(&row.path) {
-                            ui.visuals().selection.stroke.color
-                        } else {
-                            text_color
-                        },
-                    );
-
-                    let size = match row.data {
-                        EntryData::Directory => {
-                            let unit = if row.child_count == 1 {
-                                "item"
-                            } else {
-                                "items"
-                            };
-                            format!("{} {unit}", row.child_count)
-                        }
-                        EntryData::File(size) => display_size(size),
-                        _ => "—".to_owned(),
-                    };
-                    painter.text(
-                        egui::pos2(row_rect.left() + name_width + 8.0, row_rect.center().y),
-                        egui::Align2::LEFT_CENTER,
-                        size,
-                        font.clone(),
+                    painter.add(egui::Shape::convex_polygon(
+                        points,
                         text_color,
-                    );
-                    let mut column_left = row_rect.left() + name_width + size_width;
-                    for (width, text) in [
-                        (
-                            modified_width,
-                            (modified_width > 0.0)
-                                .then(|| format_modified(self.entry_details.get(&row.path))),
-                        ),
-                        (
-                            created_width,
-                            (created_width > 0.0)
-                                .then(|| format_created(self.entry_details.get(&row.path))),
-                        ),
-                        (
-                            accessed_width,
-                            (accessed_width > 0.0)
-                                .then(|| format_accessed(self.entry_details.get(&row.path))),
-                        ),
-                        (
-                            owner_width,
-                            (owner_width > 0.0)
-                                .then(|| format_owner(self.entry_details.get(&row.path))),
-                        ),
-                        (
-                            permissions_width,
-                            (permissions_width > 0.0)
-                                .then(|| format_permissions(self.entry_details.get(&row.path))),
-                        ),
-                    ] {
-                        if let Some(text) = text {
-                            painter.text(
-                                egui::pos2(column_left + 8.0, row_rect.center().y),
-                                egui::Align2::LEFT_CENTER,
-                                text,
-                                font.clone(),
-                                text_color,
-                            );
-                        }
-                        column_left += width;
-                    }
+                        egui::Stroke::NONE,
+                    ));
+                }
 
-                    let response = response.on_hover_text(&row.path);
-                    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
-                    if response.drag_started() && self.selected.contains(&row.path) && !self.busy {
-                        self.pending_drag = true;
-                    }
-                    if response.double_clicked() && !row.has_children {
-                        self.pending_open = Some(row.path.clone());
-                    }
-                    if response.clicked() {
-                        let clicked_path = row.path.clone();
-                        let toggle = row.has_children
-                            && response
-                                .interact_pointer_pos()
-                                .is_some_and(|position| disclosure_rect.contains(position));
-                        if toggle {
-                            if row.expanded {
-                                self.expanded_tree_dirs.remove(&clicked_path);
-                            } else {
-                                self.expanded_tree_dirs.insert(clicked_path);
-                            }
-                            self.structured_rows_dirty = true;
+                let icon = match row.data {
+                    EntryData::Directory => UiIcon::Folder,
+                    EntryData::File(_) => file_icon(&row.path),
+                    EntryData::Symlink(_) => UiIcon::Symlink,
+                    EntryData::NamedPipe | EntryData::Device(_) => UiIcon::SpecialData,
+                };
+                let texture = icon_texture(ui.ctx(), &self.icons, icon);
+                let icon_size = 22.0;
+                let icon_rect = egui::Rect::from_center_size(
+                    egui::pos2(
+                        disclosure_rect.right() + 2.0 + icon_size / 2.0,
+                        row_rect.center().y,
+                    ),
+                    egui::vec2(icon_size, icon_size),
+                );
+                painter.image(
+                    texture.id(),
+                    icon_rect,
+                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                    egui::Color32::WHITE,
+                );
+                let name_rect = egui::Rect::from_min_max(
+                    egui::pos2(icon_rect.right() + 6.0, row_rect.top()),
+                    egui::pos2(row_rect.left() + name_width, row_rect.bottom()),
+                );
+                ui.painter().with_clip_rect(name_rect).text(
+                    egui::pos2(name_rect.left(), row_rect.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    row.path.rsplit('/').next().unwrap_or(&row.path),
+                    font.clone(),
+                    if self.selected.contains(&row.path) {
+                        ui.visuals().selection.stroke.color
+                    } else {
+                        text_color
+                    },
+                );
+
+                let size = match row.data {
+                    EntryData::Directory => {
+                        let unit = if row.child_count == 1 {
+                            "item"
                         } else {
-                            let visible_paths = rows
-                                .iter()
-                                .map(|visible_row| visible_row.path.clone())
-                                .collect::<Vec<_>>();
-                            let modifiers = ui.input(|input| input.modifiers);
-                            let selection = extended_selection(
-                                &visible_paths,
-                                &self.selected,
-                                &self.selection_anchor,
-                                &row.path,
-                                modifiers,
-                            );
-                            self.selected = selection.selected;
-                            self.selection_anchor = selection.anchor;
+                            "items"
+                        };
+                        format!("{} {unit}", row.child_count)
+                    }
+                    EntryData::File(size) => display_size(size),
+                    _ => "—".to_owned(),
+                };
+                painter.text(
+                    egui::pos2(row_rect.left() + name_width + 8.0, row_rect.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    size,
+                    font.clone(),
+                    text_color,
+                );
+                let mut column_left = row_rect.left() + name_width + size_width;
+                for (width, text) in [
+                    (
+                        modified_width,
+                        (modified_width > 0.0)
+                            .then(|| format_modified(self.entry_details.get(&row.path))),
+                    ),
+                    (
+                        created_width,
+                        (created_width > 0.0)
+                            .then(|| format_created(self.entry_details.get(&row.path))),
+                    ),
+                    (
+                        accessed_width,
+                        (accessed_width > 0.0)
+                            .then(|| format_accessed(self.entry_details.get(&row.path))),
+                    ),
+                    (
+                        owner_width,
+                        (owner_width > 0.0)
+                            .then(|| format_owner(self.entry_details.get(&row.path))),
+                    ),
+                    (
+                        permissions_width,
+                        (permissions_width > 0.0)
+                            .then(|| format_permissions(self.entry_details.get(&row.path))),
+                    ),
+                ] {
+                    if let Some(text) = text {
+                        painter.text(
+                            egui::pos2(column_left + 8.0, row_rect.center().y),
+                            egui::Align2::LEFT_CENTER,
+                            text,
+                            font.clone(),
+                            text_color,
+                        );
+                    }
+                    column_left += width;
+                }
+
+                let response = response.on_hover_text(&row.path);
+                let on_disclosure = row.has_children
+                    && response
+                        .interact_pointer_pos()
+                        .is_some_and(|position| disclosure_rect.contains(position));
+                if !on_disclosure && (response.is_pointer_button_down_on() || response.clicked()) {
+                    let visible_paths = rows
+                        .iter()
+                        .map(|visible_row| visible_row.path.clone())
+                        .collect::<Vec<_>>();
+                    archive_row_selection(
+                        &response,
+                        &row.path,
+                        &visible_paths,
+                        &mut self.selected,
+                        (&mut self.selection_anchor, &mut self.selection_current),
+                        &mut self.selection_range_base,
+                        &mut self.selection_press,
+                    );
+                }
+                #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+                if response.drag_started() && self.selected.contains(&row.path) && !self.busy {
+                    self.pending_drag = true;
+                }
+                if (self.internal_drag || self.pending_drag)
+                    && matches!(row.data, EntryData::Directory)
+                    && response.contains_pointer()
+                {
+                    self.drop_target = Some(row.path.clone());
+                }
+                if response.double_clicked() && !row.has_children {
+                    self.pending_open = Some(row.path.clone());
+                }
+                if response.clicked() {
+                    let clicked_path = row.path.clone();
+                    let toggle = row.has_children
+                        && response
+                            .interact_pointer_pos()
+                            .is_some_and(|position| disclosure_rect.contains(position));
+                    if toggle {
+                        if row.expanded {
+                            self.expanded_tree_dirs.remove(&clicked_path);
+                        } else {
+                            self.expanded_tree_dirs.insert(clicked_path);
                         }
+                        self.structured_rows_dirty = true;
                     }
                 }
-            });
+            }
+        });
         self.structured_horizontal_offset = row_output.state.unclamped_offset().x;
+        self.archive_list_rect = Some(row_output.inner_rect);
+        self.archive_scroll_offset = row_output.state.unclamped_offset().y;
+        self.archive_viewport_height = row_output.inner_rect.height();
+        self.archive_max_scroll =
+            (row_output.content_size.y - row_output.inner_rect.height()).max(0.0);
     }
 }
 
@@ -4484,6 +6536,8 @@ impl ZargApp {
             .clone_from(&settings.default_block_size);
         self.default_compression_level = settings.default_compression_level;
         self.default_encryption_method = settings.default_encryption_method;
+        self.validate_blocks_before_extraction = settings.validate_blocks_before_extraction;
+        self.validate_blocks_on_extraction = settings.validate_blocks_on_extraction;
         self.archive_defaults.clone_from(&settings.archive_defaults);
     }
 
@@ -4555,6 +6609,8 @@ impl ZargApp {
             default_block_size: self.default_block_size.clone(),
             default_compression_level: self.default_compression_level,
             default_encryption_method: self.default_encryption_method,
+            validate_blocks_before_extraction: self.validate_blocks_before_extraction,
+            validate_blocks_on_extraction: self.validate_blocks_on_extraction,
             archive_defaults: self.archive_defaults.clone(),
             recent_archives: self.recent_archives.clone(),
             bookmarks: self.file_dialog.bookmarks().to_vec(),
@@ -4633,6 +6689,9 @@ impl eframe::App for ZargApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let context = ui.ctx().clone();
+        let window_rect = ui.max_rect();
+        self.drop_target = None;
+        self.handle_archive_shortcuts(&context);
         #[cfg(target_os = "linux")]
         {
             if !self.wayland_drag_initialized {
@@ -4646,7 +6705,7 @@ impl eframe::App for ZargApp {
             }
             self.poll_wayland_drag(&context);
         }
-        let drag_supported = self.drag_supported();
+        let drag_supported = true;
         if context.input(|input| input.viewport().close_requested()) {
             self.request_quit(&context);
         }
@@ -4655,7 +6714,13 @@ impl eframe::App for ZargApp {
         self.poll_default_password();
         self.poll_recent_archive_check(&context);
         self.poll_worker(&context);
-        self.handle_dropped_files(&context);
+        if context.input(|input| input.raw.dropped_files.is_empty()) {
+            self.handle_dropped_files(&context);
+        } else {
+            let position = native_drop_position(_frame, &context)
+                .or_else(|| context.input(|input| input.pointer.latest_pos()));
+            self.handle_dropped_files_at(&context, position);
+        }
         egui::Panel::top("menus").show(ui, |ui| self.render_menus(ui));
         egui::Panel::top("toolbar").show(ui, |ui| {
             self.render_toolbar(ui);
@@ -4840,7 +6905,8 @@ impl eframe::App for ZargApp {
         });
         // Fusion draws item views on the Base color rather than the window color.
         let list_frame = egui::Frame::central_panel(ui.style()).fill(ui.visuals().extreme_bg_color);
-        egui::CentralPanel::default()
+        self.archive_row_rects.clear();
+        let archive_panel = egui::CentralPanel::default()
             .frame(list_frame)
             .show(ui, |ui| {
                 if !self.has_current_archive() {
@@ -4877,6 +6943,11 @@ impl eframe::App for ZargApp {
                     .map(|(label, _, sort)| (*label, *sort))
                     .collect::<Vec<_>>();
                 let row_height = ui.spacing().interact_size.y;
+                self.archive_list_columns = 1;
+                self.archive_list_page_rows = (ui.available_height()
+                    / (row_height + ui.spacing().item_spacing.y))
+                    .floor()
+                    .max(1.0) as usize;
                 let clicked_sort = egui::ScrollArea::horizontal()
                     .id_salt("details-header-scroll")
                     .auto_shrink([false, true])
@@ -4906,136 +6977,220 @@ impl eframe::App for ZargApp {
                     self.apply_sort_choice(sort_by);
                 }
                 ui.separator();
-                let row_output = egui::ScrollArea::both()
+                let mut scroll = egui::ScrollArea::both()
                     .id_salt("details-rows-scroll")
-                    .auto_shrink([false, false])
-                    .show_rows(
-                        ui,
-                        row_height,
-                        self.visible_entry_indices.len(),
-                        |ui, row_range| {
-                            ui.set_min_width(content_width);
-                            for row in row_range {
-                                let (path, data) = &self.entries[self.visible_entry_indices[row]];
-                                let selected = self.selected.contains(path);
-                                let row_rect = egui::Rect::from_min_size(
-                                    ui.cursor().min,
-                                    egui::vec2(content_width, row_height),
+                    .auto_shrink([false, false]);
+                if let Some(offset) =
+                    self.archive_scroll_to_current(row_height, 1, ui.spacing().item_spacing.y)
+                {
+                    scroll = scroll.vertical_scroll_offset(offset);
+                }
+                let row_output = scroll.show_rows(
+                    ui,
+                    row_height,
+                    self.visible_entry_indices.len(),
+                    |ui, row_range| {
+                        ui.set_min_width(content_width);
+                        for row in row_range {
+                            let (path, data) = &self.entries[self.visible_entry_indices[row]];
+                            let selected = self.selected.contains(path);
+                            let row_rect = egui::Rect::from_min_size(
+                                ui.cursor().min,
+                                egui::vec2(content_width.max(ui.available_width()), row_height),
+                            );
+                            self.archive_row_rects
+                                .push((path.clone(), row_rect.intersect(ui.clip_rect())));
+                            let row_response = ui
+                                .interact(
+                                    row_rect,
+                                    ui.scope_id().with(("details-entry", row)),
+                                    archive_entry_sense(drag_supported),
+                                )
+                                .on_hover_text(path);
+                            if row_response.is_pointer_button_down_on() || row_response.clicked() {
+                                let visible_paths = self
+                                    .visible_entry_indices
+                                    .iter()
+                                    .map(|index| self.entries[*index].0.clone())
+                                    .collect::<Vec<_>>();
+                                archive_row_selection(
+                                    &row_response,
+                                    path,
+                                    &visible_paths,
+                                    &mut self.selected,
+                                    (&mut self.selection_anchor, &mut self.selection_current),
+                                    &mut self.selection_range_base,
+                                    &mut self.selection_press,
                                 );
-                                if selected {
-                                    ui.painter().rect_filled(
-                                        row_rect,
-                                        0.0,
-                                        ui.visuals().selection.bg_fill,
-                                    );
+                            }
+                            #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+                            if row_response.drag_started()
+                                && self.selected.contains(path)
+                                && !self.busy
+                            {
+                                self.pending_drag = true;
+                            }
+                            if row_response.double_clicked() {
+                                self.pending_open = Some(path.clone());
+                            }
+                            if selected {
+                                ui.painter().rect_filled(
+                                    row_rect,
+                                    0.0,
+                                    ui.visuals().selection.bg_fill,
+                                );
+                            }
+                            paint_archive_current(
+                                ui,
+                                row_rect,
+                                self.archive_list_focused
+                                    && self.selection_current.as_deref() == Some(path.as_str()),
+                            );
+                            ui.horizontal(|ui| {
+                                ui.set_min_width(content_width);
+                                let icon = match data {
+                                    EntryData::Directory => UiIcon::Folder,
+                                    EntryData::File(_) => file_icon(path),
+                                    EntryData::Symlink(_) => UiIcon::Symlink,
+                                    EntryData::NamedPipe | EntryData::Device(_) => {
+                                        UiIcon::SpecialData
+                                    }
+                                };
+                                let hover_text = match data {
+                                    EntryData::Symlink(target) => {
+                                        format!("{path} → {target}")
+                                    }
+                                    _ => path.clone(),
+                                };
+                                let texture = icon_texture(&context, &self.icons, icon);
+                                left_aligned_cell(
+                                    ui,
+                                    24.0,
+                                    row_height,
+                                    egui::Image::new(&texture)
+                                        .fit_to_exact_size(egui::vec2(20.0, 20.0)),
+                                );
+                                left_aligned_cell(
+                                    ui,
+                                    columns[0] - 28.0,
+                                    row_height,
+                                    egui::Label::new(egui::RichText::new(path).color(
+                                        if selected {
+                                            ui.visuals().selection.stroke.color
+                                        } else {
+                                            ui.visuals().text_color()
+                                        },
+                                    ))
+                                    .halign(egui::Align::Min)
+                                    .truncate()
+                                    // The hover text below already shows the full path.
+                                    .show_tooltip_when_elided(false),
+                                )
+                                .on_hover_text(hover_text);
+                                if (self.internal_drag || self.pending_drag)
+                                    && matches!(data, EntryData::Directory)
+                                    && context.input(|input| {
+                                        input
+                                            .pointer
+                                            .interact_pos()
+                                            .is_some_and(|position| row_rect.contains(position))
+                                    })
+                                {
+                                    self.drop_target = Some(path.clone());
                                 }
-                                ui.horizontal(|ui| {
-                                    ui.set_min_width(content_width);
-                                    let icon = match data {
-                                        EntryData::Directory => UiIcon::Folder,
-                                        EntryData::File(_) => file_icon(path),
-                                        EntryData::Symlink(_) => UiIcon::Symlink,
-                                        EntryData::NamedPipe | EntryData::Device(_) => {
-                                            UiIcon::SpecialData
-                                        }
-                                    };
-                                    let hover_text = match data {
-                                        EntryData::Symlink(target) => {
-                                            format!("{path} → {target}")
-                                        }
-                                        _ => path.clone(),
-                                    };
-                                    let texture = icon_texture(&context, &self.icons, icon);
+                                let values = details_row_values(
+                                    data,
+                                    self.entry_details.get(path),
+                                    times,
+                                    has_owner,
+                                    has_permissions,
+                                );
+                                for (value, width) in
+                                    values.into_iter().zip(columns[1..].iter().copied())
+                                {
                                     left_aligned_cell(
                                         ui,
-                                        24.0,
+                                        width,
                                         row_height,
-                                        egui::Image::new(&texture)
-                                            .fit_to_exact_size(egui::vec2(20.0, 20.0)),
+                                        egui::Label::new(value).halign(egui::Align::Min).truncate(),
                                     );
-                                    let name_response = left_aligned_cell(
-                                        ui,
-                                        columns[0] - 28.0,
-                                        row_height,
-                                        egui::Label::new(egui::RichText::new(path).color(
-                                            if selected {
-                                                ui.visuals().selection.stroke.color
-                                            } else {
-                                                ui.visuals().text_color()
-                                            },
-                                        ))
-                                        .halign(egui::Align::Min)
-                                        .truncate()
-                                        // The hover text below already shows the full path.
-                                        .show_tooltip_when_elided(false)
-                                        .sense(archive_entry_sense(drag_supported)),
-                                    )
-                                    .on_hover_text(hover_text);
-                                    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
-                                    if name_response.drag_started() && selected && !self.busy {
-                                        self.pending_drag = true;
-                                    }
-                                    if name_response.double_clicked() {
-                                        self.pending_open = Some(path.clone());
-                                    }
-                                    if name_response.clicked() {
-                                        let modifiers = ui.input(|input| input.modifiers);
-                                        let visible_paths = self
-                                            .visible_entry_indices
-                                            .iter()
-                                            .map(|index| self.entries[*index].0.clone())
-                                            .collect::<Vec<_>>();
-                                        let selection = extended_selection(
-                                            &visible_paths,
-                                            &self.selected,
-                                            &self.selection_anchor,
-                                            path,
-                                            modifiers,
-                                        );
-                                        self.selected = selection.selected;
-                                        self.selection_anchor = selection.anchor;
-                                    }
-                                    let values = details_row_values(
-                                        data,
-                                        self.entry_details.get(path),
-                                        times,
-                                        has_owner,
-                                        has_permissions,
-                                    );
-                                    for (value, width) in
-                                        values.into_iter().zip(columns[1..].iter().copied())
-                                    {
-                                        left_aligned_cell(
-                                            ui,
-                                            width,
-                                            row_height,
-                                            egui::Label::new(value)
-                                                .halign(egui::Align::Min)
-                                                .truncate(),
-                                        );
-                                    }
-                                });
-                            }
-                        },
-                    );
+                                }
+                            });
+                        }
+                    },
+                );
                 self.details_horizontal_offset = row_output.state.unclamped_offset().x;
+                self.archive_list_rect = Some(row_output.inner_rect);
+                self.archive_scroll_offset = row_output.state.unclamped_offset().y;
+                self.archive_viewport_height = row_output.inner_rect.height();
+                self.archive_max_scroll =
+                    (row_output.content_size.y - row_output.inner_rect.height()).max(0.0);
             });
 
+        self.handle_archive_list_pointer(&context, ui.visuals().selection.bg_fill);
         if let Some(path) = self.pending_open.take() {
             self.open_entry_externally(path);
         }
 
         #[cfg(any(windows, target_os = "macos"))]
-        if std::mem::take(&mut self.pending_drag) {
-            self.start_selected_drag(_frame);
+        self.poll_native_drag(&context, _frame);
+        self.handle_internal_archive_drag(&context, archive_panel.response.rect, window_rect);
+        let drag_outside = self.internal_drag
+            && self.drag_supported()
+            && context.input(|input| {
+                input
+                    .pointer
+                    .latest_pos()
+                    .is_none_or(|position| !window_rect.contains(position))
+            });
+        #[cfg(any(windows, target_os = "macos"))]
+        if drag_outside {
+            self.internal_drag = false;
+            self.start_selected_drag();
+            if self.native_drag_preparation.is_some() {
+                context.request_repaint_after(Duration::from_millis(16));
+            }
         }
         #[cfg(target_os = "linux")]
-        if std::mem::take(&mut self.pending_drag) {
+        if drag_outside {
+            self.internal_drag = false;
             self.prepare_wayland_drag();
             context.request_repaint();
         }
 
         self.poll_archive_info(&context);
+        if let Some((original, mut name)) = self.rename_dialog.take() {
+            let mut accept = false;
+            let mut cancel = false;
+            egui::Window::new("Rename")
+                .collapsible(false)
+                .resizable(false)
+                .show(&context, |ui| {
+                    let response = ui.text_edit_singleline(&mut name);
+                    if !response.has_focus() {
+                        response.request_focus();
+                    }
+                    accept = ui.input(|input| input.key_pressed(egui::Key::Enter));
+                    cancel = ui.input(|input| input.key_pressed(egui::Key::Escape));
+                    ui.horizontal(|ui| {
+                        accept |= ui.button("Rename").clicked();
+                        cancel |= ui.button("Cancel").clicked();
+                    });
+                });
+            if accept {
+                let destination = original
+                    .rsplit_once('/')
+                    .map_or_else(|| name.clone(), |(parent, _)| format!("{parent}/{name}"));
+                match (ArchivePath::new(original), ArchivePath::new(destination)) {
+                    (Ok(from), Ok(to)) if !name.contains('/') => {
+                        self.start_cached_move(vec![(from, to)])
+                    }
+                    _ => self.status = "Enter a valid file name.".into(),
+                }
+            } else if !cancel {
+                self.rename_dialog = Some((original, name));
+            }
+        }
         self.render_operation_dialog(&context);
         self.render_archive_info(&context);
         self.render_open_password_dialog(&context);
@@ -5213,6 +7368,8 @@ fn build_job(
     form: OperationForm,
     events: Sender<UiEvent>,
     progress: UiProgress,
+    background: Option<BackgroundExtraction>,
+    validate_blocks: bool,
 ) -> OperationBuildResult {
     let archive = form.archive.clone();
     let password = form
@@ -5273,6 +7430,7 @@ fn build_job(
             let filters = form.filters()?;
             let passwords = form.unlock_passwords()?;
             let paths = form.input_paths;
+            let folder = form.input_archive_folder;
             let input = AddInputOptions {
                 save_metadata: form.metadata,
                 save_modification_time: form.dates,
@@ -5294,18 +7452,26 @@ fn build_job(
                 let encryption = new_password
                     .as_deref()
                     .map(|password| (password, aead, scope));
-                operations::add_archive_with_encoding_progress_and_filters_and_encryption(
-                    &archive,
-                    &paths,
-                    options,
-                    Some(progress.as_ref()),
-                    input,
-                    &filters,
-                    encryption,
-                    &passwords,
-                )
-                .map(|()| format!("Added selected inputs to {archive}"))
-                .map_err(|error| error.to_string())
+                let result = if let Some(folder) = &folder {
+                    operations::add_archive_in_folder_with_encoding_progress_and_filters_and_encryption(
+                        &archive, &paths, folder, options, Some(progress.as_ref()), input,
+                        &filters, encryption, &passwords,
+                    )
+                } else {
+                    operations::add_archive_with_encoding_progress_and_filters_and_encryption(
+                        &archive,
+                        &paths,
+                        options,
+                        Some(progress.as_ref()),
+                        input,
+                        &filters,
+                        encryption,
+                        &passwords,
+                    )
+                };
+                result
+                    .map(|()| format!("Added selected inputs to {archive}"))
+                    .map_err(|error| error.to_string())
             })
         }
         OperationKind::CustomMetadata => {
@@ -5367,11 +7533,13 @@ fn build_job(
             };
             let ids = ids.to_vec();
             let output = form.remove_commits_output.trim().to_owned();
+            let passwords = password_set(&form.archive_passwords, None);
             Box::new(move || {
-                let result = operations::remove_archive_commits(
+                let result = operations::remove_archive_commits_with_passwords(
                     &archive,
                     &ids,
                     (!output.is_empty()).then_some(output.as_str()),
+                    &passwords,
                 )
                 .map_err(|error| error.to_string())?;
                 let warning = if !result.replay_validated {
@@ -5566,6 +7734,7 @@ fn build_job(
             let restore_symlinks = form.restore_symlinks;
             let restore_devices = form.restore_devices;
             let strip_top_level = form.strip_top_level;
+            let skip_unselected_frame_validation = form.skip_unselected_frame_validation;
             let import_archive = operations::is_supported_import_archive(Path::new(&archive));
             let passwords = if form.password_is_set {
                 PasswordSet::new(password.clone())
@@ -5613,47 +7782,80 @@ fn build_job(
                     restore_devices,
                     strip_top_level,
                 };
-                operations::extract_archive_with_passwords_progress_and_filters(
-                    &archive_to_extract,
-                    &destination,
-                    options,
-                    &passwords,
-                    Some(progress.as_ref()),
-                    &filters,
-                )
-                .map(|plan| {
-                    let summary = format!(
-                        "{} file(s) and {} directory/directories {}",
-                        plan.files.len(),
-                        plan.directories.len(),
-                        if options.dry_run {
-                            "planned"
-                        } else {
-                            "extracted"
+                let prepared = if let Some(background) = background {
+                    progress.message("Waiting for background validation");
+                    match background.wait(Some(progress.as_ref())) {
+                        Ok(prepared) if background.unchanged() => Some(prepared),
+                        Ok(_) => None,
+                        Err(error) if progress.is_cancelled() => return Err(error),
+                        Err(error) => {
+                            progress
+                                .warning(&format!("Background validation unavailable: {error}"));
+                            None
                         }
-                    );
-                    if options.dry_run {
-                        let mut lines: Vec<String> = plan
-                            .directories
-                            .iter()
-                            .take(100)
-                            .map(|path| format!("Create directory {}", path.display()))
-                            .collect();
-                        lines.extend(
-                            plan.files
-                                .iter()
-                                .take(100_usize.saturating_sub(lines.len()))
-                                .map(|(path, _, _)| format!("Extract {}", path.display())),
-                        );
-                        if plan.directories.len() + plan.files.len() > lines.len() {
-                            lines.push("...".to_owned());
-                        }
-                        format!("{summary}\n{}", lines.join("\n"))
-                    } else {
-                        summary
                     }
-                })
-                .map_err(|error| error.to_string())
+                } else {
+                    None
+                };
+                let result = if let Some(prepared) = prepared {
+                    prepared.extract_with_block_validation(
+                        &destination,
+                        ExtractionOptions {
+                            to: prepared.to(),
+                            ..options
+                        },
+                        Some(progress.as_ref()),
+                        &filters,
+                        validate_blocks,
+                    )
+                } else {
+                    operations::extract_archive_with_validation_options(
+                        &archive_to_extract,
+                        &destination,
+                        options,
+                        &passwords,
+                        Some(progress.as_ref()),
+                        &filters,
+                        operations::ExtractionFrameValidation {
+                            skip_unselected: skip_unselected_frame_validation,
+                            validate_on_read: validate_blocks,
+                        },
+                    )
+                };
+                result
+                    .map(|plan| {
+                        let summary = format!(
+                            "{} file(s) and {} directory/directories {}",
+                            plan.files.len(),
+                            plan.directories.len(),
+                            if options.dry_run {
+                                "planned"
+                            } else {
+                                "extracted"
+                            }
+                        );
+                        if options.dry_run {
+                            let mut lines: Vec<String> = plan
+                                .directories
+                                .iter()
+                                .take(100)
+                                .map(|path| format!("Create directory {}", path.display()))
+                                .collect();
+                            lines.extend(
+                                plan.files
+                                    .iter()
+                                    .take(100_usize.saturating_sub(lines.len()))
+                                    .map(|(path, _, _)| format!("Extract {}", path.display())),
+                            );
+                            if plan.directories.len() + plan.files.len() > lines.len() {
+                                lines.push("...".to_owned());
+                            }
+                            format!("{summary}\n{}", lines.join("\n"))
+                        } else {
+                            summary
+                        }
+                    })
+                    .map_err(|error| error.to_string())
             })
         }
     };
@@ -5665,6 +7867,8 @@ fn extract_and_open(
     path: &str,
     passwords: &PasswordSet,
     to: Option<&str>,
+    prepared: Option<&operations::PreparedExtraction>,
+    validate_blocks: bool,
 ) -> Result<String, String> {
     let unique = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -5672,8 +7876,21 @@ fn extract_and_open(
     let mut target = std::env::temp_dir().join(format!("zarg-{}-{unique}", std::process::id()));
     std::fs::create_dir_all(&target).map_err(|error| error.to_string())?;
     target.push(path.rsplit('/').next().unwrap_or(path));
-    operations::extract_single_file_through(archive, path, &target, passwords, to)
+    if let Some(prepared) = prepared {
+        prepared
+            .extract_single_file_with_block_validation(path, &target, validate_blocks)
+            .map_err(|error| error.to_string())?;
+    } else {
+        operations::extract_single_file_through_with_block_validation(
+            archive,
+            path,
+            &target,
+            passwords,
+            to,
+            validate_blocks,
+        )
         .map_err(|error| error.to_string())?;
+    }
     open_with_default_program(&target)?;
     Ok(format!("Opened {path}"))
 }
@@ -5681,8 +7898,8 @@ fn extract_and_open(
 fn open_with_default_program(file: &std::path::Path) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     let mut command = {
-        let mut command = std::process::Command::new("cmd");
-        command.args(["/C", "start", ""]).arg(file);
+        let mut command = std::process::Command::new("explorer.exe");
+        command.arg(file);
         command
     };
     #[cfg(target_os = "macos")]
@@ -6084,6 +8301,95 @@ fn extended_selection<T: Clone + Ord>(
     }
 }
 
+fn select_archive_entry(
+    visible: &[String],
+    selected: &mut BTreeSet<String>,
+    anchor: &mut Option<String>,
+    current: &mut Option<String>,
+    range_base: &mut Option<BTreeSet<String>>,
+    clicked: &str,
+    modifiers: egui::Modifiers,
+) {
+    if modifiers.shift {
+        let start = anchor
+            .as_ref()
+            .and_then(|path| visible.iter().position(|item| item == path))
+            .or_else(|| {
+                current
+                    .as_ref()
+                    .and_then(|path| visible.iter().position(|item| item == path))
+            });
+        if let (Some(start), Some(end)) = (start, visible.iter().position(|item| item == clicked)) {
+            let base = range_base.get_or_insert_with(|| selected.clone());
+            *selected = base.clone();
+            selected.extend(visible[start.min(end)..=start.max(end)].iter().cloned());
+            *anchor = Some(visible[start].clone());
+        } else {
+            selected.insert(clicked.to_owned());
+            *anchor = Some(clicked.to_owned());
+            *range_base = None;
+        }
+    } else {
+        *range_base = None;
+        if modifiers.command || modifiers.ctrl {
+            if !selected.remove(clicked) {
+                selected.insert(clicked.to_owned());
+            }
+        } else {
+            selected.clear();
+            selected.insert(clicked.to_owned());
+        }
+        *anchor = Some(clicked.to_owned());
+    }
+    *current = Some(clicked.to_owned());
+}
+
+fn archive_row_selection(
+    response: &egui::Response,
+    path: &str,
+    visible: &[String],
+    selected: &mut BTreeSet<String>,
+    position: (&mut Option<String>, &mut Option<String>),
+    range_base: &mut Option<BTreeSet<String>>,
+    press: &mut Option<(String, egui::Modifiers, bool)>,
+) {
+    let (anchor, current) = position;
+    if response.is_pointer_button_down_on()
+        && response.ctx.input(|input| input.pointer.primary_pressed())
+    {
+        let modifiers = response.ctx.input(|input| input.modifiers);
+        let deferred = selected.contains(path) && !modifiers.shift;
+        if deferred {
+            *current = Some(path.to_owned());
+        } else {
+            select_archive_entry(
+                visible, selected, anchor, current, range_base, path, modifiers,
+            );
+        }
+        *press = Some((path.to_owned(), modifiers, deferred));
+    }
+    if response.clicked()
+        && let Some((pressed, modifiers, deferred)) = press.take()
+        && pressed == path
+        && deferred
+    {
+        select_archive_entry(
+            visible, selected, anchor, current, range_base, path, modifiers,
+        );
+    }
+}
+
+fn paint_archive_current(ui: &egui::Ui, rect: egui::Rect, current: bool) {
+    if current {
+        ui.painter().rect_stroke(
+            rect.shrink(1.0),
+            0.0,
+            ui.visuals().selection.stroke,
+            egui::StrokeKind::Inside,
+        );
+    }
+}
+
 fn valid_destination_path(value: &str) -> bool {
     let path = PathBuf::from(value.trim());
     if path.as_os_str().is_empty() {
@@ -6246,6 +8552,19 @@ fn truncate_adding_message(message: &str, max_width: f32, measure: impl Fn(&str)
         }
     }
     best
+}
+
+fn ensure_zar_extension(path: &Path) -> PathBuf {
+    if path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("zar"))
+        || path.file_name().is_none()
+    {
+        return path.to_path_buf();
+    }
+    let mut name = path.as_os_str().to_os_string();
+    name.push(".zar");
+    PathBuf::from(name)
 }
 
 fn default_save_as_filename(current_archive: &str, first_entry: Option<&str>) -> Option<String> {

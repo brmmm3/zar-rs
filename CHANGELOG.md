@@ -7,21 +7,19 @@ until a version is released.
 
 ### Added
 
-- Added Maven Central bundle generation for the Java FFM and JNI bindings,
-  including sources, Javadoc, signatures, and checksums for manual upload.
+- Added `CrossCommitReference` and the `cross_commit_references` and
+  `cross_commit_references_with_passwords` APIs to inspect references between
+  commits in an archive.
 
 ### Changed
 
-- Configure Java packages for GitHub Packages deployment and add NuGet package
-  metadata and native-library installation guidance for the C# binding.
+- Validate dependencies between commits before removal, track file origins and
+  source commits in `Toc`, and require passwords for both sides of cross-commit
+  references during archive transformations.
 
 ### Fixed
 
-- Corrected PyPI and TestPyPI release-asset selection to include only
-  `pyzarlib` distributions.
-- Updated the Scoop and Chocolatey packages to expose `zarc`, `zarg`, and
-  `zcopy`. Their v3 packages check Windows AVX2 support before installation;
-  AVX2 alone does not guarantee full x86-64-v3 compatibility.
+- Improve errors for duplicate commit IDs and invalid source commits.
 
 ## 0.13.0 - 2026-11-15
 

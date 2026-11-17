@@ -12,7 +12,8 @@ extern "C" {
  *   create_archive, add_archive, remove_archive, read_custom_metadata,
  *   update_custom_metadata, join_archive, undo_archive,
  *   encrypt_archive_commits, decrypt_archive_commits, check_archive,
- *   info_archive, list_archive, extract_archive, extract_archive_to_memory
+ *   info_archive, cross_commit_references, list_archive, extract_archive,
+ *   extract_archive_to_memory
  *
  * Returns 0 on success and stores an allocated JSON response in response_json.
  * Returns 1 for an operation/request error and stores the message in

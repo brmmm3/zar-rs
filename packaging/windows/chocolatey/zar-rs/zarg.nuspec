@@ -3,16 +3,23 @@
   <metadata>
     <id>zar-rs</id>
     <version>0.13.0</version>
-    <title>zar-rs</title>
+    <title>ZAR Archive Tools</title>
     <authors>Martin Bammer</authors>
     <owners>brmmm3</owners>
     <projectUrl>https://github.com/brmmm3/zar-rs</projectUrl>
+    <projectSourceUrl>https://github.com/brmmm3/zar-rs</projectSourceUrl>
+    <docsUrl>https://github.com/brmmm3/zar-rs#readme</docsUrl>
+    <bugTrackerUrl>https://github.com/brmmm3/zar-rs/issues</bugTrackerUrl>
+    <packageSourceUrl>https://github.com/brmmm3/zar-rs/tree/master/packaging/windows/chocolatey/zar-rs</packageSourceUrl>
+    <iconUrl>https://raw.githubusercontent.com/brmmm3/zar-rs/0.13.0/zarlib-gui/assets/zarg-icon.ico</iconUrl>
     <licenseUrl>https://github.com/brmmm3/zar-rs/blob/master/LICENSE-MIT</licenseUrl>
+    <releaseNotes>https://github.com/brmmm3/zar-rs/releases/tag/0.13.0</releaseNotes>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <summary>Archive tools with compression, deduplication, and commit-based history.</summary>
     <description>ZAR is an archive format and toolkit with compression, deduplication, and
-      commit-based history. It is written in Rust and includes a command-line tool,
-      a desktop GUI, a reusable library, language bindings, and a network copy tool.
-      This package contains binaries for x86_64 and aarch64 architectures.</description>
+commit-based history. It is written in Rust and includes a command-line tool,
+a desktop GUI, a reusable library, language bindings, and a network copy tool.
+This package contains binaries for x86_64 and aarch64.</description>
     <tags>zarg zarc zcopy zar archiver compression</tags>
   </metadata>
   <files>

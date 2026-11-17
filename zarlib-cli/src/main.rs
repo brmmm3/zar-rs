@@ -493,6 +493,7 @@ struct InfoJsonCommit {
     data_encrypted: bool,
     encryption_algorithm: Option<&'static str>,
     header_changes: Option<HeaderChangeStats>,
+    cross_commit_reference_count: Option<usize>,
     created_unix_millis: Option<i64>,
     user: Option<String>,
 }
@@ -502,7 +503,7 @@ fn render_info_json(commits: &[InfoJsonCommit]) -> String {
         .iter()
         .map(|commit| {
             format!(
-                "{{\"id\":\"{}\",\"size\":{},\"header_size\":{},\"data_size\":{},\"header_encrypted\":{},\"data_encrypted\":{},\"encryption_algorithm\":{},\"header_changes\":{},\"created_at\":{},\"created_unix_millis\":{},\"user\":{}}}",
+                "{{\"id\":\"{}\",\"size\":{},\"header_size\":{},\"data_size\":{},\"header_encrypted\":{},\"data_encrypted\":{},\"encryption_algorithm\":{},\"header_changes\":{},\"cross_commit_reference_count\":{},\"created_at\":{},\"created_unix_millis\":{},\"user\":{}}}",
                 commit.id,
                 commit.size,
                 commit.header_size,
@@ -514,6 +515,7 @@ fn render_info_json(commits: &[InfoJsonCommit]) -> String {
                     |value| format!("\"{value}\"")
                 ),
                 render_header_changes_json(commit.header_changes.as_ref()),
+                commit.cross_commit_reference_count.map_or_else(|| "null".to_owned(), |count| count.to_string()),
                 commit.created_unix_millis.map_or_else(
                     || "null".to_owned(),
                     |value| render_json_string(&format_unix_millis(value))
@@ -530,9 +532,14 @@ fn render_info_json(commits: &[InfoJsonCommit]) -> String {
         })
         .collect::<Vec<_>>()
         .join(",");
+    let total: Option<usize> = commits
+        .iter()
+        .map(|commit| commit.cross_commit_reference_count)
+        .sum();
     format!(
-        "{{\"commit_count\":{},\"commits\":[{entries}]}}",
-        commits.len()
+        "{{\"commit_count\":{},\"cross_commit_reference_count\":{},\"commits\":[{entries}]}}",
+        commits.len(),
+        total.map_or_else(|| "null".to_owned(), |count| count.to_string())
     )
 }
 
@@ -1250,18 +1257,59 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             println!("Time: {}", format_duration(elapsed));
             Ok(0)
         }
+        Command::Rename {
+            archive,
+            source,
+            destination,
+            password,
+            password_for,
+        } => {
+            let passwords = prompt_password_set(password, &password_for)?;
+            rename_archive_entry_with_encryption(
+                &archive,
+                &ArchivePath::new(source)?,
+                &ArchivePath::new(destination)?,
+                None,
+                &passwords,
+            )?;
+            Ok(0)
+        }
         Command::RemoveCommits {
             archive,
             commits,
             output,
+            password,
+            password_for,
         } => {
-            let result = remove_archive_commits(&archive, &commits, output.as_deref())?;
+            let passwords = prompt_password_set(password, &password_for)?;
+            let result = remove_archive_commits_with_passwords(
+                &archive,
+                &commits,
+                output.as_deref(),
+                &passwords,
+            )?;
             if !result.replay_validated {
                 eprintln!(
                     "Warning: retained encrypted headers prevented validation of the remaining history."
                 );
             }
             println!("Removed {} commit(s)", commits.len());
+            Ok(0)
+        }
+        Command::References {
+            archive,
+            password,
+            password_for,
+        } => {
+            let passwords = prompt_password_set(password, &password_for)?;
+            for reference in cross_commit_references_with_passwords(&archive, &passwords)? {
+                println!(
+                    "{:08x}\t{:08x}\t{}",
+                    u32::from_le_bytes(reference.referencing_commit),
+                    u32::from_le_bytes(reference.source_commit),
+                    reference.path
+                );
+            }
             Ok(0)
         }
         Command::Meta {
@@ -1410,6 +1458,8 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             verbose,
             json,
             meta,
+            password,
+            password_for,
         } => {
             if meta {
                 for (key, value) in read_custom_metadata(&archive)? {
@@ -1417,10 +1467,11 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                 }
                 return Ok(0);
             }
+            let passwords = prompt_password_set(password, &password_for)?;
             let commits = if verbose >= 2 {
-                info_archive_with_blocks(&archive, true)?
+                info_archive_with_blocks_and_passwords(&archive, true, &passwords)?
             } else {
-                info_archive(&archive, verbose > 0)?
+                info_archive_with_passwords(&archive, verbose > 0, &passwords)?
                     .into_iter()
                     .map(|commit| CommitInfoWithBlocks {
                         commit,
@@ -1447,6 +1498,10 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                                 }
                             }),
                             header_changes: commit.header_changes.clone(),
+                            cross_commit_reference_count: commit
+                                .cross_commit_references
+                                .as_ref()
+                                .map(Vec::len),
                             created_unix_millis: commit.created_unix_millis,
                             user: commit.user.clone(),
                         }
@@ -1459,6 +1514,13 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                     println!("{}", format_commit_summary(commit));
                     print!("{}", render_commit_metadata(commit));
                     print!("{}", render_header_changes(commit.header_changes.as_ref()));
+                    println!(
+                        "  cross-commit references: {}",
+                        commit.cross_commit_references.as_ref().map_or_else(
+                            || "unavailable (encrypted header)".to_owned(),
+                            |references| references.len().to_string()
+                        )
+                    );
                     if let Some(header) = &commit.header_compression {
                         println!(
                             "  header: compressed {}, uncompressed {}, ratio {}",
@@ -1485,6 +1547,17 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                     }
                 }
                 println!("{} commit(s)", commits.len());
+                let total: Option<usize> = commits
+                    .iter()
+                    .map(|info| info.commit.cross_commit_references.as_ref().map(Vec::len))
+                    .sum();
+                println!(
+                    "Cross-commit references: {}",
+                    total.map_or_else(
+                        || "unavailable (encrypted header)".to_owned(),
+                        |count| count.to_string()
+                    )
+                );
             }
             let elapsed = start.elapsed();
             if json {

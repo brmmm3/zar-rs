@@ -31,23 +31,46 @@ pub(crate) fn merge_custom_metadata(
 pub fn read_custom_metadata(
     archive: &str,
 ) -> Result<BTreeMap<String, MetadataType>, Box<dyn std::error::Error>> {
+    let mut merged = HashMap::new();
+    merge_archive_metadata(archive, &mut merged)?;
+    Ok(visible_metadata(merged))
+}
+
+/// Returns effective custom metadata after applying an overlay to a base archive.
+pub fn read_custom_metadata_with_overlay(
+    base: &str,
+    overlay: &str,
+) -> Result<BTreeMap<String, MetadataType>, Box<dyn std::error::Error>> {
+    let mut merged = HashMap::new();
+    merge_archive_metadata(base, &mut merged)?;
+    merge_archive_metadata(overlay, &mut merged)?;
+    Ok(visible_metadata(merged))
+}
+
+fn merge_archive_metadata(
+    archive: &str,
+    merged: &mut HashMap<String, MetadataType>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut input = File::open(archive)?;
     let limits = CommitValidationLimits::default();
-    let mut merged = HashMap::new();
     let mut header_offset = read_first_header_offset(&mut input)?;
     while header_offset != 0 {
         let (commit_header, _, next_header_offset) =
             read_commit_at_offset(&mut input, header_offset, limits)?;
         let validated = ValidatedCommit::read_body(&mut input, commit_header, limits)?;
         if let Some(header) = &validated.logical_header {
-            merge_custom_metadata(&mut merged, &header.metadata);
+            merge_custom_metadata(merged, &header.metadata);
         }
         header_offset = next_header_offset;
     }
-    Ok(merged
+    Ok(())
+}
+
+fn visible_metadata(merged: HashMap<String, MetadataType>) -> BTreeMap<String, MetadataType> {
+    merged
         .into_iter()
         .filter(|(key, _)| !key.starts_with(RESERVED_KEY_PREFIX))
-        .collect())
+        .collect()
 }
 
 /// Parses `text` as an integer, then a float, and otherwise keeps it as a string.
@@ -77,12 +100,33 @@ pub fn update_custom_metadata(
     set: &[(String, MetadataType)],
     remove: &[String],
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let current = read_custom_metadata(archive)?;
+    update_custom_metadata_with_current(archive, set, remove, &current)
+}
+
+/// Appends a metadata change to an overlay, validating against the combined state.
+pub fn update_overlay_custom_metadata(
+    base: &str,
+    overlay: &str,
+    set: &[(String, MetadataType)],
+    remove: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
+    ensure_archive_unencrypted(Path::new(base))?;
+    let current = read_custom_metadata_with_overlay(base, overlay)?;
+    update_custom_metadata_with_current(overlay, set, remove, &current)
+}
+
+fn update_custom_metadata_with_current(
+    archive: &str,
+    set: &[(String, MetadataType)],
+    remove: &[String],
+    current: &BTreeMap<String, MetadataType>,
+) -> Result<(), Box<dyn std::error::Error>> {
     if set.is_empty() && remove.is_empty() {
         return Err("nothing to change".into());
     }
     let archive_path = Path::new(archive);
     ensure_archive_unencrypted(archive_path)?;
-    let current = read_custom_metadata(archive)?;
     let mut header_metadata = HashMap::new();
     for (key, value) in set {
         validate_key(key)?;

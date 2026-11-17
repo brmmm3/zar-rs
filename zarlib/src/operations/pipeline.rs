@@ -463,6 +463,7 @@ pub fn duplicate_blocks(
 pub struct ScanContext<'a> {
     pub changes: &'a mut Vec<TocChange>,
     pub data: &'a mut dyn WriteSeek,
+    pub block_index: &'a mut Vec<crate::HeaderBlockIndexEntry>,
     pub next_block_index: &'a mut u32,
     pub block_sizes: &'a mut HashMap<u32, u64>,
     pub seen_paths: &'a mut std::collections::BTreeSet<ArchivePath>,
@@ -474,6 +475,29 @@ pub struct ScanContext<'a> {
     pub progress: ProgressReporter<'a>,
     pub action: &'static str,
     pub encryption: Option<EncryptionContext>,
+    pub historical_duplicates: Option<&'a HashMap<PathBuf, FileEntry>>,
+}
+
+fn write_indexed_block(
+    data: &mut dyn WriteSeek,
+    block_index: &mut Vec<crate::HeaderBlockIndexEntry>,
+    frame: &BlockFrame,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let offset = match block_index.last() {
+        Some(entry) => entry
+            .offset
+            .checked_add(entry.encoded_size)
+            .ok_or("block offset overflow")?,
+        None => 0,
+    };
+    let encoded_size = u64::try_from(frame.encoded_size()?)?;
+    frame.write_to(data)?;
+    block_index.push(crate::HeaderBlockIndexEntry {
+        index: frame.block_index,
+        offset,
+        encoded_size,
+    });
+    Ok(())
 }
 
 #[cfg(not(target_os = "wasi"))]
@@ -650,6 +674,29 @@ pub fn process_tree_entries(
                         &metadata,
                         context.save_metadata,
                     )?);
+                    continue;
+                }
+
+                if let Some(file_entry) = context
+                    .historical_duplicates
+                    .and_then(|entries| entries.get(&entry.source_path))
+                {
+                    entry_by_path.insert(path.clone(), file_entry.clone());
+                    context.changes.push(TocChange::PutFile {
+                        path: path.clone(),
+                        entry: file_entry.clone(),
+                    });
+                    context.entry_metadata.push(if context.save_metadata {
+                        capture_entry_metadata(&path, &metadata, true)?
+                    } else {
+                        entry_date_metadata(
+                            &path,
+                            entry.modified_unix_millis,
+                            entry.created_unix_millis,
+                            entry.accessed_unix_millis,
+                        )
+                    });
+                    context.progress.inc(entry.size);
                     continue;
                 }
 
@@ -1060,10 +1107,8 @@ pub fn encode_block(
 ) -> Result<BlockFrame, crate::FramingError> {
     if let Some(enc) = encryption {
         if skip_compression {
-            BlockFrame::from_uncompressed_encrypted(
-                index,
-                data,
-                0,
+            BlockFrame::from_staged_encrypted(
+                &BlockFrame::from_stored(index, data)?,
                 &enc.commit_header,
                 &enc.dek,
                 enc.algorithm,
@@ -1566,8 +1611,8 @@ pub fn process_file_entries_parallel(
                 context
                     .block_sizes
                     .insert(block.block_index, block.payload.len() as u64);
-                if let Err(error) = block.write_to(context.data) {
-                    writer_error = Some(io::Error::other(error));
+                if let Err(error) = write_indexed_block(context.data, context.block_index, &block) {
+                    writer_error = Some(io::Error::other(error.to_string()));
                     break;
                 }
                 next_expected_index += 1;
@@ -1596,7 +1641,7 @@ pub fn process_file_entries_parallel(
             context
                 .block_sizes
                 .insert(block.block_index, block.payload.len() as u64);
-            block.write_to(context.data)?;
+            write_indexed_block(context.data, context.block_index, &block)?;
             next_expected_index += 1;
         }
 
@@ -1858,7 +1903,7 @@ pub fn process_file_entries_parallel(
                         context
                             .block_sizes
                             .insert(index, block.payload.len() as u64);
-                        block.write_to(context.data)?;
+                        write_indexed_block(context.data, context.block_index, &block)?;
                     }
                 }
                 let mut extra = [0; 1];
@@ -1891,7 +1936,7 @@ pub fn process_file_entries_parallel(
                 context
                     .block_sizes
                     .insert(block.block_index, block.payload.len() as u64);
-                block.write_to(context.data)?;
+                write_indexed_block(context.data, context.block_index, &block)?;
             }
         }
 
@@ -1916,7 +1961,7 @@ pub fn process_file_entries_parallel(
         context
             .block_sizes
             .insert(block.block_index, frame.payload.len() as u64);
-        frame.write_to(context.data)?;
+        write_indexed_block(context.data, context.block_index, &frame)?;
     }
 
     *context.next_block_index = next_block_index;
@@ -1951,10 +1996,240 @@ fn open_input_file(
 #[cfg(test)]
 mod tests {
     use super::{
-        SmallFilePacker, TreeEntry, TreeEntryKind, archive_prefix, skip_permission_denied_file,
+        ScanContext, ScanPolicy, SmallFilePacker, TreeEntry, TreeEntryKind, archive_prefix,
+        process_file_entries_parallel, process_tree_entries, skip_permission_denied_file,
     };
+    use crate::operations::{EncodingOptions, ProgressReporter};
+    use crate::{DeviceKind, TocChange};
+    use std::collections::{BTreeSet, HashMap};
+    use std::io::Write;
     use std::path::Path;
     use std::sync::Mutex;
+
+    #[test]
+    fn special_entries_follow_scan_policy_and_record_metadata() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let entry = |name: &str, kind| TreeEntry {
+            archive_path: name.to_owned(),
+            source_path: file.path().to_owned(),
+            kind,
+            size: 0,
+            modified_unix_millis: Some(123),
+            created_unix_millis: None,
+            accessed_unix_millis: None,
+        };
+        let entries = vec![
+            entry(
+                "link",
+                TreeEntryKind::Symlink {
+                    target: "target".into(),
+                },
+            ),
+            entry("pipe", TreeEntryKind::NamedPipe),
+            entry(
+                "device",
+                TreeEntryKind::Device {
+                    kind: DeviceKind::Character,
+                    major: 2,
+                    minor: 3,
+                },
+            ),
+            entry("unsupported", TreeEntryKind::Unsupported),
+            entry("bad\\path", TreeEntryKind::Unsupported),
+        ];
+        for (include_special_files, save_metadata) in [(true, true), (false, false)] {
+            let mut changes = Vec::new();
+            let mut data = tempfile::tempfile().unwrap();
+            let mut block_index = Vec::new();
+            let mut next_block_index = 0;
+            let mut block_sizes = HashMap::new();
+            let mut seen_paths = BTreeSet::new();
+            let mut metadata = Vec::new();
+            let mut policy = ScanPolicy {
+                strict: false,
+                include_special_files,
+                verbose: true,
+                warnings: false,
+                warning_messages: Vec::new(),
+            };
+            let mut context = ScanContext {
+                changes: &mut changes,
+                data: &mut data,
+                block_index: &mut block_index,
+                next_block_index: &mut next_block_index,
+                block_sizes: &mut block_sizes,
+                seen_paths: &mut seen_paths,
+                entry_metadata: &mut metadata,
+                save_metadata,
+                policy: &mut policy,
+                options: EncodingOptions::default(),
+                compression_workers: 1,
+                progress: ProgressReporter(None),
+                action: "Adding",
+                encryption: None,
+                historical_duplicates: None,
+            };
+            process_tree_entries(&entries, &mut context).unwrap();
+            context.policy.strict = true;
+            for entry in [&entries[0], &entries[3], &entries[4]] {
+                assert!(process_tree_entries(std::slice::from_ref(entry), &mut context).is_err());
+            }
+            if !include_special_files {
+                assert!(process_tree_entries(&entries[1..2], &mut context).is_err());
+            }
+            assert!(matches!(changes[0], TocChange::PutSymlink { .. }));
+            assert_eq!(changes.len(), if include_special_files { 3 } else { 1 });
+            assert_eq!(metadata.len(), changes.len());
+            if include_special_files {
+                assert!(matches!(changes[1], TocChange::PutNamedPipe { .. }));
+                assert!(matches!(
+                    changes[2],
+                    TocChange::PutDevice {
+                        major: 2,
+                        minor: 3,
+                        ..
+                    }
+                ));
+            }
+            assert!(policy.warnings);
+            assert_eq!(policy.warning_messages.len(), 5);
+        }
+    }
+
+    #[test]
+    fn repeated_source_paths_share_blocks_and_preserve_metadata() {
+        let mut source = tempfile::NamedTempFile::new().unwrap();
+        source.write_all(b"shared hard link contents").unwrap();
+        let entries = ["original", "duplicate"].map(|name| TreeEntry {
+            archive_path: name.to_owned(),
+            source_path: source.path().to_owned(),
+            kind: TreeEntryKind::File,
+            size: 25,
+            modified_unix_millis: Some(123),
+            created_unix_millis: None,
+            accessed_unix_millis: None,
+        });
+        for save_metadata in [false, true] {
+            let mut changes = Vec::new();
+            let mut data = tempfile::tempfile().unwrap();
+            let mut block_index = Vec::new();
+            let mut next_block_index = 0;
+            let mut block_sizes = HashMap::new();
+            let mut seen_paths = BTreeSet::new();
+            let mut metadata = Vec::new();
+            let mut policy = ScanPolicy {
+                strict: false,
+                include_special_files: false,
+                verbose: false,
+                warnings: false,
+                warning_messages: Vec::new(),
+            };
+            let mut context = ScanContext {
+                changes: &mut changes,
+                data: &mut data,
+                block_index: &mut block_index,
+                next_block_index: &mut next_block_index,
+                block_sizes: &mut block_sizes,
+                seen_paths: &mut seen_paths,
+                entry_metadata: &mut metadata,
+                save_metadata,
+                policy: &mut policy,
+                options: EncodingOptions::default(),
+                compression_workers: 1,
+                progress: ProgressReporter(None),
+                action: "Adding",
+                encryption: None,
+                historical_duplicates: None,
+            };
+            process_tree_entries(&entries, &mut context).unwrap();
+            assert_eq!(changes.len(), 2);
+            let TocChange::PutFile {
+                entry: original, ..
+            } = &changes[0]
+            else {
+                panic!("expected a file")
+            };
+            let TocChange::PutFile {
+                entry: duplicate, ..
+            } = &changes[1]
+            else {
+                panic!("expected a file")
+            };
+            assert_eq!(original, duplicate);
+            assert_eq!(metadata.len(), 2);
+            assert_eq!(metadata[1].path.as_str(), "duplicate");
+        }
+    }
+
+    #[test]
+    fn parallel_pipeline_reports_missing_and_changed_input_files() {
+        fn process(entry: &TreeEntry, save_metadata: bool) -> String {
+            let mut changes = Vec::new();
+            let mut data = tempfile::tempfile().unwrap();
+            let mut block_index = Vec::new();
+            let mut next_block_index = 0;
+            let mut block_sizes = HashMap::new();
+            let mut seen_paths = BTreeSet::new();
+            let mut metadata = Vec::new();
+            let mut policy = ScanPolicy {
+                strict: false,
+                include_special_files: false,
+                verbose: false,
+                warnings: false,
+                warning_messages: Vec::new(),
+            };
+            let mut context = ScanContext {
+                changes: &mut changes,
+                data: &mut data,
+                block_index: &mut block_index,
+                next_block_index: &mut next_block_index,
+                block_sizes: &mut block_sizes,
+                seen_paths: &mut seen_paths,
+                entry_metadata: &mut metadata,
+                save_metadata,
+                policy: &mut policy,
+                options: EncodingOptions {
+                    block_size: 16,
+                    compression_level: 1,
+                },
+                compression_workers: 1,
+                progress: ProgressReporter(None),
+                action: "Adding",
+                encryption: None,
+                historical_duplicates: None,
+            };
+            process_file_entries_parallel(&[entry], &mut context, &mut HashMap::new())
+                .unwrap_err()
+                .to_string()
+        }
+
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("input");
+        std::fs::write(&input, b"data").unwrap();
+        let mut entry = TreeEntry {
+            archive_path: "input".to_owned(),
+            source_path: input,
+            kind: TreeEntryKind::File,
+            size: 8,
+            modified_unix_millis: None,
+            created_unix_millis: None,
+            accessed_unix_millis: None,
+        };
+        for size in [8, 12] {
+            entry.size = size;
+            assert!(process(&entry, false).contains("cannot read input file"));
+        }
+        entry.size = 16;
+        assert!(process(&entry, false).contains("input file changed"));
+        entry.source_path = directory.path().join("missing");
+        for size in [4, 12, 16] {
+            entry.size = size;
+            assert!(process(&entry, false).contains("cannot read input file"));
+        }
+        assert!(process(&entry, true).contains("cannot read metadata"));
+        entry.archive_path = "../invalid".to_owned();
+        assert!(process(&entry, false).contains(".."));
+    }
 
     #[test]
     fn small_file_packing_accepts_all_reader_completion_orders() {
@@ -1998,22 +2273,18 @@ mod tests {
 
     #[test]
     fn absolute_paths_outside_working_directory_use_the_basename() {
-        assert_eq!(
-            archive_prefix(Path::new("/var/log"), Path::new("/home/user/project")).unwrap(),
-            "log"
-        );
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("elsewhere/log");
+        let cwd = directory.path().join("project");
+        assert_eq!(archive_prefix(&input, &cwd).unwrap(), "log");
     }
 
     #[test]
     fn absolute_paths_inside_working_directory_are_relative_to_it() {
-        assert_eq!(
-            archive_prefix(
-                Path::new("/home/user/project/src/main.rs"),
-                Path::new("/home/user/project")
-            )
-            .unwrap(),
-            "src/main.rs"
-        );
+        let directory = tempfile::tempdir().unwrap();
+        let cwd = directory.path().join("project");
+        let input = cwd.join("src/main.rs");
+        assert_eq!(archive_prefix(&input, &cwd).unwrap(), "src/main.rs");
     }
 
     #[test]

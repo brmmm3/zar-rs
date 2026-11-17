@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use zarlib::operations::{
@@ -6,9 +7,11 @@ use zarlib::operations::{
     ExistingPolicy, ExtractionOptions, FilterSet, PasswordSet,
     add_archive_with_encoding_progress_and_filters_and_encryption, change_encryption_for_commits,
     create_archive_with_password_progress_and_special_files, decrypt_archive_commits,
-    encrypt_archive_commits, extract_archive_with_passwords_progress_and_filters, info_archive,
+    encrypt_archive_commits, extract_archive_with_passwords_progress_and_filters,
+    extract_archive_with_passwords_progress_and_filters_and_frame_validation, info_archive,
     join_archive_with_encoding_progress_and_passwords, list_archive, list_archive_with_passwords,
-    remove_archive_commits, remove_archive_entries_with_progress_and_encryption, remove_commits,
+    remove_archive_commits_with_passwords, remove_archive_entries_with_progress_and_encryption,
+    remove_commits,
 };
 use zarlib::{ArchivePath, ContentAead, EncryptionScope, TocEntry};
 
@@ -17,6 +20,96 @@ const PASSWORD_B: &[u8] = b"password B";
 const PASSWORD_C: &[u8] = b"password C";
 const PASSWORD_D: &[u8] = b"password D";
 const PASSWORD_E: &[u8] = b"password E";
+
+#[test]
+fn skipping_unselected_frame_validation_still_checks_selected_frames() {
+    let directory = tempfile::tempdir().unwrap();
+    let selected = directory.path().join("selected.bin");
+    let other = directory.path().join("other.bin");
+    let contents = vec![b'a'; 128];
+    std::fs::write(&selected, &contents).unwrap();
+    std::fs::write(&other, vec![b'b'; 128]).unwrap();
+    let archive = directory.path().join("archive.zar");
+    let archive_name = archive.to_str().unwrap();
+    zarlib::operations::create_archive_with_encoding(
+        archive_name,
+        &[selected, other],
+        false,
+        EncodingOptions {
+            block_size: 64,
+            compression_level: 1,
+        },
+    )
+    .unwrap();
+    let toc = zarlib::operations::load_toc_through(archive_name, None, None).unwrap();
+    let block_for = |name| match toc.get(&ArchivePath::new(name).unwrap()).unwrap() {
+        TocEntry::File(entry) => entry.block_indices[0],
+        _ => panic!("expected a file"),
+    };
+    let selected_block = block_for("selected.bin");
+    let other_block = block_for("other.bin");
+    assert_ne!(selected_block, other_block);
+    let mut file = std::fs::File::open(&archive).unwrap();
+    let header_offset = zarlib::operations::read_first_header_offset(&mut file).unwrap();
+    let limits = zarlib::CommitValidationLimits::default();
+    let (_, data_start, _) =
+        zarlib::operations::read_commit_at_offset(&mut file, header_offset, limits).unwrap();
+    file.seek(SeekFrom::Start(header_offset)).unwrap();
+    let (header, _) =
+        zarlib::operations::read_header_with_passwords(&mut file, limits, &PasswordSet::default())
+            .unwrap();
+    let index = header.logical_header.unwrap().block_index.unwrap();
+    let corrupt = |block| {
+        let offset = index
+            .iter()
+            .find(|entry| entry.index == block)
+            .unwrap()
+            .offset;
+        let path = directory.path().join(format!("corrupt-{block}.zar"));
+        std::fs::copy(&archive, &path).unwrap();
+        let mut file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.seek(SeekFrom::Start(data_start + offset + 6)).unwrap();
+        file.write_all(&[1, 0]).unwrap();
+        path
+    };
+    let mut filters = FilterSet::default();
+    filters.restrict_to_paths([ArchivePath::new("selected.bin").unwrap()]);
+    let options = ExtractionOptions {
+        dry_run: false,
+        to: None,
+        collision_policy: CollisionPolicy::Error,
+        existing_policy: ExistingPolicy::Error,
+        restore_metadata: false,
+        restore_symlinks: false,
+        restore_devices: false,
+        strip_top_level: false,
+    };
+    let extract = |archive: &Path, skip| {
+        let output = tempfile::tempdir().unwrap();
+        let result = extract_archive_with_passwords_progress_and_filters_and_frame_validation(
+            archive.to_str().unwrap(),
+            output.path(),
+            options,
+            &PasswordSet::default(),
+            None,
+            &filters,
+            skip,
+        );
+        if result.is_ok() {
+            assert_eq!(
+                std::fs::read(output.path().join("selected.bin")).unwrap(),
+                contents
+            );
+        }
+        result
+    };
+    let corrupted_other = corrupt(other_block);
+    assert!(extract(&corrupted_other, false).is_err());
+    assert!(extract(&corrupted_other, true).is_ok());
+    let corrupted_selected = corrupt(selected_block);
+    assert!(extract(&corrupted_selected, false).is_err());
+    assert!(extract(&corrupted_selected, true).is_err());
+}
 
 fn write_stage(parent: &Path, directory: &str, files: &[(&str, &[u8])]) -> PathBuf {
     let stage = parent.join(directory);
@@ -110,8 +203,7 @@ fn commit_id(id: [u8; 4]) -> String {
 /// 4. List and extract with all passwords, verifying the complete contents.
 /// 5. Join the last two commits, then remove the last commit and verify the
 ///    restored contents.
-/// 6. Join all readable commits with only password B, verifying that the
-///    password-A and password-C commits remain separate and encrypted.
+/// 6. Reject joining readable commits when later encrypted headers are locked.
 /// 7. Add unencrypted files in one commit.
 /// 8. Add more unencrypted files in a second commit.
 /// 9. Extract three selected files and verify their contents.
@@ -120,7 +212,7 @@ fn commit_id(id: [u8; 4]) -> String {
 /// 12. Try extracting to a destination on a non-writable filesystem.
 /// 13. Add readable and permission-restricted files, checking the readable
 ///     input is retained and inaccessible input is skipped when applicable.
-/// 14. Remove commits 1 and 3 by ID.
+/// 14. Remove the root, password-B, and password-C commits by ID.
 /// 15. List the remaining files without passwords.
 /// 16. Extract the remaining visible files without passwords.
 /// 17. Encrypt the last commit.
@@ -342,7 +434,8 @@ fn encrypted_commits_and_removals_work_with_partial_and_complete_passwords() {
     let locked_a_commit_id = after_undo[1].id;
     let locked_c_commit_id = after_undo[3].id;
     let password_b_only = password_set(archive, &[(2, PASSWORD_B)]);
-    join_archive_with_encoding_progress_and_passwords(
+    let before_partial_join = std::fs::read(archive).unwrap();
+    let error = join_archive_with_encoding_progress_and_passwords(
         archive,
         &format!("{:08x}", u32::from_le_bytes(root_commit_id)),
         &format!(
@@ -353,27 +446,28 @@ fn encrypted_commits_and_removals_work_with_partial_and_complete_passwords() {
         None,
         &password_b_only,
     )
-    .unwrap();
+    .unwrap_err();
+    assert!(error.to_string().contains("cannot check references"));
+    assert_eq!(std::fs::read(archive).unwrap(), before_partial_join);
 
     let joined_commits = info_archive(archive, false).unwrap();
-    assert_eq!(joined_commits.len(), 3);
+    assert_eq!(joined_commits.len(), 4);
     assert!(!joined_commits[0].header_encrypted);
     assert_eq!(joined_commits[1].id, locked_a_commit_id);
     assert!(joined_commits[1].header_encrypted);
-    assert_eq!(joined_commits[2].id, locked_c_commit_id);
-    assert!(joined_commits[2].header_encrypted);
-    let visible_after_partial_join = BTreeSet::from([
-        "root/keep.txt".to_owned(),
-        "root/remove.txt".to_owned(),
-        "stage-b/keep.txt".to_owned(),
-        "stage-b/remove.txt".to_owned(),
-    ]);
+    assert_eq!(joined_commits[3].id, locked_c_commit_id);
+    assert!(joined_commits[3].header_encrypted);
+    let visible_after_partial_join =
+        BTreeSet::from(["root/keep.txt".to_owned(), "root/remove.txt".to_owned()]);
     assert_eq!(
         file_paths(&list_archive(archive, None, None).unwrap()),
         visible_after_partial_join
     );
 
-    let remaining_passwords = password_set(archive, &[(1, PASSWORD_A), (2, PASSWORD_C)]);
+    let remaining_passwords = password_set(
+        archive,
+        &[(1, PASSWORD_A), (2, PASSWORD_B), (3, PASSWORD_C)],
+    );
     assert_eq!(
         file_paths(&list_archive_with_passwords(archive, None, &remaining_passwords).unwrap()),
         visible_after_undo
@@ -388,11 +482,7 @@ fn encrypted_commits_and_removals_work_with_partial_and_complete_passwords() {
             ("three.txt", b"step seven three"),
         ],
     );
-    add_unencrypted(
-        archive,
-        &[stage_seven],
-        &password_set(archive, &[(1, PASSWORD_A), (2, PASSWORD_C)]),
-    );
+    add_unencrypted(archive, &[stage_seven], &remaining_passwords);
 
     let stage_eight = write_stage(
         temp.path(),
@@ -402,11 +492,7 @@ fn encrypted_commits_and_removals_work_with_partial_and_complete_passwords() {
             ("five.txt", b"step eight five"),
         ],
     );
-    add_unencrypted(
-        archive,
-        &[stage_eight],
-        &password_set(archive, &[(1, PASSWORD_A), (2, PASSWORD_C)]),
-    );
+    add_unencrypted(archive, &[stage_eight], &remaining_passwords);
 
     let three_files = FilterSet::from_patterns(
         &[
@@ -526,22 +612,14 @@ fn encrypted_commits_and_removals_work_with_partial_and_complete_passwords() {
         std::fs::set_permissions(&private_file, std::fs::Permissions::from_mode(0o000)).unwrap();
     }
     let can_read_private = std::fs::File::open(&private_file).is_ok();
-    add_unencrypted(
-        archive,
-        &[stage_thirteen],
-        &password_set(archive, &[(1, PASSWORD_A), (2, PASSWORD_C)]),
-    );
+    add_unencrypted(archive, &[stage_thirteen], &remaining_passwords);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&private_file, std::fs::Permissions::from_mode(0o600)).unwrap();
     }
-    let after_unreadable_add = list_archive_with_passwords(
-        archive,
-        None,
-        &password_set(archive, &[(1, PASSWORD_A), (2, PASSWORD_C)]),
-    )
-    .unwrap();
+    let after_unreadable_add =
+        list_archive_with_passwords(archive, None, &remaining_passwords).unwrap();
     assert!(
         after_unreadable_add
             .get(&ArchivePath::new("stage-thirteen/readable.txt").unwrap())
@@ -559,10 +637,12 @@ fn encrypted_commits_and_removals_work_with_partial_and_complete_passwords() {
     let remove_ids = vec![
         commit_id(commits_before_removal[0].id),
         commit_id(commits_before_removal[2].id),
+        commit_id(commits_before_removal[3].id),
     ];
-    remove_archive_commits(archive, &remove_ids, None).unwrap();
+    remove_archive_commits_with_passwords(archive, &remove_ids, None, &remaining_passwords)
+        .unwrap();
 
-    let expected_after_removal = BTreeSet::from([
+    let mut expected_after_removal = BTreeSet::from([
         "stage-seven/one.txt".to_owned(),
         "stage-seven/two.txt".to_owned(),
         "stage-seven/three.txt".to_owned(),
@@ -570,15 +650,15 @@ fn encrypted_commits_and_removals_work_with_partial_and_complete_passwords() {
         "stage-eight/five.txt".to_owned(),
         "stage-thirteen/readable.txt".to_owned(),
     ]);
+    if can_read_private {
+        expected_after_removal.insert("stage-thirteen/private.txt".to_owned());
+    }
     assert_eq!(
         file_paths(&list_archive(archive, None, None).unwrap()),
         expected_after_removal
     );
     let without_passwords_destination = temp.path().join("without-passwords");
-    let mut expected_without_passwords = expected_after_removal.clone();
-    if can_read_private {
-        expected_without_passwords.insert("stage-thirteen/private.txt".to_owned());
-    }
+    let expected_without_passwords = expected_after_removal.clone();
     assert_eq!(
         extract(
             archive,
@@ -614,6 +694,7 @@ fn encrypted_commits_and_removals_work_with_partial_and_complete_passwords() {
     let first_encrypted_id = commit_id(first_encrypted.id);
     let mut first_encrypted_password = PasswordSet::default();
     first_encrypted_password.insert_for_commit(first_encrypted.id, PASSWORD_A.to_vec());
+    first_encrypted_password.insert_for_commit(last.id, PASSWORD_E.to_vec());
     change_encryption_for_commits(
         archive,
         CommitRangeOptions {

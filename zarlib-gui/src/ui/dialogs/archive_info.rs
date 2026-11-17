@@ -18,11 +18,28 @@ impl ZargApp {
 
     fn start_archive_info_load(&mut self, passwords: BTreeMap<[u8; 4], String>) {
         let archive = self.archive.clone();
-        let working_archive = self.read_archive.clone();
+        let view = match self.temporary_archive_view() {
+            Ok(view) => view,
+            Err(error) => {
+                self.status = format!("Cannot prepare archive view: {error}");
+                return;
+            }
+        };
+        let working_archive = view.as_ref().map_or_else(
+            || self.read_archive.clone(),
+            |directory| {
+                directory
+                    .path()
+                    .join("view.zar")
+                    .to_string_lossy()
+                    .into_owned()
+            },
+        );
         let (sender, receiver) = mpsc::channel();
         self.info_loading = Some(receiver);
         self.status = "Reading archive information...".to_owned();
         std::thread::spawn(move || {
+            let _view = view;
             let result = (|| {
                 let mut password_set = PasswordSet::default();
                 for (commit_id, password) in &passwords {
@@ -354,6 +371,26 @@ fn render_info_contents(
         .show(ui, |ui| {
             info_row(ui, "Archive", view.archive.as_str());
             info_row(ui, "Commits", view.commits.len().to_string());
+            let references: Option<usize> = view
+                .commits
+                .iter()
+                .map(|commit| {
+                    if commit.commit.header_encrypted && !passwords.contains_key(&commit.commit.id)
+                    {
+                        None
+                    } else {
+                        commit.commit.cross_commit_references.as_ref().map(Vec::len)
+                    }
+                })
+                .sum();
+            info_row(
+                ui,
+                "Cross-commit references",
+                references.map_or_else(
+                    || "unavailable (locked header)".to_owned(),
+                    |count| count.to_string(),
+                ),
+            );
             info_row(ui, "Stored size", display_size(stored));
             if let Some(total) = uncompressed {
                 info_row(ui, "Uncompressed size", display_size(total));
@@ -362,6 +399,28 @@ fn render_info_contents(
                 ui.end_row();
             }
         });
+    ui.add_space(6.0);
+    ui.heading("Cross-commit references");
+    let mut reference_count = 0;
+    for commit in &view.commits {
+        if commit.commit.header_encrypted && !passwords.contains_key(&commit.commit.id) {
+            continue;
+        }
+        if let Some(references) = &commit.commit.cross_commit_references {
+            for reference in references {
+                reference_count += 1;
+                ui.label(format!(
+                    "{:08x} -> {:08x}: {}",
+                    u32::from_le_bytes(reference.referencing_commit),
+                    u32::from_le_bytes(reference.source_commit),
+                    reference.path
+                ));
+            }
+        }
+    }
+    if reference_count == 0 {
+        ui.weak("None visible");
+    }
     ui.add_space(6.0);
     ui.heading("Custom metadata");
     if view.metadata.is_empty() {
@@ -467,6 +526,16 @@ fn render_commit_info(
             }
             info_row(ui, "Header", display_size(u64::from(commit.header_size)));
             info_row(ui, "Data", display_size(commit.data_size));
+            if show_contents {
+                info_row(
+                    ui,
+                    "Cross-commit references",
+                    commit.cross_commit_references.as_ref().map_or_else(
+                        || "unavailable".to_owned(),
+                        |references| references.len().to_string(),
+                    ),
+                );
+            }
             if show_contents {
                 info_row(
                     ui,

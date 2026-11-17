@@ -225,6 +225,10 @@ impl ZargApp {
                                     }
                                 }
                                 if self.settings_tab == SettingsTab::Advanced {
+                                    ui.checkbox(&mut self.validate_blocks_before_extraction, "Validate selected blocks before extraction");
+                                    ui.checkbox(&mut self.validate_blocks_on_extraction, "Recheck block checksums during extraction")
+                                        .on_hover_text("Detects changes to archive blocks after validation. File checksums and encrypted data authentication remain enabled.");
+                                    ui.separator();
                                     ui.weak("Defaults for New archive and Add to archive; each operation can override them.");
                                     ui.checkbox(&mut archive_defaults.metadata, "Preserve platform-specific metadata");
                                     ui.checkbox(&mut archive_defaults.dates, "Save modification times");

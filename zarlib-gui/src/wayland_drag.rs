@@ -19,6 +19,7 @@ struct Seat {
     pointer: Option<wl_pointer::WlPointer>,
     device: Option<wl_data_device::WlDataDevice>,
     drag_offer: Option<wl_data_offer::WlDataOffer>,
+    drag_position: Option<egui::Pos2>,
     selection_offer: Option<wl_data_offer::WlDataOffer>,
     pointer_state: PointerState,
 }
@@ -59,7 +60,7 @@ struct State {
     errors: mpsc::Sender<String>,
     context: egui::Context,
     offers: HashMap<ObjectId, OfferInfo>,
-    transfers: HashMap<u64, wl_data_offer::WlDataOffer>,
+    transfers: HashMap<u64, (wl_data_offer::WlDataOffer, Option<egui::Pos2>)>,
     transfer_sender: mpsc::Sender<(u64, Result<Vec<PathBuf>, String>)>,
     next_transfer: u64,
 }
@@ -70,7 +71,7 @@ pub struct WaylandDrag {
     state: State,
     errors: mpsc::Receiver<String>,
     transfer_receiver: mpsc::Receiver<(u64, Result<Vec<PathBuf>, String>)>,
-    dropped_paths: Vec<Vec<PathBuf>>,
+    dropped_paths: Vec<(Vec<PathBuf>, Option<egui::Pos2>)>,
 }
 
 #[derive(Default)]
@@ -155,11 +156,11 @@ impl WaylandDrag {
             .dispatch_pending(&mut self.state)
             .map_err(|error| error.to_string())?;
         while let Ok((id, result)) = self.transfer_receiver.try_recv() {
-            if let Some(offer) = self.state.transfers.remove(&id) {
+            if let Some((offer, position)) = self.state.transfers.remove(&id) {
                 match result {
                     Ok(paths) => {
                         offer.finish();
-                        self.dropped_paths.push(paths);
+                        self.dropped_paths.push((paths, position));
                     }
                     Err(error) => {
                         let _ = self.state.errors.send(error);
@@ -176,7 +177,7 @@ impl WaylandDrag {
         Ok(())
     }
 
-    pub fn take_dropped_paths(&mut self) -> Vec<Vec<PathBuf>> {
+    pub fn take_dropped_paths(&mut self) -> Vec<(Vec<PathBuf>, Option<egui::Pos2>)> {
         std::mem::take(&mut self.dropped_paths)
     }
 
@@ -241,7 +242,7 @@ impl Drop for WaylandDrag {
         if let Some(source) = self.state.active.take() {
             source.destroy();
         }
-        for (_, offer) in self.state.transfers.drain() {
+        for (_, (offer, _)) in self.state.transfers.drain() {
             offer.destroy();
         }
         for (_, seat) in std::mem::take(&mut self.state.seats) {
@@ -271,7 +272,7 @@ impl Drop for WaylandDrag {
     }
 }
 
-fn uri_list(paths: &[PathBuf]) -> Result<Vec<u8>, String> {
+pub(crate) fn uri_list(paths: &[PathBuf]) -> Result<Vec<u8>, String> {
     let mut result = String::new();
     for path in paths {
         let url = url::Url::from_file_path(path)
@@ -322,7 +323,11 @@ fn parse_uri_list(data: &[u8]) -> Result<Vec<PathBuf>, String> {
 }
 
 impl State {
-    fn receive_drop(&mut self, offer: &wl_data_offer::WlDataOffer) -> Result<(), String> {
+    fn receive_drop(
+        &mut self,
+        offer: &wl_data_offer::WlDataOffer,
+        position: Option<egui::Pos2>,
+    ) -> Result<(), String> {
         let (reader, writer) =
             UnixStream::pair().map_err(|error| format!("Cannot receive dropped files: {error}"))?;
         reader
@@ -353,7 +358,7 @@ impl State {
                 context.request_repaint();
             })
             .map_err(|error| format!("Cannot start drop transfer: {error}"))?;
-        self.transfers.insert(id, offer.clone());
+        self.transfers.insert(id, (offer.clone(), position));
         Ok(())
     }
 }
@@ -405,6 +410,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for State {
                         pointer: None,
                         device,
                         drag_offer: None,
+                        drag_position: None,
                         selection_offer: None,
                         pointer_state: PointerState::default(),
                     },
@@ -577,8 +583,11 @@ impl Dispatch<wl_data_device::WlDataDevice, u32> for State {
                 id,
                 serial,
                 surface,
+                x,
+                y,
                 ..
             } => {
+                seat.drag_position = Some(egui::pos2(x as f32, y as f32));
                 if let Some(offer) = &id {
                     let acceptable = state.active.is_none()
                         && surface.id().protocol_id() == state.surface.id().protocol_id()
@@ -603,19 +612,21 @@ impl Dispatch<wl_data_device::WlDataDevice, u32> for State {
                 }
             }
             wl_data_device::Event::Leave => {
+                seat.drag_position = None;
                 if let Some(offer) = seat.drag_offer.take() {
                     state.offers.remove(&offer.id());
                     offer.destroy();
                 }
             }
             wl_data_device::Event::Drop => {
+                let position = seat.drag_position.take();
                 if let Some(offer) = seat.drag_offer.take() {
                     let accepted = state.offers.get(&offer.id()).is_some_and(|info| {
                         info.accepted
                             && info.action == Some(wl_data_device_manager::DndAction::Copy)
                     });
                     let result = if accepted {
-                        state.receive_drop(&offer)
+                        state.receive_drop(&offer, position)
                     } else {
                         Err("The dropped files could not be accepted for copying".into())
                     };
@@ -625,6 +636,9 @@ impl Dispatch<wl_data_device::WlDataDevice, u32> for State {
                         offer.destroy();
                     }
                 }
+            }
+            wl_data_device::Event::Motion { x, y, .. } => {
+                seat.drag_position = Some(egui::pos2(x as f32, y as f32));
             }
             wl_data_device::Event::Selection { id } => {
                 if let Some(old) = std::mem::replace(&mut seat.selection_offer, id) {

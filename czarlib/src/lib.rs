@@ -428,9 +428,11 @@ fn check(request: &Value) -> Result<Value, String> {
 }
 
 fn info(request: &Value) -> Result<Value, String> {
-    let commits = operations::info_archive(
+    let passwords = passwords(request)?;
+    let commits = operations::info_archive_with_passwords(
         required_string(request, "archive")?,
         bool_option(request, "verbose", false)?,
+        &passwords,
     )
     .map_err(|error| error.to_string())?;
     let result = commits
@@ -482,6 +484,7 @@ fn info(request: &Value) -> Result<Value, String> {
                 "size": commit.size,
                 "header_size": commit.header_size,
                 "data_size": commit.data_size,
+                "cross_commit_reference_count": commit.cross_commit_references.as_ref().map(Vec::len),
                 "uncompressed_size": commit.uncompressed_size,
                 "ratio_percent": commit.ratio_percent,
                 "header_encrypted": commit.header_encrypted,
@@ -496,6 +499,20 @@ fn info(request: &Value) -> Result<Value, String> {
         })
         .collect::<Vec<_>>();
     Ok(json!(result))
+}
+
+fn references(request: &Value) -> Result<Value, String> {
+    let passwords = passwords(request)?;
+    let references = operations::cross_commit_references_with_passwords(
+        required_string(request, "archive")?,
+        &passwords,
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(json!(references.into_iter().map(|reference| json!({
+        "referencing_commit": format!("{:08x}", u32::from_le_bytes(reference.referencing_commit)),
+        "source_commit": format!("{:08x}", u32::from_le_bytes(reference.source_commit)),
+        "path": reference.path.as_str(),
+    })).collect::<Vec<_>>()))
 }
 
 fn list(request: &Value) -> Result<Value, String> {
@@ -677,6 +694,7 @@ fn execute(operation: &str, request: &Value) -> Result<Value, String> {
         "decrypt_archive_commits" => decrypt_commits(request),
         "check_archive" => check(request),
         "info_archive" => info(request),
+        "cross_commit_references" => references(request),
         "list_archive" => list(request),
         "extract_archive" => extract(request),
         "extract_archive_to_memory" => extract_to_memory(request),
@@ -784,6 +802,32 @@ pub unsafe extern "C" fn czarlib_string_free(value: *mut c_char) {
 mod tests {
     use super::execute_json;
     use std::io::Write;
+
+    #[test]
+    fn reports_cross_commit_references_and_info_counts() {
+        let directory = tempfile::tempdir().unwrap();
+        let first = directory.path().join("first.txt");
+        let second = directory.path().join("second.txt");
+        let archive = directory.path().join("archive.zar");
+        std::fs::write(&first, b"the same content").unwrap();
+        std::fs::write(&second, b"the same content").unwrap();
+        for (operation, path) in [("create_archive", first), ("add_archive", second)] {
+            execute_json(
+                operation,
+                &serde_json::json!({"archive": archive, "paths": [path]}).to_string(),
+            )
+            .unwrap();
+        }
+        let request = serde_json::json!({"archive": archive}).to_string();
+        let references: serde_json::Value =
+            serde_json::from_str(&execute_json("cross_commit_references", &request).unwrap())
+                .unwrap();
+        assert_eq!(references.as_array().unwrap().len(), 1);
+        assert_eq!(references[0]["path"], "second.txt");
+        let info: serde_json::Value =
+            serde_json::from_str(&execute_json("info_archive", &request).unwrap()).unwrap();
+        assert_eq!(info[1]["cross_commit_reference_count"], 1);
+    }
 
     #[test]
     fn timestamp_options_and_renamed_key_are_checked() {

@@ -9,6 +9,9 @@ encryption settings, and support boundaries. Create and Add requests may include
 `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz` source paths; their contents are
 imported into the resulting ZAR using the source archive's internal paths.
 
+`ZarLibrary.crossCommitReferences(requestJson)` returns the shared JSON
+reference inventory, and `infoArchive` reports per-commit reference counts.
+
 The FFM wrapper provides `readCustomMetadata` and `updateCustomMetadata` for
 archive-level custom key/value metadata. Reading returns the effective values
 as a JSON object; updating accepts a `set` object and/or `remove` array and

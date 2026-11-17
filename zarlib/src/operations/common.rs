@@ -3,7 +3,7 @@ use crate::{
     EncryptionDescriptor, EntryMetadata, HEADER_OFFSET_SIZE, HeaderFrame, MetadataType,
     ValidatedCommit, ValidatedHeader, unwrap_dek_with_password_zeroizing,
 };
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -827,7 +827,11 @@ pub fn ensure_archive_unencrypted(archive_path: &Path) -> Result<(), Box<dyn std
     let limits = CommitValidationLimits::default();
     let first_header_offset = read_first_header_offset(&mut file)?;
     let mut header_offset = first_header_offset;
+    let mut visited = HashSet::new();
     while header_offset != 0 {
+        if !visited.insert(header_offset) {
+            return Err("archive commit chain contains a cycle".into());
+        }
         file.seek(SeekFrom::Start(header_offset))?;
         let header_frame = HeaderFrame::read_from(&mut file, limits.max_frame_payload_size)?;
         let (descriptor, _) = EncryptionDescriptor::decode(&header_frame.encryption_descriptor)?;

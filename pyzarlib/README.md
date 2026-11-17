@@ -4,6 +4,11 @@
 The package exposes high-level create, add, remove, join, undo, commit
 encryption/decryption, custom metadata read/update, check, info, list, and
 extract operations.
+
+`cross_commit_references(archive, password=None, passwords=None)` returns all
+referencing and source commit IDs and paths. `info_archive` returns a
+`cross_commit_reference_count` per commit and accepts the same password
+arguments; a locked header has a count of `None`.
 ZIP, 7z, RAR, ISO, TAR, TAR.GZ, TGZ, and GZ paths in `create_archive` and `add_archive` are
 imported by their internal entry paths. Encrypted ZIP/7z/RAR sources and
 ZIP/7z/RAR links are not supported. Multi-volume RAR archives and RAR special

@@ -19,6 +19,7 @@ One-letter shortcuts are shown in the table.
 | `create` | `c` |
 | `add` | `a` |
 | `remove` | `r` |
+| `rename` (`move`) | - |
 | `join` | `j` |
 | `remove-commits` | - |
 | `convert` | - |
@@ -27,6 +28,7 @@ One-letter shortcuts are shown in the table.
 | `decrypt` | - |
 | `check` | `k` |
 | `info` | `i` |
+| `references` | - |
 | `list` | `l` |
 | `extract` | `e` |
 
@@ -35,6 +37,13 @@ For example, `zarc a backup.zar new-file.txt` is equivalent to
 `create`.
 
 ## Common workflows
+
+Rename or move an entry by recording a new commit without recompressing its data:
+
+```sh
+zarc rename backup.zar old.txt new.txt
+zarc move backup.zar new.txt docs/new.txt
+```
 
 ### Create an archive
 
@@ -231,6 +240,7 @@ zarc list backup.zar --to 00000002
 zarc info backup.zar
 zarc info -v backup.zar
 zarc info --json backup.zar
+zarc references backup.zar
 zarc check backup.zar
 zarc check --password backup.zar
 zarc check --recover backup.zar
@@ -252,6 +262,12 @@ zarc check --recover backup.zar
   `add --user` store the current OS username with the new commit; commit
   timestamps are always recorded. These statistics use frame metadata and do not
   verify or decompress data payloads.
+- `references` lists each historical reference as referencing commit, source
+  commit, and archive path. `info` includes per-commit and total reference
+  counts; `--json` uses `null` when an encrypted header is unavailable. Use
+  `--password` or repeated `--password-for ID` with either command to unlock
+  encrypted headers. Removing a source commit is rejected while a retained
+  commit refers to it; the error identifies the references.
 - `check` validates framing, readable TOC updates, block references, and
   checksums; it decompresses unencrypted blocks and checks decoded file sizes.
   Pass `--password` to authenticate/decrypt encrypted content. Without the

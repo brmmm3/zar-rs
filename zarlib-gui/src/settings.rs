@@ -144,6 +144,8 @@ pub struct Settings {
     pub default_block_size: String,
     pub default_compression_level: i32,
     pub default_encryption_method: DefaultEncryptionMethod,
+    pub validate_blocks_before_extraction: bool,
+    pub validate_blocks_on_extraction: bool,
     pub archive_defaults: ArchiveDefaults,
     pub column_widths: BTreeMap<String, f32>,
     pub recent_archives: Vec<String>,
@@ -190,6 +192,8 @@ impl Default for Settings {
             default_block_size: "8M".to_owned(),
             default_compression_level: 3,
             default_encryption_method: DefaultEncryptionMethod::Aes256Gcm,
+            validate_blocks_before_extraction: false,
+            validate_blocks_on_extraction: true,
             archive_defaults: ArchiveDefaults::default(),
             column_widths: BTreeMap::new(),
             recent_archives: Vec::new(),
@@ -309,6 +313,12 @@ impl Settings {
                         settings.default_encryption_method = method;
                     }
                 }
+                "validate_blocks_before_extraction" => {
+                    settings.validate_blocks_before_extraction = value == "true"
+                }
+                "validate_blocks_on_extraction" => {
+                    settings.validate_blocks_on_extraction = value == "true"
+                }
                 "default_metadata" => settings.archive_defaults.metadata = value == "true",
                 "default_dates" => settings.archive_defaults.dates = value == "true",
                 "default_creation_time" => {
@@ -412,6 +422,14 @@ impl Settings {
             "default_encryption_method={}\n",
             self.default_encryption_method.as_setting()
         ));
+        text.push_str(&format!(
+            "validate_blocks_before_extraction={}\n",
+            self.validate_blocks_before_extraction
+        ));
+        text.push_str(&format!(
+            "validate_blocks_on_extraction={}\n",
+            self.validate_blocks_on_extraction
+        ));
         let defaults = &self.archive_defaults;
         text.push_str(&format!(
             "default_metadata={}\ndefault_dates={}\ndefault_creation_time={}\ndefault_access_time={}\ndefault_special_files={}\ndefault_strict={}\ndefault_save_user={}\n",
@@ -487,6 +505,8 @@ mod tests {
             default_block_size: "16M".to_owned(),
             default_compression_level: 12,
             default_encryption_method: DefaultEncryptionMethod::ChaCha20Poly1305,
+            validate_blocks_before_extraction: true,
+            validate_blocks_on_extraction: false,
             archive_defaults: ArchiveDefaults {
                 metadata: true,
                 dates: true,

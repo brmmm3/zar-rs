@@ -1091,7 +1091,7 @@ impl ZargApp {
         })
     }
 
-    fn render_extract_advanced(&mut self, ui: &mut egui::Ui) -> [egui::Response; 5] {
+    fn render_extract_advanced(&mut self, ui: &mut egui::Ui) -> [egui::Response; 6] {
         [
             ui.checkbox(&mut self.operation.dry_run, "Dry run"),
             ui.checkbox(&mut self.operation.metadata, "Restore metadata"),
@@ -1104,6 +1104,11 @@ impl ZargApp {
                 &mut self.operation.strip_top_level,
                 "Skip top-level folder (extract its contents directly)",
             ),
+            ui.checkbox(
+                &mut self.operation.skip_unselected_frame_validation,
+                "Skip validation of unselected frames",
+            )
+            .on_hover_text("Uses the block index when available. Selected frames are still validated; corruption in unselected frames may go undetected."),
         ]
     }
 
@@ -1356,6 +1361,9 @@ impl ZargApp {
     fn render_add_archive_tab_contents(&mut self, ui: &mut egui::Ui) {
         match self.operation.add_archive_tab {
             AddArchiveTab::Files => {
+                if let Some(folder) = &self.operation.input_archive_folder {
+                    ui.label(format!("Archive folder: {}", folder.as_str()));
+                }
                 self.render_add_archive_files(ui);
             }
             AddArchiveTab::Compression => {

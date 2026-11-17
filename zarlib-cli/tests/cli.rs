@@ -87,6 +87,87 @@ fn cli_process_creates_lists_and_extracts_with_filters() {
 }
 
 #[test]
+fn cli_reports_cross_commit_references_and_blocks_source_removal() {
+    let temp = TestDirectory::new();
+    let first = temp.path().join("first.txt");
+    let duplicate = temp.path().join("duplicate.txt");
+    let archive = temp.path().join("archive.zar");
+    std::fs::write(&first, b"identical content").unwrap();
+    std::fs::write(&duplicate, b"identical content").unwrap();
+    let created = zarc([OsStr::new("create"), archive.as_os_str(), first.as_os_str()]);
+    assert!(created.status.success(), "{created:?}");
+    let added = zarc([
+        OsStr::new("add"),
+        archive.as_os_str(),
+        duplicate.as_os_str(),
+    ]);
+    assert!(added.status.success(), "{added:?}");
+    let references = zarc([OsStr::new("references"), archive.as_os_str()]);
+    assert!(references.status.success(), "{references:?}");
+    let references = String::from_utf8(references.stdout).unwrap();
+    assert!(references.contains("00000002\t00000001\tduplicate.txt"));
+    let info = zarc([
+        OsStr::new("info"),
+        OsStr::new("--json"),
+        archive.as_os_str(),
+    ]);
+    assert!(info.status.success(), "{info:?}");
+    assert!(
+        String::from_utf8(info.stdout)
+            .unwrap()
+            .contains("\"cross_commit_reference_count\":1")
+    );
+    let before = std::fs::read(&archive).unwrap();
+    let removed = zarc([
+        OsStr::new("remove-commits"),
+        archive.as_os_str(),
+        OsStr::new("00000001"),
+    ]);
+    assert!(!removed.status.success());
+    let error = String::from_utf8(removed.stderr).unwrap();
+    assert!(
+        error.contains("00000001") && error.contains("00000002") && error.contains("duplicate.txt")
+    );
+    assert_eq!(std::fs::read(archive).unwrap(), before);
+}
+
+#[test]
+fn cli_rename_and_move_preserve_file_contents() {
+    let temp = TestDirectory::new();
+    let first = temp.path().join("first.txt");
+    let archive = temp.path().join("archive.zar");
+    std::fs::write(&first, b"rename contents").unwrap();
+    let created = zarc([OsStr::new("create"), archive.as_os_str(), first.as_os_str()]);
+    assert!(created.status.success(), "{created:?}");
+    let renamed = zarc([
+        OsStr::new("rename"),
+        archive.as_os_str(),
+        OsStr::new("first.txt"),
+        OsStr::new("renamed.txt"),
+    ]);
+    assert!(renamed.status.success(), "{renamed:?}");
+    let moved = zarc([
+        OsStr::new("move"),
+        archive.as_os_str(),
+        OsStr::new("renamed.txt"),
+        OsStr::new("folder/moved.txt"),
+    ]);
+    assert!(moved.status.success(), "{moved:?}");
+    let output = temp.path().join("output");
+    let extracted = zarc([
+        OsStr::new("extract"),
+        archive.as_os_str(),
+        OsStr::new("--output"),
+        output.as_os_str(),
+    ]);
+    assert!(extracted.status.success(), "{extracted:?}");
+    assert_eq!(
+        std::fs::read(output.join("folder/moved.txt")).unwrap(),
+        b"rename contents"
+    );
+}
+
+#[test]
 fn cli_process_reports_help_and_error_exit_codes() {
     let help = zarc(["--help"]);
     assert!(help.status.success());

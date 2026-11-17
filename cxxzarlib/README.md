@@ -11,6 +11,9 @@ requests may include `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz` source paths;
 their contents are imported into the resulting ZAR using the source archive's
 internal paths.
 
+Call `execute_json("cross_commit_references", request)` to enumerate references;
+the request and result are described in the C binding guide.
+
 The C++ wrapper's `execute_json` dispatcher supports archive-level custom
 key/value metadata through `read_custom_metadata` and
 `update_custom_metadata`. For example:

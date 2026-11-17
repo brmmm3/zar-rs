@@ -205,6 +205,7 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
     let mut changes = Vec::new();
     let mut next_block_index = 0_u32;
     let mut block_sizes = std::collections::HashMap::<u32, u64>::new();
+    let mut block_index = Vec::new();
     let mut seen_paths = std::collections::BTreeSet::new();
     let mut entry_metadata = Vec::new();
     let mut scan_policy = ScanPolicy {
@@ -258,6 +259,7 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
     let mut scan_context = ScanContext {
         changes: &mut changes,
         data: &mut archive,
+        block_index: &mut block_index,
         next_block_index: &mut next_block_index,
         block_sizes: &mut block_sizes,
         seen_paths: &mut seen_paths,
@@ -269,6 +271,7 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
         save_metadata,
         action: "Creating",
         encryption,
+        historical_duplicates: None,
     };
     let scanned_inputs = super::archive_input::scan_input_paths(paths, &cwd, parent, progress)?;
     ProgressReporter::new(progress).check_cancelled()?;
@@ -294,6 +297,7 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
     let data_section_size = archive.stream_position()? - commit_data_start - HEADER_OFFSET_SIZE;
 
     let logical_header = LogicalHeader::with_block_size(changes, options.block_size as u32)
+        .with_block_index(block_index)
         .with_entry_metadata(finalize_entry_metadata(
             entry_metadata,
             save_modification_time,

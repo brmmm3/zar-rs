@@ -113,10 +113,30 @@ starting at that offset.
 This allows multiple small files to share a block. Without an offset, the file
 consists of the complete contents of its referenced blocks.
 
+Logical-header version 9 appends a block index after the TOC records. It
+contains a little-endian `u32` count followed by entries consisting of a
+`u32` block index, a `u64` offset relative to the commit's data-section start,
+and a `u64` encoded frame length. Entries describe consecutive frames in
+physical order. Version 8 has no block index and remains readable, but
+single-file extraction must scan its block frames to discover their offsets.
+Readers that only support version 8 cannot read version 9 headers.
+
+Logical-header version 10 represents file data stored by an earlier commit.
+Each file record appends a one-byte source marker after the optional in-block
+offset: `0` means local data and `1` is followed by the four-byte source commit
+ID. The referenced file record must match a local file record in that earlier
+commit, including its size, checksum, block indices, and in-block offset.
+References do not chain through another reference. After the TOC records, a
+one-byte marker indicates whether a version 9 block index follows (`0` absent,
+`1` present). Other marker values are invalid. Writers use version 10 only
+when a commit contains a cross-commit reference; older readers cannot read
+those commits. Readers continue to support versions 8 and 9.
+
 ## Data block frame
 
 The data section is a sequence of block frames. A file entry in the logical
-header refers to one or more block indices local to that commit. Blocks may
+header refers to one or more block indices in that commit, or in its earlier
+source commit when a version 10 source marker is present. Blocks may
 be compressed or stored uncompressed; encrypted blocks carry a nonce.
 
 ```plantuml
@@ -170,6 +190,9 @@ end note
 - Block checksums cover stored payload bytes; the header checksum covers the
   header payload bytes. Encrypted payloads also require successful AEAD
   authentication to read.
+- Indexed single-file extraction validates the index and selected frames, but
+  does not inspect unrelated frames. Use the archive check operation to
+  validate all frames and compare them with the index.
 
 The frame definitions are implemented in
 [`zarlib/src/lib.rs`](../zarlib/src/lib.rs) and

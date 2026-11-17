@@ -41,17 +41,26 @@ fn entered_passwords(rows: &[OpenPasswordRow]) -> BTreeMap<[u8; 4], String> {
         .collect()
 }
 
+#[cfg(test)]
 fn verify_unlock_passwords(
     archive: &str,
     passwords: BTreeMap<[u8; 4], String>,
 ) -> Result<BTreeMap<[u8; 4], String>, String> {
-    operations::list_archive_with_details_and_passwords(
-        archive,
-        None,
-        &password_set(&passwords, None),
-    )
-    .map(|_| passwords)
-    .map_err(|error| error.to_string())
+    verify_unlock_passwords_with_overlay(archive, None, passwords)
+}
+
+fn verify_unlock_passwords_with_overlay(
+    archive: &str,
+    overlay: Option<&str>,
+    passwords: BTreeMap<[u8; 4], String>,
+) -> Result<BTreeMap<[u8; 4], String>, String> {
+    let set = password_set(&passwords, None);
+    let result = if let Some(overlay) = overlay {
+        operations::list_archive_with_overlay_and_passwords(archive, overlay, &set)
+    } else {
+        operations::list_archive_with_details_and_passwords(archive, None, &set)
+    };
+    result.map(|_| passwords).map_err(|error| error.to_string())
 }
 
 fn render_rows(ui: &mut egui::Ui, rows: &mut [OpenPasswordRow], busy: bool) -> egui::Response {
@@ -165,7 +174,19 @@ impl ZargApp {
 impl ZargApp {
     pub(in crate::ui) fn show_unlock_commits(&mut self) {
         match operations::info_archive(&self.read_archive, false) {
-            Ok(commits) => {
+            Ok(mut commits) => {
+                if self.has_unsaved_changes
+                    && let Some(cache) = &self.overlay_cache
+                {
+                    match operations::info_archive(&cache.path().to_string_lossy(), false) {
+                        Ok(overlay) => commits.extend(overlay),
+                        Err(error) => {
+                            self.status = format!("Cannot read undo cache commits: {error}");
+                            self.report = Some(self.status.clone());
+                            return;
+                        }
+                    }
+                }
                 let rows = commits
                     .into_iter()
                     .map(|commit| {
@@ -300,12 +321,18 @@ impl ZargApp {
         } else if submit {
             let passwords = dialog.passwords();
             let archive = self.read_archive.clone();
+            let overlay = self
+                .overlay_cache
+                .as_ref()
+                .filter(|_| self.has_unsaved_changes)
+                .map(|cache| cache.path().to_string_lossy().into_owned());
             let (sender, receiver) = mpsc::channel();
             dialog.result = Some(receiver);
             dialog.error = None;
             dialog.busy = true;
             std::thread::spawn(move || {
-                let result = verify_unlock_passwords(&archive, passwords);
+                let result =
+                    verify_unlock_passwords_with_overlay(&archive, overlay.as_deref(), passwords);
                 let _ = sender.send(result);
             });
         }
@@ -371,6 +398,65 @@ mod tests {
             .get(&id)
             .map(String::as_str),
             Some("correct password")
+        );
+    }
+
+    #[test]
+    fn unlock_dialog_includes_encrypted_overlay_commits() {
+        let directory = tempfile::tempdir().unwrap();
+        let archive = directory.path().join("base.zar");
+        let original = directory.path().join("original.txt");
+        let added = directory.path().join("added.txt");
+        std::fs::write(&original, b"original").unwrap();
+        std::fs::write(&added, b"added").unwrap();
+        operations::create_archive(archive.to_str().unwrap(), &[original]).unwrap();
+        let cache = OverlayCache::new(&archive).unwrap();
+        let overlay = cache.path().to_string_lossy().into_owned();
+        let archive = archive.to_string_lossy().into_owned();
+        let passwords = PasswordSet::new(Some(b"secret".to_vec()));
+        operations::add_overlay_with_encoding_progress_and_filters_and_encryption(
+            &archive,
+            &overlay,
+            &[added],
+            EncodingOptions::default(),
+            None,
+            AddInputOptions::default(),
+            &FilterSet::default(),
+            Some((
+                b"secret",
+                ContentAead::Aes256Gcm,
+                EncryptionScope::HeaderAndData,
+            )),
+            &passwords,
+        )
+        .unwrap();
+        let mut app = ZargApp {
+            archive: archive.clone(),
+            read_archive: archive.clone(),
+            overlay_cache: Some(cache),
+            has_unsaved_changes: true,
+            ..Default::default()
+        };
+        app.show_unlock_commits();
+        let dialog = app.unlock_commits_dialog.as_ref().unwrap();
+        assert_eq!(dialog.rows.len(), 2);
+        let id = dialog.rows[1].id;
+        assert!(dialog.rows[1].encrypted);
+        assert!(
+            verify_unlock_passwords_with_overlay(
+                &archive,
+                Some(&overlay),
+                BTreeMap::from([(id, "wrong".to_owned())]),
+            )
+            .is_err()
+        );
+        assert!(
+            verify_unlock_passwords_with_overlay(
+                &archive,
+                Some(&overlay),
+                BTreeMap::from([(id, "secret".to_owned())]),
+            )
+            .is_ok()
         );
     }
 

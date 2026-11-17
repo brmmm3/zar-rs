@@ -1,12 +1,12 @@
 use super::common::{
     PasswordSet, TEMP_FILE_ID, TemporaryFiles, parse_commit_id, read_commit_at_offset,
-    read_first_header_offset, unique_temp_file_id,
+    read_first_header_offset, read_header_with_passwords, unique_temp_file_id,
 };
 use crate::{
     BlockFrame, CommitHeader, CommitValidationLimits, ContentAead, EncryptionDescriptor,
     EncryptionScope, HEADER_OFFSET_SIZE, HeaderFrame, ValidatedCommit,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -192,7 +192,49 @@ fn transform_archive_commits(
             )
             .into());
         }
-        selected[index] = should_transform;
+        selected[index] = should_transform
+            && (!encrypted
+                || passwords
+                    .password_for(&commit.commit_header.commit_id)
+                    .is_some());
+    }
+
+    let commit_indices: HashMap<_, _> = commits
+        .iter()
+        .enumerate()
+        .map(|(index, commit)| (commit.commit_header.commit_id, index))
+        .collect();
+    for (index, commit) in commits.iter().enumerate() {
+        input.seek(SeekFrom::Start(commit.header_offset))?;
+        let (header, _) = read_header_with_passwords(&mut input, limits, passwords)?;
+        if let Some(header) = header.logical_header {
+            for change in header.changes {
+                if let crate::TocChange::PutFile { path, entry } = change
+                    && let Some(source) = entry.source_commit
+                {
+                    let source_index =
+                        *commit_indices.get(&source).ok_or("missing source commit")?;
+                    if selected[index] != selected[source_index] {
+                        return Err(format!("cannot transform only one side of cross-commit reference: commit {:08x}, path {path}, source {:08x}", u32::from_le_bytes(commit.commit_header.commit_id), u32::from_le_bytes(source)).into());
+                    }
+                    if selected[index]
+                        && (passwords.password_for(&source).is_none()
+                            && commit_is_encrypted(&mut input, &commits[source_index], limits)?
+                            || passwords
+                                .password_for(&commit.commit_header.commit_id)
+                                .is_none()
+                                && commit_is_encrypted(&mut input, commit, limits)?)
+                    {
+                        return Err(
+                            "passwords are required for both sides of a cross-commit reference"
+                                .into(),
+                        );
+                    }
+                }
+            }
+        } else if selected.iter().take(index + 1).any(|selected| *selected) {
+            return Err(format!("cannot check cross-commit references in encrypted commit {:08x}; provide its password", u32::from_le_bytes(commit.commit_header.commit_id)).into());
+        }
     }
 
     let id = TEMP_FILE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -419,8 +461,10 @@ fn transform_commit(
             .uncompressed(limits.max_logical_header_size)
             .map_err(|error| format!("cannot read commit header: {error}"))?
     });
+    let logical_header = crate::LogicalHeader::decode(&header_bytes)?;
 
     let output_data_start = output.stream_position()?;
+    let mut block_index = Vec::new();
     let (new_descriptor, new_key) = match transform {
         Transform::Encrypt {
             password,
@@ -502,9 +546,20 @@ fn transform_commit(
             )
             .map_err(|error| format!("cannot encode data block: {error}"))?
         };
+        let offset = output
+            .stream_position()?
+            .checked_sub(output_data_start)
+            .ok_or("output data offset underflow")?;
+        let encoded_size = u64::try_from(new_frame.encoded_size()?)?;
         new_frame.write_to(output)?;
+        block_index.push(crate::HeaderBlockIndexEntry {
+            index: new_frame.block_index,
+            offset,
+            encoded_size,
+        });
     }
 
+    let header_bytes = Zeroizing::new(logical_header.with_block_index(block_index).encode()?);
     let output_data_size = output
         .stream_position()?
         .checked_sub(output_data_start)
@@ -811,6 +866,15 @@ mod tests {
 
         let passwords = PasswordSet::new(Some(b"new password".to_vec()));
         list_archive_with_passwords(output.to_str().unwrap(), None, &passwords).unwrap();
+        let extracted = directory.path().join("extracted.txt");
+        crate::operations::extract_single_file(
+            output.to_str().unwrap(),
+            "second.txt",
+            &extracted,
+            &passwords,
+        )
+        .unwrap();
+        assert_eq!(fs::read(&extracted).unwrap(), b"second contents");
         decrypt_archive_commits(
             output.to_str().unwrap(),
             range("00000002", "00000003", None, &passwords, true),
@@ -820,6 +884,14 @@ mod tests {
         assert!(decrypted_info.iter().all(|commit| !commit.header_encrypted));
         list_archive_with_passwords(output.to_str().unwrap(), None, &PasswordSet::default())
             .unwrap();
+        crate::operations::extract_single_file(
+            output.to_str().unwrap(),
+            "second.txt",
+            &extracted,
+            &PasswordSet::default(),
+        )
+        .unwrap();
+        assert_eq!(fs::read(&extracted).unwrap(), b"second contents");
     }
 
     #[test]

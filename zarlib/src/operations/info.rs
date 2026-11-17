@@ -1,4 +1,5 @@
 use super::common::*;
+use super::remove_commits::CrossCommitReference;
 use crate::{
     BLOCK_FLAG_ENCRYPTED, BlockFrame, CommitValidationLimits, ContainerHeader, ContentAead,
     FileEntry, FileGroupKind, HEADER_OFFSET_SIZE, LogicalHeader, MetadataType, TocChange,
@@ -24,6 +25,7 @@ pub struct CommitInfo {
     pub ratio_percent: Option<f64>,
     pub header_compression: Option<HeaderCompressionStats>,
     pub header_changes: Option<HeaderChangeStats>,
+    pub cross_commit_references: Option<Vec<CrossCommitReference>>,
     pub created_unix_millis: Option<i64>,
     pub user: Option<String>,
     pub details: Option<CommitFileStats>,
@@ -93,12 +95,18 @@ pub fn info_archive(
     path: &str,
     verbose: bool,
 ) -> Result<Vec<CommitInfo>, Box<dyn std::error::Error>> {
-    Ok(
-        read_archive_info(path, verbose, false, &PasswordSet::default())?
-            .into_iter()
-            .map(|details| details.commit)
-            .collect(),
-    )
+    info_archive_with_passwords(path, verbose, &PasswordSet::default())
+}
+
+pub fn info_archive_with_passwords(
+    path: &str,
+    verbose: bool,
+    passwords: &PasswordSet,
+) -> Result<Vec<CommitInfo>, Box<dyn std::error::Error>> {
+    Ok(read_archive_info(path, verbose, false, passwords)?
+        .into_iter()
+        .map(|details| details.commit)
+        .collect())
 }
 
 /// Like [`info_archive`], with per-block compression details when `verbose` is true.
@@ -153,6 +161,24 @@ fn read_archive_info(
             .logical_header
             .as_ref()
             .map(summarize_header_changes);
+        let cross_commit_references = validated.logical_header.as_ref().map(|header| {
+            header
+                .changes
+                .iter()
+                .filter_map(|change| match change {
+                    TocChange::PutFile { path, entry } => {
+                        entry
+                            .source_commit
+                            .map(|source_commit| CrossCommitReference {
+                                referencing_commit: commit_header.commit_id,
+                                source_commit,
+                                path: path.clone(),
+                            })
+                    }
+                    _ => None,
+                })
+                .collect()
+        });
         let created_unix_millis = validated
             .logical_header
             .as_ref()
@@ -233,6 +259,7 @@ fn read_archive_info(
                 ratio_percent,
                 header_compression,
                 header_changes,
+                cross_commit_references,
                 created_unix_millis,
                 user,
                 details,
@@ -310,7 +337,9 @@ fn scan_commit_blocks(
     let mut files_by_block = HashMap::<u32, u64>::new();
     if let Some(header) = header {
         for change in &header.changes {
-            if let TocChange::PutFile { entry, .. } = change {
+            if let TocChange::PutFile { entry, .. } = change
+                && entry.source_commit.is_none()
+            {
                 let group = file_group_name(header, entry);
                 for &index in &entry.block_indices {
                     groups_by_block.entry(index).or_default().insert(group);
@@ -444,11 +473,12 @@ pub fn summarize_commit_header_only(
         let group = stats.groups.entry(name).or_default();
         group.files += 1;
         let is_duplicate = entry.size > 0
-            && !seen_files.insert((
-                entry.size,
-                entry.block_indices.as_slice(),
-                entry.offset_in_block,
-            ));
+            && (entry.source_commit.is_some()
+                || !seen_files.insert((
+                    entry.size,
+                    entry.block_indices.as_slice(),
+                    entry.offset_in_block,
+                )));
         if is_duplicate {
             stats.deduplicated_files += 1;
             stats.deduplicated_uncompressed_size = stats
@@ -557,11 +587,12 @@ pub fn summarize_commit_files(
         let group = stats.groups.entry(group_name).or_default();
         group.files += 1;
         let is_duplicate = entry.size > 0
-            && !seen_files.insert((
-                entry.size,
-                entry.block_indices.clone(),
-                entry.offset_in_block,
-            ));
+            && (entry.source_commit.is_some()
+                || !seen_files.insert((
+                    entry.size,
+                    entry.block_indices.clone(),
+                    entry.offset_in_block,
+                )));
         if is_duplicate {
             stats.deduplicated_files += 1;
             stats.deduplicated_uncompressed_size = stats
@@ -596,6 +627,99 @@ pub fn summarize_commit_files(
 mod tests {
     use super::*;
     use crate::operations::{EncodingOptions, create_archive_with_password};
+
+    #[test]
+    fn block_size_scan_rejects_duplicate_indices_and_limits() {
+        let mut file = tempfile::tempfile().unwrap();
+        let first = BlockFrame::from_stored(1, b"alpha").unwrap();
+        let second = BlockFrame::from_stored(2, b"beta").unwrap();
+        first.write_to(&mut file).unwrap();
+        second.write_to(&mut file).unwrap();
+        let size = file.metadata().unwrap().len();
+        let limits = CommitValidationLimits::default();
+
+        let sizes = scan_block_sizes(&mut file, 0, size, limits).unwrap();
+        assert_eq!(sizes, HashMap::from([(1, 5), (2, 4)]));
+        assert!(scan_block_sizes(&mut file, 0, size - 1, limits).is_err());
+        let mut restricted = limits;
+        restricted.max_blocks = 1;
+        assert!(scan_block_sizes(&mut file, 0, size, restricted).is_err());
+
+        let mut duplicate_file = tempfile::tempfile().unwrap();
+        first.write_to(&mut duplicate_file).unwrap();
+        first.write_to(&mut duplicate_file).unwrap();
+        let duplicate_size = duplicate_file.metadata().unwrap().len();
+        assert!(scan_block_sizes(&mut duplicate_file, 0, duplicate_size, limits).is_err());
+    }
+
+    #[test]
+    fn summarize_files_counts_groups_deduplication_and_encrypted_blocks() {
+        use crate::{ArchivePath, DeviceKind};
+
+        let path = |name| ArchivePath::new(name).unwrap();
+        let tiny = FileEntry::new(4, vec![1]).unwrap();
+        let header = LogicalHeader::with_block_size(
+            vec![
+                TocChange::PutFile {
+                    path: path("empty"),
+                    entry: FileEntry::new(0, vec![]).unwrap(),
+                },
+                TocChange::PutFile {
+                    path: path("tiny"),
+                    entry: tiny.clone(),
+                },
+                TocChange::PutFile {
+                    path: path("duplicate"),
+                    entry: tiny,
+                },
+                TocChange::PutFile {
+                    path: path("small"),
+                    entry: FileEntry::new(12, vec![2]).unwrap(),
+                },
+                TocChange::PutFile {
+                    path: path("big"),
+                    entry: FileEntry::new(32, vec![3]).unwrap(),
+                },
+                TocChange::PutSymlink {
+                    path: path("link"),
+                    target: "tiny".into(),
+                },
+                TocChange::PutNamedPipe { path: path("pipe") },
+                TocChange::PutDevice {
+                    path: path("device"),
+                    kind: DeviceKind::Character,
+                    major: 1,
+                    minor: 2,
+                },
+                TocChange::RemoveFile {
+                    path: path("removed"),
+                },
+            ],
+            32,
+        );
+        let blocks = HashMap::from([(1, (10, Some(4))), (2, (20, None)), (3, (30, Some(32)))]);
+        let stats = summarize_commit_files(&header, &blocks).unwrap();
+        assert_eq!(stats.groups["empty files"].files, 1);
+        assert_eq!(stats.groups["tiny files"].files, 2);
+        assert_eq!(stats.groups["tiny files"].uncompressed_size, 4);
+        assert_eq!(stats.groups["tiny files"].compressed_size, 10);
+        assert!(stats.groups["small files"].has_encrypted_blocks);
+        assert_eq!(stats.groups["big files"].compressed_size, 30);
+        assert_eq!(stats.deduplicated_files, 1);
+        assert_eq!(stats.deduplicated_uncompressed_size, 4);
+        assert_eq!(
+            (stats.symlinks, stats.named_pipes, stats.devices),
+            (1, 1, 1)
+        );
+        assert_eq!(stats.header_changes.files_removed, 1);
+        let error = summarize_commit_files(&header, &HashMap::new()).unwrap_err();
+        assert!(error.to_string().contains("unavailable block 1"));
+
+        let mut unknown_block_size = header;
+        unknown_block_size.block_size = None;
+        let stats = summarize_commit_files(&unknown_block_size, &blocks).unwrap();
+        assert_eq!(stats.groups["files (block size unknown)"].files, 2);
+    }
 
     #[test]
     fn archive_info_can_unlock_encrypted_commit_headers() {

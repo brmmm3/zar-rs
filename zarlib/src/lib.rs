@@ -33,7 +33,8 @@ pub use frames::{
     BlockFrameMetadata, HeaderFrame, MAX_ENCRYPTION_DESCRIPTOR_SIZE, UNENCRYPTED_DESCRIPTOR,
 };
 pub use header::{
-    EntryMetadata, LogicalHeader, LogicalHeaderError, LogicalHeaderLimits, MetadataType,
+    EntryMetadata, HeaderBlockIndexEntry, LogicalHeader, LogicalHeaderError, LogicalHeaderLimits,
+    MetadataType,
 };
 pub use toc::{DeviceKind, FileEntry, FileGroupKind, Toc, TocChange, TocEntry, TocError};
 

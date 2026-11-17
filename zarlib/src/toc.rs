@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 
 use crate::ArchivePath;
@@ -11,6 +11,8 @@ pub enum TocError {
     WrongEntryKind(ArchivePath),
     FileAncestor(ArchivePath),
     FileHasDescendants(ArchivePath),
+    InvalidSourceCommit { path: ArchivePath, commit: [u8; 4] },
+    DuplicateCommitId([u8; 4]),
 }
 
 impl fmt::Display for TocError {
@@ -30,6 +32,14 @@ impl fmt::Display for TocError {
                     f,
                     "cannot replace a directory with descendants by a file: {path}"
                 )
+            }
+            Self::InvalidSourceCommit { path, commit } => write!(
+                f,
+                "file {path} references missing or mismatched source commit {:08x}",
+                u32::from_le_bytes(*commit)
+            ),
+            Self::DuplicateCommitId(commit) => {
+                write!(f, "duplicate commit ID {:08x}", u32::from_le_bytes(*commit))
             }
         }
     }
@@ -51,6 +61,7 @@ pub struct FileEntry {
     pub block_indices: Vec<u32>,
     pub offset_in_block: Option<u32>,
     pub checksum: Option<u64>,
+    pub source_commit: Option<[u8; 4]>,
 }
 
 impl FileEntry {
@@ -69,6 +80,7 @@ impl FileEntry {
             block_indices,
             offset_in_block: None,
             checksum: None,
+            source_commit: None,
         })
     }
 
@@ -79,6 +91,11 @@ impl FileEntry {
 
     pub fn with_checksum(mut self, checksum: u64) -> Self {
         self.checksum = Some(checksum);
+        self
+    }
+
+    pub fn with_source_commit(mut self, commit: [u8; 4]) -> Self {
+        self.source_commit = Some(commit);
         self
     }
 
@@ -150,11 +167,18 @@ pub enum TocChange {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Toc {
     entries: BTreeMap<ArchivePath, TocEntry>,
+    sources: HashMap<[u8; 4], Vec<FileEntry>>,
+    ambiguous_sources: HashSet<[u8; 4]>,
+    file_origins: BTreeMap<ArchivePath, [u8; 4]>,
 }
 
 impl Toc {
     pub fn get(&self, path: &ArchivePath) -> Option<&TocEntry> {
         self.entries.get(path)
+    }
+
+    pub(crate) fn file_origin(&self, path: &ArchivePath) -> Option<[u8; 4]> {
+        self.file_origins.get(path).copied()
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&ArchivePath, &TocEntry)> {
@@ -167,6 +191,87 @@ impl Toc {
 
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+
+    pub(crate) fn forget_empty_commit(&mut self, commit: [u8; 4]) -> Result<(), TocError> {
+        if self.sources.get(&commit).is_some_and(Vec::is_empty) {
+            self.sources.remove(&commit);
+            Ok(())
+        } else {
+            Err(TocError::DuplicateCommitId(commit))
+        }
+    }
+
+    pub fn apply_archive_commit(
+        &mut self,
+        commit: [u8; 4],
+        changes: &[TocChange],
+    ) -> Result<(), TocError> {
+        self.apply_archive_commit_inner(commit, changes, false)
+    }
+
+    pub(crate) fn apply_overlay_commit(
+        &mut self,
+        commit: [u8; 4],
+        changes: &[TocChange],
+    ) -> Result<(), TocError> {
+        self.apply_archive_commit_inner(commit, changes, true)
+    }
+
+    fn apply_archive_commit_inner(
+        &mut self,
+        commit: [u8; 4],
+        changes: &[TocChange],
+        allow_overlay_collision: bool,
+    ) -> Result<(), TocError> {
+        let collision = self.sources.contains_key(&commit);
+        if collision && !allow_overlay_collision {
+            return Err(TocError::DuplicateCommitId(commit));
+        }
+        for change in changes {
+            if let TocChange::PutFile { path, entry } = change
+                && let Some(source) = entry.source_commit
+            {
+                let mut expected = entry.clone();
+                expected.source_commit = None;
+                if self.ambiguous_sources.contains(&source)
+                    || (collision && source == commit)
+                    || !self
+                        .sources
+                        .get(&source)
+                        .is_some_and(|entries| entries.contains(&expected))
+                {
+                    return Err(TocError::InvalidSourceCommit {
+                        path: path.clone(),
+                        commit: source,
+                    });
+                }
+            }
+        }
+        self.apply_commit(changes)?;
+        for change in changes {
+            if let TocChange::PutFile { path, entry } = change {
+                self.file_origins
+                    .insert(path.clone(), entry.source_commit.unwrap_or(commit));
+            }
+        }
+        self.file_origins
+            .retain(|path, _| matches!(self.entries.get(path), Some(TocEntry::File(_))));
+        let entries = changes
+            .iter()
+            .filter_map(|change| match change {
+                TocChange::PutFile { entry, .. } if entry.source_commit.is_none() => {
+                    Some(entry.clone())
+                }
+                _ => None,
+            })
+            .collect();
+        if collision {
+            self.ambiguous_sources.insert(commit);
+        } else {
+            self.sources.insert(commit, entries);
+        }
+        Ok(())
     }
 
     /// Apply changes after checking new file references against this commit's blocks.
@@ -187,6 +292,7 @@ impl Toc {
     ) -> Result<(), TocError> {
         for change in changes {
             if let TocChange::PutFile { path, entry } = change
+                && entry.source_commit.is_none()
                 && let Some(&block_index) = entry
                     .block_indices
                     .iter()
@@ -608,6 +714,79 @@ mod tests {
         )
         .unwrap();
         assert_eq!(toc.len(), 2);
+    }
+
+    #[test]
+    fn archive_replay_tracks_the_actual_file_origin() {
+        let mut toc = Toc::default();
+        let entry = file(1, &[0]);
+        toc.apply_archive_commit(
+            [1, 0, 0, 0],
+            &[TocChange::PutFile {
+                path: path("first"),
+                entry: entry.clone(),
+            }],
+        )
+        .unwrap();
+        toc.apply_archive_commit(
+            [2, 0, 0, 0],
+            &[TocChange::PutFile {
+                path: path("second"),
+                entry: entry.clone(),
+            }],
+        )
+        .unwrap();
+        toc.apply_archive_commit(
+            [3, 0, 0, 0],
+            &[TocChange::PutFile {
+                path: path("alias"),
+                entry: entry.with_source_commit([1, 0, 0, 0]),
+            }],
+        )
+        .unwrap();
+        assert_eq!(toc.file_origin(&path("first")), Some([1, 0, 0, 0]));
+        assert_eq!(toc.file_origin(&path("second")), Some([2, 0, 0, 0]));
+        assert_eq!(toc.file_origin(&path("alias")), Some([1, 0, 0, 0]));
+        toc.apply_archive_commit(
+            [4, 0, 0, 0],
+            &[TocChange::RemoveFile {
+                path: path("first"),
+            }],
+        )
+        .unwrap();
+        assert_eq!(toc.file_origin(&path("first")), None);
+    }
+
+    #[test]
+    fn overlay_commit_id_collisions_cannot_be_reference_sources() {
+        let mut toc = Toc::default();
+        let commit = [1, 0, 0, 0];
+        let original = file(1, &[2]);
+        toc.apply_archive_commit(
+            commit,
+            &[TocChange::PutFile {
+                path: path("base"),
+                entry: original.clone(),
+            }],
+        )
+        .unwrap();
+        toc.apply_overlay_commit(
+            commit,
+            &[TocChange::PutFile {
+                path: path("overlay"),
+                entry: file(1, &[3]),
+            }],
+        )
+        .unwrap();
+        let result = toc.apply_overlay_commit(
+            [2, 0, 0, 0],
+            &[TocChange::PutFile {
+                path: path("alias"),
+                entry: original.with_source_commit(commit),
+            }],
+        );
+        assert!(matches!(result, Err(TocError::InvalidSourceCommit { .. })));
+        assert!(toc.get(&path("alias")).is_none());
     }
 
     #[test]

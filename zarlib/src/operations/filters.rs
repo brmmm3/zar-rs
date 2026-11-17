@@ -238,6 +238,89 @@ mod tests {
     use super::*;
 
     #[test]
+    fn filter_lists_report_invalid_patterns_and_input_errors() {
+        let directory = tempfile::tempdir().unwrap();
+        let list = directory.path().join("filters.txt");
+        let load = || FilterSet::from_patterns(&[], &[], &[], &[], &[&list]);
+        assert!(
+            load()
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("cannot open filter list")
+        );
+        std::fs::write(&list, b"\n-\n").unwrap();
+        assert!(load().err().unwrap().to_string().contains("empty filter"));
+        std::fs::write(&list, b"\n[\n").unwrap();
+        assert!(
+            load()
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("invalid filter list")
+        );
+        std::fs::write(&list, b"\xff\n").unwrap();
+        assert!(
+            load()
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("cannot read filter list")
+        );
+        assert!(
+            FilterSet::from_patterns(&[String::new()], &[], &[], &[], &[] as &[&Path]).is_err()
+        );
+    }
+
+    #[test]
+    fn filtered_toc_preserves_parent_directories_and_special_entries() {
+        use crate::DeviceKind;
+        let path = |value| ArchivePath::new(value).unwrap();
+        let mut toc = Toc::default();
+        toc.apply_commit(&[
+            TocChange::PutDirectory { path: path("docs") },
+            TocChange::PutSymlink {
+                path: path("docs/link"),
+                target: "file".into(),
+            },
+            TocChange::PutNamedPipe {
+                path: path("docs/pipe"),
+            },
+            TocChange::PutDevice {
+                path: path("docs/device"),
+                kind: DeviceKind::Character,
+                major: 2,
+                minor: 3,
+            },
+            TocChange::PutDirectory {
+                path: path("other"),
+            },
+        ])
+        .unwrap();
+        let filters =
+            FilterSet::from_patterns(&["docs/*".to_owned()], &[], &[], &[], &[] as &[&Path])
+                .unwrap();
+        let filtered = filters.filter_toc(&toc).unwrap();
+        assert_eq!(filtered.get(&path("docs")), Some(&TocEntry::Directory));
+        assert_eq!(
+            filtered.get(&path("docs/link")),
+            Some(&TocEntry::Symlink {
+                target: "file".into()
+            })
+        );
+        assert_eq!(filtered.get(&path("docs/pipe")), Some(&TocEntry::NamedPipe));
+        assert_eq!(
+            filtered.get(&path("docs/device")),
+            Some(&TocEntry::Device {
+                kind: DeviceKind::Character,
+                major: 2,
+                minor: 3
+            })
+        );
+        assert!(filtered.get(&path("other")).is_none());
+    }
+
+    #[test]
     fn include_exclude_and_folder_patterns_match_paths() {
         let filters = FilterSet::from_patterns(
             &["*.txt".to_owned()],

@@ -87,15 +87,19 @@ fn info_json_includes_commit_ids_and_framing_sizes() {
             files_added_or_updated: 2,
             ..zarlib::operations::HeaderChangeStats::default()
         }),
+        cross_commit_reference_count: Some(0),
         created_unix_millis: Some(1_700_000_000_000),
         user: Some("alice".to_owned()),
     }]);
 
     assert_eq!(
         json,
-        "{\"commit_count\":1,\"commits\":[{\"id\":\"00000001\",\"size\":128,\"header_size\":64,\"data_size\":64,\"header_encrypted\":false,\"data_encrypted\":false,\"encryption_algorithm\":null,\"header_changes\":{\"files_added_or_updated\":2,\"directories_added_or_updated\":0,\"symlinks_added_or_updated\":0,\"named_pipes_added_or_updated\":0,\"devices_added_or_updated\":0,\"files_removed\":0,\"directories_removed\":0},\"created_at\":\"2023-11-14 22:13 UTC\",\"created_unix_millis\":1700000000000,\"user\":\"alice\"}]}"
+        "{\"commit_count\":1,\"cross_commit_reference_count\":0,\"commits\":[{\"id\":\"00000001\",\"size\":128,\"header_size\":64,\"data_size\":64,\"header_encrypted\":false,\"data_encrypted\":false,\"encryption_algorithm\":null,\"header_changes\":{\"files_added_or_updated\":2,\"directories_added_or_updated\":0,\"symlinks_added_or_updated\":0,\"named_pipes_added_or_updated\":0,\"devices_added_or_updated\":0,\"files_removed\":0,\"directories_removed\":0},\"cross_commit_reference_count\":0,\"created_at\":\"2023-11-14 22:13 UTC\",\"created_unix_millis\":1700000000000,\"user\":\"alice\"}]}"
     );
-    assert_eq!(render_info_json(&[]), "{\"commit_count\":0,\"commits\":[]}");
+    assert_eq!(
+        render_info_json(&[]),
+        "{\"commit_count\":0,\"cross_commit_reference_count\":0,\"commits\":[]}"
+    );
 }
 
 #[test]
@@ -582,6 +586,7 @@ fn info_json_escapes_usernames() {
         data_encrypted: false,
         encryption_algorithm: None,
         header_changes: None,
+        cross_commit_reference_count: None,
         created_unix_millis: None,
         user: Some("a\"b".to_owned()),
     }]);

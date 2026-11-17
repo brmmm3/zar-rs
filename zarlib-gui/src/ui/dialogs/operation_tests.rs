@@ -194,6 +194,7 @@ fn extract_tabs_render_requested_fields_without_nested_sections() {
                 "Restore symbolic links",
                 "Restore device nodes",
                 "Skip top-level folder (extract its contents directly)",
+                "Skip validation of unselected frames",
             ][..],
         ),
         (ExtractTab::Encryption, &["Unlock encrypted archive"][..]),
@@ -308,7 +309,7 @@ fn extract_tabs_preserve_options_and_password() {
     assert_eq!(tabs.len(), 4);
     click(&context, &mut app, screen, tabs[1].center());
     assert_eq!(app.operation.extract_tab, ExtractTab::Advanced);
-    for index in 0..5 {
+    for index in 0..6 {
         let (_, options, _) = frame(&context, &mut app, screen, vec![]);
         click(&context, &mut app, screen, options[index].center());
     }
@@ -318,6 +319,7 @@ fn extract_tabs_preserve_options_and_password() {
             && app.operation.restore_symlinks
             && app.operation.restore_devices
             && app.operation.strip_top_level
+            && app.operation.skip_unselected_frame_validation
     );
     let (tabs, _, _) = frame(&context, &mut app, screen, vec![]);
     click(&context, &mut app, screen, tabs[2].center());
@@ -343,6 +345,7 @@ fn extract_tabs_preserve_options_and_password() {
             && app.operation.restore_symlinks
             && app.operation.restore_devices
             && app.operation.strip_top_level
+            && app.operation.skip_unselected_frame_validation
     );
 }
 

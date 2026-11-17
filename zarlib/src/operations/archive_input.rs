@@ -36,6 +36,16 @@ pub(super) fn scan_input_paths(
     temporary_parent: &Path,
     progress: Option<&dyn Progress>,
 ) -> Result<ScannedInputs, Box<dyn std::error::Error>> {
+    scan_input_paths_in_folder(paths, cwd, temporary_parent, progress, None)
+}
+
+pub(super) fn scan_input_paths_in_folder(
+    paths: &[PathBuf],
+    cwd: &Path,
+    temporary_parent: &Path,
+    progress: Option<&dyn Progress>,
+    folder: Option<&ArchivePath>,
+) -> Result<ScannedInputs, Box<dyn std::error::Error>> {
     let mut entries = Vec::new();
     let mut temporary_dirs = Vec::new();
     let mut temporary_roots = Vec::new();
@@ -76,7 +86,11 @@ pub(super) fn scan_input_paths(
             temporary_roots.push(temporary_root);
             temporary_dirs.push(temporary_dir);
         } else {
-            let prefix = archive_prefix(input, cwd)?;
+            let prefix = if folder.is_some() {
+                source.file_name().and_then(|name| name.to_str()).ok_or("input path has no UTF-8 file name")?.to_owned()
+            } else {
+                archive_prefix(input, cwd)?
+            };
             let scanned_entries = scan_tree(&source, &prefix)?;
             progress.check_cancelled()?;
             entries.extend(scanned_entries.into_iter().filter(|entry| {
@@ -87,6 +101,11 @@ pub(super) fn scan_input_paths(
         }
     }
 
+    if let Some(folder) = folder {
+        for entry in &mut entries {
+            entry.archive_path = format!("{}/{}", folder.as_str(), entry.archive_path);
+        }
+    }
     Ok(ScannedInputs {
         entries,
         _temporary_dirs: temporary_dirs,
@@ -731,8 +750,337 @@ fn tar_archive_path(
 }
 
 #[cfg(test)]
+mod import_tests {
+    use super::*;
+
+    #[test]
+    fn relative_gzip_import_does_not_duplicate_temporary_files_when_scanning_parent() {
+        use std::io::Write;
+
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().canonicalize().unwrap();
+        let mut encoder = flate2::write::GzEncoder::new(
+            File::create(root.join("payload.txt.gz")).unwrap(),
+            flate2::Compression::default(),
+        );
+        encoder.write_all(b"gzip contents").unwrap();
+        encoder.finish().unwrap();
+        std::fs::write(root.join("plain.txt"), b"plain").unwrap();
+        let scanned = scan_input_paths(
+            &[PathBuf::from("payload.txt.gz"), PathBuf::from(".")],
+            &root,
+            &root,
+            None,
+        )
+        .unwrap();
+        let imported: Vec<_> = scanned
+            .entries
+            .iter()
+            .filter(|entry| entry.archive_path == "payload.txt")
+            .collect();
+        assert_eq!(imported.len(), 1);
+        assert_eq!(
+            std::fs::read(&imported[0].source_path).unwrap(),
+            b"gzip contents"
+        );
+        assert!(
+            scanned
+                .entries
+                .iter()
+                .any(|entry| entry.archive_path == "plain.txt")
+        );
+        assert!(
+            !scanned
+                .entries
+                .iter()
+                .any(|entry| entry.archive_path.contains(".zarlib-archive-import-"))
+        );
+    }
+
+    #[test]
+    fn seven_zip_import_handles_directories_and_rejects_reparse_points() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("input.7z");
+        let output = directory.path().join("output");
+        std::fs::create_dir(&output).unwrap();
+        let mut writer = sevenz_rust2::ArchiveWriter::new(File::create(&source).unwrap()).unwrap();
+        writer
+            .push_archive_entry(
+                sevenz_rust2::ArchiveEntry::new_directory("empty"),
+                None::<&[u8]>,
+            )
+            .unwrap();
+        writer.finish().unwrap();
+        extract_7z(&source, &output, &ProgressReporter(None)).unwrap();
+        assert!(output.join("empty").is_dir());
+
+        let mut writer = sevenz_rust2::ArchiveWriter::new(File::create(&source).unwrap()).unwrap();
+        let mut entry = sevenz_rust2::ArchiveEntry::new_file("link");
+        entry.has_windows_attributes = true;
+        entry.windows_attributes = 0x400;
+        writer
+            .push_archive_entry(entry, Some(&b"target"[..]))
+            .unwrap();
+        writer.finish().unwrap();
+        let error = extract_7z(&source, &output, &ProgressReporter(None)).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("symbolic links are not supported")
+        );
+        assert!(!output.join("link").exists());
+
+        let mut writer = sevenz_rust2::ArchiveWriter::new(File::create(&source).unwrap()).unwrap();
+        let mut entry = sevenz_rust2::ArchiveEntry::new_file("deleted");
+        entry.has_stream = false;
+        entry.is_anti_item = true;
+        writer.push_archive_entry(entry, None::<&[u8]>).unwrap();
+        writer.finish().unwrap();
+        let error = extract_7z(&source, &output, &ProgressReporter(None)).unwrap_err();
+        assert!(error.to_string().contains("anti-items are not supported"));
+        assert!(!output.join("deleted").exists());
+    }
+
+    #[test]
+    fn zip_import_rejects_symbolic_links_and_duplicate_entries() {
+        use std::io::Write;
+
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("input.zip");
+        let output = directory.path().join("output");
+        std::fs::create_dir(&output).unwrap();
+        let mut writer = zip::ZipWriter::new(File::create(&source).unwrap());
+        writer
+            .add_symlink("link", "target", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        writer.finish().unwrap();
+        let error = extract_zip(&source, &output, &ProgressReporter(None)).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("symbolic links are not supported")
+        );
+        assert!(!output.join("link").exists());
+
+        let mut writer = zip::ZipWriter::new(File::create(&source).unwrap());
+        writer
+            .start_file("file", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(b"archive contents").unwrap();
+        writer.finish().unwrap();
+        std::fs::write(output.join("file"), b"existing contents").unwrap();
+        let error = extract_zip(&source, &output, &ProgressReporter(None)).unwrap_err();
+        assert!(error.to_string().contains("without overwriting"));
+        assert_eq!(
+            std::fs::read(output.join("file")).unwrap(),
+            b"existing contents"
+        );
+    }
+
+    #[test]
+    fn tar_paths_normalize_current_directories_and_reject_invalid_components() {
+        assert!(tar_archive_path("./", true).unwrap().is_none());
+        assert_eq!(
+            tar_archive_path("./nested/./file", false)
+                .unwrap()
+                .unwrap()
+                .as_str(),
+            "nested/file"
+        );
+        assert_eq!(
+            tar_archive_path("nested/", true).unwrap().unwrap().as_str(),
+            "nested"
+        );
+        for invalid in [
+            "",
+            "../outside",
+            "nested/../outside",
+            "nested//file",
+            "/absolute",
+        ] {
+            assert!(tar_archive_path(invalid, false).is_err(), "{invalid:?}");
+        }
+    }
+
+    #[test]
+    fn tar_import_rejects_unsupported_special_entries() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut builder = tar::Builder::new(Vec::new());
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Fifo);
+        header.set_size(0);
+        header.set_mode(0o644);
+        builder.append_data(&mut header, "pipe", &[][..]).unwrap();
+        let archive = builder.into_inner().unwrap();
+        let error =
+            extract_tar(&archive[..], directory.path(), &ProgressReporter(None)).unwrap_err();
+        assert!(error.to_string().contains("unsupported TAR entry type"));
+        assert!(!directory.path().join("pipe").exists());
+    }
+
+    #[test]
+    fn tar_and_zip_import_directories_and_refuse_overwrite() {
+        use std::io::Write;
+
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("output");
+        std::fs::create_dir(&output).unwrap();
+        let mut builder = tar::Builder::new(Vec::new());
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Directory);
+        header.set_size(0);
+        header.set_mode(0o755);
+        builder
+            .append_data(&mut header, "nested/", &[][..])
+            .unwrap();
+        let mut header = tar::Header::new_gnu();
+        header.set_size(4);
+        header.set_mode(0o644);
+        builder
+            .append_data(&mut header, "nested/file", &b"data"[..])
+            .unwrap();
+        let tar = builder.into_inner().unwrap();
+        extract_tar(&tar[..], &output, &ProgressReporter(None)).unwrap();
+        assert_eq!(std::fs::read(output.join("nested/file")).unwrap(), b"data");
+        let error = extract_tar(&tar[..], &output, &ProgressReporter(None)).unwrap_err();
+        assert!(error.to_string().contains("without overwriting"));
+
+        let zip = directory.path().join("input.zip");
+        let mut writer = zip::ZipWriter::new(File::create(&zip).unwrap());
+        writer
+            .add_directory("empty/", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        writer
+            .start_file("empty/file", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(b"zip data").unwrap();
+        writer.finish().unwrap();
+        extract_zip(&zip, &output, &ProgressReporter(None)).unwrap();
+        assert_eq!(
+            std::fs::read(output.join("empty/file")).unwrap(),
+            b"zip data"
+        );
+    }
+
+    fn archive_with_links(links: &[(&str, &str)], files: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut builder = tar::Builder::new(Vec::new());
+        for (path, target) in links {
+            let mut header = tar::Header::new_gnu();
+            header.set_entry_type(tar::EntryType::Link);
+            header.set_size(0);
+            header.set_mode(0o644);
+            header.set_link_name(target).unwrap();
+            builder.append_data(&mut header, path, &[][..]).unwrap();
+        }
+        for (path, contents) in files {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(contents.len() as u64);
+            header.set_mode(0o644);
+            builder.append_data(&mut header, path, *contents).unwrap();
+        }
+        builder.into_inner().unwrap()
+    }
+
+    #[test]
+    fn resolves_forward_hard_links_and_rejects_cycles_and_invalid_parents() {
+        let directory = tempfile::tempdir().unwrap();
+        let progress = ProgressReporter(None);
+        let forward = archive_with_links(
+            &[("nested/final", "middle"), ("middle", "target")],
+            &[("target", b"linked data")],
+        );
+        let output = directory.path().join("forward");
+        std::fs::create_dir(&output).unwrap();
+        extract_tar(&forward[..], &output, &progress).unwrap();
+        assert_eq!(
+            std::fs::read(output.join("nested/final")).unwrap(),
+            b"linked data"
+        );
+        assert_eq!(
+            std::fs::read(output.join("middle")).unwrap(),
+            b"linked data"
+        );
+
+        let cycle = archive_with_links(&[("first", "second"), ("second", "first")], &[]);
+        let output = directory.path().join("cycle");
+        std::fs::create_dir(&output).unwrap();
+        let error = extract_tar(&cycle[..], &output, &progress).unwrap_err();
+        assert!(error.to_string().contains("no regular-file target"));
+
+        let invalid_parent = archive_with_links(
+            &[("parent/link", "target")],
+            &[("parent", b"not a directory"), ("target", b"data")],
+        );
+        let output = directory.path().join("invalid-parent");
+        std::fs::create_dir(&output).unwrap();
+        let error = extract_tar(&invalid_parent[..], &output, &progress).unwrap_err();
+        assert!(error.to_string().contains("parent is not a directory"));
+
+        let directory_target = archive_with_links(&[("link", "target")], &[]);
+        let output = directory.path().join("directory-target");
+        std::fs::create_dir_all(output.join("target")).unwrap();
+        let error = extract_tar(&directory_target[..], &output, &progress).unwrap_err();
+        assert!(error.to_string().contains("target is not a regular file"));
+        assert!(output.join("target").is_dir());
+        assert!(!output.join("link").exists());
+
+        let existing_link = archive_with_links(&[("link", "target")], &[("target", b"data")]);
+        let output = directory.path().join("existing-link");
+        std::fs::create_dir(&output).unwrap();
+        std::fs::write(output.join("link"), b"existing").unwrap();
+        let error = extract_tar(&existing_link[..], &output, &progress).unwrap_err();
+        assert!(error.to_string().contains("without overwriting"));
+        assert_eq!(std::fs::read(output.join("link")).unwrap(), b"existing");
+    }
+}
+
+#[cfg(test)]
 mod rar_path_tests {
-    use super::rar_entry_path;
+    use super::*;
+
+    struct ImportProgress {
+        cancelled: bool,
+    }
+
+    impl Progress for ImportProgress {
+        fn message(&self, _: &str) {}
+        fn advance(&self, _: u64) {}
+        fn is_cancelled(&self) -> bool {
+            self.cancelled
+        }
+    }
+
+    #[test]
+    fn rar_import_with_progress_honors_cancellation() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("input.rar");
+        let output = directory.path().join("output");
+        std::fs::create_dir(&output).unwrap();
+        let mut builder = rars::Builder::new(rars::ArchiveVersion::Rar50);
+        builder
+            .add_bytes(
+                b"nested/file".to_vec(),
+                b"RAR contents".to_vec(),
+                None,
+                None,
+            )
+            .unwrap();
+        std::fs::write(&source, builder.to_bytes().unwrap()).unwrap();
+        let progress = ImportProgress { cancelled: false };
+        extract_rar(&source, &output, &ProgressReporter(Some(&progress))).unwrap();
+        assert_eq!(
+            std::fs::read(output.join("nested/file")).unwrap(),
+            b"RAR contents"
+        );
+
+        let cancelled = ImportProgress { cancelled: true };
+        let error = extract_rar(&source, &output, &ProgressReporter(Some(&cancelled))).unwrap_err();
+        assert!(error.to_string().contains("cancelled"));
+        assert_eq!(
+            std::fs::read(output.join("nested/file")).unwrap(),
+            b"RAR contents"
+        );
+    }
 
     #[test]
     fn validates_rar_member_paths() {
@@ -757,6 +1105,44 @@ mod rar_path_tests {
 mod iso_tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn rejects_iso_with_truncated_file_payload() {
+        let directory = tempfile::tempdir().unwrap();
+        let iso_path = directory.path().join("truncated.iso");
+        let output = directory.path().join("output");
+        std::fs::create_dir(&output).unwrap();
+        let mut image = Vec::new();
+        flate2::read::GzDecoder::new(&include_bytes!("../../tests/fixtures/iso-large.iso.gz")[..])
+            .read_to_end(&mut image)
+            .unwrap();
+        let iso = libmkiso::IsoReader::open_with_options(
+            io::Cursor::new(&image),
+            libmkiso::IsoReadOptions {
+                namespace: libmkiso::IsoNamespace::PreferRockRidge,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let (_, index) = iso.into_parts();
+        let extent = index
+            .entries
+            .iter()
+            .zip(&index.extents)
+            .find(|(entry, _)| entry.name == "large.bin")
+            .unwrap()
+            .1
+            .first()
+            .unwrap();
+        let truncated_length = usize::try_from(extent.offset + extent.size - 1).unwrap();
+        std::fs::write(&iso_path, &image[..truncated_length]).unwrap();
+        let error = extract_iso(&iso_path, &output, &ProgressReporter(None)).unwrap_err();
+        assert!(
+            error.to_string().contains("truncated ISO volume"),
+            "{error}"
+        );
+        assert!(!output.join("large.bin").exists());
+    }
 
     struct CancellingProgress(AtomicUsize);
 

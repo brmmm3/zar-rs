@@ -482,6 +482,14 @@ impl BlockFrame {
         reader: &mut impl Read,
         max_payload_size: usize,
     ) -> Result<Self, FramingError> {
+        Self::read_with_checksum_validation(reader, max_payload_size, true)
+    }
+
+    pub(crate) fn read_with_checksum_validation(
+        reader: &mut impl Read,
+        max_payload_size: usize,
+        validate_checksum: bool,
+    ) -> Result<Self, FramingError> {
         let payload_len = read_u32(reader)? as usize;
         let flags = read_u16(reader)?;
         let reserved = read_u16(reader)?;
@@ -500,7 +508,7 @@ impl BlockFrame {
         let checksum = read_u64(reader)?;
         let mut payload = vec![0; payload_len];
         reader.read_exact(&mut payload)?;
-        if xxh64(&payload, 0) != checksum {
+        if validate_checksum && xxh64(&payload, 0) != checksum {
             return Err(FramingError::ChecksumMismatch);
         }
         Ok(Self {
@@ -531,7 +539,24 @@ impl BlockFrame {
         algorithm: crate::ContentAead,
         max_output_size: usize,
     ) -> Result<Vec<u8>, FramingError> {
-        self.validate()?;
+        self.uncompressed_encrypted_with_checksum_validation(
+            commit_header,
+            key,
+            algorithm,
+            max_output_size,
+            true,
+        )
+    }
+
+    pub(crate) fn uncompressed_encrypted_with_checksum_validation(
+        &self,
+        commit_header: &CommitHeader,
+        key: &[u8; crate::DEK_SIZE],
+        algorithm: crate::ContentAead,
+        max_output_size: usize,
+        validate_checksum: bool,
+    ) -> Result<Vec<u8>, FramingError> {
+        self.validate_with_checksum(validate_checksum)?;
         if self.flags & BLOCK_FLAG_ENCRYPTED == 0 {
             return Err(FramingError::InvalidDescriptor);
         }
@@ -555,7 +580,15 @@ impl BlockFrame {
     }
 
     pub fn uncompressed_at_most(&self, max_output_size: usize) -> Result<Vec<u8>, FramingError> {
-        self.validate()?;
+        self.uncompressed_with_checksum_validation(max_output_size, true)
+    }
+
+    pub(crate) fn uncompressed_with_checksum_validation(
+        &self,
+        max_output_size: usize,
+        validate_checksum: bool,
+    ) -> Result<Vec<u8>, FramingError> {
+        self.validate_with_checksum(validate_checksum)?;
         if self.flags & BLOCK_FLAG_ENCRYPTED != 0 {
             return Err(FramingError::UnsupportedEncryption);
         }
@@ -587,10 +620,14 @@ impl BlockFrame {
     }
 
     fn validate(&self) -> Result<(), FramingError> {
+        self.validate_with_checksum(true)
+    }
+
+    fn validate_with_checksum(&self, validate_checksum: bool) -> Result<(), FramingError> {
         if self.payload.len() > u32::MAX as usize {
             return Err(FramingError::InvalidSize);
         }
-        if xxh64(&self.payload, 0) != self.checksum {
+        if validate_checksum && xxh64(&self.payload, 0) != self.checksum {
             return Err(FramingError::ChecksumMismatch);
         }
         validate_block_flags(self.flags)?;
@@ -912,6 +949,16 @@ mod tests {
             frame.uncompressed_encrypted(&altered_header, &key, algorithm, 1024),
             Err(FramingError::AuthenticationFailed)
         );
+        assert_eq!(
+            frame.uncompressed_encrypted_with_checksum_validation(
+                &altered_header,
+                &key,
+                algorithm,
+                1024,
+                false
+            ),
+            Err(FramingError::AuthenticationFailed)
+        );
         let mut altered_index = frame.clone();
         altered_index.block_index += 1;
         assert_eq!(
@@ -967,6 +1014,31 @@ mod tests {
         assert_eq!(
             BlockFrame::read_from(&mut Cursor::new(encoded), 1024),
             Err(FramingError::ChecksumMismatch)
+        );
+    }
+
+    #[test]
+    fn block_frame_checksum_can_be_skipped_for_extraction() {
+        let frame = BlockFrame::from_uncompressed(0, b"data", 1).unwrap();
+        let mut encoded = Vec::new();
+        frame.write_to(&mut encoded).unwrap();
+        encoded[12] ^= 1;
+        assert_eq!(
+            BlockFrame::read_from(&mut Cursor::new(&encoded), 1024),
+            Err(FramingError::ChecksumMismatch)
+        );
+        let frame =
+            BlockFrame::read_with_checksum_validation(&mut Cursor::new(&encoded), 1024, false)
+                .unwrap();
+        assert_eq!(
+            frame.uncompressed_at_most(1024),
+            Err(FramingError::ChecksumMismatch)
+        );
+        assert_eq!(
+            frame
+                .uncompressed_with_checksum_validation(1024, false)
+                .unwrap(),
+            b"data"
         );
     }
 }

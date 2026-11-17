@@ -8,6 +8,20 @@ import pytest
 import pyzarlib
 
 
+def test_cross_commit_references_and_info_counts(tmp_path: Path) -> None:
+    first = tmp_path / "first.txt"
+    duplicate = tmp_path / "duplicate.txt"
+    first.write_bytes(b"identical content")
+    duplicate.write_bytes(b"identical content")
+    archive = tmp_path / "archive.zar"
+    pyzarlib.create_archive(archive, [first])
+    pyzarlib.add_archive(archive, [duplicate])
+    assert pyzarlib.cross_commit_references(archive) == [
+        {"referencing_commit": "00000002", "source_commit": "00000001", "path": "duplicate.txt"}
+    ]
+    assert [commit["cross_commit_reference_count"] for commit in pyzarlib.info_archive(archive)] == [0, 1]
+
+
 def test_timestamp_keyword_options(tmp_path: Path) -> None:
     first = tmp_path / "first.txt"
     second = tmp_path / "second.txt"

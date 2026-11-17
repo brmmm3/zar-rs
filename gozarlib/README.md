@@ -13,6 +13,7 @@ and Go functions for every C-wrapper operation:
 - `DecryptArchiveCommits`
 - `CheckArchive`
 - `InfoArchive`
+- `CrossCommitReferences`
 - `ListArchive`
 - `ExtractArchive`
 - `ExtractArchiveToMemory`

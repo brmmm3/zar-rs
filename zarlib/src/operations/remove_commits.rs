@@ -1,12 +1,15 @@
 use super::common::{
-    TEMP_FILE_ID, TemporaryFiles, parse_commit_id, read_commit_at_offset, read_first_header_offset,
+    PasswordSet, TEMP_FILE_ID, TemporaryFiles, parse_commit_id, read_commit_at_offset,
+    read_commit_with_passwords, read_first_header_offset, read_header_with_passwords,
     unique_temp_file_id,
 };
 use super::transform::{
     copy_file_region, paths_refer_to_same_file, replace_archive, resolve_output_path,
     validate_staged_archive,
 };
-use crate::{CommitValidationLimits, ContainerHeader, HEADER_OFFSET_SIZE, Toc, ValidatedCommit};
+use crate::{
+    ArchivePath, CommitValidationLimits, ContainerHeader, HEADER_OFFSET_SIZE, Toc, TocChange,
+};
 use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
@@ -19,19 +22,83 @@ pub struct RemoveCommitsResult {
     pub replay_validated: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CrossCommitReference {
+    pub referencing_commit: [u8; 4],
+    pub source_commit: [u8; 4],
+    pub path: ArchivePath,
+}
+
+pub fn cross_commit_references(
+    archive: &str,
+) -> Result<Vec<CrossCommitReference>, Box<dyn std::error::Error>> {
+    cross_commit_references_with_passwords(archive, &PasswordSet::default())
+}
+
+pub fn cross_commit_references_with_passwords(
+    archive: &str,
+    passwords: &PasswordSet,
+) -> Result<Vec<CrossCommitReference>, Box<dyn std::error::Error>> {
+    let mut file = File::open(archive)?;
+    let limits = CommitValidationLimits::default();
+    let mut offset = read_first_header_offset(&mut file)?;
+    let mut offsets = HashSet::new();
+    let mut toc = Toc::default();
+    let mut references = Vec::new();
+    while offset != 0 {
+        if !offsets.insert(offset) {
+            return Err("archive commit chain contains a cycle".into());
+        }
+        let (commit, _, next) = read_commit_at_offset(&mut file, offset, limits)?;
+        file.seek(SeekFrom::Start(offset))?;
+        let (validated, _) = read_header_with_passwords(&mut file, limits, passwords)?;
+        let header = validated.logical_header.ok_or_else(|| {
+            format!(
+                "password required to inspect commit {:08x}",
+                u32::from_le_bytes(commit.commit_id)
+            )
+        })?;
+        toc.apply_archive_commit(commit.commit_id, &header.changes)?;
+        for change in header.changes {
+            if let TocChange::PutFile { path, entry } = change
+                && let Some(source_commit) = entry.source_commit
+            {
+                references.push(CrossCommitReference {
+                    referencing_commit: commit.commit_id,
+                    source_commit,
+                    path,
+                });
+            }
+        }
+        offset = next;
+    }
+    Ok(references)
+}
+
 /// Removes the specified commits, preserving all other commits in their original order.
 ///
 /// IDs are eight hexadecimal digits. At least one commit must remain. Retained
-/// commits are copied without decrypting them, so their passwords are not needed.
+/// commits are copied without decrypting them. A retained encrypted header after
+/// a removed commit must be unlocked to rule out dangling cross-commit references;
+/// use [`remove_archive_commits_with_passwords`] to supply its password.
 /// Remaining changes are replayed in order; removing a commit can change their
-/// meaning. If a retained header is encrypted, its effects cannot be validated
-/// without its password; the returned `replay_validated` flag reports this.
+/// meaning. The returned `replay_validated` flag indicates whether all retained
+/// headers could be replayed.
 /// If `output` is `None`, the input is replaced atomically; otherwise the result
 /// is written to a different archive path.
 pub fn remove_archive_commits(
     archive: &str,
     commit_ids: &[String],
     output: Option<&str>,
+) -> Result<RemoveCommitsResult, Box<dyn std::error::Error>> {
+    remove_archive_commits_with_passwords(archive, commit_ids, output, &PasswordSet::default())
+}
+
+pub fn remove_archive_commits_with_passwords(
+    archive: &str,
+    commit_ids: &[String],
+    output: Option<&str>,
+    passwords: &PasswordSet,
 ) -> Result<RemoveCommitsResult, Box<dyn std::error::Error>> {
     if commit_ids.is_empty() {
         return Err("at least one commit ID is required".into());
@@ -79,7 +146,8 @@ pub fn remove_archive_commits(
         if end > file_len {
             return Err("commit extends beyond the end of the archive".into());
         }
-        let validated = ValidatedCommit::read_body(&mut input, header.clone(), limits)?;
+        let (validated, _) =
+            read_commit_with_passwords(&mut input, header.clone(), limits, passwords)?;
         *counts.entry(header.commit_id).or_insert(0usize) += 1;
         commits.push((header.commit_id, data_start, offset, end, validated));
         offset = next;
@@ -98,15 +166,47 @@ pub fn remove_archive_commits(
     if selected.len() == commits.len() {
         return Err("at least one commit must remain".into());
     }
+    let mut removed_before = false;
+    let mut dependencies = Vec::new();
+    for (id, _, _, _, commit) in &commits {
+        if selected.contains(id) {
+            removed_before = true;
+            continue;
+        }
+        if let Some(header) = &commit.logical_header {
+            for change in &header.changes {
+                if let TocChange::PutFile { path, entry } = change
+                    && let Some(source) = entry.source_commit
+                    && selected.contains(&source)
+                {
+                    dependencies.push(format!(
+                        "commit {:08x}, path {path}, references commit {:08x}",
+                        u32::from_le_bytes(*id),
+                        u32::from_le_bytes(source)
+                    ));
+                }
+            }
+        } else if removed_before {
+            return Err(format!("cannot check cross-commit references in encrypted commit {:08x}; provide its password", u32::from_le_bytes(*id)).into());
+        }
+    }
+    if !dependencies.is_empty() {
+        return Err(format!(
+            "cannot remove referenced commits: {}",
+            dependencies.join("; ")
+        )
+        .into());
+    }
     let replay_validated = commits
         .iter()
         .filter(|(id, ..)| !selected.contains(id))
         .all(|(_, _, _, _, commit)| commit.logical_header.is_some());
     if replay_validated {
         let mut toc = Toc::default();
-        for (_, _, _, _, commit) in commits.iter().filter(|(id, ..)| !selected.contains(id)) {
+        for (id, _, _, _, commit) in commits.iter().filter(|(id, ..)| !selected.contains(id)) {
             let header = commit.logical_header.as_ref().expect("checked above");
-            toc.apply_commit_with_available_blocks(&header.changes, &commit.block_indices)
+            Toc::check_available_blocks(&header.changes, &commit.block_indices)
+                .and_then(|()| toc.apply_archive_commit(*id, &header.changes))
                 .map_err(|error| format!("remaining commits cannot be replayed: {error}"))?;
         }
     }
@@ -199,8 +299,12 @@ mod tests {
         .unwrap();
         let before = std::fs::read(archive).unwrap();
         let removed = vec![id(commits[0].id), id(commits[3].id)];
-        let result = remove_archive_commits(archive, &removed, output.to_str()).unwrap();
-        assert!(!result.replay_validated);
+        let mut passwords = PasswordSet::default();
+        passwords.insert_for_commit(commits[2].id, b"secret".to_vec());
+        let result =
+            remove_archive_commits_with_passwords(archive, &removed, output.to_str(), &passwords)
+                .unwrap();
+        assert!(result.replay_validated);
         assert_eq!(std::fs::read(archive).unwrap(), before);
         let output = output.to_str().unwrap();
         let retained = info_archive(output, false).unwrap();
@@ -208,8 +312,6 @@ mod tests {
             retained.iter().map(|commit| commit.id).collect::<Vec<_>>(),
             vec![commits[1].id, commits[2].id]
         );
-        let mut passwords = PasswordSet::default();
-        passwords.insert_for_commit(commits[2].id, b"secret".to_vec());
         let toc = list_archive_with_passwords(output, None, &passwords).unwrap();
         let names = toc
             .iter()
@@ -220,7 +322,8 @@ mod tests {
             extract_archive_to_memory_with_passwords(output, None, &passwords, None, 0).unwrap();
         assert_eq!(extracted["1.txt"], b"contents 1");
         assert_eq!(extracted["2.txt"], b"contents 2");
-        remove_archive_commits(output, &[id(commits[1].id)], None).unwrap();
+        remove_archive_commits_with_passwords(output, &[id(commits[1].id)], None, &passwords)
+            .unwrap();
         assert_eq!(info_archive(output, false).unwrap().len(), 1);
         assert_eq!(
             list_archive_with_passwords(output, None, &passwords)

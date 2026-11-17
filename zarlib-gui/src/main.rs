@@ -6,6 +6,8 @@ mod theme;
 mod ui;
 #[cfg(target_os = "linux")]
 mod wayland_drag;
+#[cfg(target_os = "linux")]
+mod x11_drag;
 
 use std::ffi::OsString;
 use std::path::PathBuf;

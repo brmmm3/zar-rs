@@ -45,6 +45,7 @@ impl ValidatedHeader {
         if let Some(header) = &self.logical_header {
             for change in &header.changes {
                 if let crate::TocChange::PutFile { path, entry } = change
+                    && entry.source_commit.is_none()
                     && let Some(&block_index) = entry
                         .block_indices
                         .iter()
@@ -209,6 +210,20 @@ impl ValidatedCommit {
             if consumed == 0 || frame.encoded_size()? as u64 != consumed {
                 return Err(FramingError::InvalidSize);
             }
+            if let Some(index) = logical_header
+                .as_ref()
+                .and_then(|header| header.block_index.as_ref())
+            {
+                let entry = index
+                    .get(block_count as usize)
+                    .ok_or(FramingError::InvalidSize)?;
+                if entry.index != frame.block_index
+                    || entry.offset != commit_header.data_section_size - remaining_before
+                    || entry.encoded_size != consumed
+                {
+                    return Err(FramingError::InvalidSize);
+                }
+            }
             if !seen_blocks.insert(frame.block_index) {
                 return Err(FramingError::InvalidSize);
             }
@@ -237,8 +252,16 @@ impl ValidatedCommit {
         }
 
         if let Some(logical_header) = &logical_header {
+            if logical_header
+                .block_index
+                .as_ref()
+                .is_some_and(|index| index.len() as u64 != block_count)
+            {
+                return Err(FramingError::InvalidSize);
+            }
             for change in &logical_header.changes {
                 if let crate::TocChange::PutFile { path, entry } = change
+                    && entry.source_commit.is_none()
                     && let Some(&block_index) = entry
                         .block_indices
                         .iter()
@@ -387,6 +410,30 @@ mod tests {
         let commit = validate_body(&UNENCRYPTED_DESCRIPTOR, &data).unwrap();
         assert_eq!(commit.block_count, 1);
         assert_eq!(commit.encryption, EncryptionDescriptor::Unencrypted);
+    }
+
+    #[test]
+    fn rejects_block_index_that_disagrees_with_frames() {
+        let frame = BlockFrame::from_uncompressed(7, b"block", 1).unwrap();
+        let mut data = Vec::new();
+        frame.write_to(&mut data).unwrap();
+        let header = LogicalHeader::default()
+            .with_block_index(vec![crate::HeaderBlockIndexEntry {
+                index: 8,
+                offset: 0,
+                encoded_size: data.len() as u64,
+            }])
+            .encode()
+            .unwrap();
+        let (body, commit_header) = build_commit(&UNENCRYPTED_DESCRIPTOR, &header, &data);
+        assert_eq!(
+            ValidatedCommit::read_body(
+                &mut Cursor::new(body),
+                commit_header,
+                CommitValidationLimits::default()
+            ),
+            Err(FramingError::InvalidSize)
+        );
     }
 
     #[test]

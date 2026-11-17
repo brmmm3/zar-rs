@@ -65,6 +65,22 @@ impl egui::DroppedFile for TestDroppedFile {
 }
 
 #[test]
+fn save_destination_has_zar_extension() {
+    for (input, expected) in [
+        ("archive", "archive.zar"),
+        ("archive.zip", "archive.zip.zar"),
+        ("archive.zar", "archive.zar"),
+        ("archive.ZAR", "archive.ZAR"),
+        ("folder.zar/archive", "folder.zar/archive.zar"),
+    ] {
+        assert_eq!(
+            ensure_zar_extension(Path::new(input)),
+            PathBuf::from(expected)
+        );
+    }
+}
+
+#[test]
 fn save_as_default_filename_prefers_current_archive_name() {
     assert_eq!(
         default_save_as_filename("/archives/current.zar", Some("entry.txt")),
@@ -213,6 +229,23 @@ fn window_and_file_list_columns_survive_settings_round_trip() {
             .position,
         None
     );
+}
+
+#[test]
+fn pre_extraction_validation_setting_round_trips_through_app() {
+    let mut app = ZargApp::default();
+    assert!(!app.validate_blocks_before_extraction);
+    assert!(app.validate_blocks_on_extraction);
+    app.validate_blocks_before_extraction = true;
+    app.validate_blocks_on_extraction = false;
+    let settings =
+        crate::settings::Settings::parse(&app.current_settings_with_monitor_count(0).render());
+    let mut restored = ZargApp::default();
+    restored.apply_settings(&settings);
+    assert!(restored.validate_blocks_before_extraction);
+    assert!(!restored.validate_blocks_on_extraction);
+    assert!(!crate::settings::Settings::parse("").validate_blocks_before_extraction);
+    assert!(crate::settings::Settings::parse("").validate_blocks_on_extraction);
 }
 
 #[test]
@@ -622,7 +655,7 @@ fn extract_dialog_detects_encryption_for_main_and_context_actions() {
             app.operation.destination,
             directory.path().to_string_lossy()
         );
-        assert_ne!(
+        assert_eq!(
             app.operation.destination,
             Path::new(&app.read_archive)
                 .parent()
@@ -944,7 +977,15 @@ fn change_commits_encrypt_job_writes_to_requested_archive() {
         limit_status_updates: false,
         last_status_update: Mutex::new(None),
     };
-    let job = build_job(OperationKind::ChangeCommits, form, events.clone(), progress).unwrap();
+    let job = build_job(
+        OperationKind::ChangeCommits,
+        form,
+        events.clone(),
+        progress,
+        None,
+        true,
+    )
+    .unwrap();
     job().unwrap();
 
     assert!(!commits[0].header_encrypted);
@@ -1033,6 +1074,998 @@ fn saving_archive_copies_staged_contents_and_replaces_target() {
 }
 
 #[test]
+fn undo_cache_is_empty_and_detects_external_base_changes() {
+    let directory = tempfile::tempdir().unwrap();
+    let input = directory.path().join("input.txt");
+    let archive = directory.path().join("archive.zar");
+    std::fs::write(&input, b"base").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[input]).unwrap();
+    let before = std::fs::read(&archive).unwrap();
+    let cache = OverlayCache::new(&archive).unwrap();
+    assert!(
+        operations::list_archive(cache.path().to_str().unwrap(), None, None)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(std::fs::read(&archive).unwrap(), before);
+    cache.verify_base(&archive).unwrap();
+    std::fs::write(&archive, b"externally modified").unwrap();
+    assert!(cache.verify_base(&archive).is_err());
+}
+
+#[test]
+fn cached_add_stages_entries_without_copying_base() {
+    let directory = tempfile::tempdir().unwrap();
+    let base_input = directory.path().join("base.txt");
+    let added = directory.path().join("added.txt");
+    let archive = directory.path().join("base.zar");
+    std::fs::write(&base_input, b"base").unwrap();
+    std::fs::write(&added, b"added").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[base_input]).unwrap();
+    let before = std::fs::read(&archive).unwrap();
+    let mut app = ZargApp::default();
+    app.open_archive(archive.clone(), None);
+    wait_for_worker(&mut app);
+    app.show_operation(OperationKind::AddToArchive);
+    app.operation.input_paths.push(added);
+    let form = std::mem::take(&mut app.operation);
+    app.start_cached_add(form);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(app.has_unsaved_changes);
+    assert!(app.entries.iter().any(|(path, _)| path == "added.txt"));
+    assert_eq!(std::fs::read(&archive).unwrap(), before);
+    assert_eq!(app.read_archive, archive.to_string_lossy());
+    assert!(app.overlay_cache.is_some());
+}
+
+#[test]
+fn cached_undo_restores_each_staged_state() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive = directory.path().join("base.zar");
+    let original = directory.path().join("original.txt");
+    std::fs::write(&original, b"original").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[original]).unwrap();
+    let before = std::fs::read(&archive).unwrap();
+    let mut app = ZargApp::default();
+    app.open_archive(archive.clone(), None);
+    wait_for_worker(&mut app);
+    for name in ["first.txt", "second.txt"] {
+        let input = directory.path().join(name);
+        std::fs::write(&input, name).unwrap();
+        app.show_operation(OperationKind::AddToArchive);
+        app.operation.input_paths.push(input);
+        let form = std::mem::take(&mut app.operation);
+        app.start_cached_add(form);
+        wait_for_worker(&mut app);
+        assert!(app.report.is_none(), "{:?}", app.report);
+    }
+    app.start_cached_undo(1);
+    wait_for_worker(&mut app);
+    assert!(app.entries.iter().any(|(path, _)| path == "first.txt"));
+    assert!(!app.entries.iter().any(|(path, _)| path == "second.txt"));
+    assert!(app.has_unsaved_changes);
+    app.start_cached_undo(1);
+    wait_for_worker(&mut app);
+    assert!(!app.has_unsaved_changes);
+    assert_eq!(app.commit_ids.len(), 1);
+    assert!(!app.entries.iter().any(|(path, _)| path == "first.txt"));
+    assert_eq!(std::fs::read(&archive).unwrap(), before);
+}
+
+#[test]
+fn cached_history_selection_shows_each_revision() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive = directory.path().join("base.zar");
+    let original = directory.path().join("original.txt");
+    std::fs::write(&original, b"original").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[original]).unwrap();
+    let mut app = ZargApp::default();
+    app.open_archive(archive, None);
+    wait_for_worker(&mut app);
+    for name in ["first.txt", "second.txt"] {
+        let input = directory.path().join(name);
+        std::fs::write(&input, name).unwrap();
+        app.show_operation(OperationKind::AddToArchive);
+        app.operation.input_paths.push(input);
+        let form = std::mem::take(&mut app.operation);
+        app.start_cached_add(form);
+        wait_for_worker(&mut app);
+    }
+    let base_id = app.commit_ids[0].clone();
+    let first_id = app.commit_ids[1].clone();
+    app.select_commit(base_id);
+    wait_for_worker(&mut app);
+    assert!(!app.entries.iter().any(|(path, _)| path == "first.txt"));
+    app.select_commit(first_id);
+    wait_for_worker(&mut app);
+    assert!(app.entries.iter().any(|(path, _)| path == "first.txt"));
+    assert!(!app.entries.iter().any(|(path, _)| path == "second.txt"));
+}
+
+#[test]
+fn temporary_archive_view_keeps_cache_and_original_intact() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive = directory.path().join("base.zar");
+    let original = directory.path().join("original.txt");
+    let added = directory.path().join("added.txt");
+    std::fs::write(&original, b"original").unwrap();
+    std::fs::write(&added, b"added").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[original]).unwrap();
+    let before = std::fs::read(&archive).unwrap();
+    let mut app = ZargApp::default();
+    app.open_archive(archive.clone(), None);
+    wait_for_worker(&mut app);
+    app.show_operation(OperationKind::AddToArchive);
+    app.operation.input_paths.push(added);
+    let form = std::mem::take(&mut app.operation);
+    app.start_cached_add(form);
+    wait_for_worker(&mut app);
+    let view = app.temporary_archive_view().unwrap().unwrap();
+    let path = view.path().join("view.zar");
+    let output = directory.path().join("extracted.txt");
+    operations::extract_single_file(
+        path.to_str().unwrap(),
+        "added.txt",
+        &output,
+        &PasswordSet::default(),
+    )
+    .unwrap();
+    assert_eq!(std::fs::read(output).unwrap(), b"added");
+    assert_eq!(std::fs::read(archive).unwrap(), before);
+    assert!(app.overlay_cache.is_some());
+    assert_eq!(app.rewrite_snapshots.len(), 1);
+}
+
+#[test]
+fn extracting_staged_selection_preserves_cache_until_save() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive = directory.path().join("base.zar");
+    let original = directory.path().join("original.txt");
+    let added = directory.path().join("added.txt");
+    std::fs::write(&original, b"original").unwrap();
+    std::fs::write(&added, b"added").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[original]).unwrap();
+    let before = std::fs::read(&archive).unwrap();
+    let mut app = ZargApp::default();
+    app.open_archive(archive.clone(), None);
+    wait_for_worker(&mut app);
+    app.show_operation(OperationKind::AddToArchive);
+    app.operation.input_paths.push(added);
+    let form = std::mem::take(&mut app.operation);
+    app.start_operation(form);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+
+    app.selected = ["added.txt".to_owned()].into_iter().collect();
+    app.show_operation_now(OperationKind::ExtractArchive);
+    app.operation.extract_selected_only = true;
+    let output = directory.path().join("output");
+    app.operation.destination = output.to_string_lossy().into_owned();
+    let form = std::mem::take(&mut app.operation);
+    app.start_operation(form);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert_eq!(std::fs::read(output.join("added.txt")).unwrap(), b"added");
+    assert!(!output.join("original.txt").exists());
+    assert_eq!(std::fs::read(&archive).unwrap(), before);
+    assert!(app.overlay_cache.is_some());
+    assert_eq!(app.rewrite_snapshots.len(), 1);
+
+    app.save_archive();
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert_eq!(
+        operations::info_archive(archive.to_str().unwrap(), false)
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn saving_cached_additions_appends_one_commit() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive = directory.path().join("base.zar");
+    let original = directory.path().join("original.txt");
+    std::fs::write(&original, b"original").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[original]).unwrap();
+    let mut app = ZargApp::default();
+    app.open_archive(archive.clone(), None);
+    wait_for_worker(&mut app);
+    for name in ["first.txt", "second.txt"] {
+        let input = directory.path().join(name);
+        std::fs::write(&input, name).unwrap();
+        app.show_operation(OperationKind::AddToArchive);
+        app.operation.input_paths.push(input);
+        let form = std::mem::take(&mut app.operation);
+        app.start_cached_add(form);
+        wait_for_worker(&mut app);
+        assert!(app.report.is_none(), "{:?}", app.report);
+    }
+    app.save_archive();
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(!app.has_unsaved_changes);
+    assert!(app.overlay_cache.is_none());
+    assert_eq!(
+        operations::info_archive(archive.to_str().unwrap(), false)
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(app.commit_ids.len(), 2);
+    let toc = operations::list_archive(archive.to_str().unwrap(), None, None).unwrap();
+    assert!(toc.get(&ArchivePath::new("first.txt").unwrap()).is_some());
+    assert!(toc.get(&ArchivePath::new("second.txt").unwrap()).is_some());
+}
+
+#[test]
+fn encrypted_cached_additions_save_as_one_encrypted_commit() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive = directory.path().join("base.zar");
+    let original = directory.path().join("original.txt");
+    std::fs::write(&original, b"original").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[original]).unwrap();
+    let mut app = ZargApp::default();
+    app.open_archive(archive.clone(), None);
+    wait_for_worker(&mut app);
+    for name in ["first.txt", "second.txt"] {
+        let input = directory.path().join(name);
+        std::fs::write(&input, name).unwrap();
+        app.show_operation(OperationKind::AddToArchive);
+        app.operation.input_paths.push(input);
+        app.operation.password_is_set = true;
+        app.operation.password = "secret".to_owned();
+        app.operation.password_confirm = "secret".to_owned();
+        app.operation.encryption_scope = 0;
+        click_add_archive_action(&mut app);
+        wait_for_worker(&mut app);
+        assert!(app.report.is_none(), "{:?}", app.report);
+    }
+    app.save_archive();
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    let commits = operations::info_archive(archive.to_str().unwrap(), false).unwrap();
+    assert_eq!(commits.len(), 2);
+    assert!(commits[1].header_encrypted && commits[1].data_encrypted);
+    let output = directory.path().join("extracted.txt");
+    operations::extract_single_file(
+        archive.to_str().unwrap(),
+        "second.txt",
+        &output,
+        &PasswordSet::new(Some(b"secret".to_vec())),
+    )
+    .unwrap();
+    assert_eq!(std::fs::read(output).unwrap(), b"second.txt");
+}
+
+#[test]
+fn cached_save_as_preserves_original_and_rejects_changed_base() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive = directory.path().join("base.zar");
+    let saved = directory.path().join("saved.zar");
+    let original = directory.path().join("original.txt");
+    let added = directory.path().join("added.txt");
+    std::fs::write(&original, b"original").unwrap();
+    std::fs::write(&added, b"added").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[original]).unwrap();
+    let before = std::fs::read(&archive).unwrap();
+    let mut app = ZargApp::default();
+    app.open_archive(archive.clone(), None);
+    wait_for_worker(&mut app);
+    app.show_operation(OperationKind::AddToArchive);
+    app.operation.input_paths.push(added);
+    let form = std::mem::take(&mut app.operation);
+    app.start_cached_add(form);
+    wait_for_worker(&mut app);
+    app.archive_lock = None;
+    std::fs::write(&archive, b"changed externally").unwrap();
+    assert!(!app.save_archive_to(saved.to_string_lossy().into_owned()));
+    assert!(app.has_unsaved_changes);
+    assert!(!saved.exists());
+    std::fs::write(&archive, &before).unwrap();
+    let metadata = std::fs::metadata(&archive).unwrap();
+    let cache = app.overlay_cache.as_mut().unwrap();
+    cache.base_length = metadata.len();
+    cache.base_modified = metadata.modified().unwrap();
+    assert!(app.save_archive_to(saved.to_string_lossy().into_owned()));
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert_eq!(std::fs::read(&archive).unwrap(), before);
+    assert_eq!(
+        operations::info_archive(saved.to_str().unwrap(), false)
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn materializing_cache_preserves_undo_states() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive = directory.path().join("base.zar");
+    let original = directory.path().join("original.txt");
+    std::fs::write(&original, b"original").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[original]).unwrap();
+    let mut app = ZargApp::default();
+    app.open_archive(archive.clone(), None);
+    wait_for_worker(&mut app);
+    for name in ["first.txt", "second.txt"] {
+        let input = directory.path().join(name);
+        std::fs::write(&input, name).unwrap();
+        app.show_operation(OperationKind::AddToArchive);
+        app.operation.input_paths.push(input);
+        let form = std::mem::take(&mut app.operation);
+        app.start_cached_add(form);
+        wait_for_worker(&mut app);
+    }
+    app.materialize_overlay().unwrap();
+    assert!(app.overlay_cache.is_none());
+    assert_eq!(
+        operations::info_archive(&app.read_archive, false)
+            .unwrap()
+            .len(),
+        3
+    );
+    assert_eq!(app.rewrite_snapshots.len(), 2);
+    assert_eq!(
+        operations::info_archive(
+            app.rewrite_snapshots[0]
+                .directory
+                .path()
+                .join("before.zar")
+                .to_str()
+                .unwrap(),
+            false
+        )
+        .unwrap()
+        .len(),
+        1
+    );
+    assert_eq!(
+        operations::info_archive(
+            app.rewrite_snapshots[1]
+                .directory
+                .path()
+                .join("before.zar")
+                .to_str()
+                .unwrap(),
+            false
+        )
+        .unwrap()
+        .len(),
+        2
+    );
+    assert_eq!(
+        operations::info_archive(archive.to_str().unwrap(), false)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn cached_removal_is_compacted_with_additions() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive = directory.path().join("base.zar");
+    let original = directory.path().join("original.txt");
+    let added = directory.path().join("added.txt");
+    std::fs::write(&original, b"original").unwrap();
+    std::fs::write(&added, b"added").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[original]).unwrap();
+    let mut app = ZargApp::default();
+    app.open_archive(archive.clone(), None);
+    wait_for_worker(&mut app);
+    app.show_operation(OperationKind::AddToArchive);
+    app.operation.input_paths.push(added);
+    let form = std::mem::take(&mut app.operation);
+    app.start_cached_add(form);
+    wait_for_worker(&mut app);
+    let mut form = app.new_operation_form(OperationKind::RemoveEntries, &app.archive);
+    form.remove_text = "original.txt".into();
+    app.start_cached_removal(form);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(!app.entries.iter().any(|(path, _)| path == "original.txt"));
+    app.save_archive();
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert_eq!(
+        operations::info_archive(archive.to_str().unwrap(), false)
+            .unwrap()
+            .len(),
+        2
+    );
+    let toc = operations::list_archive(archive.to_str().unwrap(), None, None).unwrap();
+    assert!(
+        toc.get(&ArchivePath::new("original.txt").unwrap())
+            .is_none()
+    );
+    assert!(toc.get(&ArchivePath::new("added.txt").unwrap()).is_some());
+}
+
+#[test]
+fn cached_move_is_undoable_and_saved() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive = directory.path().join("base.zar");
+    let source = directory.path().join("original.txt");
+    std::fs::write(&source, b"original contents").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[source]).unwrap();
+    let mut app = ZargApp::default();
+    app.open_archive(archive.clone(), None);
+    wait_for_worker(&mut app);
+    let from = ArchivePath::new("original.txt").unwrap();
+    let to = ArchivePath::new("renamed.txt").unwrap();
+    app.start_cached_move(vec![(from.clone(), to.clone())]);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(app.entries.iter().any(|(path, _)| path == "renamed.txt"));
+    assert_eq!(app.rewrite_snapshots.len(), 1);
+    app.save_archive();
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    let toc = operations::list_archive(archive.to_str().unwrap(), None, None).unwrap();
+    assert!(toc.get(&from).is_none());
+    assert!(toc.get(&to).is_some());
+    let output = directory.path().join("output.txt");
+    operations::extract_single_file(
+        archive.to_str().unwrap(),
+        to.as_str(),
+        &output,
+        &PasswordSet::default(),
+    )
+    .unwrap();
+    assert_eq!(std::fs::read(output).unwrap(), b"original contents");
+}
+
+#[test]
+fn f2_renames_selected_row_but_not_while_editing_text() {
+    let context = egui::Context::default();
+    let mut app = ZargApp::default();
+    app.selected.insert("folder/file.txt".into());
+    context
+        .run_ui(egui::RawInput::default(), |ui| {
+            ui.button("row").request_focus();
+        })
+        .drop_without_applying_deltas();
+    let key = egui::Event::Key {
+        key: egui::Key::F2,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let input = egui::RawInput {
+        events: vec![key.clone()],
+        ..Default::default()
+    };
+    context
+        .run_ui(input, |ui| app.handle_archive_shortcuts(ui.ctx()))
+        .drop_without_applying_deltas();
+    assert_eq!(app.rename_dialog.as_ref().unwrap().1, "file.txt");
+    app.rename_dialog = None;
+    let mut text = String::new();
+    context
+        .run_ui(egui::RawInput::default(), |ui| {
+            ui.text_edit_singleline(&mut text).request_focus();
+        })
+        .drop_without_applying_deltas();
+    let input = egui::RawInput {
+        events: vec![key],
+        ..Default::default()
+    };
+    context
+        .run_ui(input, |ui| app.handle_archive_shortcuts(ui.ctx()))
+        .drop_without_applying_deltas();
+    assert!(app.rename_dialog.is_none());
+}
+
+#[test]
+fn internal_drag_moves_selected_entries_into_folder_in_each_view() {
+    for (view, target_file) in [
+        ArchiveView::Normal,
+        ArchiveView::Compact,
+        ArchiveView::Details,
+        ArchiveView::Structured,
+    ]
+    .into_iter()
+    .flat_map(|view| [(view, false), (view, true)])
+    {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("source.txt");
+        let source_folder = directory.path().join("source-folder");
+        let target_folder = directory.path().join("target");
+        let archive = directory.path().join("base.zar");
+        std::fs::create_dir(&source_folder).unwrap();
+        std::fs::create_dir(&target_folder).unwrap();
+        std::fs::write(target_folder.join("marker.txt"), b"marker").unwrap();
+        std::fs::write(&source, b"source").unwrap();
+        std::fs::write(source_folder.join("child.txt"), b"child").unwrap();
+        operations::create_archive(
+            archive.to_str().unwrap(),
+            &[source, source_folder, target_folder],
+        )
+        .unwrap();
+        let mut app = ZargApp::default();
+        app.open_archive(archive, None);
+        wait_for_worker(&mut app);
+        app.archive_view = view;
+        if view == ArchiveView::Structured && target_file {
+            app.expanded_tree_dirs.insert("target".into());
+        }
+        #[cfg(target_os = "linux")]
+        {
+            app.wayland_drag_initialized = true;
+        }
+        app.selected = ["source.txt", "source-folder", "source-folder/child.txt"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let context = egui::Context::default();
+        let mut native_frame = eframe::Frame::_new_kittest();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 500.0));
+        let mut frame = |app: &mut ZargApp, events: Vec<egui::Event>| {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                events,
+                ..Default::default()
+            };
+            context
+                .run_ui(input, |ui| eframe::App::ui(app, ui, &mut native_frame))
+                .drop_without_applying_deltas();
+        };
+        frame(&mut app, vec![]);
+        let source_pos = app
+            .archive_row_rects
+            .iter()
+            .find(|(path, _)| path == "source.txt")
+            .unwrap()
+            .1
+            .center();
+        let target_pos = app
+            .archive_row_rects
+            .iter()
+            .find(|(path, _)| {
+                path == if target_file { "target/marker.txt" } else { "target" }
+            })
+            .unwrap()
+            .1
+            .center();
+        let button = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        frame(
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(source_pos),
+                button(source_pos, true),
+            ],
+        );
+        frame(&mut app, vec![egui::Event::PointerMoved(target_pos)]);
+        assert!(app.internal_drag, "drag did not start in {view:?}");
+        assert_eq!(app.drop_target.as_deref(), Some("target"), "{view:?}");
+        frame(&mut app, vec![button(target_pos, false)]);
+        assert!(app.busy, "move did not start in {view:?}");
+        wait_for_worker(&mut app);
+        assert!(app.report.is_none(), "{view:?}: {:?}", app.report);
+        assert_eq!(
+            app.expanded_tree_dirs.contains("target"),
+            view == ArchiveView::Structured
+        );
+        if view == ArchiveView::Structured {
+            frame(&mut app, vec![]);
+            assert!(
+                app.structured_rows_cache
+                    .iter()
+                    .any(|row| row.path == "target/source.txt")
+            );
+        }
+        for path in [
+            "target/source.txt",
+            "target/source-folder",
+            "target/source-folder/child.txt",
+        ] {
+            assert!(
+                app.entries.iter().any(|(entry, _)| entry == path),
+                "missing {path} in {view:?}"
+            );
+        }
+        assert!(
+            !app.entries
+                .iter()
+                .any(|(entry, _)| entry == "source.txt" || entry == "source-folder")
+        );
+        assert_eq!(app.rewrite_snapshots.len(), 1);
+        let view_archive = app.temporary_archive_view().unwrap().unwrap();
+        let output = directory.path().join("output");
+        operations::extract_single_file(
+            view_archive.path().join("view.zar").to_str().unwrap(),
+            "target/source-folder/child.txt",
+            &output,
+            &PasswordSet::default(),
+        )
+        .unwrap();
+        assert_eq!(std::fs::read(output).unwrap(), b"child");
+        let mut undo = app.new_operation_form(OperationKind::UndoCommits, &app.read_archive);
+        undo.undo_commits = 1;
+        app.start_operation(undo);
+        wait_for_worker(&mut app);
+        assert!(app.report.is_none(), "{view:?}: {:?}", app.report);
+        assert!(app.entries.iter().any(|(entry, _)| entry == "source.txt"));
+        assert!(
+            app.entries
+                .iter()
+                .any(|(entry, _)| entry == "source-folder/child.txt")
+        );
+    }
+}
+
+#[test]
+fn dropping_on_root_file_targets_archive_root() {
+    let directory = tempfile::tempdir().unwrap();
+    let folder = directory.path().join("folder");
+    let root_file = directory.path().join("root.txt");
+    let incoming = directory.path().join("incoming.txt");
+    let archive = directory.path().join("base.zar");
+    std::fs::create_dir(&folder).unwrap();
+    std::fs::write(folder.join("source.txt"), b"source").unwrap();
+    std::fs::write(&root_file, b"root").unwrap();
+    std::fs::write(&incoming, b"incoming").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[folder, root_file]).unwrap();
+    let mut app = ZargApp::default();
+    app.open_archive(archive, None);
+    wait_for_worker(&mut app);
+    app.selected.insert("folder/source.txt".into());
+    app.internal_drag = true;
+    let panel = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, 300.0));
+    let row = egui::Rect::from_min_size(egui::pos2(20.0, 20.0), egui::vec2(100.0, 20.0));
+    app.archive_list_rect = Some(panel);
+    app.archive_row_rects = vec![("root.txt".into(), row)];
+    let context = egui::Context::default();
+    let button = |pressed| egui::Event::PointerButton {
+        pos: row.center(),
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    context
+        .run_ui(
+            egui::RawInput {
+                events: vec![egui::Event::PointerMoved(row.center()), button(true)],
+                ..Default::default()
+            },
+            |_| {},
+        )
+        .drop_without_applying_deltas();
+    context
+        .run_ui(
+            egui::RawInput {
+                events: vec![button(false)],
+                ..Default::default()
+            },
+            |ui| app.handle_internal_archive_drag(ui.ctx(), panel, panel),
+        )
+        .drop_without_applying_deltas();
+    assert!(app.busy);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(app.entries.iter().any(|(path, _)| path == "source.txt"));
+    assert!(!app.entries.iter().any(|(path, _)| path == "folder/source.txt"));
+
+    context
+        .run_ui(
+            egui::RawInput {
+                events: vec![egui::Event::PointerMoved(row.center())],
+                dropped_files: vec![std::sync::Arc::new(TestDroppedFile(incoming))],
+                ..Default::default()
+            },
+            |ui| app.handle_dropped_files(ui.ctx()),
+        )
+        .drop_without_applying_deltas();
+    assert!(app.operation.input_archive_folder.is_none());
+    click_add_archive_action(&mut app);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(app.entries.iter().any(|(path, _)| path == "incoming.txt"));
+    assert!(app.entries.iter().any(|(path, _)| path == "root.txt"));
+}
+
+#[test]
+fn internal_drag_rejects_descendant_targets() {
+    let directory = tempfile::tempdir().unwrap();
+    let source_folder = directory.path().join("source");
+    let archive = directory.path().join("base.zar");
+    std::fs::create_dir_all(source_folder.join("child")).unwrap();
+    std::fs::write(source_folder.join("file.txt"), b"content").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[source_folder]).unwrap();
+    let mut app = ZargApp::default();
+    app.open_archive(archive, None);
+    wait_for_worker(&mut app);
+    app.selected.insert("source".into());
+    app.archive_view = ArchiveView::Structured;
+    app.structured_rows_cache = vec![StructuredRow {
+        path: "source/child".into(),
+        data: EntryData::Directory,
+        depth: 1,
+        has_children: false,
+        expanded: false,
+        child_count: 0,
+    }];
+    let rect = egui::Rect::from_min_size(egui::pos2(20.0, 20.0), egui::vec2(100.0, 20.0));
+    let panel = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, 300.0));
+    let context = egui::Context::default();
+    let button = |pressed| egui::Event::PointerButton {
+        pos: rect.center(),
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    for (target, invalid_move) in [("source/file.txt", true), ("source/child", true)] {
+        app.archive_list_rect = Some(panel);
+        app.archive_row_rects = vec![(target.to_owned(), rect)];
+        app.internal_drag = true;
+        context
+            .run_ui(
+                egui::RawInput {
+                    events: vec![egui::Event::PointerMoved(rect.center()), button(true)],
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .drop_without_applying_deltas();
+        context
+            .run_ui(
+                egui::RawInput {
+                    events: vec![button(false)],
+                    ..Default::default()
+                },
+                |ui| app.handle_internal_archive_drag(ui.ctx(), panel, panel),
+            )
+            .drop_without_applying_deltas();
+        assert_eq!(app.busy, invalid_move);
+        if invalid_move {
+            wait_for_worker(&mut app);
+            assert!(
+                app.report
+                    .as_deref()
+                    .is_some_and(|error| error.contains("outside the source"))
+            );
+        }
+        assert!(
+            app.entries
+                .iter()
+                .any(|(entry, _)| entry == "source/file.txt")
+        );
+        assert!(app.rewrite_snapshots.is_empty());
+        assert!(app.expanded_tree_dirs.is_empty());
+    }
+}
+
+#[test]
+fn internal_drag_preview_follows_pointer_and_disappears_on_release() {
+    let context = egui::Context::default();
+    let mut app = ZargApp {
+        internal_drag: true,
+        ..Default::default()
+    };
+    let window = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, 300.0));
+    let position = egui::pos2(100.0, 120.0);
+    let button = |pressed| egui::Event::PointerButton {
+        pos: position,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let output = context.run_ui(
+        egui::RawInput {
+            screen_rect: Some(window),
+            events: vec![egui::Event::PointerMoved(position), button(true)],
+            ..Default::default()
+        },
+        |ui| app.handle_internal_archive_drag(ui.ctx(), window, window),
+    );
+    let texture = app.icons.textures.borrow()[&UiIcon::Application].id();
+    assert!(output.shapes.iter().any(|shape| {
+        matches!(&shape.shape, egui::Shape::Mesh(mesh) if mesh.texture_id == texture
+            && mesh.calc_bounds().min == position + egui::vec2(12.0, 12.0))
+    }));
+    output.drop_without_applying_deltas();
+    let moved = egui::pos2(150.0, 160.0);
+    let output = context.run_ui(
+        egui::RawInput {
+            screen_rect: Some(window),
+            events: vec![egui::Event::PointerMoved(moved)],
+            ..Default::default()
+        },
+        |ui| app.handle_internal_archive_drag(ui.ctx(), window, window),
+    );
+    assert!(output.shapes.iter().any(|shape| {
+        matches!(&shape.shape, egui::Shape::Mesh(mesh) if mesh.texture_id == texture
+            && mesh.calc_bounds().min == moved + egui::vec2(12.0, 12.0))
+    }));
+    output.drop_without_applying_deltas();
+    let output = context.run_ui(
+        egui::RawInput {
+            screen_rect: Some(window),
+            events: vec![egui::Event::PointerMoved(egui::pos2(400.0, 400.0))],
+            ..Default::default()
+        },
+        |ui| app.handle_internal_archive_drag(ui.ctx(), window, window),
+    );
+    assert!(!output.shapes.iter().any(|shape| {
+        matches!(&shape.shape, egui::Shape::Mesh(mesh) if mesh.texture_id == texture)
+    }));
+    output.drop_without_applying_deltas();
+    let output = context.run_ui(
+        egui::RawInput {
+            screen_rect: Some(window),
+            events: vec![button(false)],
+            ..Default::default()
+        },
+        |ui| app.handle_internal_archive_drag(ui.ctx(), window, window),
+    );
+    assert!(!output.shapes.iter().any(|shape| {
+        matches!(&shape.shape, egui::Shape::Mesh(mesh) if mesh.texture_id == texture)
+    }));
+    assert!(!app.internal_drag);
+    output.drop_without_applying_deltas();
+}
+
+#[test]
+fn icon_view_folder_is_a_drop_target_over_its_label() {
+    let context = egui::Context::default();
+    let mut app = ZargApp {
+        entries: vec![
+            ("first".into(), EntryData::Directory),
+            ("folder".into(), EntryData::Directory),
+        ],
+        visible_entry_indices: vec![0, 1],
+        internal_drag: true,
+        ..Default::default()
+    };
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(500.0, 300.0));
+    let mut target = egui::Pos2::ZERO;
+    let input = egui::RawInput {
+        screen_rect: Some(screen),
+        ..Default::default()
+    };
+    context
+        .run_ui(input, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
+                let width = ui.available_width();
+                let gap = ui.spacing().item_spacing.x;
+                let columns = ((width + gap) / (112.0 + gap)).floor().max(1.0) as usize;
+                let cell =
+                    ((width - gap * columns.saturating_sub(1) as f32) / columns as f32).max(112.0);
+                target = ui.cursor().min + egui::vec2(cell + gap + cell / 2.0, 75.0);
+                app.render_icon_archive_list(ui, &context);
+            });
+        })
+        .drop_without_applying_deltas();
+    let input = egui::RawInput {
+        screen_rect: Some(screen),
+        events: vec![egui::Event::PointerMoved(target)],
+        ..Default::default()
+    };
+    context
+        .run_ui(input, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| app.render_icon_archive_list(ui, &context));
+        })
+        .drop_without_applying_deltas();
+    assert_eq!(app.drop_target.as_deref(), Some("folder"));
+}
+
+#[test]
+fn moving_an_unsaved_working_archive_can_be_undone() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("original.txt");
+    std::fs::write(&source, b"original contents").unwrap();
+    let mut app = ZargApp::default();
+    let mut create = app.new_operation_form(OperationKind::NewArchive, "");
+    create.input_paths.push(source);
+    app.start_operation(create);
+    wait_for_worker(&mut app);
+    app.start_cached_move(vec![(
+        ArchivePath::new("original.txt").unwrap(),
+        ArchivePath::new("renamed.txt").unwrap(),
+    )]);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(app.entries.iter().any(|(path, _)| path == "renamed.txt"));
+    let mut undo = app.new_operation_form(OperationKind::UndoCommits, &app.read_archive);
+    undo.undo_commits = 1;
+    app.start_operation(undo);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(app.entries.iter().any(|(path, _)| path == "original.txt"));
+}
+
+#[test]
+fn opening_a_renamed_staged_file_uses_overlay_contents() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive = directory.path().join("base.zar");
+    let original = directory.path().join("original.txt");
+    let added = directory.path().join("added.txt");
+    std::fs::write(&original, b"base").unwrap();
+    std::fs::write(&added, b"staged contents").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[original]).unwrap();
+    let mut app = ZargApp::default();
+    app.open_archive(archive, None);
+    wait_for_worker(&mut app);
+    app.show_operation(OperationKind::AddToArchive);
+    app.operation.input_paths.push(added);
+    let form = std::mem::take(&mut app.operation);
+    app.start_cached_add(form);
+    wait_for_worker(&mut app);
+    app.start_cached_move(vec![(
+        ArchivePath::new("added.txt").unwrap(),
+        ArchivePath::new("renamed.txt").unwrap(),
+    )]);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    let view = app.temporary_archive_view().unwrap().unwrap();
+    let output = directory.path().join("opened.txt");
+    operations::extract_single_file_through(
+        view.path().join("view.zar").to_str().unwrap(),
+        "renamed.txt",
+        &output,
+        &PasswordSet::default(),
+        None,
+    )
+    .unwrap();
+    assert_eq!(std::fs::read(output).unwrap(), b"staged contents");
+    app.start_cached_undo(1);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(app.entries.iter().any(|(path, _)| path == "added.txt"));
+}
+
+#[test]
+fn cached_metadata_and_addition_save_as_one_commit() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive = directory.path().join("base.zar");
+    let original = directory.path().join("original.txt");
+    let added = directory.path().join("added.txt");
+    std::fs::write(&original, b"original").unwrap();
+    std::fs::write(&added, b"added").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[original]).unwrap();
+    let mut app = ZargApp::default();
+    app.open_archive(archive.clone(), None);
+    wait_for_worker(&mut app);
+    app.show_operation(OperationKind::AddToArchive);
+    app.operation.input_paths.push(added);
+    let form = std::mem::take(&mut app.operation);
+    app.start_operation(form);
+    wait_for_worker(&mut app);
+    app.show_operation_now(OperationKind::CustomMetadata);
+    app.operation.meta_new = vec![("author".into(), "test".into())];
+    let form = std::mem::take(&mut app.operation);
+    app.start_operation(form);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert_eq!(app.maximum_undo_steps(), 2);
+    app.save_archive();
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert_eq!(
+        operations::info_archive(archive.to_str().unwrap(), false)
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        operations::read_custom_metadata(archive.to_str().unwrap())
+            .unwrap()
+            .get("author"),
+        Some(&zarlib::MetadataType::String("test".into()))
+    );
+}
+
+#[test]
 fn archive_modifications_are_staged_until_saved() {
     let directory = tempfile::tempdir().unwrap();
     let original_file = directory.path().join("original.txt");
@@ -1049,7 +2082,7 @@ fn archive_modifications_are_staged_until_saved() {
     wait_for_worker(&mut app);
     assert!(app.can_add_to_archive());
     assert!(app.has_current_archive());
-    assert_ne!(app.read_archive, archive.to_string_lossy());
+    assert_eq!(app.read_archive, archive.to_string_lossy());
     assert!(!app.has_unsaved_changes);
 
     app.show_operation(OperationKind::AddToArchive);
@@ -1057,6 +2090,7 @@ fn archive_modifications_are_staged_until_saved() {
     click_add_archive_action(&mut app);
     wait_for_worker(&mut app);
     assert!(app.has_unsaved_changes);
+    assert_eq!(app.read_archive, archive.to_string_lossy());
     assert!(app.report.is_none(), "{:?}", app.report);
     assert!(app.entries.iter().any(|(path, _)| path == "added.txt"));
 
@@ -1067,14 +2101,20 @@ fn archive_modifications_are_staged_until_saved() {
             .iter()
             .any(|(path, _)| path.as_str() == "added.txt")
     );
-    let staged_contents = operations::list_archive(&app.read_archive, None, None).unwrap();
+    let staged_contents = operations::list_archive_with_overlay_and_passwords(
+        &app.read_archive,
+        &app.overlay_cache.as_ref().unwrap().path().to_string_lossy(),
+        &PasswordSet::default(),
+    )
+    .unwrap()
+    .0;
     assert!(
         staged_contents
             .iter()
             .any(|(path, _)| path.as_str() == "added.txt")
     );
 
-    let working = PathBuf::from(&app.read_archive);
+    let working = app.overlay_cache.as_ref().unwrap().path();
     app.save_archive();
     wait_for_worker(&mut app);
     assert!(!app.has_unsaved_changes);
@@ -1105,6 +2145,7 @@ fn rewrite_fixture() -> (tempfile::TempDir, ZargApp, PathBuf) {
     app.start_operation(form);
     wait_for_worker(&mut app);
     assert!(app.report.is_none(), "{:?}", app.report);
+    app.materialize_overlay().unwrap();
     (directory, app, archive)
 }
 
@@ -1144,6 +2185,36 @@ fn run_undo(app: &mut ZargApp, steps: usize) {
     if app.busy {
         wait_for_worker(app);
     }
+}
+
+#[test]
+fn cached_add_then_history_rewrite_undoes_in_order() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive = directory.path().join("archive.zar");
+    let first = directory.path().join("first.txt");
+    let second = directory.path().join("second.txt");
+    std::fs::write(&first, b"first").unwrap();
+    std::fs::write(&second, b"second").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[first]).unwrap();
+    let before = std::fs::read(&archive).unwrap();
+    let mut app = ZargApp::default();
+    app.open_archive(archive.clone(), None);
+    wait_for_worker(&mut app);
+    app.show_operation(OperationKind::AddToArchive);
+    app.operation.input_paths.push(second);
+    let form = std::mem::take(&mut app.operation);
+    app.start_operation(form);
+    wait_for_worker(&mut app);
+    assert!(app.overlay_cache.is_some());
+    run_join(&mut app, None);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(app.overlay_cache.is_none());
+    run_undo(&mut app, 1);
+    assert!(app.entries.iter().any(|(path, _)| path == "second.txt"));
+    run_undo(&mut app, 1);
+    assert!(!app.entries.iter().any(|(path, _)| path == "second.txt"));
+    assert!(!app.has_unsaved_changes);
+    assert_eq!(std::fs::read(archive).unwrap(), before);
 }
 
 fn run_remove_commits(app: &mut ZargApp, from: &str, to: &str, output: Option<&Path>) {
@@ -1213,7 +2284,7 @@ fn removing_commits_to_output_preserves_current_archive_and_undo_history() {
 }
 
 #[test]
-fn removing_commits_warns_when_retained_history_cannot_be_validated() {
+fn removing_commits_validates_retained_history_with_remembered_passwords() {
     let (_directory, mut app, _archive) = rewrite_fixture();
     let first = app.commit_ids[0].clone();
     let last = app.commit_ids[1].clone();
@@ -1228,12 +2299,7 @@ fn removing_commits_warns_when_retained_history_cannot_be_validated() {
     let passwords = app.archive_passwords.clone();
     run_remove_commits(&mut app, &last, &last, None);
     assert!(app.report.is_none(), "{:?}", app.report);
-    assert!(app.status.contains("Warning:"));
-    assert!(
-        app.warnings
-            .iter()
-            .any(|warning| warning.contains("encrypted headers"))
-    );
+    assert!(!app.status.contains("Warning:"));
     assert_eq!(app.archive_passwords, passwords);
     run_undo(&mut app, 1);
     assert_eq!(app.archive_passwords, passwords);
@@ -1430,6 +2496,20 @@ fn failed_explicit_join_preserves_existing_output() {
 }
 
 #[test]
+fn saving_without_extension_writes_zar_and_updates_current_path() {
+    let (directory, mut app, _) = rewrite_fixture();
+    let destination = directory.path().join("saved-archive");
+    let expected = directory.path().join("saved-archive.zar");
+    assert!(app.save_archive_to(destination.to_string_lossy().into_owned()));
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(expected.is_file());
+    assert!(!destination.exists());
+    assert_eq!(app.archive, expected.to_string_lossy());
+    assert!(operations::info_archive(expected.to_str().unwrap(), false).is_ok());
+}
+
+#[test]
 fn save_cleans_rewrite_state_and_next_rewrite_is_staged() {
     let (directory, mut app, archive) = rewrite_fixture();
     run_join(&mut app, None);
@@ -1564,7 +2644,7 @@ fn extract_selected_items_snapshots_selection_and_preserves_filters() {
     std::fs::write(selected.join("nested/keep.txt"), b"keep").unwrap();
     std::fs::write(selected.join("skip.txt"), b"skip").unwrap();
     std::fs::write(input.join("[selected]2/leak.txt"), b"leak").unwrap();
-    std::fs::write(input.join("file?.txt"), b"literal").unwrap();
+    std::fs::write(input.join("file[1].txt"), b"literal").unwrap();
     std::fs::write(input.join("file1.txt"), b"unselected").unwrap();
     let archive = directory.path().join("archive.zar");
     operations::create_archive(archive.to_str().unwrap(), &[input]).unwrap();
@@ -1576,9 +2656,12 @@ fn extract_selected_items_snapshots_selection_and_preserves_filters() {
     app.show_operation_now(OperationKind::ExtractArchive);
     assert!(app.operation.extract_selected_paths.is_empty());
 
-    app.selected = ["input/[selected]".to_owned(), "input/file?.txt".to_owned()]
-        .into_iter()
-        .collect();
+    app.selected = [
+        "input/[selected]".to_owned(),
+        "input/file[1].txt".to_owned(),
+    ]
+    .into_iter()
+    .collect();
     app.show_operation_now(OperationKind::ExtractArchive);
     assert!(!app.operation.extract_selected_only);
     let captured = app.selected.clone();
@@ -1597,6 +2680,7 @@ fn extract_selected_items_snapshots_selection_and_preserves_filters() {
     app.selected = captured;
     app.show_operation_now(OperationKind::ExtractArchive);
     app.operation.extract_selected_only = true;
+    app.operation.skip_unselected_frame_validation = true;
     app.operation.exclude_files = "*/skip.txt".to_owned();
     let selected_output = directory.path().join("selected");
     app.operation.destination = selected_output.to_string_lossy().into_owned();
@@ -1614,12 +2698,208 @@ fn extract_selected_items_snapshots_selection_and_preserves_filters() {
             .is_dir()
     );
     assert_eq!(
-        std::fs::read(selected_output.join("input/file?.txt")).unwrap(),
+        std::fs::read(selected_output.join("input/file[1].txt")).unwrap(),
         b"literal"
     );
     assert!(!selected_output.join("input/[selected]/skip.txt").exists());
     assert!(!selected_output.join("input/[selected]2").exists());
     assert!(!selected_output.join("input/file1.txt").exists());
+}
+
+#[test]
+fn background_extraction_tracks_selected_commit() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive = directory.path().join("archive.zar");
+    let first = directory.path().join("first.txt");
+    let second = directory.path().join("second.txt");
+    std::fs::write(&first, b"first").unwrap();
+    std::fs::write(&second, b"second").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[first]).unwrap();
+    operations::add_archive(archive.to_str().unwrap(), &[second]).unwrap();
+    let mut app = ZargApp::default();
+    app.open_archive(archive.clone(), None);
+    wait_for_worker(&mut app);
+    let first_commit = app.commit_ids.first().unwrap().clone();
+    app.select_commit(first_commit.clone());
+    wait_for_worker(&mut app);
+    let background = app.background_extraction.as_ref().unwrap();
+    let prepared = background.wait(None).unwrap();
+    assert_eq!(prepared.to(), Some(first_commit.as_str()));
+    assert!(background.matches(
+        archive.to_str().unwrap(),
+        Some(&first_commit),
+        &BTreeMap::new()
+    ));
+    assert!(!background.matches(archive.to_str().unwrap(), None, &BTreeMap::new()));
+    assert!(
+        prepared
+            .toc()
+            .iter()
+            .any(|(path, _)| path.as_str() == "first.txt")
+    );
+    assert!(
+        !prepared
+            .toc()
+            .iter()
+            .any(|(path, _)| path.as_str() == "second.txt")
+    );
+}
+
+#[test]
+fn background_extraction_reuses_state_and_detects_archive_changes() {
+    let directory = tempfile::tempdir().unwrap();
+    let input = directory.path().join("input.txt");
+    let archive = directory.path().join("archive.zar");
+    std::fs::write(&input, b"prepared data").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[input]).unwrap();
+    let mut app = ZargApp::default();
+    app.open_archive(archive.clone(), None);
+    wait_for_worker(&mut app);
+    let background = app.background_extraction.clone().unwrap();
+    background.wait(None).unwrap();
+    assert!(background.matches(archive.to_str().unwrap(), None, &BTreeMap::new()));
+    assert!(!background.matches(
+        archive.to_str().unwrap(),
+        Some("ffffffff"),
+        &BTreeMap::new()
+    ));
+
+    let output = directory.path().join("output");
+    let mut form = OperationForm::new(OperationKind::ExtractArchive, archive.to_str().unwrap());
+    form.destination = output.to_string_lossy().into_owned();
+    let (events, event_receiver) = mpsc::channel();
+    let (_answers, answer_receiver) = mpsc::channel();
+    let progress = UiProgress {
+        events: events.clone(),
+        answers: Arc::new(Mutex::new(answer_receiver)),
+        cancellation: None,
+        limit_status_updates: false,
+        last_status_update: Mutex::new(None),
+    };
+    let job = build_job(
+        OperationKind::ExtractArchive,
+        form,
+        events,
+        progress,
+        Some(background.clone()),
+        true,
+    )
+    .unwrap();
+    job().unwrap();
+    assert!(event_receiver.try_iter().any(|event| matches!(event, UiEvent::Message(message) if message == "Waiting for background validation")));
+    assert_eq!(
+        std::fs::read(output.join("input.txt")).unwrap(),
+        b"prepared data"
+    );
+    assert!(app.archive_lock.is_some());
+    #[cfg(windows)]
+    assert!(
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&archive)
+            .is_err()
+    );
+    #[cfg(unix)]
+    assert!(std::fs::File::open(&archive).unwrap().try_lock().is_err());
+    app.archive_lock = None;
+    std::fs::remove_file(&archive).unwrap();
+    assert!(!background.matches(archive.to_str().unwrap(), None, &BTreeMap::new()));
+}
+
+#[test]
+fn pre_extraction_validation_detects_changed_blocks_before_writing() {
+    use std::io::{Read, Seek, SeekFrom, Write};
+
+    let directory = tempfile::tempdir().unwrap();
+    let first = directory.path().join("first.bin");
+    let second = directory.path().join("second.bin");
+    let archive = directory.path().join("archive.zar");
+    std::fs::write(&first, vec![b'a'; 128]).unwrap();
+    std::fs::write(&second, vec![b'b'; 128]).unwrap();
+    operations::create_archive_with_encoding(
+        archive.to_str().unwrap(),
+        &[first, second],
+        false,
+        operations::EncodingOptions {
+            block_size: 64,
+            compression_level: 1,
+        },
+    )
+    .unwrap();
+    let mut app = ZargApp::default();
+    app.open_archive(archive.clone(), None);
+    wait_for_worker(&mut app);
+    let background = app.background_extraction.as_ref().unwrap();
+    background.wait(None).unwrap();
+    assert!(
+        app.matching_background(archive.to_str().unwrap(), None)
+            .is_some()
+    );
+
+    app.validate_blocks_before_extraction = true;
+    let valid_output = directory.path().join("valid-output");
+    let mut form = app.new_operation_form(OperationKind::ExtractArchive, &app.archive);
+    form.destination = valid_output.to_string_lossy().into_owned();
+    app.start_operation(form);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert_eq!(
+        std::fs::read(valid_output.join("first.bin")).unwrap(),
+        vec![b'a'; 128]
+    );
+    assert_eq!(
+        std::fs::read(valid_output.join("second.bin")).unwrap(),
+        vec![b'b'; 128]
+    );
+    app.validate_blocks_before_extraction = false;
+
+    let (_, sources, _) =
+        operations::load_extraction_state(archive.to_str().unwrap(), None, None).unwrap();
+    let block = &sources[&ArchivePath::new("second.bin").unwrap()].blocks[0];
+    let offset = block.offset + block.encoded_size - 1;
+    let modified = std::fs::metadata(&archive).unwrap().modified().unwrap();
+    app.archive_lock = None;
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&archive)
+        .unwrap();
+    file.seek(SeekFrom::Start(offset)).unwrap();
+    let mut byte = [0];
+    file.read_exact(&mut byte).unwrap();
+    file.seek(SeekFrom::Start(offset)).unwrap();
+    file.write_all(&[byte[0] ^ 1]).unwrap();
+    file.set_times(std::fs::FileTimes::new().set_modified(modified))
+        .unwrap();
+    drop(file);
+    assert!(
+        app.matching_background(archive.to_str().unwrap(), None)
+            .is_some()
+    );
+
+    app.validate_blocks_before_extraction = true;
+    assert!(
+        app.matching_background(archive.to_str().unwrap(), None)
+            .is_none()
+    );
+    for skip_unselected in [false, true] {
+        let output = directory.path().join(format!("output-{skip_unselected}"));
+        let mut form = app.new_operation_form(OperationKind::ExtractArchive, &app.archive);
+        form.destination = output.to_string_lossy().into_owned();
+        form.skip_unselected_frame_validation = skip_unselected;
+        app.start_operation(form);
+        wait_for_worker(&mut app);
+        assert!(app.report.is_some());
+        assert!(!output.join("first.bin").exists());
+        assert!(!output.join("second.bin").exists());
+    }
+}
+
+#[test]
+fn drag_preview_icon_is_small_png() {
+    let icon = drag_preview_icon().unwrap();
+    let decoded = image::load_from_memory_with_format(&icon, image::ImageFormat::Png).unwrap();
+    assert_eq!((decoded.width(), decoded.height()), (48, 48));
 }
 
 #[test]
@@ -1643,6 +2923,7 @@ fn drag_preparation_extracts_selected_roots_and_their_children() {
         None,
         &PasswordSet::default(),
         None,
+        (None, true),
     )
     .unwrap();
     assert_eq!(prepared.paths.len(), 1);
@@ -1655,6 +2936,42 @@ fn drag_preparation_extracts_selected_roots_and_their_children() {
     let temporary_path = prepared.directory.path().to_path_buf();
     drop(prepared);
     assert!(!temporary_path.exists());
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+#[test]
+fn native_drag_prepares_dropped_cached_file_on_worker() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive = directory.path().join("base.zar");
+    let original = directory.path().join("original.txt");
+    let added = directory.path().join("dropped.txt");
+    std::fs::write(&original, b"original").unwrap();
+    std::fs::write(&added, b"dropped").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[original]).unwrap();
+    let before = std::fs::read(&archive).unwrap();
+    let mut app = ZargApp::default();
+    app.open_archive(archive.clone(), None);
+    wait_for_worker(&mut app);
+    assert!(app.add_dropped_paths(vec![added]));
+    click_add_archive_action(&mut app);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(app.overlay_cache.is_some());
+    app.selected = ["dropped.txt".to_owned()].into_iter().collect();
+
+    app.start_selected_drag();
+    assert!(app.busy);
+    let prepared = app
+        .native_drag_preparation
+        .as_ref()
+        .unwrap()
+        .receiver
+        .recv_timeout(Duration::from_secs(10))
+        .unwrap()
+        .unwrap();
+    assert_eq!(std::fs::read(&prepared.paths[0]).unwrap(), b"dropped");
+    assert_eq!(std::fs::read(archive).unwrap(), before);
+    assert!(app.overlay_cache.is_some());
 }
 
 #[test]
@@ -1693,6 +3010,7 @@ fn drag_preparation_reports_extraction_progress() {
         None,
         &passwords,
         Some(&progress),
+        (None, true),
     )
     .unwrap();
     assert_eq!(
@@ -1715,6 +3033,7 @@ fn drag_preparation_respects_selected_commit_and_reports_missing_entries() {
             app.commit_ids.first().map(String::as_str),
             &passwords,
             None,
+            (None, true),
         )
         .is_err()
     );
@@ -1724,12 +3043,12 @@ fn drag_preparation_respects_selected_commit_and_reports_missing_entries() {
         app.commit_ids.last().map(String::as_str),
         &passwords,
         None,
+        (None, true),
     )
     .unwrap();
     assert_eq!(std::fs::read(&prepared.paths[0]).unwrap(), b"second");
 }
 
-#[cfg(target_os = "linux")]
 #[test]
 fn drag_preparation_can_be_cancelled() {
     let (_directory, app, _) = rewrite_fixture();
@@ -1743,17 +3062,52 @@ fn drag_preparation_can_be_cancelled() {
         limit_status_updates: false,
         last_status_update: Mutex::new(None),
     };
-    let error = match prepare_drag(
+    let error = match prepare_drag_with_overlay(
         &app.read_archive,
+        Some(Path::new("missing-overlay.zar")),
         &selected,
         None,
         &PasswordSet::default(),
         Some(&progress),
+        (None, true),
     ) {
         Ok(_) => panic!("cancelled preparation must not succeed"),
         Err(error) => error,
     };
     assert!(error.to_string().contains("cancelled"));
+}
+
+#[test]
+fn drag_preparation_can_cancel_while_copying_the_base() {
+    struct CancelDuringCopy(std::sync::atomic::AtomicUsize);
+    impl Progress for CancelDuringCopy {
+        fn message(&self, _: &str) {}
+        fn advance(&self, _: u64) {}
+        fn is_cancelled(&self) -> bool {
+            self.0.fetch_add(1, Ordering::Relaxed) >= 1
+        }
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let input = directory.path().join("input.txt");
+    let archive = directory.path().join("archive.zar");
+    let overlay = directory.path().join("overlay.zar");
+    std::fs::write(&input, b"input").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[input]).unwrap();
+    operations::create_overlay_archive(&archive, &overlay).unwrap();
+    let before = std::fs::read(&archive).unwrap();
+    let selected = ["input.txt".to_owned()].into_iter().collect();
+    let progress = CancelDuringCopy(std::sync::atomic::AtomicUsize::new(0));
+    let result = prepare_drag_with_overlay(
+        archive.to_str().unwrap(),
+        Some(&overlay),
+        &selected,
+        None,
+        &PasswordSet::default(),
+        Some(&progress),
+        (None, true),
+    );
+    assert!(matches!(result, Err(error) if error.to_string().contains("cancelled")));
+    assert_eq!(std::fs::read(archive).unwrap(), before);
 }
 
 #[cfg(unix)]
@@ -1772,6 +3126,7 @@ fn drag_preparation_rejects_special_entries_inside_selected_folder() {
         None,
         &PasswordSet::default(),
         None,
+        (None, true),
     ) {
         Ok(_) => panic!("special entry must not be silently omitted"),
         Err(error) => error,
@@ -1800,7 +3155,7 @@ fn selected_extraction_uses_the_commit_chosen_in_the_dialog() {
 }
 
 #[test]
-fn remove_archive_entries_is_staged_and_updates_ui_without_relisting() {
+fn remove_archive_entries_is_staged_and_updates_ui() {
     let directory = tempfile::tempdir().unwrap();
     let input = directory.path().join("README");
     let archive = directory.path().join("archive.zar");
@@ -1822,12 +3177,7 @@ fn remove_archive_entries_is_staged_and_updates_ui_without_relisting() {
     assert!(app.entries.is_empty());
     assert!(!app.selected.contains("README"));
     assert!(app.selection_anchor.is_none());
-    assert_eq!(
-        operations::info_archive(&app.read_archive, false)
-            .unwrap()
-            .len(),
-        2
-    );
+    assert_eq!(app.commit_ids.len(), 2);
     assert!(
         operations::list_archive(archive.to_str().unwrap(), None, None)
             .unwrap()
@@ -1835,10 +3185,15 @@ fn remove_archive_entries_is_staged_and_updates_ui_without_relisting() {
             .any(|(path, _)| path.as_str() == "README")
     );
     assert!(
-        !operations::list_archive(&app.read_archive, None, None)
-            .unwrap()
-            .iter()
-            .any(|(path, _)| path.as_str() == "README")
+        !operations::list_archive_with_overlay_and_passwords(
+            &app.read_archive,
+            &app.overlay_cache.as_ref().unwrap().path().to_string_lossy(),
+            &PasswordSet::default(),
+        )
+        .unwrap()
+        .0
+        .iter()
+        .any(|(path, _)| path.as_str() == "README")
     );
 }
 
@@ -1968,6 +3323,73 @@ fn startup_archive_reports_invalid_defaults() {
 }
 
 #[test]
+#[cfg(windows)]
+fn dropping_into_locked_working_archive_releases_its_own_lock() {
+    let directory = tempfile::tempdir().unwrap();
+    let input = directory.path().join("dropped.txt");
+    let folder = directory.path().join("folder");
+    std::fs::create_dir(&folder).unwrap();
+    std::fs::write(folder.join("nested.txt"), b"nested contents").unwrap();
+    std::fs::write(&input, b"dropped contents").unwrap();
+    let mut app = ZargApp::default();
+    app.create_default_archive();
+    wait_for_worker(&mut app);
+    app.archive_lock = lock_archive(Path::new(&app.read_archive));
+    assert!(app.archive_lock.is_some());
+    assert!(app.add_dropped_paths(vec![input, folder]));
+    click_add_archive_action(&mut app);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(app.entries.iter().any(|(path, _)| path == "dropped.txt"));
+    assert!(app.entries.iter().any(|(path, _)| path == "folder/nested.txt"));
+    assert!(app.archive_lock.is_some());
+
+    app.start_cached_move(vec![(
+        ArchivePath::new("dropped.txt").unwrap(),
+        ArchivePath::new("folder/dropped.txt").unwrap(),
+    )]);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(app.entries.iter().any(|(path, _)| path == "folder/dropped.txt"));
+    assert!(app.archive_lock.is_some());
+
+    let mut undo = app.new_operation_form(OperationKind::UndoCommits, &app.read_archive);
+    undo.undo_commits = 1;
+    app.start_operation(undo);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(app.entries.iter().any(|(path, _)| path == "dropped.txt"));
+    assert!(app.archive_lock.is_some());
+
+    app.start_cached_move(vec![(
+        ArchivePath::new("missing.txt").unwrap(),
+        ArchivePath::new("folder/missing.txt").unwrap(),
+    )]);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_some());
+    assert!(app.archive_lock.is_some());
+    assert!(app.entries.iter().any(|(path, _)| path == "dropped.txt"));
+}
+
+#[test]
+fn archive_lock_is_preserved_for_unrelated_working_copy() {
+    let directory = tempfile::tempdir().unwrap();
+    let original = directory.path().join("original.zar");
+    let working = directory.path().join("working.zar");
+    std::fs::write(&original, b"original").unwrap();
+    std::fs::write(&working, b"working").unwrap();
+    let mut app = ZargApp {
+        archive_lock: lock_archive(&original),
+        ..Default::default()
+    };
+    assert!(app.archive_lock.is_some());
+    assert!(!app.release_archive_lock_for(&working));
+    assert!(app.archive_lock.is_some());
+    assert!(app.release_archive_lock_for(&original));
+    assert!(app.archive_lock.is_none());
+}
+
+#[test]
 fn add_to_unsaved_new_archive_uses_working_archive() {
     let directory = tempfile::tempdir().unwrap();
     let input = directory.path().join("added.txt");
@@ -2024,6 +3446,202 @@ fn add_to_unsaved_new_archive_uses_working_archive() {
 }
 
 #[test]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
+fn dropping_own_dragged_files_does_not_open_add_dialog() {
+    let drag_directory = tempfile::tempdir().unwrap();
+    let dragged_file = drag_directory.path().join("dragged.txt");
+    std::fs::write(&dragged_file, b"dragged").unwrap();
+    let mut app = ZargApp::default();
+    app.create_default_archive();
+    wait_for_worker(&mut app);
+    app.drag_directories.push(drag_directory);
+    let context = egui::Context::default();
+    let input = egui::RawInput {
+        dropped_files: vec![std::sync::Arc::new(TestDroppedFile(dragged_file))],
+        ..Default::default()
+    };
+    context
+        .run_ui(input, |ui| app.handle_dropped_files(ui.ctx()))
+        .drop_without_applying_deltas();
+    assert!(app.operation.kind.is_none());
+    assert!(!app.busy);
+}
+
+#[test]
+fn dropping_into_archive_folder_adds_files_and_folders_without_replacing_root() {
+    for (staged, target_file, structured) in
+        [(false, false), (false, true), (true, false), (true, true)]
+            .into_iter()
+            .flat_map(|(staged, target_file)| {
+                [(staged, target_file, false), (staged, target_file, true)]
+            })
+    {
+        let directory = tempfile::tempdir().unwrap();
+        let existing = directory.path().join("existing");
+        let incoming = directory.path().join("incoming");
+        std::fs::create_dir_all(existing.join("target")).unwrap();
+        std::fs::write(existing.join("target/marker.txt"), b"marker").unwrap();
+        std::fs::create_dir_all(incoming.join("nested")).unwrap();
+        std::fs::write(existing.join("same.txt"), b"original").unwrap();
+        std::fs::write(incoming.join("same.txt"), b"incoming").unwrap();
+        std::fs::write(incoming.join("nested/child.txt"), b"child").unwrap();
+
+        let mut app = ZargApp::default();
+        app.create_default_archive();
+        wait_for_worker(&mut app);
+        assert!(app.add_dropped_paths(vec![existing.join("target"), existing.join("same.txt")]));
+        click_add_archive_action(&mut app);
+        wait_for_worker(&mut app);
+        assert!(app.report.is_none(), "{:?}", app.report);
+        if staged {
+            let archive = directory.path().join("saved.zar");
+            assert!(app.save_archive_to(archive.to_string_lossy().into_owned()));
+            wait_for_worker(&mut app);
+        }
+        if structured {
+            app.archive_view = ArchiveView::Structured;
+            app.structured_rows_cache = vec![StructuredRow {
+                path: "target".into(),
+                data: EntryData::Directory,
+                depth: 0,
+                has_children: true,
+                expanded: false,
+                child_count: 1,
+            }];
+        }
+
+        let rectangle = egui::Rect::from_min_size(egui::pos2(20.0, 20.0), egui::vec2(100.0, 30.0));
+        app.archive_list_rect = Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(300.0, 300.0),
+        ));
+        app.archive_row_rects = vec![(
+            if target_file { "target/marker.txt" } else { "target" }.to_owned(),
+            rectangle,
+        )];
+        let context = egui::Context::default();
+        let input = egui::RawInput {
+            events: vec![egui::Event::PointerMoved(rectangle.center())],
+            dropped_files: vec![
+                std::sync::Arc::new(TestDroppedFile(incoming.join("same.txt"))),
+                std::sync::Arc::new(TestDroppedFile(incoming.join("nested"))),
+            ],
+            ..Default::default()
+        };
+        context
+            .run_ui(input, |ui| app.handle_dropped_files(ui.ctx()))
+            .drop_without_applying_deltas();
+        assert_eq!(
+            app.operation
+                .input_archive_folder
+                .as_ref()
+                .map(ArchivePath::as_str),
+            Some("target")
+        );
+        assert!(!app.add_dropped_paths(vec![existing.join("same.txt")]));
+        assert_eq!(app.operation.input_paths.len(), 2);
+        assert!(!app.expanded_tree_dirs.contains("target"));
+        click_add_archive_action(&mut app);
+        wait_for_worker(&mut app);
+        assert!(app.report.is_none(), "{:?}", app.report);
+        assert_eq!(app.expanded_tree_dirs.contains("target"), structured);
+        if structured {
+            app.refresh_structured_rows();
+            assert!(
+                app.structured_rows_cache
+                    .iter()
+                    .any(|row| row.path == "target/same.txt")
+            );
+        }
+        for path in [
+            "same.txt",
+            "target/same.txt",
+            "target/nested",
+            "target/nested/child.txt",
+        ] {
+            assert!(
+                app.entries.iter().any(|(entry, _)| entry == path),
+                "missing {path}, staged={staged}"
+            );
+        }
+        let view = app.temporary_archive_view().unwrap();
+        let archive = view.as_ref().map_or_else(
+            || PathBuf::from(&app.read_archive),
+            |directory| directory.path().join("view.zar"),
+        );
+        for (path, expected) in [
+            ("same.txt", &b"original"[..]),
+            ("target/same.txt", &b"incoming"[..]),
+            ("target/nested/child.txt", &b"child"[..]),
+        ] {
+            let output = directory.path().join("verified-output");
+            operations::extract_single_file_through(
+                archive.to_str().unwrap(),
+                path,
+                &output,
+                &PasswordSet::default(),
+                None,
+            )
+            .unwrap();
+            assert_eq!(std::fs::read(output).unwrap(), expected);
+        }
+    }
+}
+
+#[test]
+fn archive_drop_folder_hit_testing_resolves_files_and_ignores_clipped_rows() {
+    let rectangle = egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(60.0, 20.0));
+    let mut app = ZargApp {
+        entries: vec![
+            ("file".into(), EntryData::File(1)),
+            ("folder".into(), EntryData::Directory),
+        ],
+        archive_list_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(100.0, 100.0),
+        )),
+        archive_row_rects: vec![("file".into(), rectangle)],
+        ..Default::default()
+    };
+    assert!(app.archive_folder_at(Some(rectangle.center())).is_none());
+    app.archive_row_rects = vec![("folder/nested/file".into(), rectangle)];
+    assert_eq!(
+        app.archive_folder_at(Some(rectangle.center()))
+            .as_ref()
+            .map(ArchivePath::as_str),
+        Some("folder/nested")
+    );
+    app.archive_row_rects = vec![("folder".into(), rectangle)];
+    assert_eq!(
+        app.archive_folder_at(Some(rectangle.center()))
+            .as_ref()
+            .map(ArchivePath::as_str),
+        Some("folder")
+    );
+    app.archive_view = ArchiveView::Structured;
+    app.structured_rows_cache = vec![StructuredRow {
+        path: "implicit".into(),
+        data: EntryData::Directory,
+        depth: 0,
+        has_children: true,
+        expanded: false,
+        child_count: 1,
+    }];
+    app.archive_row_rects = vec![("implicit".into(), rectangle)];
+    assert_eq!(
+        app.archive_folder_at(Some(rectangle.center()))
+            .as_ref()
+            .map(ArchivePath::as_str),
+        Some("implicit")
+    );
+    app.archive_list_rect = Some(egui::Rect::from_min_size(
+        egui::pos2(200.0, 200.0),
+        egui::vec2(10.0, 10.0),
+    ));
+    assert!(app.archive_folder_at(Some(rectangle.center())).is_none());
+}
+
+#[test]
 fn dropping_files_and_folders_prefills_add_form_for_current_archive() {
     let directory = tempfile::tempdir().unwrap();
     let file = directory.path().join("dropped.txt");
@@ -2037,6 +3655,11 @@ fn dropping_files_and_folders_prefills_add_form_for_current_archive() {
     assert!(app.can_add_to_archive());
 
     let context = egui::Context::default();
+    context.set_embed_viewports(false);
+    let viewport_id = egui::ViewportId::from_hash_of(format!(
+        "operation-dialog:{}",
+        OperationKind::AddToArchive.title()
+    ));
     let input = egui::RawInput {
         dropped_files: vec![
             std::sync::Arc::new(TestDroppedFile(file.clone())),
@@ -2044,9 +3667,22 @@ fn dropping_files_and_folders_prefills_add_form_for_current_archive() {
         ],
         ..Default::default()
     };
-    context
-        .run_ui(input, |ui| app.handle_dropped_files(ui.ctx()))
-        .drop_without_applying_deltas();
+    let output = context.run_ui(input, |ui| {
+        app.handle_dropped_files(ui.ctx());
+        ui.ctx()
+            .show_viewport_deferred(viewport_id, egui::ViewportBuilder::default(), |_, _| {});
+    });
+    let focused = output
+        .viewport_output
+        .get(&viewport_id)
+        .is_some_and(|viewport| {
+            viewport
+                .commands
+                .iter()
+                .any(|command| matches!(command, egui::ViewportCommand::Focus))
+        });
+    output.drop_without_applying_deltas();
+    assert!(focused);
 
     assert_eq!(app.operation.kind, Some(OperationKind::AddToArchive));
     assert_eq!(app.operation.archive, app.read_archive);
@@ -2055,6 +3691,26 @@ fn dropping_files_and_folders_prefills_add_form_for_current_archive() {
         vec![file.clone(), folder.clone()]
     );
 
+    let input = egui::RawInput {
+        dropped_files: vec![std::sync::Arc::new(TestDroppedFile(file.clone()))],
+        ..Default::default()
+    };
+    let output = context.run_ui(input, |ui| {
+        app.handle_dropped_files(ui.ctx());
+        ui.ctx()
+            .show_viewport_deferred(viewport_id, egui::ViewportBuilder::default(), |_, _| {});
+    });
+    let focused = output
+        .viewport_output
+        .get(&viewport_id)
+        .is_some_and(|viewport| {
+            viewport
+                .commands
+                .iter()
+                .any(|command| matches!(command, egui::ViewportCommand::Focus))
+        });
+    output.drop_without_applying_deltas();
+    assert!(focused);
     app.add_dropped_paths(vec![folder, file]);
     assert_eq!(app.operation.input_paths.len(), 2);
     click_add_archive_action(&mut app);
@@ -2075,7 +3731,32 @@ fn dropping_paths_does_not_replace_an_open_operation() {
 
     app.show_operation(OperationKind::ExtractArchive);
     app.operation.destination = "keep this destination".to_owned();
-    app.add_dropped_paths(vec![file]);
+    let context = egui::Context::default();
+    context.set_embed_viewports(false);
+    let viewport_id = egui::ViewportId::from_hash_of(format!(
+        "operation-dialog:{}",
+        OperationKind::AddToArchive.title()
+    ));
+    let input = egui::RawInput {
+        dropped_files: vec![std::sync::Arc::new(TestDroppedFile(file))],
+        ..Default::default()
+    };
+    let output = context.run_ui(input, |ui| {
+        app.handle_dropped_files(ui.ctx());
+        ui.ctx()
+            .show_viewport_deferred(viewport_id, egui::ViewportBuilder::default(), |_, _| {});
+    });
+    let focused = output
+        .viewport_output
+        .get(&viewport_id)
+        .is_some_and(|viewport| {
+            viewport
+                .commands
+                .iter()
+                .any(|command| matches!(command, egui::ViewportCommand::Focus))
+        });
+    output.drop_without_applying_deltas();
+    assert!(!focused);
 
     assert_eq!(app.operation.kind, Some(OperationKind::ExtractArchive));
     assert_eq!(app.operation.destination, "keep this destination");
@@ -3252,6 +4933,437 @@ fn structured_filter_reveals_matching_entry_ancestors() {
         rows.iter().map(|row| row.path.as_str()).collect::<Vec<_>>(),
         ["folder", "folder/sub", "folder/sub/match.txt"]
     );
+}
+
+#[test]
+fn archive_shift_selection_preserves_other_items_and_shrinks() {
+    let visible = ["a", "b", "c", "d", "e"].map(str::to_owned);
+    let mut selected = BTreeSet::from(["a".to_owned(), "c".to_owned()]);
+    let mut anchor = Some("c".to_owned());
+    let mut current = anchor.clone();
+    let mut base = None;
+    let shift = egui::Modifiers {
+        shift: true,
+        ..Default::default()
+    };
+    select_archive_entry(
+        &visible,
+        &mut selected,
+        &mut anchor,
+        &mut current,
+        &mut base,
+        "e",
+        shift,
+    );
+    assert_eq!(
+        selected,
+        BTreeSet::from(["a".into(), "c".into(), "d".into(), "e".into()])
+    );
+    select_archive_entry(
+        &visible,
+        &mut selected,
+        &mut anchor,
+        &mut current,
+        &mut base,
+        "d",
+        shift,
+    );
+    assert_eq!(
+        selected,
+        BTreeSet::from(["a".into(), "c".into(), "d".into()])
+    );
+    assert_eq!(current.as_deref(), Some("d"));
+}
+
+#[test]
+fn archive_keyboard_navigation_preserves_selection_with_control() {
+    let context = egui::Context::default();
+    let mut app = ZargApp {
+        entries: ["a", "b", "c", "d"]
+            .into_iter()
+            .map(|path| (path.into(), EntryData::Directory))
+            .collect(),
+        visible_entry_indices: vec![0, 1, 2, 3],
+        archive_view: ArchiveView::Details,
+        archive_list_focused: true,
+        selected: BTreeSet::from(["a".into()]),
+        selection_anchor: Some("a".into()),
+        selection_current: Some("a".into()),
+        ..Default::default()
+    };
+    let key = |app: &mut ZargApp, key, modifiers| {
+        let event = |pressed| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers,
+        };
+        let input = egui::RawInput {
+            events: vec![
+                egui::Event::ModifiersChanged(modifiers),
+                event(true),
+                event(false),
+            ],
+            ..Default::default()
+        };
+        context
+            .run_ui(input, |ui| app.handle_archive_shortcuts(ui.ctx()))
+            .drop_without_applying_deltas();
+    };
+    let control = egui::Modifiers {
+        ctrl: true,
+        command: true,
+        ..Default::default()
+    };
+    let shift = egui::Modifiers {
+        shift: true,
+        ..Default::default()
+    };
+    key(&mut app, egui::Key::ArrowDown, control);
+    assert_eq!(app.selection_current.as_deref(), Some("b"));
+    assert_eq!(app.selected, BTreeSet::from(["a".into()]));
+    key(&mut app, egui::Key::Space, control);
+    assert_eq!(app.selected, BTreeSet::from(["a".into(), "b".into()]));
+    key(&mut app, egui::Key::ArrowDown, shift);
+    key(&mut app, egui::Key::ArrowDown, shift);
+    key(&mut app, egui::Key::ArrowUp, shift);
+    assert_eq!(
+        app.selected,
+        BTreeSet::from(["a".into(), "b".into(), "c".into()])
+    );
+    app.archive_list_focused = false;
+    key(&mut app, egui::Key::A, control);
+    assert_eq!(
+        app.selected,
+        BTreeSet::from(["a".into(), "b".into(), "c".into()])
+    );
+}
+
+#[test]
+fn archive_mouse_press_selects_before_drag_and_preserves_groups() {
+    let context = egui::Context::default();
+    let mut app = ZargApp {
+        entries: ["a", "b", "c"]
+            .into_iter()
+            .map(|path| (path.into(), EntryData::Directory))
+            .collect(),
+        visible_entry_indices: vec![0, 1, 2],
+        archive_view: ArchiveView::Compact,
+        selected: BTreeSet::from(["a".into(), "b".into()]),
+        ..Default::default()
+    };
+    let frame = |app: &mut ZargApp, events| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(400.0, 300.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        context
+            .run_ui(input, |ui| {
+                app.archive_row_rects.clear();
+                app.render_compact_archive_list(ui, &context);
+                app.handle_archive_list_pointer(&context, ui.visuals().selection.bg_fill);
+            })
+            .drop_without_applying_deltas();
+    };
+    frame(&mut app, vec![]);
+    let first = app.archive_row_rects[0].1.center();
+    let third = app.archive_row_rects[2].1.center();
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    frame(
+        &mut app,
+        vec![egui::Event::PointerMoved(first), button(first, true)],
+    );
+    assert_eq!(app.selected, BTreeSet::from(["a".into(), "b".into()]));
+    frame(&mut app, vec![egui::Event::PointerMoved(third)]);
+    assert!(app.pending_drag);
+    assert_eq!(app.selected, BTreeSet::from(["a".into(), "b".into()]));
+    frame(&mut app, vec![button(third, false)]);
+    app.pending_drag = false;
+    frame(
+        &mut app,
+        vec![egui::Event::PointerMoved(third), button(third, true)],
+    );
+    assert_eq!(app.selected, BTreeSet::from(["c".into()]));
+    frame(&mut app, vec![egui::Event::PointerMoved(first)]);
+    assert!(app.pending_drag);
+    frame(&mut app, vec![button(first, false)]);
+    app.pending_drag = false;
+    let control = egui::Modifiers {
+        ctrl: true,
+        command: true,
+        ..Default::default()
+    };
+    let control_button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: control,
+    };
+    frame(
+        &mut app,
+        vec![
+            egui::Event::ModifiersChanged(control),
+            egui::Event::PointerMoved(first),
+            control_button(first, true),
+        ],
+    );
+    assert_eq!(app.selected, BTreeSet::from(["a".into(), "c".into()]));
+    frame(&mut app, vec![control_button(first, false)]);
+    frame(&mut app, vec![control_button(first, true)]);
+    assert_eq!(app.selected, BTreeSet::from(["a".into(), "c".into()]));
+    frame(&mut app, vec![control_button(first, false)]);
+    assert_eq!(app.selected, BTreeSet::from(["c".into()]));
+}
+
+#[test]
+fn archive_icon_and_tree_views_select_on_press() {
+    for view in [ArchiveView::Normal, ArchiveView::Structured] {
+        let context = egui::Context::default();
+        let mut app = ZargApp {
+            entries: vec![("file".into(), EntryData::File(1))],
+            visible_entry_indices: vec![0],
+            archive_view: view,
+            structured_rows_dirty: true,
+            ..Default::default()
+        };
+        let frame = |app: &mut ZargApp, events| {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(400.0, 300.0),
+                )),
+                events,
+                ..Default::default()
+            };
+            context
+                .run_ui(input, |ui| {
+                    app.archive_row_rects.clear();
+                    if view == ArchiveView::Structured {
+                        app.render_structured_archive_list(ui);
+                    } else {
+                        app.render_icon_archive_list(ui, &context);
+                    }
+                    app.handle_archive_list_pointer(&context, ui.visuals().selection.bg_fill);
+                })
+                .drop_without_applying_deltas();
+        };
+        frame(&mut app, vec![]);
+        let position = app.archive_row_rects[0].1.center();
+        frame(
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(position),
+                egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        assert_eq!(
+            app.selected,
+            BTreeSet::from(["file".into()]),
+            "view: {view:?}"
+        );
+        assert!(app.archive_list_focused);
+    }
+}
+
+#[test]
+fn archive_empty_space_drag_selects_intersected_rows() {
+    let context = egui::Context::default();
+    let mut app = ZargApp {
+        archive_list_rect: Some(egui::Rect::from_min_max(
+            egui::pos2(0.0, 0.0),
+            egui::pos2(200.0, 200.0),
+        )),
+        archive_row_rects: vec![
+            (
+                "a".into(),
+                egui::Rect::from_min_max(egui::pos2(10.0, 10.0), egui::pos2(100.0, 30.0)),
+            ),
+            (
+                "b".into(),
+                egui::Rect::from_min_max(egui::pos2(10.0, 40.0), egui::pos2(100.0, 60.0)),
+            ),
+        ],
+        selected: BTreeSet::from(["old".into()]),
+        ..Default::default()
+    };
+    let origin = egui::pos2(150.0, 5.0);
+    let end = egui::pos2(50.0, 65.0);
+    let input = |events| egui::RawInput {
+        events,
+        ..Default::default()
+    };
+    context
+        .run_ui(
+            input(vec![
+                egui::Event::PointerMoved(origin),
+                egui::Event::PointerButton {
+                    pos: origin,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]),
+            |ui| app.handle_archive_list_pointer(ui.ctx(), egui::Color32::WHITE),
+        )
+        .drop_without_applying_deltas();
+    assert!(app.selected.is_empty());
+    context
+        .run_ui(input(vec![egui::Event::PointerMoved(end)]), |ui| {
+            app.handle_archive_list_pointer(ui.ctx(), egui::Color32::WHITE)
+        })
+        .drop_without_applying_deltas();
+    assert_eq!(app.selected, BTreeSet::from(["a".into(), "b".into()]));
+}
+
+#[test]
+fn archive_selection_band_scrolls_and_keeps_offscreen_rows() {
+    let context = egui::Context::default();
+    let mut app = ZargApp {
+        entries: (0..40)
+            .map(|index| (format!("file-{index:02}"), EntryData::File(1)))
+            .collect(),
+        visible_entry_indices: (0..40).collect(),
+        archive_view: ArchiveView::Compact,
+        ..Default::default()
+    };
+    let frame = |app: &mut ZargApp, events| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(400.0, 180.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        context
+            .run_ui(input, |ui| {
+                app.archive_row_rects.clear();
+                app.render_compact_archive_list(ui, &context);
+                app.handle_archive_list_pointer(&context, ui.visuals().selection.bg_fill);
+            })
+            .drop_without_applying_deltas();
+    };
+    frame(&mut app, vec![]);
+    let first = app.archive_row_rects[0].1;
+    let second = app.archive_row_rects[1].1;
+    let origin = egui::pos2(first.right() - 10.0, (first.bottom() + second.top()) / 2.0);
+    let end = egui::pos2(
+        first.left() + 10.0,
+        app.archive_list_rect.unwrap().bottom() - 1.0,
+    );
+    frame(
+        &mut app,
+        vec![
+            egui::Event::PointerMoved(origin),
+            egui::Event::PointerButton {
+                pos: origin,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            },
+        ],
+    );
+    frame(&mut app, vec![egui::Event::PointerMoved(end)]);
+    for _ in 0..15 {
+        frame(&mut app, vec![]);
+    }
+    assert!(app.archive_scroll_offset > 0.0);
+    assert!(app.selected.contains("file-01"));
+    assert!(app.selected.iter().any(|path| path.as_str() > "file-08"));
+}
+
+#[test]
+fn archive_structured_keyboard_expands_and_selects_children() {
+    let context = egui::Context::default();
+    let mut app = ZargApp {
+        entries: vec![
+            ("folder".into(), EntryData::Directory),
+            ("folder/file".into(), EntryData::File(1)),
+        ],
+        visible_entry_indices: vec![0, 1],
+        archive_view: ArchiveView::Structured,
+        structured_rows_dirty: true,
+        archive_list_focused: true,
+        selected: BTreeSet::from(["folder".into()]),
+        selection_current: Some("folder".into()),
+        selection_anchor: Some("folder".into()),
+        ..Default::default()
+    };
+    let key = |app: &mut ZargApp, key| {
+        let event = |pressed| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let input = egui::RawInput {
+            events: vec![event(true), event(false)],
+            ..Default::default()
+        };
+        context
+            .run_ui(input, |ui| app.handle_archive_shortcuts(ui.ctx()))
+            .drop_without_applying_deltas();
+    };
+    key(&mut app, egui::Key::ArrowRight);
+    assert!(app.expanded_tree_dirs.contains("folder"));
+    key(&mut app, egui::Key::ArrowRight);
+    assert_eq!(app.selected, BTreeSet::from(["folder/file".into()]));
+    key(&mut app, egui::Key::ArrowLeft);
+    assert_eq!(app.selection_current.as_deref(), Some("folder"));
+    key(&mut app, egui::Key::ArrowLeft);
+    assert!(!app.expanded_tree_dirs.contains("folder"));
+}
+
+#[test]
+fn control_a_selects_visible_entries_from_an_empty_selection() {
+    let context = egui::Context::default();
+    let mut app = ZargApp {
+        entries: vec![
+            ("visible".into(), EntryData::Directory),
+            ("hidden".into(), EntryData::Directory),
+        ],
+        visible_entry_indices: vec![0],
+        archive_list_focused: true,
+        ..Default::default()
+    };
+    let modifiers = egui::Modifiers {
+        ctrl: true,
+        command: true,
+        ..Default::default()
+    };
+    let input = egui::RawInput {
+        events: vec![
+            egui::Event::ModifiersChanged(modifiers),
+            egui::Event::Key {
+                key: egui::Key::A,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            },
+        ],
+        ..Default::default()
+    };
+    context
+        .run_ui(input, |ui| app.handle_archive_shortcuts(ui.ctx()))
+        .drop_without_applying_deltas();
+    assert_eq!(app.selected, BTreeSet::from(["visible".to_owned()]));
 }
 
 #[test]

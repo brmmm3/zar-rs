@@ -4,6 +4,8 @@ use crate::{ArchivePath, ArchivePathError, FileEntry, TocChange};
 
 const HEADER_MAGIC: [u8; 4] = *b"ZHDR";
 const HEADER_VERSION: u16 = 8;
+const INDEXED_HEADER_VERSION: u16 = 9;
+const CROSS_COMMIT_HEADER_VERSION: u16 = 10;
 const RECORD_PUT_FILE: u8 = 1;
 const RECORD_PUT_DIRECTORY: u8 = 2;
 const RECORD_REMOVE_FILE: u8 = 3;
@@ -108,6 +110,15 @@ pub struct LogicalHeader {
     pub block_size: Option<u32>,
     pub metadata: HashMap<String, MetadataType>,
     pub entry_metadata: Vec<EntryMetadata>,
+    pub block_index: Option<Vec<HeaderBlockIndexEntry>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A block's location relative to the start of its commit's data section.
+pub struct HeaderBlockIndexEntry {
+    pub index: u32,
+    pub offset: u64,
+    pub encoded_size: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,6 +140,7 @@ impl LogicalHeader {
             block_size: None,
             metadata: HashMap::new(),
             entry_metadata: Vec::new(),
+            block_index: None,
         }
     }
 
@@ -138,6 +150,7 @@ impl LogicalHeader {
             block_size: Some(block_size),
             metadata: HashMap::new(),
             entry_metadata: Vec::new(),
+            block_index: None,
         }
     }
 
@@ -148,6 +161,12 @@ impl LogicalHeader {
 
     pub fn with_entry_metadata(mut self, entry_metadata: Vec<EntryMetadata>) -> Self {
         self.entry_metadata = entry_metadata;
+        self
+    }
+
+    /// Include a block-location index in the encoded logical header.
+    pub fn with_block_index(mut self, block_index: Vec<HeaderBlockIndexEntry>) -> Self {
+        self.block_index = Some(block_index);
         self
     }
 
@@ -172,6 +191,7 @@ impl LogicalHeader {
         validate_entry_metadata(&self.changes, &self.entry_metadata, limits)?;
         for change in &self.changes {
             if let TocChange::PutFile { entry, .. } = change
+                && entry.source_commit.is_none()
                 && let (Some(offset), Some(block_size)) = (entry.offset_in_block, self.block_size)
                 && u64::from(offset)
                     .checked_add(entry.size)
@@ -182,7 +202,14 @@ impl LogicalHeader {
         }
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&HEADER_MAGIC);
-        bytes.extend_from_slice(&HEADER_VERSION.to_le_bytes());
+        let version = if self.changes.iter().any(|change| matches!(change, TocChange::PutFile { entry, .. } if entry.source_commit.is_some())) {
+            CROSS_COMMIT_HEADER_VERSION
+        } else if self.block_index.is_some() {
+            INDEXED_HEADER_VERSION
+        } else {
+            HEADER_VERSION
+        };
+        bytes.extend_from_slice(&version.to_le_bytes());
         bytes.extend_from_slice(&self.block_size.unwrap_or(0).to_le_bytes());
         write_metadata(&mut bytes, &self.metadata, limits)?;
         write_entry_metadata(&mut bytes, &self.entry_metadata, limits)?;
@@ -242,9 +269,43 @@ impl LogicalHeader {
                     }
                     None => bytes.push(0),
                 }
+                if version == CROSS_COMMIT_HEADER_VERSION {
+                    match entry.source_commit {
+                        Some(commit) if entry.size != 0 => {
+                            bytes.push(1);
+                            bytes.extend_from_slice(&commit);
+                        }
+                        Some(_) => return Err(LogicalHeaderError::InvalidFileEntry),
+                        None => bytes.push(0),
+                    }
+                }
             }
             if bytes.len() > limits.max_encoded_size {
                 return Err(LogicalHeaderError::LimitExceeded);
+            }
+        }
+        if version == CROSS_COMMIT_HEADER_VERSION {
+            bytes.push(u8::from(self.block_index.is_some()));
+            if bytes.len() > limits.max_encoded_size {
+                return Err(LogicalHeaderError::LimitExceeded);
+            }
+        }
+        if let Some(block_index) = &self.block_index {
+            if block_index.len() > u32::MAX as usize
+                || block_index
+                    .len()
+                    .checked_mul(20)
+                    .and_then(|size| size.checked_add(bytes.len()))
+                    .and_then(|size| size.checked_add(4))
+                    .is_none_or(|size| size > limits.max_encoded_size)
+            {
+                return Err(LogicalHeaderError::LimitExceeded);
+            }
+            bytes.extend_from_slice(&(block_index.len() as u32).to_le_bytes());
+            for entry in block_index {
+                bytes.extend_from_slice(&entry.index.to_le_bytes());
+                bytes.extend_from_slice(&entry.offset.to_le_bytes());
+                bytes.extend_from_slice(&entry.encoded_size.to_le_bytes());
             }
         }
         Ok(bytes)
@@ -266,7 +327,10 @@ impl LogicalHeader {
             return Err(LogicalHeaderError::InvalidMagic);
         }
         let version = reader.u16()?;
-        if version != HEADER_VERSION {
+        if version != HEADER_VERSION
+            && version != INDEXED_HEADER_VERSION
+            && version != CROSS_COMMIT_HEADER_VERSION
+        {
             return Err(LogicalHeaderError::UnsupportedVersion(version));
         }
         let block_size = match reader.u32()? {
@@ -321,11 +385,21 @@ impl LogicalHeader {
                         1 => Some(reader.u32()?),
                         _ => return Err(LogicalHeaderError::InvalidFileEntry),
                     };
+                    if version == CROSS_COMMIT_HEADER_VERSION {
+                        entry.source_commit = match reader.u8()? {
+                            0 => None,
+                            1 if entry.size != 0 => {
+                                Some(reader.take(4)?.try_into().expect("fixed length"))
+                            }
+                            _ => return Err(LogicalHeaderError::InvalidFileEntry),
+                        };
+                    }
                     if let Some(offset) = entry.offset_in_block
                         && (entry.block_indices.len() != 1
                             || entry.size == 0
                             || u64::from(offset).checked_add(entry.size).is_none_or(|end| {
-                                block_size.is_some_and(|size| end > u64::from(size))
+                                entry.source_commit.is_none()
+                                    && block_size.is_some_and(|size| end > u64::from(size))
                             }))
                     {
                         return Err(LogicalHeaderError::InvalidFileEntry);
@@ -357,6 +431,32 @@ impl LogicalHeader {
             };
             changes.push(change);
         }
+        let has_block_index = match version {
+            INDEXED_HEADER_VERSION => true,
+            CROSS_COMMIT_HEADER_VERSION => match reader.u8()? {
+                0 => false,
+                1 => true,
+                _ => return Err(LogicalHeaderError::InvalidFileEntry),
+            },
+            _ => false,
+        };
+        let block_index = if has_block_index {
+            let count = reader.u32()? as usize;
+            if count > reader.remaining() / 20 {
+                return Err(LogicalHeaderError::Truncated);
+            }
+            let mut entries = Vec::with_capacity(count);
+            for _ in 0..count {
+                entries.push(HeaderBlockIndexEntry {
+                    index: reader.u32()?,
+                    offset: reader.u64()?,
+                    encoded_size: reader.u64()?,
+                });
+            }
+            Some(entries)
+        } else {
+            None
+        };
         if !reader.is_empty() {
             return Err(LogicalHeaderError::TrailingData);
         }
@@ -366,6 +466,7 @@ impl LogicalHeader {
             block_size,
             metadata,
             entry_metadata,
+            block_index,
         })
     }
 }
@@ -984,6 +1085,65 @@ mod tests {
         assert_eq!(LogicalHeader::decode(&encoded).unwrap(), header);
     }
 
+    #[test]
+    fn cross_commit_file_header_round_trips_with_and_without_index() {
+        let entry = FileEntry::new(4, vec![7])
+            .unwrap()
+            .with_checksum(42)
+            .with_source_commit([1, 0, 0, 0]);
+        let header = LogicalHeader::with_block_size(
+            vec![TocChange::PutFile {
+                path: path("copy"),
+                entry,
+            }],
+            1024,
+        );
+        for header in [header.clone(), header.with_block_index(Vec::new())] {
+            let encoded = header.encode().unwrap();
+            assert_eq!(
+                u16::from_le_bytes([encoded[4], encoded[5]]),
+                CROSS_COMMIT_HEADER_VERSION
+            );
+            assert_eq!(LogicalHeader::decode(&encoded).unwrap(), header);
+        }
+    }
+
+    #[test]
+    fn cross_commit_references_are_not_checked_against_local_blocks() {
+        let entry = FileEntry::new(4, vec![7])
+            .unwrap()
+            .with_source_commit([1, 0, 0, 0]);
+        let changes = vec![TocChange::PutFile {
+            path: path("copy"),
+            entry,
+        }];
+        assert!(
+            crate::Toc::check_available_blocks(&changes, &std::collections::HashSet::new()).is_ok()
+        );
+    }
+
+    #[test]
+    fn cross_commit_reference_requires_matching_earlier_file() {
+        let original = FileEntry::new(4, vec![7]).unwrap().with_checksum(42);
+        let source = [1, 0, 0, 0];
+        let referenced = original.clone().with_source_commit(source);
+        let changes = vec![TocChange::PutFile {
+            path: path("copy"),
+            entry: referenced,
+        }];
+        let mut toc = crate::Toc::default();
+        assert!(toc.apply_archive_commit([2, 0, 0, 0], &changes).is_err());
+        toc.apply_archive_commit(
+            source,
+            &[TocChange::PutFile {
+                path: path("original"),
+                entry: original,
+            }],
+        )
+        .unwrap();
+        toc.apply_archive_commit([2, 0, 0, 0], &changes).unwrap();
+    }
+
     fn hex_bytes(value: &str) -> Vec<u8> {
         assert_eq!(value.len() % 2, 0);
         (0..value.len())
@@ -1009,9 +1169,25 @@ mod tests {
     }
 
     #[test]
+    fn indexed_header_round_trips_and_rejects_truncation() {
+        let header = sample_header().with_block_index(vec![HeaderBlockIndexEntry {
+            index: 2,
+            offset: 123,
+            encoded_size: 456,
+        }]);
+        let encoded = header.encode().unwrap();
+        assert_eq!(&encoded[4..6], &INDEXED_HEADER_VERSION.to_le_bytes());
+        assert_eq!(LogicalHeader::decode(&encoded).unwrap(), header);
+        assert_eq!(
+            LogicalHeader::decode(&encoded[..encoded.len() - 1]),
+            Err(LogicalHeaderError::Truncated)
+        );
+    }
+
+    #[test]
     fn rejects_unknown_version_tag_truncation_and_trailing_bytes() {
         let encoded = sample_header().encode().unwrap();
-        for version in (0u16..HEADER_VERSION).chain([HEADER_VERSION + 1, u16::MAX]) {
+        for version in (0u16..HEADER_VERSION).chain([CROSS_COMMIT_HEADER_VERSION + 1, u16::MAX]) {
             let mut invalid_version = encoded.clone();
             invalid_version[4..6].copy_from_slice(&version.to_le_bytes());
             assert_eq!(

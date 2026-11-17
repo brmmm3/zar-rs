@@ -14,6 +14,9 @@ not supported. TAR symbolic links are preserved where the host supports them,
 hard links are imported as regular files, and TAR special entries are not
 supported.
 
+Use `execute("cross_commit_references", requestJson)` to enumerate references.
+The request, result, and `info_archive` reference counts use the C JSON schema.
+
 The WASI operation interface supports archive-level custom key/value metadata
 through `read_custom_metadata` and `update_custom_metadata`. Call
 `execute("read_custom_metadata", "{\"archive\":\"/data/backup.zar\"}")` to

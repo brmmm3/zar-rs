@@ -9,6 +9,9 @@ Create and Add requests may include `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz`
 source paths; their contents are imported into the resulting ZAR using the
 source archive's internal paths.
 
+`ZarLibrary.CrossCommitReferences(request)` returns the shared JSON reference
+inventory. `InfoArchive` reports per-commit cross-reference counts.
+
 The C# wrapper provides `ReadCustomMetadata` and `UpdateCustomMetadata`:
 
 ```csharp

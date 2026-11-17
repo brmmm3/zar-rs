@@ -38,18 +38,31 @@ regex = { version = "1.13.1", default-features = false, features = [
 ] }
 dirs = "7"
 rfd = { version = "0.18", default-features = false, features = ["xdg-portal"] }
+raw-window-handle = "0.6"
 tempfile = "3"
-zarlib = { version = "0.13.0", path = "../zarlib" }
+zarlib = { version = "0.14.0", path = "../zarlib" }
 
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
 drag = "2.1.1"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+core-graphics = "0.25"
+
 [target.'cfg(target_os = "linux")'.dependencies]
-raw-window-handle = "0.6"
+ab_glyph = "0.2"
 url = "2"
 wayland-client = { version = "0.31", features = ["system"] }
+x11rb = { version = "0.14", features = ["image", "shape"] }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+x11rb = { version = "0.14", features = ["xtest"] }
 
 [target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_WindowsAndMessaging",
+] }
 mimalloc = { version = "0.1", default-features = false, features = [
     "win_direct_tls",
 ], optional = true }

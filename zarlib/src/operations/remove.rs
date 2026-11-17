@@ -2,13 +2,261 @@ use super::common::*;
 use super::pipeline::archive_prefix;
 use crate::{
     ArchivePath, CommitHeader, CommitValidationLimits, ContainerHeader, ContentAead,
-    EncryptionDescriptor, EncryptionScope, HEADER_OFFSET_SIZE, HeaderFrame, LogicalHeader, Toc,
-    TocChange, TocEntry, ValidatedCommit, generate_dek, generate_nonce, wrap_dek_with_password,
+    EncryptionDescriptor, EncryptionScope, EntryMetadata, HEADER_OFFSET_SIZE, HeaderFrame,
+    LogicalHeader, Toc, TocChange, TocEntry, ValidatedCommit, generate_dek, generate_nonce,
+    wrap_dek_with_password,
 };
+use std::collections::{BTreeMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use zeroize::Zeroizing;
+
+/// Renames an archive entry by appending a commit without rewriting its data.
+pub fn rename_archive_entry(
+    archive: &str,
+    from: &ArchivePath,
+    to: &ArchivePath,
+) -> Result<(), Box<dyn std::error::Error>> {
+    rename_archive_entry_with_encryption(archive, from, to, None, &PasswordSet::default())
+}
+
+/// Renames an entry using passwords for the existing history and optional commit encryption.
+pub fn rename_archive_entry_with_encryption(
+    archive: &str,
+    from: &ArchivePath,
+    to: &ArchivePath,
+    encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
+    passwords: &PasswordSet,
+) -> Result<(), Box<dyn std::error::Error>> {
+    rename_entries_in_archives(
+        None,
+        archive,
+        &[(from.clone(), to.clone())],
+        encryption,
+        passwords,
+    )
+}
+
+/// Moves or renames multiple entries in one archive commit.
+pub fn rename_archive_entries_with_encryption(
+    archive: &str,
+    paths: &[(ArchivePath, ArchivePath)],
+    encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
+    passwords: &PasswordSet,
+) -> Result<(), Box<dyn std::error::Error>> {
+    rename_entries_in_archives(None, archive, paths, encryption, passwords)
+}
+
+/// Renames an entry in an overlay against the combined base and overlay state.
+pub fn rename_overlay_entry_with_encryption(
+    base: &str,
+    overlay: &str,
+    from: &ArchivePath,
+    to: &ArchivePath,
+    encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
+    passwords: &PasswordSet,
+) -> Result<(), Box<dyn std::error::Error>> {
+    rename_overlay_entries_with_encryption(
+        base,
+        overlay,
+        &[(from.clone(), to.clone())],
+        encryption,
+        passwords,
+    )
+}
+
+/// Moves or renames multiple entries in one overlay commit.
+pub fn rename_overlay_entries_with_encryption(
+    base: &str,
+    overlay: &str,
+    paths: &[(ArchivePath, ArchivePath)],
+    encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
+    passwords: &PasswordSet,
+) -> Result<(), Box<dyn std::error::Error>> {
+    rename_entries_in_archives(Some(base), overlay, paths, encryption, passwords)
+}
+
+fn rename_entries_in_archives(
+    base: Option<&str>,
+    archive: &str,
+    paths: &[(ArchivePath, ArchivePath)],
+    encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
+    passwords: &PasswordSet,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if paths.is_empty() {
+        return Err("no archive entries to move".into());
+    }
+    let mut toc = Toc::default();
+    let mut metadata = BTreeMap::new();
+    for path in base.into_iter().chain(std::iter::once(archive)) {
+        read_rename_state(path, passwords, &mut toc, &mut metadata)?;
+    }
+    let mut changes = Vec::new();
+    let mut moved = Vec::new();
+    let mut originals = HashSet::new();
+    let mut destinations = HashSet::new();
+    for (from, to) in paths {
+        if from == to
+            || to
+                .as_str()
+                .strip_prefix(from.as_str())
+                .is_some_and(|suffix| suffix.starts_with('/'))
+        {
+            return Err("rename destination must be different and outside the source".into());
+        }
+        let source = toc.get(from);
+        let implicit_directory = source.is_none()
+            && toc.iter().any(|(path, _)| {
+                path.as_str()
+                    .strip_prefix(from.as_str())
+                    .is_some_and(|suffix| suffix.starts_with('/'))
+            });
+        if source.is_none() && !implicit_directory {
+            return Err(format!("path not found in archive: {from}").into());
+        }
+        let directory = implicit_directory || matches!(source, Some(TocEntry::Directory));
+        if implicit_directory {
+            changes.push(TocChange::PutDirectory { path: from.clone() });
+        }
+        changes.push(if directory {
+            TocChange::RemoveDirectory { path: from.clone() }
+        } else {
+            TocChange::RemoveFile { path: from.clone() }
+        });
+        if implicit_directory {
+            if toc.get(to).is_some() || !destinations.insert(to.clone()) {
+                return Err(format!("rename destination already exists: {to}").into());
+            }
+            moved.push((from.clone(), to.clone(), TocEntry::Directory));
+        }
+        for (path, entry) in toc.iter() {
+            let suffix = if path == from {
+                ""
+            } else if directory {
+                match path.as_str().strip_prefix(from.as_str()) {
+                    Some(suffix) if suffix.starts_with('/') => suffix,
+                    _ => continue,
+                }
+            } else {
+                continue;
+            };
+            let destination = ArchivePath::new(format!("{}{suffix}", to.as_str()))?;
+            if toc.get(&destination).is_some() || !destinations.insert(destination.clone()) {
+                return Err(format!("rename destination already exists: {destination}").into());
+            }
+            if !originals.insert(path.clone()) {
+                return Err(format!("overlapping source paths: {path}").into());
+            }
+            moved.push((path.clone(), destination, entry.clone()));
+        }
+    }
+    let mut moved_metadata = Vec::new();
+    for (original, destination, entry) in moved {
+        let change = match entry {
+            TocEntry::File(mut entry) => {
+                if entry.size > 0 {
+                    entry.source_commit = Some(
+                        toc.file_origin(&original)
+                            .ok_or("file data origin is unavailable")?,
+                    );
+                }
+                TocChange::PutFile {
+                    path: destination.clone(),
+                    entry,
+                }
+            }
+            TocEntry::Directory => TocChange::PutDirectory {
+                path: destination.clone(),
+            },
+            TocEntry::Symlink { target } => TocChange::PutSymlink {
+                path: destination.clone(),
+                target,
+            },
+            TocEntry::NamedPipe => TocChange::PutNamedPipe {
+                path: destination.clone(),
+            },
+            TocEntry::Device { kind, major, minor } => TocChange::PutDevice {
+                path: destination.clone(),
+                kind,
+                major,
+                minor,
+            },
+        };
+        if let Some(mut item) = metadata.remove(&original) {
+            item.path = destination;
+            moved_metadata.push(item);
+        }
+        changes.push(change);
+    }
+    let archive_path = Path::new(archive);
+    let reusable_tail = find_reusable_empty_tail(archive_path, passwords)?;
+    let commit_id = match reusable_tail {
+        Some(tail) => {
+            toc.forget_empty_commit(tail.commit_id)?;
+            tail.commit_id
+        }
+        None => next_commit_id(archive_path)?,
+    };
+    toc.apply_archive_commit(commit_id, &changes)?;
+    let header = LogicalHeader::new(changes)
+        .with_entry_metadata(moved_metadata)
+        .with_metadata(commit_metadata(None)?)
+        .encode()?;
+    append_header_only_commit_with_id_and_encryption(
+        archive_path,
+        &header,
+        commit_id,
+        true,
+        encryption,
+        passwords,
+    )
+}
+
+fn read_rename_state(
+    archive: &str,
+    passwords: &PasswordSet,
+    toc: &mut Toc,
+    metadata: &mut BTreeMap<ArchivePath, EntryMetadata>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut file = File::open(archive)?;
+    let limits = CommitValidationLimits::default();
+    let mut offset = read_first_header_offset(&mut file)?;
+    let mut offsets = HashSet::new();
+    while offset != 0 {
+        if !offsets.insert(offset) {
+            return Err("archive commit chain contains a cycle".into());
+        }
+        let (commit, _, next) = read_commit_at_offset(&mut file, offset, limits)?;
+        file.seek(SeekFrom::Start(offset))?;
+        let (validated, key) = read_header_with_passwords(&mut file, limits, passwords)?;
+        if validated.encryption.is_data_encrypted() && key.is_none() {
+            return Err("renaming entries requires passwords for all encrypted commits".into());
+        }
+        let header = validated
+            .logical_header
+            .ok_or("renaming entries requires passwords for all encrypted commits")?;
+        toc.apply_archive_commit(commit.commit_id, &header.changes)?;
+        for change in &header.changes {
+            let path = match change {
+                TocChange::PutFile { path, .. }
+                | TocChange::PutDirectory { path }
+                | TocChange::PutSymlink { path, .. }
+                | TocChange::PutNamedPipe { path }
+                | TocChange::PutDevice { path, .. }
+                | TocChange::RemoveFile { path }
+                | TocChange::RemoveDirectory { path } => path,
+            };
+            metadata.remove(path);
+        }
+        metadata.retain(|path, _| toc.get(path).is_some());
+        for item in header.entry_metadata {
+            metadata.insert(item.path.clone(), item);
+        }
+        offset = next;
+    }
+    Ok(())
+}
 
 pub fn remove_archive(archive: &str, paths: &[PathBuf]) -> Result<(), Box<dyn std::error::Error>> {
     remove_archive_with_progress(archive, paths, None)
@@ -52,6 +300,37 @@ pub fn remove_archive_entries_with_progress_and_encryption(
     encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
     passwords: &PasswordSet,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    remove_archive_entries_with_initial_toc(archive, paths, progress, encryption, passwords, None)
+}
+
+/// Adds removals to an overlay, checking paths against the base and overlay together.
+pub fn remove_overlay_entries_with_progress_and_encryption(
+    base: &str,
+    overlay: &str,
+    paths: &[ArchivePath],
+    progress: Option<&dyn Progress>,
+    encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
+    passwords: &PasswordSet,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (base_toc, _) = load_toc_for_removal(Path::new(base), passwords, Toc::default())?;
+    remove_archive_entries_with_initial_toc(
+        overlay,
+        paths,
+        progress,
+        encryption,
+        passwords,
+        Some(base_toc),
+    )
+}
+
+fn remove_archive_entries_with_initial_toc(
+    archive: &str,
+    paths: &[ArchivePath],
+    progress: Option<&dyn Progress>,
+    encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
+    passwords: &PasswordSet,
+    initial_toc: Option<Toc>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let progress = ProgressReporter::new(progress);
     if let Some(callback) = progress.0 {
         callback.set_total(paths.len() as u64);
@@ -64,7 +343,8 @@ pub fn remove_archive_entries_with_progress_and_encryption(
     if !parent.is_dir() {
         return Err(format!("archive parent is not a directory: {}", parent.display()).into());
     }
-    let (mut toc, next_commit_id) = load_toc_for_removal(archive_path, passwords)?;
+    let (mut toc, next_commit_id) =
+        load_toc_for_removal(archive_path, passwords, initial_toc.unwrap_or_default())?;
     let reusable_tail = find_reusable_empty_tail(archive_path, passwords)?;
     let new_commit_id = reusable_tail.map_or(next_commit_id, |tail| tail.commit_id);
     let mut changes = Vec::new();
@@ -316,11 +596,11 @@ fn replace_empty_tail_with_header(
 fn load_toc_for_removal(
     archive_path: &Path,
     passwords: &PasswordSet,
+    mut toc: Toc,
 ) -> Result<(Toc, [u8; 4]), Box<dyn std::error::Error>> {
     let mut file = File::open(archive_path)?;
     let limits = CommitValidationLimits::default();
     let container = ContainerHeader::read_from(&mut file)?;
-    let mut toc = Toc::default();
     let mut highest_commit_id = 0_u32;
     let mut header_offset = container.first_header_offset;
 

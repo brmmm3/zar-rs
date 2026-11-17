@@ -131,7 +131,8 @@ The output shapes follow the corresponding Python API:
 | `encrypt_archive_commits` | `archive`, `from_id`, `to_id`, `new_password` | `output`, `aead`, `encryption_scope`, `password`, `passwords`, `strict` |
 | `decrypt_archive_commits` | `archive`, `from_id`, `to_id` | `output`, `password`, `passwords`, `strict` |
 | `check_archive` | `archive` | `recover`, `password`, `passwords` |
-| `info_archive` | `archive` | `verbose` |
+| `info_archive` | `archive` | `verbose`, `password`, `passwords` |
+| `cross_commit_references` | `archive` | `password`, `passwords` |
 | `list_archive` | `archive` | `to`, `password`, `passwords` |
 | `extract_archive` | `archive`, `destination` | `dry_run`, `to`, `password`, `passwords`, `collision`, `existing`, `restore_metadata`, `restore_symlinks`, `restore_devices`, file/folder filters |
 | `extract_archive_to_memory` | `archive` | `to`, `password`, `passwords`, `size_limit`, `offset`, file/folder filters |
@@ -171,6 +172,12 @@ new commit with `"password":"new-password"` and unlock an earlier commit with
 `"passwords":{"00000001":"old-password"}`. Use the same `password` value alone
 when all encrypted commits share a password. Read operations accept this same
 shape.
+
+`cross_commit_references` returns an array of objects with `referencing_commit`,
+`source_commit`, and `path`. It requires passwords for all encrypted headers,
+so the result is complete. `info_archive` includes a
+`cross_commit_reference_count` for each commit; it is `null` when that header
+is locked. The C++, Go, C#, Java, and WASI bindings share these JSON shapes.
 
 `encrypt_archive_commits` and `decrypt_archive_commits` transform the inclusive
 `from_id`–`to_id` range in physical commit order. Encryption uses

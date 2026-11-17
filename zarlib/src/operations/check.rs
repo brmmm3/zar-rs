@@ -4,7 +4,7 @@ use crate::{
     CommitValidationLimits, ContainerHeader, HEADER_OFFSET_SIZE, HeaderFrame, Toc, TocChange,
     ValidatedCommit,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, Read, Seek};
 use xxhash_rust::xxh64::Xxh64;
@@ -65,11 +65,15 @@ pub fn check_archive_with_recovery_and_passwords_progress(
     let mut encrypted_blocks = 0_u64;
     let mut recoveries = 0_u64;
     let mut recovery_messages = Vec::new();
+    let mut visited_offsets = HashSet::new();
 
     let mut header_offset = container.first_header_offset;
     while header_offset != 0 {
-        let commit_start = header_offset;
-        let (commit_header, data_start, next_header_offset) =
+        if !visited_offsets.insert(header_offset) {
+            return Err("archive commit chain contains a cycle".into());
+        }
+        let mut commit_start = header_offset;
+        let (commit_header, mut data_start, mut next_header_offset) =
             match read_commit_at_offset(&mut file, header_offset, limits) {
                 Ok(entry) => entry,
                 Err(error) if recover => {
@@ -78,12 +82,16 @@ pub fn check_archive_with_recovery_and_passwords_progress(
                     else {
                         return Err(error);
                     };
+                    if !visited_offsets.insert(offset) {
+                        return Err("archive commit chain contains a cycle".into());
+                    }
                     recovery_messages.push(format!(
                         "warning: recovered commit framing at offset {offset}"
                     ));
                     recoveries += 1;
                     toc = Toc::default();
-                    logical_state_readable = true;
+                    logical_state_readable = false;
+                    commit_start = offset;
                     (ch, ds, next)
                 }
                 Err(error) => return Err(error),
@@ -92,17 +100,23 @@ pub fn check_archive_with_recovery_and_passwords_progress(
             match read_commit_with_passwords(&mut file, commit_header.clone(), limits, passwords) {
                 Ok(commit) => commit,
                 Err(error) if recover => {
-                    let Some((offset, ch, _ds, _next)) =
+                    let Some((offset, ch, ds, next)) =
                         find_next_valid_commit(&mut file, data_start.saturating_add(1), limits)?
                     else {
                         return Err(error);
                     };
+                    if !visited_offsets.insert(offset) {
+                        return Err("archive commit chain contains a cycle".into());
+                    }
                     recovery_messages.push(format!(
                         "warning: recovered commit framing at offset {offset}"
                     ));
                     recoveries += 1;
                     toc = Toc::default();
-                    logical_state_readable = true;
+                    logical_state_readable = false;
+                    commit_start = offset;
+                    data_start = ds;
+                    next_header_offset = next;
                     read_commit_with_passwords(&mut file, ch.clone(), limits, passwords)?
                 }
                 Err(error) => return Err(error),
@@ -164,6 +178,9 @@ pub fn check_archive_with_recovery_and_passwords_progress(
             if logical_state_readable {
                 for change in &header.changes {
                     if let TocChange::PutFile { path, entry } = change {
+                        if entry.source_commit.is_some() {
+                            continue;
+                        }
                         let mut decoded_size = 0_u64;
                         let mut all_blocks_readable = true;
                         let mut checksum = Xxh64::new(0);
@@ -257,7 +274,8 @@ pub fn check_archive_with_recovery_and_passwords_progress(
                         }
                     }
                 }
-                toc.apply_commit_with_available_blocks(&header.changes, &validated.block_indices)?;
+                Toc::check_available_blocks(&header.changes, &validated.block_indices)?;
+                toc.apply_archive_commit(validated.commit_header.commit_id, &header.changes)?;
             }
         } else {
             logical_state_readable = false;

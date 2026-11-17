@@ -86,6 +86,10 @@ public final class ZarLibrary {
         return executeJson("info_archive", requestJson);
     }
 
+    public static String crossCommitReferences(String requestJson) throws ZarException {
+        return executeJson("cross_commit_references", requestJson);
+    }
+
     public static String listArchive(String requestJson) throws ZarException {
         return executeJson("list_archive", requestJson);
     }

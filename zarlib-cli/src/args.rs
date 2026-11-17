@@ -48,6 +48,22 @@ pub(crate) fn command_with_version_banner() -> clap::Command {
 
 /// Parses the process arguments; subcommand help also shows the version banner.
 pub(crate) fn parse_from_env() -> Result<Cli, clap::Error> {
+    #[cfg(windows)]
+    {
+        let parser = std::thread::Builder::new()
+            .name("zarc-argument-parser".to_owned())
+            .stack_size(4 * 1024 * 1024)
+            .spawn(parse_from_env_inner)
+            .map_err(|error| clap::Error::raw(clap::error::ErrorKind::Io, error.to_string()))?;
+        parser
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    }
+    #[cfg(not(windows))]
+    parse_from_env_inner()
+}
+
+fn parse_from_env_inner() -> Result<Cli, clap::Error> {
     let command = command_with_version_banner();
     Cli::from_arg_matches(&command.try_get_matches()?)
 }
@@ -398,10 +414,27 @@ pub(crate) enum Command {
     },
 
     #[command(
+        alias = "move",
+        about = "Rename or move an archive entry in a new commit"
+    )]
+    Rename {
+        #[arg(value_name = "ARCHIVE")]
+        archive: String,
+        #[arg(value_name = "SOURCE", help = "Existing archive-relative path")]
+        source: String,
+        #[arg(value_name = "DESTINATION", help = "New archive-relative path")]
+        destination: String,
+        #[arg(long, help = "Prompt for the default archive password")]
+        password: bool,
+        #[arg(long = "password-for", value_name = "COMMIT_ID", action = clap::ArgAction::Append)]
+        password_for: Vec<String>,
+    },
+
+    #[command(
         about = "Remove selected commits from an archive",
         long_about = "Remove commits by ID while retaining all other commits in their original order.\n\n\
-            At least one commit must remain. Encrypted commits can be removed or retained without \
-            passwords. Retained encrypted headers prevent validation of the resulting history. \
+            At least one commit must remain. Referenced commits cannot be removed while their \
+            references remain. Supply passwords to inspect retained encrypted headers. \
             The archive is replaced in place unless --output specifies a different file.\n\n\
             USAGE EXAMPLES:\n  \
               zarc remove-commits archive.zar 00000002 00000004\n  \
@@ -424,6 +457,20 @@ pub(crate) enum Command {
             help = "Write to a different archive"
         )]
         output: Option<String>,
+        #[arg(long, help = "Prompt for the default archive password")]
+        password: bool,
+        #[arg(long = "password-for", value_name = "COMMIT_ID", action = clap::ArgAction::Append)]
+        password_for: Vec<String>,
+    },
+
+    #[command(about = "List cross-commit file references")]
+    References {
+        #[arg(value_name = "ARCHIVE")]
+        archive: String,
+        #[arg(long, help = "Prompt for the default archive password")]
+        password: bool,
+        #[arg(long = "password-for", value_name = "COMMIT_ID", action = clap::ArgAction::Append)]
+        password_for: Vec<String>,
     },
 
     #[command(
@@ -700,6 +747,10 @@ pub(crate) enum Command {
             help = "Show the custom key=value metadata stored in the archive"
         )]
         meta: bool,
+        #[arg(long, help = "Prompt for the default password of encrypted commits")]
+        password: bool,
+        #[arg(long = "password-for", value_name = "COMMIT_ID", action = clap::ArgAction::Append, help = "Prompt for a password for this commit; may be repeated")]
+        password_for: Vec<String>,
     },
 
     #[command(

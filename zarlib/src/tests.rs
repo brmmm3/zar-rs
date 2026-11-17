@@ -956,6 +956,15 @@ fn pipeline_groups_empty_tiny_small_and_big_files_properly() {
     assert_eq!(joined.get("small.bin").unwrap(), b"hello small world");
     assert_eq!(joined.get("small2.bin").unwrap(), b"second 99");
     assert_eq!(joined.get("small3.bin").unwrap(), b"another small one");
+    let joined_output = temp_dir.join("joined-single.bin");
+    crate::operations::extract_single_file(
+        archive_path.to_str().unwrap(),
+        "small.bin",
+        &joined_output,
+        &crate::operations::PasswordSet::default(),
+    )
+    .unwrap();
+    assert_eq!(std::fs::read(joined_output).unwrap(), b"hello small world");
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }

@@ -503,15 +503,58 @@ fn check_archive(
 }
 
 #[pyfunction]
-#[pyo3(signature = (archive, *, verbose = false))]
-fn info_archive(py: Python<'_>, archive: PathBuf, verbose: bool) -> PyResult<Bound<'_, PyList>> {
+#[pyo3(signature = (archive, *, verbose = false, password = None, passwords = None))]
+fn info_archive(
+    py: Python<'_>,
+    archive: PathBuf,
+    verbose: bool,
+    password: Option<Vec<u8>>,
+    passwords: Option<HashMap<String, Vec<u8>>>,
+) -> PyResult<Bound<'_, PyList>> {
     let archive = archive_string(archive)?;
+    let passwords = password_set(password, passwords)?;
     let commits = py
-        .detach(|| operations::info_archive(&archive, verbose).map_err(|error| error.to_string()))
+        .detach(|| {
+            operations::info_archive_with_passwords(&archive, verbose, &passwords)
+                .map_err(|error| error.to_string())
+        })
         .map_err(runtime_error)?;
     let output = PyList::empty(py);
     for commit in commits {
         output.append(commit_info_dict(py, commit)?)?;
+    }
+    Ok(output)
+}
+
+#[pyfunction]
+#[pyo3(signature = (archive, *, password = None, passwords = None))]
+fn cross_commit_references(
+    py: Python<'_>,
+    archive: PathBuf,
+    password: Option<Vec<u8>>,
+    passwords: Option<HashMap<String, Vec<u8>>>,
+) -> PyResult<Bound<'_, PyList>> {
+    let archive = archive_string(archive)?;
+    let passwords = password_set(password, passwords)?;
+    let references = py
+        .detach(|| {
+            operations::cross_commit_references_with_passwords(&archive, &passwords)
+                .map_err(|error| error.to_string())
+        })
+        .map_err(runtime_error)?;
+    let output = PyList::empty(py);
+    for reference in references {
+        let item = PyDict::new(py);
+        item.set_item(
+            "referencing_commit",
+            format!("{:08x}", u32::from_le_bytes(reference.referencing_commit)),
+        )?;
+        item.set_item(
+            "source_commit",
+            format!("{:08x}", u32::from_le_bytes(reference.source_commit)),
+        )?;
+        item.set_item("path", reference.path.as_str())?;
+        output.append(item)?;
     }
     Ok(output)
 }
@@ -787,6 +830,10 @@ fn commit_info_dict(py: Python<'_>, commit: CommitInfo) -> PyResult<Bound<'_, Py
     result.set_item("size", commit.size)?;
     result.set_item("header_size", commit.header_size)?;
     result.set_item("data_size", commit.data_size)?;
+    result.set_item(
+        "cross_commit_reference_count",
+        commit.cross_commit_references.as_ref().map(Vec::len),
+    )?;
     result.set_item("uncompressed_size", commit.uncompressed_size)?;
     result.set_item("ratio_percent", commit.ratio_percent)?;
     result.set_item("header_encrypted", commit.header_encrypted)?;
@@ -883,6 +930,7 @@ fn _pyzarlib(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(decrypt_archive_commits, module)?)?;
     module.add_function(wrap_pyfunction!(check_archive, module)?)?;
     module.add_function(wrap_pyfunction!(info_archive, module)?)?;
+    module.add_function(wrap_pyfunction!(cross_commit_references, module)?)?;
     module.add_function(wrap_pyfunction!(list_archive, module)?)?;
     module.add_function(wrap_pyfunction!(extract_archive, module)?)?;
     module.add_function(wrap_pyfunction!(extract_archive_to_memory, module)?)?;

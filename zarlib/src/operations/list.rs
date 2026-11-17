@@ -36,19 +36,61 @@ pub fn list_archive_with_details_and_passwords(
     to: Option<&str>,
     passwords: &PasswordSet,
 ) -> Result<(Toc, BTreeMap<ArchivePath, ArchiveEntryDetails>), Box<dyn std::error::Error>> {
+    list_archive_with_initial_details(path, to, passwords, Toc::default(), BTreeMap::new(), false)
+}
+
+/// Lists the current state after applying a separate archive's commits over a base archive.
+pub fn list_archive_with_overlay_and_passwords(
+    base: &str,
+    overlay: &str,
+    passwords: &PasswordSet,
+) -> Result<(Toc, BTreeMap<ArchivePath, ArchiveEntryDetails>), Box<dyn std::error::Error>> {
+    list_archive_with_overlay_through_and_passwords(base, overlay, None, passwords)
+}
+
+/// Lists the combined archive state through an optional base or overlay commit.
+pub fn list_archive_with_overlay_through_and_passwords(
+    base: &str,
+    overlay: &str,
+    to: Option<&str>,
+    passwords: &PasswordSet,
+) -> Result<(Toc, BTreeMap<ArchivePath, ArchiveEntryDetails>), Box<dyn std::error::Error>> {
+    if let Some(id) = to {
+        let requested = parse_commit_id(id)?;
+        if super::info::info_archive(base, false)?
+            .iter()
+            .any(|commit| commit.id == requested)
+        {
+            return list_archive_with_details_and_passwords(base, Some(id), passwords);
+        }
+    }
+    let (toc, details) = list_archive_with_details_and_passwords(base, None, passwords)?;
+    list_archive_with_initial_details(overlay, to, passwords, toc, details, true)
+}
+
+fn list_archive_with_initial_details(
+    path: &str,
+    to: Option<&str>,
+    passwords: &PasswordSet,
+    mut toc: Toc,
+    mut details: BTreeMap<ArchivePath, ArchiveEntryDetails>,
+    overlay: bool,
+) -> Result<(Toc, BTreeMap<ArchivePath, ArchiveEntryDetails>), Box<dyn std::error::Error>> {
     let mut file = File::open(path)?;
     let container = ContainerHeader::read_from(&mut file)?;
     let limits = CommitValidationLimits::default();
-    let mut toc = Toc::default();
-    let mut details = BTreeMap::new();
     let mut header_offset = container.first_header_offset;
     let requested_id = to.map(parse_commit_id).transpose()?;
     let mut matching_commits = 0_u32;
     let mut stopped_at_to = false;
+    let mut commit_ids = HashSet::new();
 
     while header_offset != 0 {
         let (commit_header, data_start, next_header_offset) =
             read_commit_at_offset(&mut file, header_offset, limits)?;
+        if !commit_ids.insert(commit_header.commit_id) {
+            return Err(crate::TocError::DuplicateCommitId(commit_header.commit_id).into());
+        }
         if requested_id == Some(commit_header.commit_id) {
             matching_commits += 1;
             if matching_commits > 1 {
@@ -146,7 +188,12 @@ pub fn list_archive_with_details_and_passwords(
 
         let block_indices = block_sizes.keys().copied().collect::<HashSet<_>>();
         if let Some(header) = header {
-            toc.apply_commit_with_available_blocks(&header.changes, &block_indices)?;
+            Toc::check_available_blocks(&header.changes, &block_indices)?;
+            if overlay {
+                toc.apply_overlay_commit(validated.commit_header.commit_id, &header.changes)?;
+            } else {
+                toc.apply_archive_commit(validated.commit_header.commit_id, &header.changes)?;
+            }
             apply_entry_details(
                 &mut details,
                 &header.changes,
@@ -181,6 +228,9 @@ fn apply_entry_details(
             TocChange::PutFile { path, entry } => {
                 let mut ratios = Vec::with_capacity(entry.block_indices.len());
                 for index in &entry.block_indices {
+                    if entry.source_commit.is_some() {
+                        break;
+                    }
                     let (compressed, uncompressed) =
                         block_sizes.get(index).ok_or("missing block frame size")?;
                     match uncompressed {
@@ -265,7 +315,8 @@ pub fn load_toc(file: &mut File) -> Result<Toc, Box<dyn std::error::Error>> {
             read_commit_at_offset(file, header_offset, limits)?;
         let validated = ValidatedCommit::read_body(file, commit_header, limits)?;
         if let Some(header) = validated.logical_header {
-            toc.apply_commit_with_available_blocks(&header.changes, &validated.block_indices)?;
+            Toc::check_available_blocks(&header.changes, &validated.block_indices)?;
+            toc.apply_archive_commit(validated.commit_header.commit_id, &header.changes)?;
         } else {
             return Err("cannot build archive TOC from a header-encrypted commit".into());
         }
@@ -327,10 +378,29 @@ pub fn load_toc_through_with_passwords_and_progress(
     passwords: &PasswordSet,
     progress: Option<&ProgressReporter<'_>>,
 ) -> Result<Toc, Box<dyn std::error::Error>> {
+    load_toc_with_initial_state(archive, to, passwords, progress, Toc::default(), false)
+}
+
+pub(crate) fn load_overlay_toc(
+    base: &str,
+    overlay: &str,
+    passwords: &PasswordSet,
+) -> Result<Toc, Box<dyn std::error::Error>> {
+    let toc = load_toc_with_initial_state(base, None, passwords, None, Toc::default(), true)?;
+    load_toc_with_initial_state(overlay, None, passwords, None, toc, true)
+}
+
+fn load_toc_with_initial_state(
+    archive: &str,
+    to: Option<&str>,
+    passwords: &PasswordSet,
+    progress: Option<&ProgressReporter<'_>>,
+    mut toc: Toc,
+    require_headers: bool,
+) -> Result<Toc, Box<dyn std::error::Error>> {
     let mut file = File::open(archive)?;
     let container = ContainerHeader::read_from(&mut file)?;
     let requested_id = to.map(parse_commit_id).transpose()?;
-    let mut toc = Toc::default();
     let mut matches = 0_u32;
     let mut stopped_at_to = false;
     let limits = CommitValidationLimits::default();
@@ -364,7 +434,13 @@ pub fn load_toc_through_with_passwords_and_progress(
             ));
         }
         if let Some(header) = validated.logical_header.as_ref() {
-            toc.apply_commit(&header.changes)?;
+            toc.apply_archive_commit(validated.commit_header.commit_id, &header.changes)?;
+        } else if require_headers && validated.encryption.is_header_encrypted() {
+            return Err(format!(
+                "password required for commit {:08x}",
+                u32::from_le_bytes(validated.commit_header.commit_id)
+            )
+            .into());
         } else if !validated.encryption.is_header_encrypted() {
             return Err("commit header is missing its logical header".into());
         }

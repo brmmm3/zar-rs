@@ -1,17 +1,258 @@
 use super::common::*;
 use super::filters::FilterSet;
 use super::info::group_size_metadata;
-use super::list::load_toc_through_with_passwords;
+use super::list::{load_overlay_toc, load_toc_through_with_passwords};
 use super::pipeline::*;
 use crate::{
-    CommitHeader, CommitValidationLimits, ContentAead, EncryptionDescriptor, EncryptionScope,
-    HEADER_OFFSET_SIZE, HeaderFrame, LogicalHeader, UNENCRYPTED_DESCRIPTOR, ValidatedCommit,
-    generate_dek, generate_nonce, wrap_dek_with_password,
+    ArchivePath, BlockFrame, CommitHeader, CommitValidationLimits, ContentAead, EncryptionDescriptor,
+    EncryptionScope, FileEntry, HEADER_OFFSET_SIZE, HeaderFrame, LogicalHeader, Toc, TocChange,
+    UNENCRYPTED_DESCRIPTOR, ValidatedCommit, generate_dek, generate_nonce, wrap_dek_with_password,
 };
+use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use xxhash_rust::xxh64::Xxh64;
 use zeroize::Zeroizing;
+
+struct HistoricalCandidate {
+    archive: PathBuf,
+    commit: CommitHeader,
+    data_start: u64,
+    entry: FileEntry,
+    index: Option<std::sync::Arc<Vec<crate::HeaderBlockIndexEntry>>>,
+    algorithm: Option<ContentAead>,
+    key: Option<Zeroizing<[u8; crate::DEK_SIZE]>>,
+}
+
+type HistoricalCandidates = HashMap<(u64, Option<u64>), Vec<HistoricalCandidate>>;
+
+fn historical_candidates(
+    archives: &[&str],
+    sizes: &HashSet<u64>,
+    passwords: &PasswordSet,
+    encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
+    progress: &ProgressReporter<'_>,
+) -> Result<HistoricalCandidates, Box<dyn std::error::Error>> {
+    let mut candidates = HashMap::<(u64, Option<u64>), Vec<HistoricalCandidate>>::new();
+    let limits = CommitValidationLimits::default();
+    let encrypted_output = encryption.is_some_and(|(_, _, scope)| {
+        matches!(
+            scope,
+            EncryptionScope::Data | EncryptionScope::HeaderAndData
+        )
+    });
+    for archive in archives {
+        let mut file = File::open(archive)?;
+        let mut offset = read_first_header_offset(&mut file)?;
+        while offset != 0 {
+            progress.check_cancelled()?;
+            let (commit, data_start, next) = read_commit_at_offset(&mut file, offset, limits)?;
+            file.seek(SeekFrom::Start(offset))?;
+            let (mut validated, mut key) =
+                read_header_with_passwords(&mut file, limits, passwords)?;
+            let eligible = if encrypted_output {
+                if validated.encryption.is_data_encrypted() {
+                    file.seek(SeekFrom::Start(offset))?;
+                    match read_header_with_password(
+                        &mut file,
+                        limits,
+                        encryption.map(|(password, _, _)| password),
+                    ) {
+                        Ok((header, unlocked)) if unlocked.is_some() => {
+                            validated = header;
+                            key = unlocked;
+                            true
+                        }
+                        _ => false,
+                    }
+                } else {
+                    false
+                }
+            } else {
+                !validated.encryption.is_data_encrypted()
+                    && !validated.encryption.is_header_encrypted()
+            };
+            if eligible && let Some(header) = validated.logical_header {
+                let algorithm = encryption_algorithm(&validated.encryption);
+                let index = header.block_index.map(std::sync::Arc::new);
+                for change in header.changes {
+                    if let TocChange::PutFile { entry, .. } = change
+                        && entry.source_commit.is_none()
+                        && entry.size > 0
+                        && sizes.contains(&entry.size)
+                    {
+                        candidates
+                            .entry((entry.size, entry.checksum))
+                            .or_default()
+                            .push(HistoricalCandidate {
+                                archive: PathBuf::from(archive),
+                                commit: commit.clone(),
+                                data_start,
+                                entry,
+                                index: index.clone(),
+                                algorithm,
+                                key: key.clone(),
+                            });
+                    }
+                }
+            }
+            offset = next;
+        }
+    }
+    Ok(candidates)
+}
+
+fn candidate_matches(
+    candidate: &HistoricalCandidate,
+    input: &Path,
+    progress: &ProgressReporter<'_>,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let limits = CommitValidationLimits::default();
+    let mut archive = File::open(&candidate.archive)?;
+    let mut offsets = HashMap::new();
+    if let Some(index) = &candidate.index {
+        for block in index.iter() {
+            if block
+                .offset
+                .checked_add(block.encoded_size)
+                .is_none_or(|end| end > candidate.commit.data_section_size)
+            {
+                return Err("source block index exceeds commit data".into());
+            }
+            offsets.insert(
+                block.index,
+                candidate
+                    .data_start
+                    .checked_add(block.offset)
+                    .ok_or("source block offset overflow")?,
+            );
+        }
+    } else {
+        archive.seek(SeekFrom::Start(candidate.data_start))?;
+        let end = candidate
+            .data_start
+            .checked_add(candidate.commit.data_section_size)
+            .ok_or("source commit size overflow")?;
+        while archive.stream_position()? < end {
+            let offset = archive.stream_position()?;
+            let block =
+                BlockFrame::read_metadata_from(&mut archive, limits.max_frame_payload_size)?;
+            if archive.stream_position()? > end
+                || offsets.insert(block.block_index, offset).is_some()
+            {
+                return Err("invalid source block data".into());
+            }
+        }
+    }
+    let mut input = File::open(input)?;
+    let mut total = 0_u64;
+    for index in &candidate.entry.block_indices {
+        progress.check_cancelled()?;
+        archive.seek(SeekFrom::Start(
+            *offsets.get(index).ok_or("missing source block")?,
+        ))?;
+        let frame = BlockFrame::read_from(&mut archive, limits.max_frame_payload_size)?;
+        if frame.block_index != *index {
+            return Err("source block index mismatch".into());
+        }
+        let decoded = if frame.flags & crate::BLOCK_FLAG_ENCRYPTED != 0 {
+            frame.uncompressed_encrypted(
+                &candidate.commit,
+                candidate.key.as_ref().ok_or("missing source key")?,
+                candidate.algorithm.ok_or("missing source algorithm")?,
+                limits.max_uncompressed_block_size,
+            )?
+        } else {
+            frame.uncompressed_at_most(limits.max_uncompressed_block_size)?
+        };
+        let bytes = if let Some(offset) = candidate.entry.offset_in_block {
+            let start = usize::try_from(offset)?;
+            let end = start
+                .checked_add(usize::try_from(candidate.entry.size)?)
+                .filter(|end| *end <= decoded.len())
+                .ok_or("invalid source file offset")?;
+            &decoded[start..end]
+        } else {
+            &decoded[..]
+        };
+        let mut actual = vec![0; bytes.len()];
+        if input.read_exact(&mut actual).is_err() || actual != bytes {
+            return Ok(false);
+        }
+        total = total
+            .checked_add(bytes.len() as u64)
+            .ok_or("source file size overflow")?;
+    }
+    let mut extra = [0; 1];
+    Ok(total == candidate.entry.size && input.read(&mut extra)? == 0)
+}
+
+fn find_historical_duplicates(
+    entries: &[TreeEntry],
+    archives: &[&str],
+    passwords: &PasswordSet,
+    encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
+    progress: &ProgressReporter<'_>,
+) -> Result<HashMap<PathBuf, FileEntry>, Box<dyn std::error::Error>> {
+    let sizes = entries
+        .iter()
+        .filter(|entry| matches!(entry.kind, TreeEntryKind::File) && entry.size > 0)
+        .map(|entry| entry.size)
+        .collect();
+    let candidates = historical_candidates(archives, &sizes, passwords, encryption, progress)?;
+    let mut duplicates = HashMap::new();
+    for entry in entries
+        .iter()
+        .filter(|entry| matches!(entry.kind, TreeEntryKind::File) && entry.size > 0)
+    {
+        if !candidates.keys().any(|(size, _)| *size == entry.size) {
+            continue;
+        }
+        let Ok(mut input) = File::open(&entry.source_path) else {
+            continue;
+        };
+        let mut hasher = Xxh64::new(0);
+        let mut buffer = vec![0; 128 * 1024];
+        let mut size = 0_u64;
+        loop {
+            progress.check_cancelled()?;
+            let count = input.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            hasher.update(&buffer[..count]);
+            size = size
+                .checked_add(count as u64)
+                .ok_or("input file size overflow")?;
+        }
+        if size != entry.size {
+            return Err(format!(
+                "input file changed while being archived: {}",
+                entry.source_path.display()
+            )
+            .into());
+        }
+        for candidate in candidates
+            .get(&(size, Some(hasher.digest())))
+            .into_iter()
+            .chain(candidates.get(&(size, None)))
+            .flatten()
+        {
+            if candidate_matches(candidate, &entry.source_path, progress)? {
+                duplicates.insert(
+                    entry.source_path.clone(),
+                    candidate
+                        .entry
+                        .clone()
+                        .with_source_commit(candidate.commit.commit_id),
+                );
+                break;
+            }
+        }
+    }
+    Ok(duplicates)
+}
 
 fn copy_with_cancellation(
     reader: &mut impl Read,
@@ -151,12 +392,97 @@ pub fn add_archive_with_encoding_progress_and_options_and_filters(
 pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
     archive: &str,
     paths: &[PathBuf],
+    options: EncodingOptions,
+    progress: Option<&dyn Progress>,
+    input_options: AddInputOptions,
+    filters: &FilterSet,
+    encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
+    passwords: &PasswordSet,
+) -> Result<(), Box<dyn std::error::Error>> {
+    add_with_base(
+        archive,
+        paths,
+        options,
+        progress,
+        input_options,
+        filters,
+        encryption,
+        passwords,
+        None,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn add_archive_in_folder_with_encoding_progress_and_filters_and_encryption(
+    archive: &str,
+    paths: &[PathBuf],
+    folder: &ArchivePath,
+    options: EncodingOptions,
+    progress: Option<&dyn Progress>,
+    input_options: AddInputOptions,
+    filters: &FilterSet,
+    encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
+    passwords: &PasswordSet,
+) -> Result<(), Box<dyn std::error::Error>> {
+    add_with_base(archive, paths, options, progress, input_options, filters, encryption, passwords, None, Some(folder))
+}
+
+/// Adds entries to an overlay, validating the resulting state against its base archive.
+#[allow(clippy::too_many_arguments)]
+pub fn add_overlay_with_encoding_progress_and_filters_and_encryption(
+    base: &str,
+    overlay: &str,
+    paths: &[PathBuf],
+    options: EncodingOptions,
+    progress: Option<&dyn Progress>,
+    input_options: AddInputOptions,
+    filters: &FilterSet,
+    encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
+    passwords: &PasswordSet,
+) -> Result<(), Box<dyn std::error::Error>> {
+    add_with_base(
+        overlay,
+        paths,
+        options,
+        progress,
+        input_options,
+        filters,
+        encryption,
+        passwords,
+        Some(base),
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn add_overlay_in_folder_with_encoding_progress_and_filters_and_encryption(
+    base: &str,
+    overlay: &str,
+    paths: &[PathBuf],
+    folder: &ArchivePath,
+    options: EncodingOptions,
+    progress: Option<&dyn Progress>,
+    input_options: AddInputOptions,
+    filters: &FilterSet,
+    encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
+    passwords: &PasswordSet,
+) -> Result<(), Box<dyn std::error::Error>> {
+    add_with_base(overlay, paths, options, progress, input_options, filters, encryption, passwords, Some(base), Some(folder))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add_with_base(
+    archive: &str,
+    paths: &[PathBuf],
     mut options: EncodingOptions,
     progress: Option<&dyn Progress>,
     input_options: AddInputOptions,
     filters: &FilterSet,
     encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
     passwords: &PasswordSet,
+    base: Option<&str>,
+    folder: Option<&ArchivePath>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let AddInputOptions {
         save_metadata,
@@ -180,7 +506,10 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
     if !parent.is_dir() {
         return Err(format!("archive parent is not a directory: {}", parent.display()).into());
     }
-    let mut toc = load_toc_through_with_passwords(archive, None, passwords)?;
+    let mut toc = match base {
+        Some(base) => load_overlay_toc(base, archive, passwords)?,
+        None => load_toc_through_with_passwords(archive, None, passwords)?,
+    };
     let cwd = std::env::current_dir()?;
     let limits = CommitValidationLimits::default();
     let reusable_tail = find_reusable_empty_tail(archive_path, passwords)?;
@@ -188,6 +517,9 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
         Some(tail) => tail.commit_id,
         None => next_commit_id(archive_path)?,
     };
+    if reusable_tail.is_some() {
+        toc.forget_empty_commit(new_commit_id)?;
+    }
     let id = TEMP_FILE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let unique_id = unique_temp_file_id()?;
     let stem = archive_path
@@ -236,9 +568,23 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
             (None, None)
         };
     let new_commit_password = encryption.map(|(password, _, _)| password);
+    let mut block_index = Vec::new();
+    ProgressReporter::new(progress).check_cancelled()?;
+    let scanned_inputs = super::archive_input::scan_input_paths_in_folder(paths, &cwd, parent, progress, folder)?;
+    ProgressReporter::new(progress).check_cancelled()?;
+    let all_tree_entries = filter_tree_entries(scanned_inputs.entries, filters);
+    let archives: Vec<&str> = base.into_iter().chain(std::iter::once(archive)).collect();
+    let duplicates = find_historical_duplicates(
+        &all_tree_entries,
+        &archives,
+        passwords,
+        encryption,
+        &ProgressReporter::new(progress),
+    )?;
     let mut scan_context = ScanContext {
         changes: &mut changes,
         data: &mut data,
+        block_index: &mut block_index,
         next_block_index: &mut next_block_index,
         block_sizes: &mut block_sizes,
         seen_paths: &mut seen_paths,
@@ -250,11 +596,8 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
         save_metadata,
         action: "Adding",
         encryption: encryption_context,
+        historical_duplicates: Some(&duplicates),
     };
-    ProgressReporter::new(progress).check_cancelled()?;
-    let scanned_inputs = super::archive_input::scan_input_paths(paths, &cwd, parent, progress)?;
-    ProgressReporter::new(progress).check_cancelled()?;
-    let all_tree_entries = filter_tree_entries(scanned_inputs.entries, filters);
     if let Some(progress) = progress {
         let summary = summarize_tree_entries(&all_tree_entries)?;
         ProgressReporter::new(Some(progress)).input_summary(&summary);
@@ -278,6 +621,7 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
     }
 
     let logical_header = LogicalHeader::with_block_size(changes.clone(), options.block_size as u32)
+        .with_block_index(block_index)
         .with_entry_metadata(finalize_entry_metadata(
             entry_metadata,
             save_modification_time,
@@ -405,7 +749,8 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
         )?,
         None => ValidatedCommit::read_body(&mut commit_reader, commit_header.clone(), limits)?,
     };
-    toc.apply_commit_with_available_blocks(&changes, &validated.block_indices)?;
+    Toc::check_available_blocks(&changes, &validated.block_indices)?;
+    toc.apply_archive_commit(commit_header.commit_id, &changes)?;
 
     let mut validation = File::open(&staged_archive)?;
     let first_header_offset = read_first_header_offset(&mut validation)?;
@@ -449,7 +794,12 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
     drop(commit_reader);
     drop(validation);
     ProgressReporter::new(progress).check_cancelled()?;
-    std::fs::rename(&staged_archive, archive_path)?;
+    std::fs::rename(&staged_archive, archive_path).map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!("cannot replace archive {}: {error}", archive_path.display()),
+        )
+    })?;
     cleanup.0.retain(|path| path != &staged_archive);
     drop(cleanup);
     Ok(())

@@ -4,6 +4,9 @@
 It uses the same `zarlib` operations, so GUI-created archives use the same
 format and validation as archives created by the CLI.
 
+Tools > Cross-commit references opens Archive Information with per-commit
+counts and the referencing commit, source commit, and path for each reference.
+
 ## Run
 
 From the workspace root:
@@ -92,15 +95,17 @@ desktop entry.
   restore window positions.
 - Double-click a file to extract it to a temporary folder and open it with the
   operating system's default program.
-- On Windows, macOS, and Wayland, drag selected archive entries from the file
+- Press F2 to rename a selected entry, or drag selected entries onto a folder
+  to move them within the archive. Drop onto an empty part of the list to move
+  them to the archive root. These changes can be undone before saving.
+- On Windows, macOS, X11, and Wayland, drag selected archive entries from the file
   list to another application. Selected folders include their contents.
   Entries are extracted to temporary storage before dragging so applications
-  such as Dolphin can inspect the files during the drag. On Wayland, the status
+  such as Dolphin can inspect the files during the drag. On Linux, the status
   bar shows extraction progress; keep the mouse button pressed until the drag
   begins. On Windows and macOS, the window is unresponsive during extraction.
   Temporary files remain until zarg exits and may include decrypted data.
   Selections containing symbolic links or special files cannot be dragged.
-  Dragging entries out is not supported on X11.
 - Add, edit and remove custom archive metadata (key/value pairs) from the
   Custom metadata dialog. Values are archive-level and distinct from file
   permissions and timestamps. Saving a metadata change appends a commit with
@@ -158,6 +163,22 @@ desktop entry.
   When entries are selected in the main window, General offers an option to
   extract only those entries. Selected folders include their contents; Filter
   tab rules still apply. The selection is captured when the dialog opens.
+  Advanced can skip validation of unselected frames when a block index is
+  available. Selected frames remain validated, but corruption in unselected
+  frames may go undetected; archives without an index still scan all frames.
+  After opening an archive or selecting a commit, zarg validates it in the
+  background for repeated extraction without copying it. Zarg attempts to
+  lock the open archive; on Unix this lock is advisory. It also checks the
+  archive's size and modification time before reusing validation. If the
+  archive changes or preparation fails, extraction reads it normally.
+  Settings > Advanced offers **Validate selected blocks before extraction**
+  to revalidate every block needed by the selected files before writing them.
+  This also applies when opening or dragging files and can be slower.
+  **Recheck block checksums during extraction** is enabled by default. Turning
+  it off skips the second block checksum check when writing, so changes after
+  validation may not be detected. File checksums and encrypted-data
+  authentication still apply.
+  Staged edits currently use a temporary combined archive for extraction.
 - Configure block size, compression, strict input handling, special files,
   overwrite, and the CLI's fnmatch include/exclude filters and filter lists.
 - Set defaults for metadata, dates, special files, strict input validation,
