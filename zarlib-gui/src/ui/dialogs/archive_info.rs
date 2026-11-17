@@ -364,6 +364,17 @@ fn render_info_contents(
             }
         })
         .sum();
+    let references: Option<usize> = view
+        .commits
+        .iter()
+        .map(|commit| {
+            if commit.commit.header_encrypted && !passwords.contains_key(&commit.commit.id) {
+                None
+            } else {
+                commit.commit.cross_commit_references.as_ref().map(Vec::len)
+            }
+        })
+        .sum();
     ui.heading("Summary");
     egui::Grid::new("info_summary")
         .num_columns(2)
@@ -371,18 +382,6 @@ fn render_info_contents(
         .show(ui, |ui| {
             info_row(ui, "Archive", view.archive.as_str());
             info_row(ui, "Commits", view.commits.len().to_string());
-            let references: Option<usize> = view
-                .commits
-                .iter()
-                .map(|commit| {
-                    if commit.commit.header_encrypted && !passwords.contains_key(&commit.commit.id)
-                    {
-                        None
-                    } else {
-                        commit.commit.cross_commit_references.as_ref().map(Vec::len)
-                    }
-                })
-                .sum();
             info_row(
                 ui,
                 "Cross-commit references",
@@ -400,27 +399,32 @@ fn render_info_contents(
             }
         });
     ui.add_space(6.0);
-    ui.heading("Cross-commit references");
-    let mut reference_count = 0;
-    for commit in &view.commits {
-        if commit.commit.header_encrypted && !passwords.contains_key(&commit.commit.id) {
-            continue;
-        }
-        if let Some(references) = &commit.commit.cross_commit_references {
-            for reference in references {
-                reference_count += 1;
-                ui.label(format!(
-                    "{:08x} -> {:08x}: {}",
-                    u32::from_le_bytes(reference.referencing_commit),
-                    u32::from_le_bytes(reference.source_commit),
-                    reference.path
-                ));
+    let reference_count = references.map_or_else(|| "?".to_owned(), |count| count.to_string());
+    egui::CollapsingHeader::new(format!("{reference_count} Cross-commit references"))
+        .id_salt("info_cross_commit_references")
+        .default_open(false)
+        .show(ui, |ui| {
+            let mut visible_reference_count = 0;
+            for commit in &view.commits {
+                if commit.commit.header_encrypted && !passwords.contains_key(&commit.commit.id) {
+                    continue;
+                }
+                if let Some(references) = &commit.commit.cross_commit_references {
+                    for reference in references {
+                        visible_reference_count += 1;
+                        ui.label(format!(
+                            "{:08x} -> {:08x}: {}",
+                            u32::from_le_bytes(reference.referencing_commit),
+                            u32::from_le_bytes(reference.source_commit),
+                            reference.path
+                        ));
+                    }
+                }
             }
-        }
-    }
-    if reference_count == 0 {
-        ui.weak("None visible");
-    }
+            if visible_reference_count == 0 {
+                ui.weak("None visible");
+            }
+        });
     ui.add_space(6.0);
     ui.heading("Custom metadata");
     if view.metadata.is_empty() {
@@ -825,5 +829,62 @@ mod tests {
                 .details
                 .is_some()
         );
+    }
+
+    #[test]
+    fn cross_commit_references_show_the_count_in_a_collapsible_heading() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("reference.txt");
+        let archive = directory.path().join("archive.zar");
+        std::fs::write(&input, b"shared contents").unwrap();
+        operations::create_archive(archive.to_str().unwrap(), std::slice::from_ref(&input))
+            .unwrap();
+        operations::add_archive(archive.to_str().unwrap(), std::slice::from_ref(&input)).unwrap();
+        let commits =
+            operations::info_archive_with_blocks(archive.to_str().unwrap(), true).unwrap();
+        assert_eq!(
+            commits
+                .iter()
+                .flat_map(|commit| commit.commit.cross_commit_references.iter().flatten())
+                .count(),
+            1
+        );
+        let view = ArchiveInfoView {
+            archive: archive.to_string_lossy().into_owned(),
+            commits,
+            metadata: Vec::new(),
+        };
+        let context = egui::Context::default();
+        let icons = IconCache::default();
+        let mut action = None;
+        let output = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000.0, 900.0),
+                )),
+                ..Default::default()
+            },
+            |ui| render_info_contents(ui, &view, &icons, &BTreeMap::new(), false, &mut action),
+        );
+        let mut texts = Vec::new();
+        for shape in &output.shapes {
+            collect_text(&shape.shape, &mut texts);
+        }
+        output.drop_without_applying_deltas();
+        assert!(texts.iter().any(|text| text == "1 Cross-commit references"));
+        assert!(!texts.iter().any(|text| text == "reference.txt"));
+    }
+
+    fn collect_text(shape: &egui::Shape, texts: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(text) => texts.push(text.galley.job.text.clone()),
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    collect_text(shape, texts);
+                }
+            }
+            _ => {}
+        }
     }
 }

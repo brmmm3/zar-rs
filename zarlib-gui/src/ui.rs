@@ -2338,7 +2338,11 @@ impl ZargApp {
                     .is_none_or(|id| Some(id) == self.archive_list_focus_id)
             })
         {
-            self.handle_archive_selection_keys(context);
+            if context.input(|input| input.key_pressed(egui::Key::Delete)) {
+                self.remove_selected_entries();
+            } else {
+                self.handle_archive_selection_keys(context);
+            }
         }
         if !self.busy
             && self.operation.kind.is_none()
@@ -3279,7 +3283,10 @@ impl ZargApp {
         let (answer_tx, answer_rx) = mpsc::channel();
         let cancellation = matches!(
             kind,
-            OperationKind::NewArchive | OperationKind::AddToArchive | OperationKind::ExtractArchive
+            OperationKind::NewArchive
+                | OperationKind::AddToArchive
+                | OperationKind::ExtractArchive
+                | OperationKind::TestArchive
         )
         .then(|| Arc::new(AtomicBool::new(false)));
         let progress = UiProgress {
@@ -4782,6 +4789,23 @@ impl ZargApp {
         !self.busy && !self.read_archive.is_empty() && self.imported_archive_dir.is_none()
     }
 
+    fn can_remove_selected_entries(&self) -> bool {
+        !self.busy
+            && !self.archive.is_empty()
+            && !self.selected.is_empty()
+            && self.commit_ids.last() == Some(&self.selected_commit)
+            && self.imported_archive_dir.is_none()
+    }
+
+    fn remove_selected_entries(&mut self) {
+        if !self.can_remove_selected_entries() {
+            return;
+        }
+        let mut form = self.new_operation_form(OperationKind::RemoveEntries, &self.archive);
+        form.remove_text = self.selected.iter().cloned().collect::<Vec<_>>().join("\n");
+        self.start_operation(form);
+    }
+
     fn maximum_undo_steps(&self) -> usize {
         self.rewrite_snapshots.len()
     }
@@ -5015,18 +5039,6 @@ impl ZargApp {
                 icon_texture(ui.ctx(), &self.icons, UiIcon::Tools),
                 "Tools",
                 |ui| {
-                    if icon_button(
-                        ui,
-                        &self.icons,
-                        UiIcon::Info,
-                        "Cross-commit references",
-                        !self.busy && !self.archive.is_empty() && !is_imported_archive,
-                    )
-                    .clicked()
-                    {
-                        self.show_archive_info();
-                        ui.close();
-                    }
                     if icon_button(
                         ui,
                         &self.icons,
@@ -5611,17 +5623,11 @@ impl ZargApp {
                 &self.icons,
                 UiIcon::Remove,
                 "Remove",
-                !self.busy
-                    && !self.archive.is_empty()
-                    && !self.selected.is_empty()
-                    && self.commit_ids.last() == Some(&self.selected_commit)
-                    && self.imported_archive_dir.is_none(),
+                self.can_remove_selected_entries(),
             )
             .clicked()
             {
-                let mut form = self.new_operation_form(OperationKind::RemoveEntries, &self.archive);
-                form.remove_text = self.selected.iter().cloned().collect::<Vec<_>>().join("\n");
-                self.start_operation(form);
+                self.remove_selected_entries();
             }
             if icon_button(
                 ui,

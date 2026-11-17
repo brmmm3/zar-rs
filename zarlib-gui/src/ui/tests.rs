@@ -3198,6 +3198,92 @@ fn remove_archive_entries_is_staged_and_updates_ui() {
 }
 
 #[test]
+fn delete_key_removes_selected_files_and_folders_only_when_archive_list_is_focused() {
+    let directory = tempfile::tempdir().unwrap();
+    let input = directory.path().join("README");
+    let folder = directory.path().join("folder");
+    let archive = directory.path().join("archive.zar");
+    std::fs::write(&input, b"contents").unwrap();
+    std::fs::create_dir(&folder).unwrap();
+    std::fs::write(folder.join("child.txt"), b"child").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[input, folder]).unwrap();
+
+    let context = egui::Context::default();
+    let mut app = ZargApp::default();
+    app.open_archive(archive, None);
+    wait_for_worker(&mut app);
+    app.selected = BTreeSet::from(["README".to_owned(), "folder".to_owned()]);
+    app.selected_commit = app.commit_ids.last().unwrap().clone();
+
+    let press_delete = |app: &mut ZargApp| {
+        let key = |pressed| egui::Event::Key {
+            key: egui::Key::Delete,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        context
+            .run_ui(
+                egui::RawInput {
+                    events: vec![key(true), key(false)],
+                    ..Default::default()
+                },
+                |ui| app.handle_archive_shortcuts(ui.ctx()),
+            )
+            .drop_without_applying_deltas();
+    };
+
+    press_delete(&mut app);
+    assert!(app.entries.iter().any(|(path, _)| path == "README"));
+
+    app.archive_list_focused = true;
+    press_delete(&mut app);
+    wait_for_worker(&mut app);
+
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(app.has_unsaved_changes);
+    assert!(app.entries.is_empty());
+}
+
+#[test]
+fn testing_archive_can_be_cancelled_from_progress() {
+    let directory = tempfile::tempdir().unwrap();
+    let input = directory.path().join("input.txt");
+    let archive = directory.path().join("archive.zar");
+    std::fs::write(&input, b"contents").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[input]).unwrap();
+
+    let mut bytes = std::fs::read(&archive).unwrap();
+    let header_offset = u64::from_le_bytes(bytes[4..12].try_into().unwrap()) as usize;
+    bytes[header_offset..header_offset + 4].copy_from_slice(b"BAD!");
+    std::fs::write(&archive, bytes).unwrap();
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&archive)
+        .unwrap()
+        .set_len(64 * 1024 * 1024)
+        .unwrap();
+
+    let mut app = ZargApp::default();
+    let mut form = app.new_operation_form(OperationKind::TestArchive, archive.to_str().unwrap());
+    form.recover = true;
+    app.start_operation(form);
+    let cancellation = app
+        .worker
+        .as_ref()
+        .and_then(|worker| worker.cancellation.as_ref())
+        .unwrap()
+        .clone();
+    cancellation.store(true, std::sync::atomic::Ordering::Relaxed);
+    wait_for_worker(&mut app);
+
+    assert!(!app.busy);
+    assert!(app.report.is_none());
+    assert_eq!(app.status, "Operation cancelled");
+}
+
+#[test]
 fn new_archive_is_created_in_temporary_storage_until_saved() {
     let directory = tempfile::tempdir().unwrap();
     let input = directory.path().join("input.txt");

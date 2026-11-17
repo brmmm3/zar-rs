@@ -714,7 +714,8 @@ pub(crate) enum Command {
         long_about = "Display header content changes, metadata, payload sizes, and compression ratios for commits in the archive.\n\n\
             Reads commit headers and block-frame metadata without decompressing file contents. \
             Header content changes are shown for each readable commit. Use -v for per-file-group \
-            and deduplication statistics. Repeat -v to also show each \
+            and deduplication statistics. Up to 10 cross-commit references are shown by default; \
+            use -vv to show all readable references. Repeat -v to also show each \
             block's size, compression ratio, file count, and file groups. Both levels read frame \
             metadata without decompressing file contents. JSON output is available separately.\n\n\
             USAGE EXAMPLES:\n  \
@@ -732,7 +733,7 @@ pub(crate) enum Command {
             long,
             action = clap::ArgAction::Count,
             conflicts_with = "json",
-            help = "Show per-commit file group statistics; repeat to show block details"
+            help = "Show per-commit file group statistics; repeat to show all references and block details"
         )]
         verbose: u8,
         #[arg(

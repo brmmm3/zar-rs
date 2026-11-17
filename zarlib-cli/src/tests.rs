@@ -576,6 +576,33 @@ fn clap_parser_accepts_cli_options_and_rejects_invalid_usage() {
 }
 
 #[test]
+fn info_limits_cross_commit_references_unless_verbose_is_repeated() {
+    let references = (0..12u32)
+        .map(|index| CrossCommitReference {
+            referencing_commit: (index + 2).to_le_bytes(),
+            source_commit: 1u32.to_le_bytes(),
+            path: ArchivePath::new(format!("file-{index}.txt")).unwrap(),
+        })
+        .collect::<Vec<_>>();
+    let references = references.iter().collect::<Vec<_>>();
+
+    let limited = render_cross_commit_references(&references, false, true);
+    assert_eq!(limited.lines().count(), 11);
+    assert!(limited.contains("file-0.txt"));
+    assert!(limited.contains("file-9.txt"));
+    assert!(!limited.contains("file-10.txt"));
+    assert!(limited.contains("2 cross-commit reference(s) not printed"));
+
+    let all = render_cross_commit_references(&references, true, true);
+    assert_eq!(all.lines().count(), 12);
+    assert!(all.contains("file-11.txt"));
+    assert!(!all.contains("not printed"));
+
+    let unknown_total = render_cross_commit_references(&references, false, false);
+    assert!(unknown_total.contains("2 known cross-commit reference(s) not printed"));
+}
+
+#[test]
 fn info_json_escapes_usernames() {
     let json = render_info_json(&[InfoJsonCommit {
         id: "00000001".to_owned(),

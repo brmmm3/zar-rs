@@ -2,7 +2,7 @@ use super::*;
 use crate::{ArchivePath, TocEntry};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 struct Fixture {
     dir: tempfile::TempDir,
@@ -3351,6 +3351,27 @@ fn check_valid_and_corrupted_archives_and_progress() {
     std::fs::write(&damaged, bytes).unwrap();
     assert!(check_archive_with_recovery(damaged.to_str().unwrap(), false, None).is_err());
     assert!(check_archive_with_recovery(damaged.to_str().unwrap(), true, None).is_err());
+}
+
+#[test]
+fn check_archive_honors_progress_cancellation() {
+    struct CancelAfterStart(AtomicUsize);
+
+    impl Progress for CancelAfterStart {
+        fn message(&self, _: &str) {}
+        fn advance(&self, _: u64) {}
+
+        fn is_cancelled(&self) -> bool {
+            self.0.fetch_add(1, Ordering::Relaxed) >= 1
+        }
+    }
+
+    let fixture = Fixture::new();
+    let progress = CancelAfterStart(AtomicUsize::new(0));
+    let error =
+        check_archive_with_recovery_progress(fixture.archive(), false, None, Some(&progress))
+            .unwrap_err();
+    assert!(error.to_string().contains("operation cancelled"));
 }
 
 #[test]

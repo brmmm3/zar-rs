@@ -10,6 +10,12 @@ until a version is released.
 - Added `CrossCommitReference` and the `cross_commit_references` and
   `cross_commit_references_with_passwords` APIs to inspect references between
   commits in an archive.
+- Added Delete-key removal of selected files and folders from the `zarg` main
+  window's file tree.
+- Added reference listings to `zarc info`, capped at 10 unless `-vv` is used,
+  and a counted, collapsible cross-commit reference section to the `zarg` Info
+  dialog.
+- Added cancellation to archive testing in the `zarg` GUI.
 
 ### Changed
 

@@ -484,6 +484,35 @@ fn format_commit_id(bytes: &[u8; 4]) -> String {
     format!("{:08x}", u32::from_le_bytes(*bytes))
 }
 
+fn render_cross_commit_references(
+    references: &[&CrossCommitReference],
+    show_all: bool,
+    total_available: bool,
+) -> String {
+    let printed = if show_all {
+        references.len()
+    } else {
+        references.len().min(10)
+    };
+    let mut output = String::new();
+    for reference in references.iter().take(printed) {
+        output.push_str(&format!(
+            "  {} -> {}: {}\n",
+            format_commit_id(&reference.referencing_commit),
+            format_commit_id(&reference.source_commit),
+            reference.path.as_str()
+        ));
+    }
+    let not_printed = references.len() - printed;
+    if not_printed > 0 {
+        let known = if total_available { "" } else { "known " };
+        output.push_str(&format!(
+            "  {not_printed} {known}cross-commit reference(s) not printed\n"
+        ));
+    }
+    output
+}
+
 struct InfoJsonCommit {
     id: String,
     size: u64,
@@ -1557,6 +1586,14 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                         || "unavailable (encrypted header)".to_owned(),
                         |count| count.to_string()
                     )
+                );
+                let references = commits
+                    .iter()
+                    .flat_map(|info| info.commit.cross_commit_references.iter().flatten())
+                    .collect::<Vec<_>>();
+                print!(
+                    "{}",
+                    render_cross_commit_references(&references, verbose >= 2, total.is_some())
                 );
             }
             let elapsed = start.elapsed();

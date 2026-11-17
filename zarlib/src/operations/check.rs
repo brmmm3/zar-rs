@@ -52,6 +52,7 @@ pub fn check_archive_with_recovery_and_passwords_progress(
     progress: Option<&dyn Progress>,
 ) -> Result<CheckReport, Box<dyn std::error::Error>> {
     let progress = ProgressReporter::new(progress);
+    progress.check_cancelled()?;
     let mut file = File::open(path)?;
     let container = ContainerHeader::read_from(&mut file)?;
     if let Some(callback) = progress.0 {
@@ -69,6 +70,7 @@ pub fn check_archive_with_recovery_and_passwords_progress(
 
     let mut header_offset = container.first_header_offset;
     while header_offset != 0 {
+        progress.check_cancelled()?;
         if !visited_offsets.insert(header_offset) {
             return Err("archive commit chain contains a cycle".into());
         }
@@ -77,8 +79,12 @@ pub fn check_archive_with_recovery_and_passwords_progress(
             match read_commit_at_offset(&mut file, header_offset, limits) {
                 Ok(entry) => entry,
                 Err(error) if recover => {
-                    let Some((offset, ch, ds, next)) =
-                        find_next_valid_commit(&mut file, commit_start.saturating_add(1), limits)?
+                    let Some((offset, ch, ds, next)) = find_next_valid_commit(
+                        &mut file,
+                        commit_start.saturating_add(1),
+                        limits,
+                        progress,
+                    )?
                     else {
                         return Err(error);
                     };
@@ -100,8 +106,12 @@ pub fn check_archive_with_recovery_and_passwords_progress(
             match read_commit_with_passwords(&mut file, commit_header.clone(), limits, passwords) {
                 Ok(commit) => commit,
                 Err(error) if recover => {
-                    let Some((offset, ch, ds, next)) =
-                        find_next_valid_commit(&mut file, data_start.saturating_add(1), limits)?
+                    let Some((offset, ch, ds, next)) = find_next_valid_commit(
+                        &mut file,
+                        data_start.saturating_add(1),
+                        limits,
+                        progress,
+                    )?
                     else {
                         return Err(error);
                     };
@@ -137,6 +147,7 @@ pub fn check_archive_with_recovery_and_passwords_progress(
             u32::from_le_bytes(validated.commit_header.commit_id)
         ));
         while data_reader.limit() != 0 {
+            progress.check_cancelled()?;
             let block_offset = data_start
                 .checked_add(validated.commit_header.data_section_size - data_reader.limit())
                 .ok_or("block offset overflow")?;
@@ -185,6 +196,7 @@ pub fn check_archive_with_recovery_and_passwords_progress(
                         let mut all_blocks_readable = true;
                         let mut checksum = Xxh64::new(0);
                         for index in &entry.block_indices {
+                            progress.check_cancelled()?;
                             match block_sizes.get(index) {
                                 Some(Some(size)) => {
                                     let file_range = if let Some(offset) = entry.offset_in_block {
@@ -300,6 +312,7 @@ fn find_next_valid_commit(
     file: &mut File,
     start: u64,
     limits: CommitValidationLimits,
+    progress: ProgressReporter<'_>,
 ) -> io::Result<Option<(u64, CommitHeader, u64, u64)>> {
     let file_len = file.metadata()?.len();
     let min_size = COMMIT_HEADER_FIXED_SIZE as u64 + HEADER_OFFSET_SIZE;
@@ -308,6 +321,7 @@ fn find_next_valid_commit(
     }
     let mut offset = start;
     while offset.saturating_add(min_size) <= file_len {
+        progress.check_cancelled()?;
         file.seek(io::SeekFrom::Start(offset))?;
         let header_frame = match HeaderFrame::read_from(file, limits.max_frame_payload_size) {
             Ok(frame) => frame,
