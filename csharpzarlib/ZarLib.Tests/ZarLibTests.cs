@@ -267,7 +267,11 @@ public sealed class ZarLibTests : IDisposable
             to_id = "00000001",
             output = "transformed.zar",
             new_password = "transformed-secret",
-            password = "secret",
+            passwords = new Dictionary<string, string>
+            {
+                ["00000001"] = "secret",
+                ["00000002"] = "second-secret",
+            },
             aead = "chacha20-poly1305",
             encryption_scope = "header-and-data",
             strict = true,
@@ -287,7 +291,7 @@ public sealed class ZarLibTests : IDisposable
             archive = "transformed.zar",
             from_id = "00000001",
             to_id = "00000001",
-            password = "transformed-secret",
+            passwords = transformedPasswords,
             strict = true,
         });
         Assert.Contains("\"commits\":2", ZarLibrary.CheckArchive(new

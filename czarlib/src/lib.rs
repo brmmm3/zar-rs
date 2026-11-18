@@ -957,6 +957,70 @@ mod tests {
     }
 
     #[test]
+    fn transforms_commit_with_a_different_password_outside_the_range() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("input.txt");
+        let archive = directory.path().join("source.zar");
+        let output = directory.path().join("transformed.zar");
+        std::fs::write(&input, b"alpha contents").unwrap();
+        execute_json(
+            "create_archive",
+            &serde_json::json!({
+                "archive": archive, "paths": [input], "password": "secret",
+                "aead": "chacha20-poly1305", "block_size": 65536,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        execute_json(
+            "add_archive",
+            &serde_json::json!({
+                "archive": archive, "paths": [input], "password": "second-secret",
+                "passwords": {"00000001": "secret"}, "encryption_scope": "data",
+                "aead": "aes-256-gcm", "block_size": 65536,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        execute_json(
+            "encrypt_archive_commits",
+            &serde_json::json!({
+                "archive": archive, "from_id": "00000001", "to_id": "00000001",
+                "output": output, "new_password": "transformed-secret",
+                "passwords": {"00000001": "secret", "00000002": "second-secret"},
+                "aead": "chacha20-poly1305",
+                "encryption_scope": "header-and-data", "strict": true,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        execute_json(
+            "check_archive",
+            &serde_json::json!({
+                "archive": output,
+                "passwords": {"00000001": "transformed-secret", "00000002": "second-secret"},
+            })
+            .to_string(),
+        )
+        .unwrap();
+        execute_json(
+            "decrypt_archive_commits",
+            &serde_json::json!({
+                "archive": output, "from_id": "00000001", "to_id": "00000001",
+                "passwords": {"00000001": "transformed-secret", "00000002": "second-secret"},
+                "strict": true,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        execute_json(
+            "check_archive",
+            &serde_json::json!({"archive": output, "password": "second-secret"}).to_string(),
+        )
+        .unwrap();
+    }
+
+    #[test]
     fn encrypt_and_decrypt_archive_commits_json_round_trip() {
         let directory = tempfile::tempdir().unwrap();
         let first = directory.path().join("first.txt");

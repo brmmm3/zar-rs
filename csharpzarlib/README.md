@@ -91,7 +91,10 @@ Dictionary<string, byte[]> files = ZarLibrary.ExtractArchiveToMemory(new { archi
 - `EncryptArchiveCommits` uses `new_password` for transformed commits and
   `password`/`passwords` to unlock already-encrypted commits.
   `DecryptArchiveCommits` uses the latter fields to unlock commits being
-  decrypted.
+  decrypted. Transformations also inspect commits outside the selected range
+  for cross-commit references. When commits use different passwords, supply
+  their current passwords through the per-commit `passwords` map instead of
+  a single default `password`.
 
 ## Tests and examples
 
