@@ -4,11 +4,11 @@ use super::archive_input::{
 };
 use super::common::*;
 use super::filters::FilterSet;
-use super::list::load_toc_through_with_passwords_and_progress;
 use super::pipeline::{TreeEntryKind, filter_tree_entries, scan_tree};
 use crate::{
     ArchivePath, BlockFrame, CommitHeader, CommitValidationLimits, ContentAead, DEK_SIZE,
     DeviceKind, EntryMetadata, FileEntry, HEADER_OFFSET_SIZE, Toc, TocChange, TocEntry,
+    ValidatedHeader,
 };
 #[cfg(not(target_os = "wasi"))]
 use rayon::prelude::*;
@@ -1107,9 +1107,9 @@ fn extract_archive_impl(
     progress.check_cancelled()?;
     let archive_size = File::open(archive)?.metadata()?.len().saturating_sub(4);
     progress.start_phase("Reading archive headers", archive_size.max(1));
-    let owned_toc = if prepared.is_none() {
-        Some(load_toc_through_with_passwords_and_progress(
-            archive,
+    let headers = if prepared.is_none() {
+        Some(load_extraction_headers(
+            &mut File::open(archive)?,
             to,
             passwords,
             Some(&progress),
@@ -1119,14 +1119,13 @@ fn extract_archive_impl(
     };
     let full_toc = prepared
         .map(|state| &state.0)
-        .or(owned_toc.as_ref())
+        .or(headers.as_ref().map(|headers| &headers.toc))
         .unwrap();
     progress.check_cancelled()?;
     let toc = filters.filter_toc(full_toc)?;
     progress.reset_phase("Planning extraction", archive_size.max(1));
     let summary = summarize_toc(&toc, restore_symlinks, restore_devices)?;
     progress.extraction_summary(&summary);
-    // The loader reuses the TOC built above instead of rebuilding it.
     let loaded;
     let (_, extraction_sources, entry_metadata) = if let Some(state) = prepared {
         state
@@ -1137,7 +1136,7 @@ fn extract_archive_impl(
             passwords,
             None,
             Some(filters),
-            owned_toc,
+            headers,
             skip_unselected_frame_validation,
         )?;
         &loaded
@@ -1154,7 +1153,7 @@ fn extract_archive_impl(
             passwords,
             Some(&progress),
             Some(filters),
-            owned_toc,
+            headers,
             skip_unselected_frame_validation,
         )?;
         &loaded
@@ -1345,7 +1344,7 @@ fn extract_archive_impl(
     }
 
     let plan = ExtractionPlan {
-        toc: toc.clone(),
+        toc,
         directories: accepted_directories
             .iter()
             .map(|(path, _)| path.clone())
@@ -1974,17 +1973,32 @@ pub fn load_extraction_state_with_passwords_progress(
     load_extraction_state_impl(archive, to, passwords, progress, None, None, false)
 }
 
-fn referenced_blocks(
+struct ExtractionCommit {
+    validated: ValidatedHeader,
+    dek: Option<Zeroizing<[u8; DEK_SIZE]>>,
+    data_start: u64,
+    header_size: u64,
+}
+
+struct ExtractionHeaders {
+    toc: Toc,
+    commits: Vec<ExtractionCommit>,
+}
+
+fn load_extraction_headers(
     file: &mut File,
-    requested_id: Option<[u8; 4]>,
+    to: Option<&str>,
     passwords: &PasswordSet,
-    filters: Option<&FilterSet>,
     progress: Option<&ProgressReporter<'_>>,
-) -> Result<HashMap<[u8; 4], HashSet<u32>>, Box<dyn std::error::Error>> {
-    let mut references = HashMap::<[u8; 4], HashSet<u32>>::new();
+) -> Result<ExtractionHeaders, Box<dyn std::error::Error>> {
+    let requested_id = to.map(parse_commit_id).transpose()?;
+    let mut toc = Toc::default();
+    let mut commits = Vec::new();
     let limits = CommitValidationLimits::default();
     let mut offset = read_first_header_offset(file)?;
     let mut offsets = HashSet::new();
+    let mut matched_to = false;
+    let mut stopped_at_to = false;
     while offset != 0 {
         if !offsets.insert(offset) {
             return Err("archive commit chain contains a cycle".into());
@@ -1992,11 +2006,69 @@ fn referenced_blocks(
         if let Some(progress) = progress {
             progress.check_cancelled()?;
         }
-        let (commit, _, next) = read_commit_at_offset(file, offset, limits)?;
+        if stopped_at_to {
+            let (commit, _, next) = read_commit_at_offset(file, offset, limits)?;
+            if requested_id == Some(commit.commit_id) {
+                return Err("--to commit ID is ambiguous".into());
+            }
+            offset = next;
+            continue;
+        }
         file.seek(SeekFrom::Start(offset))?;
-        let (header, _) = read_header_with_passwords(file, limits, passwords)?;
-        if let Some(header) = header.logical_header {
-            for change in header.changes {
+        let (validated, dek) = read_header_with_passwords(file, limits, passwords)?;
+        let header_size = file.stream_position()?.saturating_sub(offset);
+        let commit = &validated.commit_header;
+        let _commit_end = offset
+            .checked_add(u64::from(commit.header_frame_size))
+            .and_then(|size| size.checked_add(HEADER_OFFSET_SIZE))
+            .ok_or("commit end overflow")?;
+        let data_start = offset
+            .checked_sub(commit.data_section_size)
+            .ok_or("data section offset underflow")?;
+        let next_offset_pos = data_start
+            .checked_sub(HEADER_OFFSET_SIZE)
+            .ok_or("next_header_offset position underflow")?;
+        file.seek(SeekFrom::Start(next_offset_pos))?;
+        let mut next_bytes = [0; 8];
+        file.read_exact(&mut next_bytes)?;
+        if let Some(progress) = progress {
+            progress.inc(header_size);
+            progress.set_message(format!(
+                "Reading header for commit {:08x}",
+                u32::from_le_bytes(commit.commit_id)
+            ));
+        }
+        if let Some(header) = validated.logical_header.as_ref() {
+            toc.apply_archive_commit(commit.commit_id, &header.changes)?;
+        } else if !validated.encryption.is_header_encrypted() {
+            return Err("commit header is missing its logical header".into());
+        }
+        if requested_id == Some(commit.commit_id) {
+            matched_to = true;
+            stopped_at_to = true;
+        }
+        commits.push(ExtractionCommit {
+            validated,
+            dek,
+            data_start,
+            header_size,
+        });
+        offset = u64::from_le_bytes(next_bytes);
+    }
+    if requested_id.is_some() && !matched_to {
+        return Err("--to commit ID was not found".into());
+    }
+    Ok(ExtractionHeaders { toc, commits })
+}
+
+fn referenced_blocks(
+    commits: &[ExtractionCommit],
+    filters: Option<&FilterSet>,
+) -> HashMap<[u8; 4], HashSet<u32>> {
+    let mut references = HashMap::<[u8; 4], HashSet<u32>>::new();
+    for commit in commits {
+        if let Some(header) = commit.validated.logical_header.as_ref() {
+            for change in &header.changes {
                 if let TocChange::PutFile { path, entry } = change
                     && let Some(source) = entry.source_commit
                     && filters.is_none_or(|filters| filters.includes(path.as_str(), false))
@@ -2004,72 +2076,55 @@ fn referenced_blocks(
                     references
                         .entry(source)
                         .or_default()
-                        .extend(entry.block_indices);
+                        .extend(entry.block_indices.iter().copied());
                 }
             }
         }
-        if requested_id == Some(commit.commit_id) {
-            break;
-        }
-        offset = next;
     }
-    Ok(references)
+    references
 }
 
 /// Blocks that only belong to files rejected by `filters` are not read or validated.
-/// A `known_toc` for the same archive and `to` is returned as is instead of being rebuilt.
+/// Cached headers and their TOC are reused without rereading the archive headers.
 fn load_extraction_state_impl(
     archive: &str,
     to: Option<&str>,
     passwords: &PasswordSet,
     progress: Option<&ProgressReporter<'_>>,
     filters: Option<&FilterSet>,
-    known_toc: Option<Toc>,
+    headers: Option<ExtractionHeaders>,
     skip_unselected_frame_validation: bool,
 ) -> Result<LoadedExtractionState, Box<dyn std::error::Error>> {
     let mut file = File::open(archive)?;
-    let requested_id = to.map(parse_commit_id).transpose()?;
-    let references = referenced_blocks(&mut file, requested_id, passwords, filters, progress)?;
-    let mut historical_blocks = HashMap::<[u8; 4], HashMap<u32, ExtractedBlock>>::new();
     let use_block_index =
-        filters.is_some() && (known_toc.is_none() || skip_unselected_frame_validation);
-    let rebuild_toc = known_toc.is_none();
-    let mut toc = known_toc.unwrap_or_default();
+        filters.is_some() && (headers.is_none() || skip_unselected_frame_validation);
+    let ExtractionHeaders { toc, commits } = match headers {
+        Some(headers) => headers,
+        None => load_extraction_headers(&mut file, to, passwords, progress)?,
+    };
+    let references = referenced_blocks(&commits, filters);
+    let mut historical_blocks = HashMap::<[u8; 4], HashMap<u32, ExtractedBlock>>::new();
     let mut file_contents = BTreeMap::<ArchivePath, ExtractedSource>::new();
     let mut archived_special_entries = BTreeMap::<ArchivePath, ExtractedSource>::new();
     let mut archived_metadata = BTreeMap::<ArchivePath, EntryMetadata>::new();
     let mut header_bytes_read = 0_u64;
     let mut progressed_header_bytes = 0_u64;
     let mut total_blocks = 0_u64;
-    let mut matches = 0_u32;
-    let mut stopped_at_to = false;
     let limits = CommitValidationLimits::default();
 
-    file.seek(SeekFrom::Start(0))?;
-    let mut header_offset = read_first_header_offset(&mut file)?;
-    while header_offset != 0 {
-        let (commit_header, data_start, next_header_offset) =
-            read_commit_at_offset(&mut file, header_offset, limits)?;
-        let matched_this_commit = requested_id == Some(commit_header.commit_id);
-        if matched_this_commit {
-            matches += 1;
-            if matches > 1 {
-                return Err("--to commit ID is ambiguous".into());
-            }
+    for ExtractionCommit {
+        validated,
+        dek,
+        data_start,
+        header_size,
+    } in commits
+    {
+        if let Some(progress) = progress {
+            progress.check_cancelled()?;
         }
-        let _commit_end = header_offset
-            .checked_add(u64::from(commit_header.header_frame_size))
-            .and_then(|size| size.checked_add(HEADER_OFFSET_SIZE))
-            .ok_or("commit end overflow")?;
-        if stopped_at_to {
-            header_offset = next_header_offset;
-            continue;
-        }
-        file.seek(SeekFrom::Start(header_offset))?;
-        let header_start = header_offset;
-        let (validated, dek) = read_header_with_passwords(&mut file, limits, passwords)?;
+        let commit_header = &validated.commit_header;
         header_bytes_read = header_bytes_read
-            .checked_add(file.stream_position()?.saturating_sub(header_start))
+            .checked_add(header_size)
             .ok_or("extraction progress size overflow")?;
         let Some(header) = validated.logical_header.as_ref() else {
             if !validated.encryption.is_header_encrypted() {
@@ -2086,10 +2141,6 @@ fn load_extraction_state_impl(
                 progress.inc(commit_header.data_section_size);
             }
             progressed_header_bytes = header_bytes_read;
-            header_offset = next_header_offset;
-            if matched_this_commit {
-                stopped_at_to = true;
-            }
             continue;
         };
         if validated.encryption.is_data_encrypted() && dek.is_none() {
@@ -2189,7 +2240,7 @@ fn load_extraction_state_impl(
                     if pending_blocks.len() >= workers {
                         blocks.extend(validate_extraction_block_batch(
                             std::mem::take(&mut pending_blocks),
-                            &commit_header,
+                            commit_header,
                             algorithm,
                             dek.as_ref(),
                             limits,
@@ -2242,7 +2293,7 @@ fn load_extraction_state_impl(
                     if pending_blocks.len() >= workers {
                         blocks.extend(validate_extraction_block_batch(
                             std::mem::take(&mut pending_blocks),
-                            &commit_header,
+                            commit_header,
                             algorithm,
                             dek.as_ref(),
                             limits,
@@ -2257,7 +2308,7 @@ fn load_extraction_state_impl(
         if !pending_blocks.is_empty() {
             blocks.extend(validate_extraction_block_batch(
                 pending_blocks,
-                &commit_header,
+                commit_header,
                 algorithm,
                 dek.as_ref(),
                 limits,
@@ -2275,9 +2326,6 @@ fn load_extraction_state_impl(
         }
 
         Toc::check_available_blocks(&header.changes, &block_indices)?;
-        if rebuild_toc {
-            toc.apply_archive_commit(commit_header.commit_id, &header.changes)?;
-        }
         {
             for change in &header.changes {
                 if let TocChange::PutFile { path, entry } = change {
@@ -2446,14 +2494,6 @@ fn load_extraction_state_impl(
                     .collect(),
             );
         }
-        header_offset = next_header_offset;
-        if matched_this_commit {
-            stopped_at_to = true;
-        }
-    }
-
-    if requested_id.is_some() && matches == 0 {
-        return Err("--to commit ID was not found".into());
     }
     for (path, metadata) in &archived_metadata {
         if let Some(source) = file_contents.get_mut(path) {
@@ -3184,6 +3224,86 @@ mod tests {
     use super::*;
     use std::cell::Cell;
     use std::fs::OpenOptions;
+
+    #[test]
+    fn cached_headers_preserve_references_and_still_validate_selected_data() {
+        for to in [None, Some("00000001")] {
+            for corrupt_data in [false, true] {
+                let directory = tempfile::tempdir().unwrap();
+                let input = directory.path().join("input.txt");
+                let archive = directory.path().join("archive.zar");
+                let contents = b"contents from the original commit";
+                std::fs::write(&input, contents).unwrap();
+                let archive_name = archive.to_str().unwrap();
+                crate::operations::create_archive(archive_name, &[input]).unwrap();
+                crate::operations::rename_archive_entry(
+                    archive_name,
+                    &ArchivePath::new("input.txt").unwrap(),
+                    &ArchivePath::new("renamed.txt").unwrap(),
+                )
+                .unwrap();
+                let path = if to.is_some() {
+                    "input.txt"
+                } else {
+                    "renamed.txt"
+                };
+                let filters =
+                    FilterSet::from_patterns(&[path.to_owned()], &[], &[], &[], &[] as &[PathBuf])
+                        .unwrap();
+                let passwords = PasswordSet::default();
+                let mut file = OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&archive)
+                    .unwrap();
+                let headers = load_extraction_headers(&mut file, to, &passwords, None).unwrap();
+                let expected_toc = headers.toc.clone();
+                let data_start = headers.commits[0].data_start;
+                let header_offset =
+                    data_start + headers.commits[0].validated.commit_header.data_section_size;
+                // Preparation must use its validated snapshot, not reread this header.
+                file.seek(SeekFrom::Start(header_offset)).unwrap();
+                file.write_all(&[0]).unwrap();
+                if corrupt_data {
+                    file.seek(SeekFrom::Start(data_start + 12)).unwrap();
+                    let mut byte = [0];
+                    file.read_exact(&mut byte).unwrap();
+                    file.seek(SeekFrom::Start(data_start + 12)).unwrap();
+                    file.write_all(&[byte[0] ^ 1]).unwrap();
+                }
+                drop(file);
+                let state = load_extraction_state_impl(
+                    archive_name,
+                    to,
+                    &passwords,
+                    None,
+                    Some(&filters),
+                    Some(headers),
+                    false,
+                );
+                if corrupt_data {
+                    assert!(state.is_err());
+                } else {
+                    let (toc, sources, _) = state.unwrap();
+                    assert_eq!(toc, expected_toc);
+                    assert_eq!(sources.len(), 1);
+                    let entry = &sources[&ArchivePath::new(path).unwrap()].entry;
+                    assert_eq!(entry.source_commit.is_some(), to.is_none());
+                    let output = directory.path().join("output.txt");
+                    extract_single_file_from_state(
+                        archive_name,
+                        path,
+                        &output,
+                        &toc,
+                        &sources,
+                        true,
+                    )
+                    .unwrap();
+                    assert_eq!(std::fs::read(output).unwrap(), contents);
+                }
+            }
+        }
+    }
 
     #[test]
     fn prepared_extraction_honors_cancellation() {

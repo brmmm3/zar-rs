@@ -12,6 +12,12 @@ until a version is released.
 - Added `zarc extract --recheck-block-checksums auto|always|never`, defaulting
   to Auto with the same filesystem detection as `zarg`.
 
+### Changed
+
+- Reuse validated archive headers and the table of contents throughout extraction
+  instead of reparsing headers for reference discovery and source preparation.
+  Filter validated TOC entries directly instead of replaying them as new commits.
+
 ## 0.14.0 - 2026-11-18
 
 ### Added

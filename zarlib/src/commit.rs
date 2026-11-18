@@ -84,6 +84,14 @@ impl ValidatedHeader {
         key: Option<&[u8; crate::DEK_SIZE]>,
     ) -> Result<Self, FramingError> {
         let header = HeaderFrame::read_from(reader, limits.max_frame_payload_size)?;
+        Self::from_header_frame(header, limits, key)
+    }
+
+    pub(crate) fn from_header_frame(
+        header: HeaderFrame,
+        limits: CommitValidationLimits,
+        key: Option<&[u8; crate::DEK_SIZE]>,
+    ) -> Result<Self, FramingError> {
         let commit_header = header.commit_header.clone();
         commit_header.validate()?;
         let (encryption, extensions) = EncryptionDescriptor::decode(&header.encryption_descriptor)?;

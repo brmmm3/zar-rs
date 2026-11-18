@@ -889,7 +889,6 @@ pub fn read_header_with_passwords(
     limits: CommitValidationLimits,
     passwords: &PasswordSet,
 ) -> Result<UnlockedHeader, Box<dyn std::error::Error>> {
-    let body_start = file.stream_position()?;
     let header_frame = HeaderFrame::read_from(file, limits.max_frame_payload_size)?;
     let password = passwords.password_for(&header_frame.commit_header.commit_id);
     let (descriptor, _) = EncryptionDescriptor::decode(&header_frame.encryption_descriptor)?;
@@ -907,11 +906,7 @@ pub fn read_header_with_passwords(
         }
         _ => None,
     };
-    file.seek(SeekFrom::Start(body_start))?;
-    let validated = match key.as_ref() {
-        Some(key) => ValidatedHeader::read_header_with_key(file, limits, key)?,
-        None => ValidatedHeader::read_header(file, limits)?,
-    };
+    let validated = ValidatedHeader::from_header_frame(header_frame, limits, key.as_deref())?;
     Ok((validated, key))
 }
 

@@ -185,6 +185,22 @@ impl Toc {
         self.entries.iter()
     }
 
+    pub(crate) fn filter_entries(
+        &self,
+        mut include: impl FnMut(&ArchivePath, &TocEntry) -> bool,
+    ) -> Self {
+        // A subset of validated entries needs no replay of its commit history.
+        Self {
+            entries: self
+                .entries
+                .iter()
+                .filter(|(path, entry)| include(path, entry))
+                .map(|(path, entry)| (path.clone(), entry.clone()))
+                .collect(),
+            ..Self::default()
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.entries.len()
     }

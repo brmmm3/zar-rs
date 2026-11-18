@@ -1,4 +1,4 @@
-use crate::{ArchivePath, Toc, TocChange, TocEntry};
+use crate::{ArchivePath, Toc, TocEntry};
 use globset::{GlobBuilder, GlobMatcher};
 use std::collections::BTreeSet;
 use std::io::BufRead;
@@ -192,40 +192,12 @@ impl FilterSet {
             }
         }
 
-        let mut changes = Vec::new();
-        for (path, entry) in toc.iter() {
-            let include = match entry {
-                TocEntry::Directory => {
-                    self.includes(path.as_str(), true)
-                        || required_directories.contains(path.as_str())
-                }
-                _ => self.includes(path.as_str(), false),
-            };
-            if !include {
-                continue;
+        Ok(toc.filter_entries(|path, entry| match entry {
+            TocEntry::Directory => {
+                self.includes(path.as_str(), true) || required_directories.contains(path.as_str())
             }
-            changes.push(match entry {
-                TocEntry::File(file) => TocChange::PutFile {
-                    path: path.clone(),
-                    entry: file.clone(),
-                },
-                TocEntry::Directory => TocChange::PutDirectory { path: path.clone() },
-                TocEntry::Symlink { target } => TocChange::PutSymlink {
-                    path: path.clone(),
-                    target: target.clone(),
-                },
-                TocEntry::NamedPipe => TocChange::PutNamedPipe { path: path.clone() },
-                TocEntry::Device { kind, major, minor } => TocChange::PutDevice {
-                    path: path.clone(),
-                    kind: *kind,
-                    major: *major,
-                    minor: *minor,
-                },
-            });
-        }
-        let mut filtered = Toc::default();
-        filtered.apply_commit(&changes)?;
-        Ok(filtered)
+            _ => self.includes(path.as_str(), false),
+        }))
     }
 }
 
@@ -236,6 +208,7 @@ fn path_ancestors(path: &str) -> impl Iterator<Item = &str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TocChange;
 
     #[test]
     fn filter_lists_report_invalid_patterns_and_input_errors() {
