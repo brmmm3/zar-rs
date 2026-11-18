@@ -6616,6 +6616,7 @@ dependencies = [
  "globset",
  "image",
  "keyring",
+ "libc",
  "mimalloc",
  "raw-window-handle",
  "regex",

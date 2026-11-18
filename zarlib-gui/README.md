@@ -174,10 +174,15 @@ desktop entry.
   Settings > Advanced offers **Validate selected blocks before extraction (slow)**
   to revalidate every block needed by the selected files before writing them.
   This also applies when opening or dragging files and can be slower.
-  **Recheck block checksums during extraction** is enabled by default. Turning
-  it off skips the second block checksum check when writing, so changes after
+  **Auto recheck block checksums during extraction** is the default: it
+  rechecks when the archive being read is on a network or older filesystem
+  such as FAT or exFAT. If the filesystem cannot be identified, it rechecks
+  as a precaution. Select **Always recheck block checksums during extraction**
+  to recheck on every filesystem, or **Never recheck block checksums during
+  extraction** to disable the recheck. Without rechecking, changes after
   validation may not be detected. File checksums and encrypted-data
-  authentication still apply.
+  authentication still apply. Existing enabled settings migrate to Always;
+  previously disabled settings migrate to Never.
   Staged edits currently use a temporary combined archive for extraction.
 - Configure block size, compression, strict input handling, special files,
   overwrite, and the CLI's fnmatch include/exclude filters and filter lists.

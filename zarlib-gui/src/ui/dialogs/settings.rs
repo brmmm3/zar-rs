@@ -226,8 +226,16 @@ impl ZargApp {
                                 }
                                 if self.settings_tab == SettingsTab::Advanced {
                                     ui.checkbox(&mut self.validate_blocks_before_extraction, "Validate selected blocks before extraction (slow)");
-                                    ui.checkbox(&mut self.validate_blocks_on_extraction, "Recheck block checksums during extraction")
-                                        .on_hover_text("Detects changes to archive blocks after validation. File checksums and encrypted data authentication remain enabled.");
+                                    egui::ComboBox::from_id_salt("settings-extraction-checksums")
+                                        .width(ui.available_width())
+                                        .selected_text(self.validate_blocks_on_extraction.label())
+                                        .show_ui(ui, |ui| {
+                                            for mode in [crate::settings::ExtractionChecksum::Always, crate::settings::ExtractionChecksum::Auto, crate::settings::ExtractionChecksum::Never] {
+                                                ui.selectable_value(&mut self.validate_blocks_on_extraction, mode, mode.label());
+                                            }
+                                        })
+                                        .response
+                                        .on_hover_text("Auto rechecks archives on network drives and older file systems. File checksums and encrypted data authentication remain enabled.");
                                     ui.separator();
                                     ui.weak("Defaults for New archive and Add to archive; each operation can override them.");
                                     ui.checkbox(&mut archive_defaults.metadata, "Preserve platform-specific metadata");

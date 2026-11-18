@@ -13,6 +13,7 @@ use zarlib::operations::{
 };
 use zarlib::{ArchivePath, ContentAead, EncryptionScope, Toc, TocEntry};
 mod dialogs;
+use crate::settings::ExtractionChecksum;
 use dialogs::OperationKind;
 use dialogs::benchmark::BenchmarkState;
 
@@ -1183,9 +1184,9 @@ fn prepare_drag_with_overlay(
     commit: Option<&str>,
     passwords: &PasswordSet,
     progress: Option<&dyn Progress>,
-    extraction: (Option<&operations::PreparedExtraction>, bool),
+    extraction: (Option<&operations::PreparedExtraction>, ExtractionChecksum),
 ) -> Result<PreparedDrag, Box<dyn std::error::Error>> {
-    let (prepared, validate_blocks) = extraction;
+    let (prepared, checksum) = extraction;
     if progress.is_some_and(|progress| progress.is_cancelled()) {
         return Err("Drag preparation cancelled".into());
     }
@@ -1221,7 +1222,10 @@ fn prepare_drag_with_overlay(
         commit,
         passwords,
         progress,
-        (prepared.filter(|_| view.is_none()), validate_blocks),
+        (
+            prepared.filter(|_| view.is_none()),
+            checksum.recheck(Path::new(source)),
+        ),
     )
 }
 
@@ -1428,7 +1432,7 @@ pub struct ZargApp {
     default_compression_level: i32,
     default_encryption_method: crate::settings::DefaultEncryptionMethod,
     validate_blocks_before_extraction: bool,
-    validate_blocks_on_extraction: bool,
+    validate_blocks_on_extraction: ExtractionChecksum,
     archive_defaults: crate::settings::ArchiveDefaults,
     default_password: String,
     default_password_input: String,
@@ -1556,7 +1560,7 @@ impl Default for ZargApp {
             default_compression_level: 3,
             default_encryption_method: crate::settings::DefaultEncryptionMethod::Aes256Gcm,
             validate_blocks_before_extraction: false,
-            validate_blocks_on_extraction: true,
+            validate_blocks_on_extraction: ExtractionChecksum::Auto,
             archive_defaults: crate::settings::ArchiveDefaults::default(),
             default_password: String::new(),
             default_password_input: String::new(),
@@ -3755,7 +3759,7 @@ impl ZargApp {
         let passwords = password_set(&self.archive_passwords, self.archive_password.as_deref());
         let to = (!self.selected_commit.is_empty()).then(|| self.selected_commit.clone());
         let background = self.matching_background(&archive, to.as_deref());
-        let validate_blocks = self.validate_blocks_on_extraction;
+        let checksum = self.validate_blocks_on_extraction;
         std::thread::spawn(move || {
             let _view = view;
             let prepared = background.and_then(|background| {
@@ -3770,7 +3774,7 @@ impl ZargApp {
                 &passwords,
                 to.as_deref(),
                 prepared.as_deref(),
-                validate_blocks,
+                checksum.recheck(Path::new(&archive)),
             );
             finish_with_events(events_tx, outcome);
         });
@@ -3824,7 +3828,7 @@ impl ZargApp {
         let passwords = password_set(&self.archive_passwords, self.archive_password.as_deref());
         let commit = (!self.selected_commit.is_empty()).then(|| self.selected_commit.clone());
         let background = self.matching_background(&archive, commit.as_deref());
-        let validate_blocks = self.validate_blocks_on_extraction;
+        let checksum = self.validate_blocks_on_extraction;
         let (sender, receiver) = mpsc::channel();
         let (events_tx, events_rx) = mpsc::channel();
         let (answer_tx, answer_rx) = mpsc::channel();
@@ -3856,7 +3860,7 @@ impl ZargApp {
                 commit.as_deref(),
                 &passwords,
                 Some(&progress),
-                (prepared.as_deref(), validate_blocks),
+                (prepared.as_deref(), checksum),
             )
             .map_err(|error| error.to_string());
             let _ = sender.send(result);
@@ -3955,7 +3959,7 @@ impl ZargApp {
         let commit = (!self.selected_commit.is_empty()).then(|| self.selected_commit.clone());
         let passwords = password_set(&self.archive_passwords, self.archive_password.as_deref());
         let background = self.matching_background(&archive, commit.as_deref());
-        let validate_blocks = self.validate_blocks_on_extraction;
+        let checksum = self.validate_blocks_on_extraction;
         let (sender, receiver) = mpsc::channel();
         let (events_tx, events_rx) = mpsc::channel();
         let (answer_tx, answer_rx) = mpsc::channel();
@@ -3987,7 +3991,7 @@ impl ZargApp {
                 commit.as_deref(),
                 &passwords,
                 Some(&progress),
-                (prepared.as_deref(), validate_blocks),
+                (prepared.as_deref(), checksum),
             )
             .map_err(|error| error.to_string());
             let _ = sender.send(result);
@@ -7435,7 +7439,7 @@ fn build_job(
     events: Sender<UiEvent>,
     progress: UiProgress,
     background: Option<BackgroundExtraction>,
-    validate_blocks: bool,
+    checksum: ExtractionChecksum,
 ) -> OperationBuildResult {
     let archive = form.archive.clone();
     let password = form
@@ -7838,6 +7842,7 @@ fn build_job(
                 } else {
                     archive.clone()
                 };
+                let validate_blocks = checksum.recheck(Path::new(&archive_to_extract));
                 let options = ExtractionOptions {
                     dry_run,
                     to: to.as_deref(),

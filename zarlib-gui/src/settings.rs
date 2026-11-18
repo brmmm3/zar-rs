@@ -26,6 +26,41 @@ pub enum IconTheme {
     Flat,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ExtractionChecksum {
+    Always,
+    #[default]
+    Auto,
+    Never,
+}
+
+impl ExtractionChecksum {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Always => "Always recheck block checksums during extraction",
+            Self::Auto => "Auto recheck block checksums during extraction",
+            Self::Never => "Never recheck block checksums during extraction",
+        }
+    }
+
+    fn as_setting(self) -> &'static str {
+        match self {
+            Self::Always => "always",
+            Self::Auto => "auto",
+            Self::Never => "never",
+        }
+    }
+
+    fn from_setting(value: &str) -> Option<Self> {
+        match value {
+            "always" | "true" => Some(Self::Always),
+            "auto" => Some(Self::Auto),
+            "never" | "false" => Some(Self::Never),
+            _ => None,
+        }
+    }
+}
+
 impl IconTheme {
     pub fn label(self) -> &'static str {
         match self {
@@ -145,7 +180,7 @@ pub struct Settings {
     pub default_compression_level: i32,
     pub default_encryption_method: DefaultEncryptionMethod,
     pub validate_blocks_before_extraction: bool,
-    pub validate_blocks_on_extraction: bool,
+    pub validate_blocks_on_extraction: ExtractionChecksum,
     pub archive_defaults: ArchiveDefaults,
     pub column_widths: BTreeMap<String, f32>,
     pub recent_archives: Vec<String>,
@@ -193,7 +228,7 @@ impl Default for Settings {
             default_compression_level: 3,
             default_encryption_method: DefaultEncryptionMethod::Aes256Gcm,
             validate_blocks_before_extraction: false,
-            validate_blocks_on_extraction: true,
+            validate_blocks_on_extraction: ExtractionChecksum::Auto,
             archive_defaults: ArchiveDefaults::default(),
             column_widths: BTreeMap::new(),
             recent_archives: Vec::new(),
@@ -317,7 +352,9 @@ impl Settings {
                     settings.validate_blocks_before_extraction = value == "true"
                 }
                 "validate_blocks_on_extraction" => {
-                    settings.validate_blocks_on_extraction = value == "true"
+                    if let Some(mode) = ExtractionChecksum::from_setting(value) {
+                        settings.validate_blocks_on_extraction = mode;
+                    }
                 }
                 "default_metadata" => settings.archive_defaults.metadata = value == "true",
                 "default_dates" => settings.archive_defaults.dates = value == "true",
@@ -428,7 +465,7 @@ impl Settings {
         ));
         text.push_str(&format!(
             "validate_blocks_on_extraction={}\n",
-            self.validate_blocks_on_extraction
+            self.validate_blocks_on_extraction.as_setting()
         ));
         let defaults = &self.archive_defaults;
         text.push_str(&format!(
@@ -506,7 +543,7 @@ mod tests {
             default_compression_level: 12,
             default_encryption_method: DefaultEncryptionMethod::ChaCha20Poly1305,
             validate_blocks_before_extraction: true,
-            validate_blocks_on_extraction: false,
+            validate_blocks_on_extraction: ExtractionChecksum::Auto,
             archive_defaults: ArchiveDefaults {
                 metadata: true,
                 dates: true,
@@ -533,6 +570,28 @@ mod tests {
     fn settings_round_trip() {
         let settings = sample();
         assert_eq!(Settings::parse(&settings.render()), settings);
+    }
+
+    #[test]
+    fn extraction_checksum_mode_defaults_and_migrates_legacy_values() {
+        assert_eq!(
+            Settings::parse("").validate_blocks_on_extraction,
+            ExtractionChecksum::Auto
+        );
+        for (value, expected) in [
+            ("true", ExtractionChecksum::Always),
+            ("false", ExtractionChecksum::Never),
+            ("always", ExtractionChecksum::Always),
+            ("auto", ExtractionChecksum::Auto),
+            ("never", ExtractionChecksum::Never),
+        ] {
+            let settings = Settings::parse(&format!("validate_blocks_on_extraction={value}"));
+            assert_eq!(settings.validate_blocks_on_extraction, expected);
+            assert_eq!(
+                Settings::parse(&settings.render()).validate_blocks_on_extraction,
+                expected
+            );
+        }
     }
 
     #[test]

@@ -19,6 +19,8 @@ until a version is released.
 
 ### Changed
 
+- Default `zarg` extraction to automatically rechecking block checksums on
+  network and older filesystems, with Always and Never options in Settings.
 - Validate dependencies between commits before removal, track file origins and
   source commits in `Toc`, and require passwords for both sides of cross-commit
   references during archive transformations.

@@ -1,5 +1,6 @@
 #![windows_subsystem = "windows"]
 
+mod extraction_checksum;
 mod password_store;
 mod settings;
 mod theme;

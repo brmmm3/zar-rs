@@ -235,17 +235,23 @@ fn window_and_file_list_columns_survive_settings_round_trip() {
 fn pre_extraction_validation_setting_round_trips_through_app() {
     let mut app = ZargApp::default();
     assert!(!app.validate_blocks_before_extraction);
-    assert!(app.validate_blocks_on_extraction);
+    assert_eq!(app.validate_blocks_on_extraction, ExtractionChecksum::Auto);
     app.validate_blocks_before_extraction = true;
-    app.validate_blocks_on_extraction = false;
+    app.validate_blocks_on_extraction = ExtractionChecksum::Never;
     let settings =
         crate::settings::Settings::parse(&app.current_settings_with_monitor_count(0).render());
     let mut restored = ZargApp::default();
     restored.apply_settings(&settings);
     assert!(restored.validate_blocks_before_extraction);
-    assert!(!restored.validate_blocks_on_extraction);
+    assert_eq!(
+        restored.validate_blocks_on_extraction,
+        ExtractionChecksum::Never
+    );
     assert!(!crate::settings::Settings::parse("").validate_blocks_before_extraction);
-    assert!(crate::settings::Settings::parse("").validate_blocks_on_extraction);
+    assert_eq!(
+        crate::settings::Settings::parse("").validate_blocks_on_extraction,
+        ExtractionChecksum::Auto
+    );
 }
 
 #[test]
@@ -983,7 +989,7 @@ fn change_commits_encrypt_job_writes_to_requested_archive() {
         events.clone(),
         progress,
         None,
-        true,
+        ExtractionChecksum::Always,
     )
     .unwrap();
     job().unwrap();
@@ -2790,7 +2796,7 @@ fn background_extraction_reuses_state_and_detects_archive_changes() {
         events,
         progress,
         Some(background.clone()),
-        true,
+        ExtractionChecksum::Auto,
     )
     .unwrap();
     job().unwrap();
@@ -3077,7 +3083,7 @@ fn drag_preparation_can_be_cancelled() {
         None,
         &PasswordSet::default(),
         Some(&progress),
-        (None, true),
+        (None, ExtractionChecksum::Always),
     ) {
         Ok(_) => panic!("cancelled preparation must not succeed"),
         Err(error) => error,
@@ -3112,7 +3118,7 @@ fn drag_preparation_can_cancel_while_copying_the_base() {
         None,
         &PasswordSet::default(),
         Some(&progress),
-        (None, true),
+        (None, ExtractionChecksum::Always),
     );
     assert!(matches!(result, Err(error) if error.to_string().contains("cancelled")));
     assert_eq!(std::fs::read(archive).unwrap(), before);
