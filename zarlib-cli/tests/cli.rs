@@ -38,6 +38,80 @@ where
 }
 
 #[test]
+fn cli_configuration_controls_defaults_and_can_be_overridden_or_disabled() {
+    let temp = TestDirectory::new();
+    std::fs::write(temp.path().join("keep.txt"), b"text").unwrap();
+    std::fs::write(temp.path().join("keep.bin"), b"binary").unwrap();
+    let config = temp.path().join("zarc.json");
+    std::fs::write(
+        &config,
+        r#"{"create":{"include-file":["*.txt"],"no-progress":true}}"#,
+    )
+    .unwrap();
+    for (archive, extra, expected, excluded) in [
+        ("configured.zar", vec![], "keep.txt", Some("keep.bin")),
+        (
+            "overridden.zar",
+            vec!["--include-file", "*.bin"],
+            "keep.bin",
+            Some("keep.txt"),
+        ),
+        ("disabled.zar", vec!["--no-config"], "keep.bin", None),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_zarc"))
+            .current_dir(temp.path())
+            .args(["create", archive, "keep.txt", "keep.bin"])
+            .args(extra)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let output = zarc([
+            OsStr::new("--no-config"),
+            OsStr::new("list"),
+            temp.path().join(archive).as_os_str(),
+        ]);
+        assert!(output.status.success(), "{output:?}");
+        let listing = String::from_utf8(output.stdout).unwrap();
+        assert!(listing.contains(expected), "{listing}");
+        if let Some(excluded) = excluded {
+            assert!(!listing.contains(excluded), "{listing}");
+        } else {
+            assert!(listing.contains("keep.txt"), "{listing}");
+        }
+    }
+    std::fs::write(&config, "invalid JSON").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_zarc"))
+        .current_dir(temp.path())
+        .args(["list", "configured.zar"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("zarc.json"));
+    let output = Command::new(env!("CARGO_BIN_EXE_zarc"))
+        .current_dir(temp.path())
+        .args(["list", "configured.zar", "--no-config"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::remove_file(&config).unwrap();
+        let user_config = temp.path().join("user-config");
+        std::fs::create_dir(&user_config).unwrap();
+        std::fs::write(user_config.join("zarc.json"), r#"{"info":{"json":true}}"#).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_zarc"))
+            .current_dir(temp.path())
+            .env("XDG_CONFIG_HOME", &user_config)
+            .args(["info", "configured.zar"])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let info: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(info["commit_count"], 1);
+    }
+}
+
+#[test]
 fn cli_process_creates_lists_and_extracts_with_filters() {
     let temp = TestDirectory::new();
     let source = temp.path().join("source");

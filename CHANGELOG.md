@@ -5,6 +5,11 @@ until a version is released.
 
 ## Unreleased
 
+### Added
+
+- Added per-command defaults from `zarc.json`, searched in the current folder
+  before the per-user configuration directory, and `--no-config` to skip it.
+
 ## 0.14.0 - 2026-11-18
 
 ### Added

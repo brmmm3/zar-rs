@@ -6594,11 +6594,14 @@ name = "zarlib-cli"
 version = "0.14.0"
 dependencies = [
  "clap",
+ "dirs 7.0.0",
  "flate2",
  "indicatif",
  "libc",
  "mimalloc",
  "rars",
+ "serde_json",
+ "tempfile",
  "zarlib",
 ]
 

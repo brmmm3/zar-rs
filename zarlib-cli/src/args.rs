@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 
 #[cfg(feature = "mimalloc")]
 const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (mimalloc)");
@@ -34,6 +34,9 @@ pub(crate) struct Cli {
     )]
     pub(crate) help: Option<bool>,
 
+    #[arg(long, global = true, help = "Do not read defaults from zarc.json")]
+    pub(crate) no_config: bool,
+
     #[command(subcommand)]
     pub(crate) command: Command,
 }
@@ -64,8 +67,13 @@ pub(crate) fn parse_from_env() -> Result<Cli, clap::Error> {
 }
 
 fn parse_from_env_inner() -> Result<Cli, clap::Error> {
-    let command = command_with_version_banner();
-    Cli::from_arg_matches(&command.try_get_matches()?)
+    crate::config::parse(std::env::args_os(), || {
+        let mut paths = vec![std::env::current_dir()?.join("zarc.json")];
+        if let Some(directory) = dirs::config_dir() {
+            paths.push(directory.join("zarc.json"));
+        }
+        Ok(paths)
+    })
 }
 
 #[derive(Debug, Subcommand)]

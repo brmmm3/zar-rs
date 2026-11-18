@@ -85,7 +85,7 @@ package locally, for example:
 Push-Location packaging\windows\chocolatey\zar-rs
 choco pack zarg.nuspec --output-directory "$env:TEMP"
 Pop-Location
-choco install zar-rs --version 0.13.0 --source "$env:TEMP" -y
+choco install zar-rs --version 0.14.0 --source "$env:TEMP" -y
 ```
 
 For the x86-64-v3 package, pack

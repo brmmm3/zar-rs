@@ -36,6 +36,58 @@ For example, `zarc a backup.zar new-file.txt` is equivalent to
 `zarc add backup.zar new-file.txt`. `check` uses `k` to keep `c` available for
 `create`.
 
+## Configuration defaults
+
+`zarc` reads defaults from the first `zarc.json` found in this order:
+
+1. The current working directory.
+2. The per-user configuration directory: `$XDG_CONFIG_HOME` (or
+   `~/.config`) on Linux, `~/Library/Application Support` on macOS, or
+   `%APPDATA%` on Windows.
+
+The files are not merged. Use canonical command names as sections and long
+option names (without `--`) as keys:
+
+```json
+{
+  "create": {
+    "compression-level": 7,
+    "block-size": "4M",
+    "metadata": true,
+    "include-file": ["*.rs", "*.txt"]
+  },
+  "add": {
+    "compression-level": 7
+  },
+  "extract": {
+    "collision": "error"
+  },
+  "info": {
+    "verbose": 1
+  }
+}
+```
+
+Use booleans for flags, strings or numbers for single-value options, arrays
+for repeatable options, and an integer for the `info` verbosity level.
+Command-line options override the corresponding defaults; explicitly supplied
+repeatable options replace, rather than extend, the configured list. Command
+aliases use the defaults of their canonical command. Positional arguments
+(archive names and input paths), help, and configuration control cannot be
+configured. Password flags only enable prompting; do not store passwords in
+this file. Paths in defaults are relative to the current working directory.
+
+Pass `--no-config` before or after the command to skip configuration entirely:
+
+```sh
+zarc --no-config create backup.zar docs/
+zarc extract backup.zar --no-config
+```
+
+Malformed files, unknown options, and invalid settings produce an error
+instead of silently falling back to another file. Help and version output
+do not require a valid configuration file.
+
 ## Common workflows
 
 Rename or move an entry by recording a new commit without recompressing its data:

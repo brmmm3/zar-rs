@@ -18,13 +18,16 @@ default = ["mimalloc"]
 mimalloc = ["dep:mimalloc"]
 
 [dependencies]
-clap.workspace = true
+clap = { workspace = true, features = ["string"] }
+dirs = "7"
 indicatif.workspace = true
 libc = "0.2"
+serde_json.workspace = true
 zarlib = { version = "0.14.0", path = "../zarlib" }
 
 [dev-dependencies]
 flate2 = "1.1"
+tempfile = "3"
 rars = { version = "0.12.4", default-features = false, features = ["write"] }
 
 [target.'cfg(windows)'.dependencies]

@@ -1,6 +1,7 @@
 use std::io::{self, IsTerminal, Seek, Write};
 use std::process::ExitCode;
 mod args;
+mod config;
 use args::{Cli, Command};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 #[cfg(feature = "mimalloc")]
