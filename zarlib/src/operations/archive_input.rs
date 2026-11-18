@@ -87,7 +87,11 @@ pub(super) fn scan_input_paths_in_folder(
             temporary_dirs.push(temporary_dir);
         } else {
             let prefix = if folder.is_some() {
-                source.file_name().and_then(|name| name.to_str()).ok_or("input path has no UTF-8 file name")?.to_owned()
+                source
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .ok_or("input path has no UTF-8 file name")?
+                    .to_owned()
             } else {
                 archive_prefix(input, cwd)?
             };

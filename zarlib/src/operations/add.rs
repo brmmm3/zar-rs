@@ -4,9 +4,10 @@ use super::info::group_size_metadata;
 use super::list::{load_overlay_toc, load_toc_through_with_passwords};
 use super::pipeline::*;
 use crate::{
-    ArchivePath, BlockFrame, CommitHeader, CommitValidationLimits, ContentAead, EncryptionDescriptor,
-    EncryptionScope, FileEntry, HEADER_OFFSET_SIZE, HeaderFrame, LogicalHeader, Toc, TocChange,
-    UNENCRYPTED_DESCRIPTOR, ValidatedCommit, generate_dek, generate_nonce, wrap_dek_with_password,
+    ArchivePath, BlockFrame, CommitHeader, CommitValidationLimits, ContentAead,
+    EncryptionDescriptor, EncryptionScope, FileEntry, HEADER_OFFSET_SIZE, HeaderFrame,
+    LogicalHeader, Toc, TocChange, UNENCRYPTED_DESCRIPTOR, ValidatedCommit, generate_dek,
+    generate_nonce, wrap_dek_with_password,
 };
 use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
@@ -425,7 +426,18 @@ pub fn add_archive_in_folder_with_encoding_progress_and_filters_and_encryption(
     encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
     passwords: &PasswordSet,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    add_with_base(archive, paths, options, progress, input_options, filters, encryption, passwords, None, Some(folder))
+    add_with_base(
+        archive,
+        paths,
+        options,
+        progress,
+        input_options,
+        filters,
+        encryption,
+        passwords,
+        None,
+        Some(folder),
+    )
 }
 
 /// Adds entries to an overlay, validating the resulting state against its base archive.
@@ -468,7 +480,18 @@ pub fn add_overlay_in_folder_with_encoding_progress_and_filters_and_encryption(
     encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
     passwords: &PasswordSet,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    add_with_base(overlay, paths, options, progress, input_options, filters, encryption, passwords, Some(base), Some(folder))
+    add_with_base(
+        overlay,
+        paths,
+        options,
+        progress,
+        input_options,
+        filters,
+        encryption,
+        passwords,
+        Some(base),
+        Some(folder),
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -570,7 +593,8 @@ fn add_with_base(
     let new_commit_password = encryption.map(|(password, _, _)| password);
     let mut block_index = Vec::new();
     ProgressReporter::new(progress).check_cancelled()?;
-    let scanned_inputs = super::archive_input::scan_input_paths_in_folder(paths, &cwd, parent, progress, folder)?;
+    let scanned_inputs =
+        super::archive_input::scan_input_paths_in_folder(paths, &cwd, parent, progress, folder)?;
     ProgressReporter::new(progress).check_cancelled()?;
     let all_tree_entries = filter_tree_entries(scanned_inputs.entries, filters);
     let archives: Vec<&str> = base.into_iter().chain(std::iter::once(archive)).collect();

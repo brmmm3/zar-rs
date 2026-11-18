@@ -1871,13 +1871,23 @@ fn add_in_folder_keeps_same_named_root_entry() {
     let nested = input_dir.join("duplicate.txt");
     std::fs::write(&nested, b"nested").unwrap();
     add_archive_in_folder_with_encoding_progress_and_filters_and_encryption(
-        fixture.archive(), &[nested], &crate::ArchivePath::new("target/sub").unwrap(),
-        EncodingOptions::default(), None, AddInputOptions::default(), &FilterSet::default(),
-        None, &PasswordSet::default(),
-    ).unwrap();
+        fixture.archive(),
+        &[nested],
+        &crate::ArchivePath::new("target/sub").unwrap(),
+        EncodingOptions::default(),
+        None,
+        AddInputOptions::default(),
+        &FilterSet::default(),
+        None,
+        &PasswordSet::default(),
+    )
+    .unwrap();
     let toc = list_archive(fixture.archive(), None, None).unwrap();
     assert!(toc.iter().any(|(path, _)| path.as_str() == "duplicate.txt"));
-    assert!(toc.iter().any(|(path, _)| path.as_str() == "target/sub/duplicate.txt"));
+    assert!(
+        toc.iter()
+            .any(|(path, _)| path.as_str() == "target/sub/duplicate.txt")
+    );
 }
 
 #[test]

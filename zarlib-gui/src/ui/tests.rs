@@ -1627,7 +1627,11 @@ fn internal_drag_moves_selected_entries_into_folder_in_each_view() {
             .archive_row_rects
             .iter()
             .find(|(path, _)| {
-                path == if target_file { "target/marker.txt" } else { "target" }
+                path == if target_file {
+                    "target/marker.txt"
+                } else {
+                    "target"
+                }
             })
             .unwrap()
             .1
@@ -1754,7 +1758,11 @@ fn dropping_on_root_file_targets_archive_root() {
     wait_for_worker(&mut app);
     assert!(app.report.is_none(), "{:?}", app.report);
     assert!(app.entries.iter().any(|(path, _)| path == "source.txt"));
-    assert!(!app.entries.iter().any(|(path, _)| path == "folder/source.txt"));
+    assert!(
+        !app.entries
+            .iter()
+            .any(|(path, _)| path == "folder/source.txt")
+    );
 
     context
         .run_ui(
@@ -3427,7 +3435,11 @@ fn dropping_into_locked_working_archive_releases_its_own_lock() {
     wait_for_worker(&mut app);
     assert!(app.report.is_none(), "{:?}", app.report);
     assert!(app.entries.iter().any(|(path, _)| path == "dropped.txt"));
-    assert!(app.entries.iter().any(|(path, _)| path == "folder/nested.txt"));
+    assert!(
+        app.entries
+            .iter()
+            .any(|(path, _)| path == "folder/nested.txt")
+    );
     assert!(app.archive_lock.is_some());
 
     app.start_cached_move(vec![(
@@ -3436,7 +3448,11 @@ fn dropping_into_locked_working_archive_releases_its_own_lock() {
     )]);
     wait_for_worker(&mut app);
     assert!(app.report.is_none(), "{:?}", app.report);
-    assert!(app.entries.iter().any(|(path, _)| path == "folder/dropped.txt"));
+    assert!(
+        app.entries
+            .iter()
+            .any(|(path, _)| path == "folder/dropped.txt")
+    );
     assert!(app.archive_lock.is_some());
 
     let mut undo = app.new_operation_form(OperationKind::UndoCommits, &app.read_archive);
@@ -3602,7 +3618,12 @@ fn dropping_into_archive_folder_adds_files_and_folders_without_replacing_root() 
             egui::vec2(300.0, 300.0),
         ));
         app.archive_row_rects = vec![(
-            if target_file { "target/marker.txt" } else { "target" }.to_owned(),
+            if target_file {
+                "target/marker.txt"
+            } else {
+                "target"
+            }
+            .to_owned(),
             rectangle,
         )];
         let context = egui::Context::default();
