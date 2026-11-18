@@ -80,6 +80,15 @@ impl X11Drag {
         paths: &[PathBuf],
         context: &eframe::egui::Context,
     ) -> Result<(), String> {
+        self.start_on_display(paths, context, None)
+    }
+
+    fn start_on_display(
+        &mut self,
+        paths: &[PathBuf],
+        context: &eframe::egui::Context,
+        display: Option<String>,
+    ) -> Result<(), String> {
         if self.active() {
             return Err("An X11 drag is already in progress".into());
         }
@@ -88,7 +97,8 @@ impl X11Drag {
         let context = context.clone();
         let origin = self.origin;
         std::thread::spawn(move || {
-            let result = run_drag(data, None, origin).map_err(|error| error.to_string());
+            let result =
+                run_drag(data, display.as_deref(), origin).map_err(|error| error.to_string());
             let _ = sender.send(result);
             context.request_repaint();
         });
@@ -572,6 +582,203 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires an isolated X11 display and ZARG_X11_GUI_BIN and ZARG_X11_CLI_BIN"]
+    fn gui_drag_transfers_extracted_file_to_x11_target() {
+        struct Child(std::process::Child);
+        impl Drop for Child {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+
+        let display = std::env::var("ZARG_X11_TEST_DISPLAY").unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let input = temp.path().join("payload.txt");
+        let archive = temp.path().join("example.zar");
+        std::fs::write(&input, b"X11 GUI drag test").unwrap();
+        assert!(
+            std::process::Command::new(std::env::var_os("ZARG_X11_CLI_BIN").unwrap())
+                .args(["create", "--no-progress"])
+                .arg(&archive)
+                .arg(&input)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let (connection, screen) = x11rb::connect(Some(&display)).unwrap();
+        let root = connection.setup().roots[screen].root;
+        let dimensions = &connection.setup().roots[screen];
+        assert!(dimensions.width_in_pixels >= 1500 && dimensions.height_in_pixels >= 900);
+        let atoms = Atoms::new(&connection).unwrap().reply().unwrap();
+        let target = connection.generate_id().unwrap();
+        connection
+            .create_window(
+                COPY_DEPTH_FROM_PARENT,
+                target,
+                root,
+                1300,
+                100,
+                200,
+                200,
+                0,
+                WindowClass::INPUT_OUTPUT,
+                0,
+                &CreateWindowAux::new(),
+            )
+            .unwrap();
+        connection
+            .change_property32(
+                PropMode::REPLACE,
+                target,
+                atoms.XdndAware,
+                AtomEnum::ATOM,
+                &[5],
+            )
+            .unwrap();
+        connection.map_window(target).unwrap();
+        connection.flush().unwrap();
+
+        let mut gui = Child(
+            std::process::Command::new(std::env::var_os("ZARG_X11_GUI_BIN").unwrap())
+                .arg(&archive)
+                .env("DISPLAY", &display)
+                .env_remove("WAYLAND_DISPLAY")
+                .env("HOME", temp.path())
+                .env("XDG_CONFIG_HOME", temp.path())
+                .env("LIBGL_ALWAYS_SOFTWARE", "1")
+                .spawn()
+                .unwrap(),
+        );
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while connection
+            .query_tree(root)
+            .unwrap()
+            .reply()
+            .unwrap()
+            .children
+            .len()
+            < 2
+        {
+            assert!(
+                gui.0.try_wait().unwrap().is_none(),
+                "GUI exited during startup"
+            );
+            assert!(Instant::now() < deadline, "GUI did not create its window");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        std::thread::sleep(Duration::from_secs(2));
+        for (x, y, button) in [
+            (65, 130, 0),
+            (65, 130, x11rb::protocol::xproto::BUTTON_PRESS_EVENT),
+            (90, 145, 0),
+            (600, 145, 0),
+            (1190, 145, 0),
+            (1350, 145, 0),
+        ] {
+            if button == 0 {
+                connection
+                    .warp_pointer(NONE, root, 0, 0, 0, 0, x, y)
+                    .unwrap();
+            } else {
+                x11rb::protocol::xtest::fake_input(
+                    &connection,
+                    button,
+                    1,
+                    CURRENT_TIME,
+                    root,
+                    0,
+                    0,
+                    0,
+                )
+                .unwrap();
+            }
+            connection.flush().unwrap();
+            std::thread::sleep(Duration::from_millis(150));
+        }
+        let mut source = NONE;
+        let mut received = false;
+        while Instant::now() < deadline {
+            if let Some(event) = connection.poll_for_event().unwrap() {
+                match event {
+                    Event::ClientMessage(event) if event.type_ == atoms.XdndEnter => {
+                        source = event.data.as_data32()[0];
+                    }
+                    Event::ClientMessage(event) if event.type_ == atoms.XdndPosition => {
+                        send_message(
+                            &connection,
+                            source,
+                            atoms.XdndStatus,
+                            [target, 1, 0, 0, atoms.XdndActionCopy],
+                        )
+                        .unwrap();
+                        x11rb::protocol::xtest::fake_input(
+                            &connection,
+                            x11rb::protocol::xproto::BUTTON_RELEASE_EVENT,
+                            1,
+                            CURRENT_TIME,
+                            root,
+                            0,
+                            0,
+                            0,
+                        )
+                        .unwrap();
+                        connection.flush().unwrap();
+                    }
+                    Event::ClientMessage(event) if event.type_ == atoms.XdndDrop => {
+                        connection
+                            .convert_selection(
+                                target,
+                                atoms.XdndSelection,
+                                atoms.text_uri_list,
+                                atoms.text_uri_list,
+                                CURRENT_TIME,
+                            )
+                            .unwrap();
+                        connection.flush().unwrap();
+                    }
+                    Event::SelectionNotify(event) => {
+                        assert_eq!(event.property, atoms.text_uri_list);
+                        let property = connection
+                            .get_property(
+                                false,
+                                target,
+                                atoms.text_uri_list,
+                                atoms.text_uri_list,
+                                0,
+                                1024,
+                            )
+                            .unwrap()
+                            .reply()
+                            .unwrap();
+                        let uri = std::str::from_utf8(&property.value).unwrap();
+                        let path = uri.strip_prefix("file://").unwrap().trim_end();
+                        assert_eq!(std::fs::read(path).unwrap(), b"X11 GUI drag test");
+                        send_message(
+                            &connection,
+                            source,
+                            atoms.XdndFinished,
+                            [target, 1, atoms.XdndActionCopy, 0, 0],
+                        )
+                        .unwrap();
+                        connection.flush().unwrap();
+                        received = true;
+                        break;
+                    }
+                    _ => {}
+                }
+            } else {
+                assert!(
+                    gui.0.try_wait().unwrap().is_none(),
+                    "GUI exited during drag"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert!(received, "GUI did not transfer a file to the X11 target");
+    }
+
+    #[test]
     #[ignore = "requires an isolated X11 display in ZARG_X11_TEST_DISPLAY"]
     fn returning_to_origin_cancels_the_external_drop() {
         let display = std::env::var("ZARG_X11_TEST_DISPLAY").unwrap();
@@ -921,10 +1128,14 @@ mod tests {
         .unwrap();
         connection.flush().unwrap();
         let expected = b"file:///tmp/test%20file\r\n".to_vec();
-        let data = expected.clone();
-        let worker = std::thread::spawn(move || {
-            run_drag(data, Some(&display), NONE).map_err(|error| error.to_string())
-        });
+        let mut drag = X11Drag::new(NONE);
+        drag.start_on_display(
+            &[PathBuf::from("/tmp/test file")],
+            &eframe::egui::Context::default(),
+            Some(display),
+        )
+        .unwrap();
+        assert!(drag.active());
         let deadline = Instant::now() + Duration::from_secs(5);
         let mut positions = 0;
         let mut source = NONE;
@@ -1004,6 +1215,10 @@ mod tests {
             }
         }
         assert!(received, "XDND transfer did not complete");
-        worker.join().unwrap().unwrap();
+        while drag.active() && Instant::now() < deadline {
+            drag.poll().unwrap();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(!drag.active(), "X11 drag worker did not finish");
     }
 }

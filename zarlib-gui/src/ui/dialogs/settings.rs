@@ -58,7 +58,7 @@ impl ZargApp {
 
         let viewport_id = egui::ViewportId::from_hash_of("settings-dialog");
         let size_key = "settings";
-        let size = self.dialog_size(size_key, [420.0, 300.0]);
+        let size = self.dialog_size(size_key, [420.0, 360.0]);
         let mut actual_size = None;
         let mut open = true;
         let mut selected_theme = self.theme_mode;
@@ -225,7 +225,7 @@ impl ZargApp {
                                     }
                                 }
                                 if self.settings_tab == SettingsTab::Advanced {
-                                    ui.checkbox(&mut self.validate_blocks_before_extraction, "Validate selected blocks before extraction");
+                                    ui.checkbox(&mut self.validate_blocks_before_extraction, "Validate selected blocks before extraction (slow)");
                                     ui.checkbox(&mut self.validate_blocks_on_extraction, "Recheck block checksums during extraction")
                                         .on_hover_text("Detects changes to archive blocks after validation. File checksums and encrypted data authentication remain enabled.");
                                     ui.separator();

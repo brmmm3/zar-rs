@@ -1225,7 +1225,7 @@ fn prepare_drag_with_overlay(
     )
 }
 
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 struct NativeDragPreparation {
     receiver: Receiver<Result<PreparedDrag, String>>,
     events: Sender<UiEvent>,
@@ -1385,12 +1385,14 @@ pub struct ZargApp {
     pending_drag: bool,
     #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     drag_directories: Vec<tempfile::TempDir>,
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     native_drag_preparation: Option<NativeDragPreparation>,
     #[cfg(target_os = "linux")]
     wayland_drag: Option<crate::wayland_drag::WaylandDrag>,
     #[cfg(target_os = "linux")]
-    wayland_drag_initialized: bool,
+    x11_drag: Option<crate::x11_drag::X11Drag>,
+    #[cfg(target_os = "linux")]
+    linux_drag_initialized: bool,
     #[cfg(target_os = "linux")]
     preparing_drag: Option<DragPreparation>,
     recent_archives: Vec<String>,
@@ -1511,12 +1513,14 @@ impl Default for ZargApp {
             pending_drag: false,
             #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
             drag_directories: Vec::new(),
-            #[cfg(any(windows, target_os = "macos"))]
+            #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
             native_drag_preparation: None,
             #[cfg(target_os = "linux")]
             wayland_drag: None,
             #[cfg(target_os = "linux")]
-            wayland_drag_initialized: false,
+            x11_drag: None,
+            #[cfg(target_os = "linux")]
+            linux_drag_initialized: false,
             #[cfg(target_os = "linux")]
             preparing_drag: None,
             recent_archives: Vec::new(),
@@ -3791,7 +3795,7 @@ impl ZargApp {
     fn drag_supported(&self) -> bool {
         #[cfg(target_os = "linux")]
         {
-            self.wayland_drag.is_some()
+            self.wayland_drag.is_some() || self.x11_drag.is_some()
         }
         #[cfg(not(target_os = "linux"))]
         {
@@ -3799,7 +3803,7 @@ impl ZargApp {
         }
     }
 
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     fn start_selected_drag(&mut self) {
         if self.busy || self.native_drag_preparation.is_some() {
             return;
@@ -3865,8 +3869,10 @@ impl ZargApp {
         self.status = "Preparing drag; keep the mouse button pressed".into();
     }
 
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     fn poll_native_drag(&mut self, context: &egui::Context, frame: &eframe::Frame) {
+        #[cfg(target_os = "linux")]
+        let _ = frame;
         let Some(preparation) = &self.native_drag_preparation else {
             return;
         };
@@ -3880,18 +3886,29 @@ impl ZargApp {
                     Err("The mouse button was released before the selected items were ready to drag".into())
                 } else {
                     result.and_then(|prepared| {
-                        let icon = drag_preview_icon()
-                            .map_err(|error| format!("Cannot prepare drag icon: {error}"))?;
-                        drag::start_drag(
-                            frame,
-                            drag::DragItem::Files(prepared.paths),
-                            drag::Image::Raw(icon),
-                            |_, _| {},
-                            drag::Options::default(),
-                        )
-                        .map_err(|error| {
-                            format!("Cannot start dragging selected items: {error}")
-                        })?;
+                        #[cfg(any(windows, target_os = "macos"))]
+                        {
+                            let icon = drag_preview_icon()
+                                .map_err(|error| format!("Cannot prepare drag icon: {error}"))?;
+                            drag::start_drag(
+                                frame,
+                                drag::DragItem::Files(prepared.paths),
+                                drag::Image::Raw(icon),
+                                |_, _| {},
+                                drag::Options::default(),
+                            )
+                            .map_err(|error| {
+                                format!("Cannot start dragging selected items: {error}")
+                            })?;
+                        }
+                        #[cfg(target_os = "linux")]
+                        self.x11_drag
+                            .as_mut()
+                            .ok_or_else(|| "X11 dragging is unavailable".to_string())?
+                            .start(&prepared.paths, context)
+                            .map_err(|error| {
+                                format!("Cannot start dragging selected items: {error}")
+                            })?;
                         self.drag_directories.push(prepared.directory);
                         Ok("Drag started".into())
                     })
@@ -6687,6 +6704,7 @@ impl eframe::App for ZargApp {
                 }
             }
             self.wayland_drag = None;
+            self.x11_drag = None;
         }
         if let Err(error) = self.current_settings().save() {
             eprintln!("zarg: could not save settings: {error}");
@@ -6700,16 +6718,47 @@ impl eframe::App for ZargApp {
         self.handle_archive_shortcuts(&context);
         #[cfg(target_os = "linux")]
         {
-            if !self.wayland_drag_initialized {
-                self.wayland_drag_initialized = true;
+            if !self.linux_drag_initialized {
+                self.linux_drag_initialized = true;
                 match crate::wayland_drag::WaylandDrag::new(_frame, &context) {
                     Ok(drag) => self.wayland_drag = drag,
                     Err(error) => {
                         self.report = Some(format!("Cannot initialize Wayland dragging: {error}"));
                     }
                 }
+                use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+                match _frame.window_handle() {
+                    Ok(handle) => match handle.as_raw() {
+                        RawWindowHandle::Xlib(window) => match u32::try_from(window.window) {
+                            Ok(window) => {
+                                self.x11_drag = Some(crate::x11_drag::X11Drag::new(window));
+                            }
+                            Err(error) => {
+                                self.report = Some(format!(
+                                    "Cannot initialize X11 dragging: invalid window ID: {error}"
+                                ));
+                            }
+                        },
+                        RawWindowHandle::Xcb(window) => {
+                            self.x11_drag =
+                                Some(crate::x11_drag::X11Drag::new(window.window.get()));
+                        }
+                        _ => {}
+                    },
+                    Err(error) => {
+                        self.report = Some(format!("Cannot initialize X11 dragging: {error}"));
+                    }
+                }
             }
             self.poll_wayland_drag(&context);
+            if let Some(drag) = &mut self.x11_drag {
+                if let Err(error) = drag.poll() {
+                    self.report = Some(format!("X11 drag failed: {error}"));
+                }
+                if drag.active() {
+                    context.request_repaint_after(Duration::from_millis(16));
+                }
+            }
         }
         let drag_supported = true;
         if context.input(|input| input.viewport().close_requested()) {
@@ -7138,7 +7187,7 @@ impl eframe::App for ZargApp {
             self.open_entry_externally(path);
         }
 
-        #[cfg(any(windows, target_os = "macos"))]
+        #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
         self.poll_native_drag(&context, _frame);
         self.handle_internal_archive_drag(&context, archive_panel.response.rect, window_rect);
         let drag_outside = self.internal_drag
@@ -7160,7 +7209,18 @@ impl eframe::App for ZargApp {
         #[cfg(target_os = "linux")]
         if drag_outside {
             self.internal_drag = false;
-            self.prepare_wayland_drag();
+            if let Some(drag) = &mut self.x11_drag {
+                let paths = self.selected.iter().map(PathBuf::from).collect::<Vec<_>>();
+                drag.show_preview(
+                    &paths,
+                    UiIcon::Application,
+                    self.icons.theme.get(),
+                    context.pixels_per_point(),
+                );
+                self.start_selected_drag();
+            } else {
+                self.prepare_wayland_drag();
+            }
             context.request_repaint();
         }
 

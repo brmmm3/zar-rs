@@ -38,7 +38,7 @@ fn settings_tabs_show_only_their_own_fields_and_preserve_values() {
         (
             SettingsTab::Advanced,
             &[
-                "Validate selected blocks before extraction",
+                "Validate selected blocks before extraction (slow)",
                 "Preserve platform-specific metadata",
                 "Save modification times",
                 "Include named pipes and device nodes",

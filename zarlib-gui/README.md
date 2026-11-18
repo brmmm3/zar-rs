@@ -171,7 +171,7 @@ desktop entry.
   lock the open archive; on Unix this lock is advisory. It also checks the
   archive's size and modification time before reusing validation. If the
   archive changes or preparation fails, extraction reads it normally.
-  Settings > Advanced offers **Validate selected blocks before extraction**
+  Settings > Advanced offers **Validate selected blocks before extraction (slow)**
   to revalidate every block needed by the selected files before writing them.
   This also applies when opening or dragging files and can be slower.
   **Recheck block checksums during extraction** is enabled by default. Turning

@@ -26,6 +26,7 @@ until a version is released.
 ### Fixed
 
 - Improve errors for duplicate commit IDs and invalid source commits.
+- Enable dragging archive entries out of `zarg` on X11.
 
 ## 0.13.0 - 2026-11-15
 

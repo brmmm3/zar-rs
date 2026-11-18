@@ -1596,7 +1596,7 @@ fn internal_drag_moves_selected_entries_into_folder_in_each_view() {
         }
         #[cfg(target_os = "linux")]
         {
-            app.wayland_drag_initialized = true;
+            app.linux_drag_initialized = true;
         }
         app.selected = ["source.txt", "source-folder", "source-folder/child.txt"]
             .into_iter()
