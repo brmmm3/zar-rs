@@ -5,6 +5,8 @@ until a version is released.
 
 ## Unreleased
 
+## 0.14.0 - 2026-11-18
+
 ### Added
 
 - Added `CrossCommitReference` and the `cross_commit_references` and
