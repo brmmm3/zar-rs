@@ -1,6 +1,14 @@
 use std::path::PathBuf;
 
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
+pub(crate) enum ChecksumRecheck {
+    #[default]
+    Auto,
+    Always,
+    Never,
+}
 
 #[cfg(feature = "mimalloc")]
 const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (mimalloc)");
@@ -840,6 +848,13 @@ pub(crate) enum Command {
             help = "Suppress the real-time extraction progress bar and speed"
         )]
         no_progress: bool,
+        #[arg(
+            long,
+            value_enum,
+            default_value = "auto",
+            help = "Recheck block checksums while extracting: auto for network/legacy filesystems, always, or never"
+        )]
+        recheck_block_checksums: ChecksumRecheck,
         #[arg(
             short = 'o',
             long,

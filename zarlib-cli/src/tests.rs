@@ -10,6 +10,82 @@ use zarlib::{
 };
 
 #[test]
+fn extraction_checksum_modes_parse_and_default_to_auto() {
+    use args::ChecksumRecheck;
+    let cli = Cli::try_parse_from(["zarc", "extract", "a.zar"]).unwrap();
+    assert!(matches!(
+        cli.command,
+        Command::Extract {
+            recheck_block_checksums: ChecksumRecheck::Auto,
+            ..
+        }
+    ));
+    for (value, expected) in [
+        ("auto", ChecksumRecheck::Auto),
+        ("always", ChecksumRecheck::Always),
+        ("never", ChecksumRecheck::Never),
+    ] {
+        let cli = Cli::try_parse_from([
+            "zarc",
+            "extract",
+            "a.zar",
+            "--recheck-block-checksums",
+            value,
+        ])
+        .unwrap();
+        assert!(
+            matches!(cli.command, Command::Extract { recheck_block_checksums, .. } if recheck_block_checksums == expected)
+        );
+    }
+    assert!(
+        Cli::try_parse_from([
+            "zarc",
+            "extract",
+            "a.zar",
+            "--recheck-block-checksums",
+            "invalid"
+        ])
+        .is_err()
+    );
+}
+
+#[test]
+fn extraction_checksum_modes_resolve_and_report_detection_failure() {
+    use args::ChecksumRecheck;
+    #[derive(Default)]
+    struct Warnings(Mutex<Vec<String>>);
+    impl Progress for Warnings {
+        fn message(&self, _: &str) {}
+        fn advance(&self, _: u64) {}
+        fn warning(&self, message: &str) {
+            self.0.lock().unwrap().push(message.to_owned());
+        }
+    }
+    let progress = Warnings::default();
+    let directory = tempfile::tempdir().unwrap();
+    let missing = directory.path().join("missing.zar");
+    assert!(recheck_block_checksums(
+        ChecksumRecheck::Always,
+        &missing,
+        &progress
+    ));
+    assert!(!recheck_block_checksums(
+        ChecksumRecheck::Never,
+        &missing,
+        &progress
+    ));
+    assert!(progress.0.lock().unwrap().is_empty());
+    assert!(recheck_block_checksums(
+        ChecksumRecheck::Auto,
+        &missing,
+        &progress
+    ));
+    let warnings = progress.0.lock().unwrap();
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains("rechecking block checksums"));
+}
+
+#[test]
 fn timestamp_flags_and_aliases_work_for_create_and_add() {
     for command in ["create", "add"] {
         for (modified, created, accessed) in [

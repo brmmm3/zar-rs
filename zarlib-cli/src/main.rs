@@ -224,6 +224,27 @@ fn parse_encryption_scope(value: &str) -> Result<EncryptionScope, Box<dyn std::e
     }
 }
 
+fn recheck_block_checksums(
+    mode: args::ChecksumRecheck,
+    archive: &std::path::Path,
+    progress: &dyn Progress,
+) -> bool {
+    match mode {
+        args::ChecksumRecheck::Always => true,
+        args::ChecksumRecheck::Never => false,
+        args::ChecksumRecheck::Auto => match extraction_needs_checksum_recheck(archive) {
+            Ok(recheck) => recheck,
+            Err(error) => {
+                progress.warning(&format!(
+                    "Cannot determine filesystem for {}: {error}; rechecking block checksums",
+                    archive.display()
+                ));
+                true
+            }
+        },
+    }
+}
+
 fn main() -> ExitCode {
     match args::parse_from_env() {
         Ok(cli) => match execute(cli) {
@@ -1672,6 +1693,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             password,
             password_for,
             no_progress,
+            recheck_block_checksums: checksum_recheck,
             symlinks,
             devices,
             strip_top_level,
@@ -1692,7 +1714,12 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                 &exclude_folders,
                 &filelist,
             )?;
-            let plan = extract_archive_with_passwords_progress_and_filters(
+            let validate_on_read = recheck_block_checksums(
+                checksum_recheck,
+                std::path::Path::new(&archive),
+                &progress_callback,
+            );
+            let plan = extract_archive_with_validation_options(
                 &archive,
                 &destination,
                 ExtractionOptions {
@@ -1708,6 +1735,10 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                 &passwords,
                 Some(&progress_callback as &dyn Progress),
                 &filters,
+                ExtractionFrameValidation {
+                    validate_on_read,
+                    ..Default::default()
+                },
             )?;
             if dry_run {
                 for line in format_extraction_plan(&plan) {

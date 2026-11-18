@@ -9,6 +9,8 @@ until a version is released.
 
 - Added per-command defaults from `zarc.json`, searched in the current folder
   before the per-user configuration directory, and `--no-config` to skip it.
+- Added `zarc extract --recheck-block-checksums auto|always|never`, defaulting
+  to Auto with the same filesystem detection as `zarg`.
 
 ## 0.14.0 - 2026-11-18
 

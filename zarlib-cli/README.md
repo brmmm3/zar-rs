@@ -60,7 +60,8 @@ option names (without `--`) as keys:
     "compression-level": 7
   },
   "extract": {
-    "collision": "error"
+    "collision": "error",
+    "recheck-block-checksums": "auto"
   },
   "info": {
     "verbose": 1
@@ -345,6 +346,15 @@ the selected archive state, then streams decoded blocks to files and verifies
 reconstructed file sizes.
 
 - `--dry-run`: display planned directories and files without writing them.
+- `--recheck-block-checksums auto|always|never`: control the second block
+  checksum check while writing extracted files. The default, `auto`, rechecks
+  archives on network drives and older filesystems such as FAT and exFAT.
+  Detection uses the archive's filesystem, not the output directory. If
+  detection fails or the filesystem is unknown, it warns and rechecks.
+  `always` rechecks on every filesystem; `never` disables this second check.
+  Initial validation, file checksum checks, and encrypted-data authentication
+  remain enabled. Without rechecking, changes after validation may go
+  undetected.
 - `--to ID`: extract the state as of the selected commit.
 - `--collision POLICY`: handle archive paths that collide when case-folded:
   `rename` (default), `first`, `latest`, `error`, or interactive `ask`.

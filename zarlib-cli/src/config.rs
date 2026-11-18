@@ -146,6 +146,40 @@ mod tests {
     }
 
     #[test]
+    fn extraction_checksum_default_can_be_configured_and_overridden() {
+        use crate::args::ChecksumRecheck;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("zarc.json");
+        std::fs::write(&path, r#"{"extract":{"recheck-block-checksums":"never"}}"#).unwrap();
+        let cli = parse_at(&["zarc", "extract", "a.zar"], &[path.clone()]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Extract {
+                recheck_block_checksums: ChecksumRecheck::Never,
+                ..
+            }
+        ));
+        let cli = parse_at(
+            &[
+                "zarc",
+                "extract",
+                "a.zar",
+                "--recheck-block-checksums",
+                "always",
+            ],
+            &[path],
+        )
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Extract {
+                recheck_block_checksums: ChecksumRecheck::Always,
+                ..
+            }
+        ));
+    }
+
+    #[test]
     fn search_uses_first_file_and_falls_back_to_user_config_only_if_missing() {
         let directory = tempfile::tempdir().unwrap();
         let local = directory.path().join("local.json");

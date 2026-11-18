@@ -38,6 +38,38 @@ where
 }
 
 #[test]
+fn cli_extracts_with_each_checksum_recheck_mode() {
+    let temp = TestDirectory::new();
+    let source = temp.path().join("input.txt");
+    let archive = temp.path().join("archive.zar");
+    std::fs::write(&source, b"checksum recheck contents").unwrap();
+    let output = zarc([
+        OsStr::new("--no-config"),
+        OsStr::new("create"),
+        archive.as_os_str(),
+        source.as_os_str(),
+    ]);
+    assert!(output.status.success(), "{output:?}");
+    for mode in ["auto", "always", "never"] {
+        let destination = temp.path().join(mode);
+        let output = zarc([
+            OsStr::new("--no-config"),
+            OsStr::new("extract"),
+            archive.as_os_str(),
+            OsStr::new("--output"),
+            destination.as_os_str(),
+            OsStr::new("--recheck-block-checksums"),
+            OsStr::new(mode),
+        ]);
+        assert!(output.status.success(), "{mode}: {output:?}");
+        assert_eq!(
+            std::fs::read(destination.join("input.txt")).unwrap(),
+            b"checksum recheck contents"
+        );
+    }
+}
+
+#[test]
 fn cli_configuration_controls_defaults_and_can_be_overridden_or_disabled() {
     let temp = TestDirectory::new();
     std::fs::write(temp.path().join("keep.txt"), b"text").unwrap();
