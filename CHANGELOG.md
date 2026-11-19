@@ -7,6 +7,8 @@ until a version is released.
 
 ### Added
 
+- Added `zarg --context` actions for creating, adding, opening, extracting, and
+  testing archives from file-manager context menus.
 - Added resumable archive benchmarks with per-run results in `.benchmark_cache`,
   progress-numbered filenames, and cache cleanup after successful report generation.
 - Added benchmark run counters, completion percentages, and periodic elapsed-time
@@ -20,6 +22,8 @@ until a version is released.
 
 ### Changed
 
+- Scale saved window dimensions and position by the configured UI scale when
+  restoring the startup geometry.
 - Reuse validated archive headers and the table of contents throughout extraction
   instead of reparsing headers for reference discovery and source preparation.
   Filter validated TOC entries directly instead of replaying them as new commits.

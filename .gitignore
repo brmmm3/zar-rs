@@ -27,3 +27,7 @@ obj/
 
 dist/
 node_modules/
+
+# Test data is tracked with Git LFS.
+!testdata/
+!testdata/**
