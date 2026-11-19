@@ -13,6 +13,7 @@ import concurrent.futures
 import datetime as dt
 import html
 import json
+import math
 import os
 import platform
 import plistlib
@@ -30,7 +31,7 @@ import zipfile
 from collections import deque
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 
 import scandir_rs
@@ -60,6 +61,7 @@ SOURCE_NAME = "linux-4.0.1"
 SOURCE_ARCHIVE = TESTDATA / f"{SOURCE_NAME}.tar.gz"
 SOURCE_DIR = TESTDATA / SOURCE_NAME
 ARCHIVE_DIR = TESTDATA / "benchmark-archives"
+BENCHMARK_CACHE_DIR = ROOT / ".benchmark_cache"
 OS_TAG = {"linux": "linux", "win32": "windows", "darwin": "macos"}.get(
     sys.platform, re.sub(r"\W+", "-", sys.platform)
 )
@@ -1957,6 +1959,100 @@ def wait_between_benchmark_runs(previous_run_completed: bool) -> None:
         time.sleep(BENCHMARK_RUN_DELAY_SECONDS)
 
 
+@dataclass
+class BenchmarkRunResult:
+    compression_seconds: float
+    extraction_seconds: float
+    partial_extraction_seconds: float
+    archive_bytes: int
+    partial_temp_bytes: int
+    renamed_paths: int
+    compression_resources: list[tuple[float, float, float]]
+    extraction_resources: list[tuple[float, float, float]]
+
+    def __post_init__(self) -> None:
+        def valid_measurement(value: object) -> bool:
+            return (
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and math.isfinite(value)
+                and value >= 0
+            )
+
+        for name in (
+            "compression_seconds", "extraction_seconds", "partial_extraction_seconds"
+        ):
+            if not valid_measurement(getattr(self, name)):
+                raise ValueError(f"{name} must be a finite, nonnegative number")
+        for name in ("archive_bytes", "partial_temp_bytes", "renamed_paths"):
+            value = getattr(self, name)
+            if type(value) is not int or value < 0:
+                raise ValueError(f"{name} must be a nonnegative integer")
+        for name in ("compression_resources", "extraction_resources"):
+            samples = getattr(self, name)
+            if not isinstance(samples, list) or any(
+                not isinstance(sample, (tuple, list))
+                or len(sample) != 3
+                or not all(valid_measurement(value) for value in sample)
+                for sample in samples
+            ):
+                raise ValueError(f"{name} must contain timestamp, CPU, and RAM samples")
+            setattr(self, name, [(sample[0], sample[1], sample[2]) for sample in samples])
+
+
+def load_benchmark_run(
+    test_name: str, context: dict[str, object]
+) -> BenchmarkRunResult | None:
+    paths = list(BENCHMARK_CACHE_DIR.glob(f"*-{test_name}.json"))
+    if not paths:
+        return None
+    if len(paths) != 1:
+        raise RuntimeError(f"Multiple benchmark cache files found for {test_name}")
+    path = paths[0]
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if (
+            not isinstance(payload, dict)
+            or payload.get("test") != test_name
+            or payload.get("context") != context
+        ):
+            raise ValueError("test, platform, source, or tool versions do not match")
+        result = payload.get("result")
+        if not isinstance(result, dict):
+            raise ValueError("missing run results")
+        return BenchmarkRunResult(**result)
+    except (ValueError, TypeError, OverflowError) as error:
+        raise RuntimeError(
+            f"Invalid benchmark cache {path}: {error}. "
+            "Remove the cache file to rerun this test."
+        ) from error
+
+
+def save_benchmark_run(
+    progress_number: int,
+    test_name: str,
+    context: dict[str, object],
+    result: BenchmarkRunResult,
+) -> None:
+    path = BENCHMARK_CACHE_DIR / f"{progress_number:03d}-{test_name}.json"
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=BENCHMARK_CACHE_DIR,
+            prefix=f".{path.stem}-", suffix=".tmp", delete=False,
+        ) as output:
+            temporary = Path(output.name)
+            json.dump(
+                {"test": test_name, "context": context, "result": asdict(result)},
+                output, allow_nan=False, indent=2,
+            )
+            output.write("\n")
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 def run_benchmarks(
     tools: dict[str, str], cargo: str, mode: str = "both", accept_eula: bool = False
 ) -> None:
@@ -2010,6 +2106,19 @@ def run_benchmarks(
             skipped.add((method, True))
     results: list[dict[str, object]] = []
     versions = tool_versions({**tools, "zarc": str(binary)})
+    cache_context: dict[str, object] = {
+        "schema_version": 1,
+        "os": OS_TAG,
+        "architecture": ARCH_TAG,
+        "source": SOURCE_NAME,
+        "source_bytes": source_bytes,
+        "source_files": len(expected),
+        "source_symlinks": len(symlinks),
+        "versions": versions,
+    }
+    if BENCHMARK_CACHE_DIR.is_symlink():
+        raise RuntimeError(f"Refusing to use symlinked benchmark cache: {BENCHMARK_CACHE_DIR}")
+    BENCHMARK_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     has_completed_benchmark_run = False
     total_runs = sum(
         2 if cache == "hot" else 1
@@ -2096,24 +2205,31 @@ def run_benchmarks(
                                 temporary_directory,
                             )
 
-                    compression_times: list[float] = []
-                    extraction_times: list[float] = []
-                    archive_bytes = 0
-                    renamed_paths = 0
-                    partial_times: list[float] = []
-                    partial_temp_bytes: list[int] = []
-                    compression_resources: list[list[tuple[float, float, float]]] = []
-                    extraction_resources: list[list[tuple[float, float, float]]] = []
+                    run_results: list[BenchmarkRunResult] = []
 
                     monitor = ResourceMonitor()
 
                     for run in range(runs_per_test):
-                        wait_between_benchmark_runs(has_completed_benchmark_run)
                         label = f" (run {run + 1}/{runs_per_test})"
                         run_label = (
                             f"[{completed_runs + 1}/{total_runs}] {method} "
                             f"(encrypted={encrypted}, {cache} cache){label}"
                         )
+                        test_name = (
+                            f"{method}-{'encrypted' if encrypted else 'plain'}-"
+                            f"{cache}-run-{run + 1}"
+                        )
+                        cached_result = load_benchmark_run(test_name, cache_context)
+                        if cached_result is not None:
+                            run_results.append(cached_result)
+                            completed_runs += 1
+                            print(
+                                f"{run_label}: using cached results "
+                                f"({completed_runs / total_runs:.0%}).",
+                                flush=True,
+                            )
+                            continue
+                        wait_between_benchmark_runs(has_completed_benchmark_run)
                         with report_progress(f"{run_label}: compressing"):
                             path.unlink(missing_ok=True)
                             prepare_cache(SOURCE_DIR)
@@ -2122,8 +2238,7 @@ def run_benchmarks(
                                 compression_seconds = measure(compress)
                             finally:
                                 monitor.stop()
-                        compression_times.append(compression_seconds)
-                        compression_resources.append(monitor.samples)
+                        compression_samples = monitor.samples
                         archive_bytes = path.stat().st_size
 
                         def _fmt_duration(seconds: float) -> str:
@@ -2162,8 +2277,7 @@ def run_benchmarks(
                                     )
                                 finally:
                                     monitor.stop()
-                            extraction_times.append(extraction_seconds)
-                            extraction_resources.append(monitor.samples)
+                            extraction_samples = monitor.samples
                             print(
                                 f"  Extracted in {_fmt_duration(extraction_seconds)}"
                             )
@@ -2193,15 +2307,27 @@ def run_benchmarks(
                                     ),
                                     [TESTRESULTS, temporary_directory],
                                 )
-                            partial_temp_bytes.append(peak_bytes - final_bytes)
                             verify_partial_extraction()
-                            partial_times.append(partial_seconds)
                             print(
                                 f"  Extracted {len(PARTIAL_FILES)} files in "
                                 f"{_fmt_duration(partial_seconds)}"
                             )
                         finally:
                             clean_testresults()
+                        run_result = BenchmarkRunResult(
+                            compression_seconds=compression_seconds,
+                            extraction_seconds=extraction_seconds,
+                            partial_extraction_seconds=partial_seconds,
+                            archive_bytes=archive_bytes,
+                            partial_temp_bytes=peak_bytes - final_bytes,
+                            renamed_paths=renamed_paths,
+                            compression_resources=compression_samples,
+                            extraction_resources=extraction_samples,
+                        )
+                        save_benchmark_run(
+                            completed_runs + 1, test_name, cache_context, run_result
+                        )
+                        run_results.append(run_result)
                         has_completed_benchmark_run = True
                         completed_runs += 1
                         print(
@@ -2210,12 +2336,12 @@ def run_benchmarks(
                             flush=True,
                         )
 
-                    compression_min = min(compression_times)
-                    compression_max = max(compression_times)
-                    extraction_min = min(extraction_times)
-                    extraction_max = max(extraction_times)
-                    partial_min = min(partial_times)
-                    partial_max = max(partial_times)
+                    compression_min = min(item.compression_seconds for item in run_results)
+                    compression_max = max(item.compression_seconds for item in run_results)
+                    extraction_min = min(item.extraction_seconds for item in run_results)
+                    extraction_max = max(item.extraction_seconds for item in run_results)
+                    partial_min = min(item.partial_extraction_seconds for item in run_results)
+                    partial_max = max(item.partial_extraction_seconds for item in run_results)
                     print(
                         f"  {method} (encrypted={encrypted}, {cache} cache): "
                         f"compress {compression_min:.2f}-{compression_max:.2f}s, "
@@ -2251,17 +2377,21 @@ def run_benchmarks(
                             "method": method,
                             "cache": cache,
                             "encrypted": encrypted,
-                            "archive_bytes": archive_bytes,
+                            "archive_bytes": run_results[-1].archive_bytes,
                             "compression_min_seconds": compression_min,
                             "compression_max_seconds": compression_max,
                             "extraction_min_seconds": extraction_min,
                             "extraction_max_seconds": extraction_max,
-                            "partial_temp_bytes": max(partial_temp_bytes),
+                            "partial_temp_bytes": max(item.partial_temp_bytes for item in run_results),
                             "partial_extraction_min_seconds": partial_min,
                             "partial_extraction_max_seconds": partial_max,
-                            "renamed_paths": renamed_paths,
-                            "compression_resources": _merge_resource_samples(compression_resources),
-                            "extraction_resources": _merge_resource_samples(extraction_resources),
+                            "renamed_paths": run_results[-1].renamed_paths,
+                            "compression_resources": _merge_resource_samples(
+                                [item.compression_resources for item in run_results]
+                            ),
+                            "extraction_resources": _merge_resource_samples(
+                                [item.extraction_resources for item in run_results]
+                            ),
                         }
                     )
                     path.unlink(missing_ok=True)
@@ -2277,6 +2407,12 @@ def run_benchmarks(
             )
         print(f"Report written to {REPORT_PATH}")
         print(f"Chart written to {CHART_PATH}")
+        if BENCHMARK_CACHE_DIR.is_symlink():
+            raise RuntimeError(f"Refusing to clean symlinked benchmark cache: {BENCHMARK_CACHE_DIR}")
+        for cached_file in BENCHMARK_CACHE_DIR.iterdir():
+            if cached_file.is_file() or cached_file.is_symlink():
+                cached_file.unlink()
+        print("Cleared benchmark result cache.", flush=True)
     finally:
         clean_testresults()
         for method in methods:
