@@ -1,11 +1,96 @@
 import io
 import subprocess
 import tarfile
-from unittest.mock import patch
+import threading
+from contextlib import nullcontext
+from types import SimpleNamespace
+from unittest.mock import DEFAULT, patch
 
 import pytest
 
 from scripts import benchmark_archivers
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_progress_flushes_updates_and_stops_on_exit(monkeypatch, fails) -> None:
+    messages = []
+    updated = threading.Event()
+
+    def record(message, *, flush=False):
+        messages.append((message, flush))
+        if message.endswith(" s elapsed"):
+            updated.set()
+
+    monkeypatch.setattr(benchmark_archivers, "PROGRESS_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(benchmark_archivers, "print", record, raising=False)
+
+    with pytest.raises(RuntimeError, match="operation failed") if fails else nullcontext():
+        with benchmark_archivers.report_progress("Preparing source data"):
+            worker = next(
+                thread
+                for thread in threading.enumerate()
+                if thread.name == "benchmark-progress"
+            )
+            assert messages[0] == ("Preparing source data...", True)
+            assert updated.wait(timeout=2)
+            if fails:
+                raise RuntimeError("operation failed")
+
+    assert not worker.is_alive()
+    assert any(message.startswith("  Preparing source data: ") for message, _ in messages)
+    assert all(flush for _, flush in messages)
+
+
+@pytest.mark.parametrize(
+    "caches, total_runs", [(["hot"], 14), (["cold"], 7), (["hot", "cold"], 21)]
+)
+def test_benchmark_progress_counts_enabled_runs(
+    tmp_path, monkeypatch, capsys, caches, total_runs
+) -> None:
+    monkeypatch.setattr(benchmark_archivers, "TESTDATA", tmp_path)
+    monkeypatch.setattr(benchmark_archivers, "TESTRESULTS", tmp_path / "output")
+    monkeypatch.setattr(benchmark_archivers, "ARCHIVE_DIR", tmp_path / "archives")
+    monkeypatch.setattr(benchmark_archivers, "os", SimpleNamespace(name="nt"))
+    mocked = (
+        "resolve_cache_modes", "ensure_source", "build_zarc", "source_manifest",
+        "seven_zip_supports_zstd", "tool_versions", "run_command",
+        "wait_between_benchmark_runs", "read_files", "drop_caches",
+        "archive_path", "compress_zarlib", "compress_7z", "compress_tar",
+        "extract_archive", "verify_extraction", "verify_partial_extraction",
+        "clean_testresults", "write_report", "measure_with_disk_peak",
+        "ResourceMonitor",
+    )
+    with patch.multiple(
+        benchmark_archivers, **{name: DEFAULT for name in mocked}
+    ) as mocks:
+        mocks["resolve_cache_modes"].return_value = (caches, None)
+        mocks["build_zarc"].return_value = tmp_path / "zarc"
+        mocks["source_manifest"].return_value = ({"file": 1}, set(), 1)
+        mocks["seven_zip_supports_zstd"].return_value = False
+        mocks["archive_path"].return_value.stat.return_value.st_size = 1
+        mocks["verify_extraction"].return_value = 0
+        mocks["ResourceMonitor"].return_value.samples = []
+        mocks["measure_with_disk_peak"].side_effect = (
+            lambda action, roots: (benchmark_archivers.measure(action), 0, 0)
+        )
+
+        benchmark_archivers.run_benchmarks(
+            {"tar": "tar", "7z": "7z", "openssl": "openssl"}, "cargo"
+        )
+
+        assert mocks["extract_archive"].call_count == total_runs * 2
+        mocks["write_report"].assert_called_once()
+
+    output = capsys.readouterr().out
+    assert f"Running {total_runs} benchmark runs." in output
+    assert f"[1/{total_runs}] zarlib (encrypted=False, {caches[0]} cache)" in output
+    assert f"Completed {total_runs}/{total_runs} benchmark runs (100%)." in output
+    assert output.count("Completed ") == total_runs
+    assert output.count(": compressing...") == total_runs
+    assert output.count(": extracting full archive") == total_runs
+    assert output.count(": extracting 3 selected files...") == total_runs
+    assert output.count(": verifying extracted files...") == total_runs
+    assert "zarlib (encrypted=True" not in output
 
 
 def _create_source_tarball(path, entries) -> None:

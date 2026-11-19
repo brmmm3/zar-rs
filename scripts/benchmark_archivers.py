@@ -29,6 +29,7 @@ import urllib.request
 import zipfile
 from collections import deque
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -68,6 +69,7 @@ BENCHMARKS_DIR = ROOT / "doc" / "benchmarks"
 REPORT_PATH = BENCHMARKS_DIR / f"benchmark-report-{OS_TAG}-{ARCH_TAG}.md"
 CHART_PATH = BENCHMARKS_DIR / f"benchmark-charts-{OS_TAG}-{ARCH_TAG}.svg"
 BENCHMARK_RUN_DELAY_SECONDS = 3
+PROGRESS_INTERVAL_SECONDS = 5
 PARTIAL_FILES = (
     "fs/btrfs/check-integrity.c",
     "lib/xz/xz_dec_test.c",
@@ -396,6 +398,26 @@ class ResourceMonitor:
             self._samples.append((elapsed, cpu, ram))
 
 
+@contextmanager
+def report_progress(message: str) -> Iterator[None]:
+    print(f"{message}...", flush=True)
+    started = time.monotonic()
+    stop = threading.Event()
+
+    def report() -> None:
+        while not stop.wait(PROGRESS_INTERVAL_SECONDS):
+            elapsed = time.monotonic() - started
+            print(f"  {message}: {elapsed:.0f} s elapsed", flush=True)
+
+    thread = threading.Thread(target=report, name="benchmark-progress", daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join()
+
+
 def _find_7z() -> str | None:
     found = next((f for n in ("7z", "7zz", "7za") if (f := shutil.which(n))), None)
     if found is None and os.name == "nt":
@@ -693,7 +715,7 @@ def walk_tree(root: Path) -> Iterator[tuple[Path, list[str], list[str]]]:
 def run_command(
     command: list[str], *, cwd: Path | None = None, input_data: bytes | None = None
 ) -> None:
-    print(f"Run command: {' '.join(command)}")
+    print(f"Run command: {' '.join(command)}", flush=True)
     result = subprocess.run(
         command,
         cwd=cwd,
@@ -1940,9 +1962,12 @@ def run_benchmarks(
 ) -> None:
     caches, rammap = resolve_cache_modes(mode, accept_eula)
     TESTRESULTS.mkdir(parents=True, exist_ok=True)
-    ensure_source(tools["tar"])
-    binary = build_zarc(cargo)
-    expected, symlinks, source_bytes = source_manifest()
+    with report_progress("Preparing source data"):
+        ensure_source(tools["tar"])
+    with report_progress("Building release zarc"):
+        binary = build_zarc(cargo)
+    with report_progress("Scanning source files"):
+        expected, symlinks, source_bytes = source_manifest()
     if not expected or not source_bytes:
         raise RuntimeError(f"No regular source files were found in {SOURCE_DIR}")
     print(
@@ -1986,6 +2011,15 @@ def run_benchmarks(
     results: list[dict[str, object]] = []
     versions = tool_versions({**tools, "zarc": str(binary)})
     has_completed_benchmark_run = False
+    total_runs = sum(
+        2 if cache == "hot" else 1
+        for cache in caches
+        for method in methods
+        for encrypted in (False, True)
+        if (method, encrypted) not in skipped
+    )
+    completed_runs = 0
+    print(f"Running {total_runs} benchmark runs.", flush=True)
     if ARCHIVE_DIR.exists():
         print(f"Remove existing benchmark archive directory: {ARCHIVE_DIR}")
         shutil.rmtree(ARCHIVE_DIR)
@@ -2026,8 +2060,6 @@ def run_benchmarks(
                         continue
                     path = archive_path(method, encrypted)
                     path.unlink(missing_ok=True)
-                    print(f"Compressing {method} (encrypted={encrypted}, {cache} cache)...")
-
                     def prepare_cache(*warm: Path, cache: str = cache) -> None:
                         if cache == "cold":
                             drop_caches(rammap, accept_eula)
@@ -2078,15 +2110,18 @@ def run_benchmarks(
                     for run in range(runs_per_test):
                         wait_between_benchmark_runs(has_completed_benchmark_run)
                         label = f" (run {run + 1}/{runs_per_test})"
-                        print(
-                            f"Compressing {method} (encrypted={encrypted}, "
-                            f"{cache} cache){label}..."
+                        run_label = (
+                            f"[{completed_runs + 1}/{total_runs}] {method} "
+                            f"(encrypted={encrypted}, {cache} cache){label}"
                         )
-                        path.unlink(missing_ok=True)
-                        prepare_cache(SOURCE_DIR)
-                        monitor.start()
-                        compression_seconds = measure(compress)
-                        monitor.stop()
+                        with report_progress(f"{run_label}: compressing"):
+                            path.unlink(missing_ok=True)
+                            prepare_cache(SOURCE_DIR)
+                            monitor.start()
+                            try:
+                                compression_seconds = measure(compress)
+                            finally:
+                                monitor.stop()
                         compression_times.append(compression_seconds)
                         compression_resources.append(monitor.samples)
                         archive_bytes = path.stat().st_size
@@ -2102,56 +2137,62 @@ def run_benchmarks(
                             f"  Compressed: {archive_bytes / (1024 * 1024):.1f} MiB "
                             f"in {_fmt_duration(compression_seconds)}"
                         )
-                        print(
-                            f"Extracting {method} (encrypted={encrypted}){label}; "
-                            f"archive is {archive_bytes / (1024 * 1024):.1f} MiB..."
-                        )
-                        clean_testresults()
-                        prepare_cache(path)
                         try:
-                            monitor.start()
-                            extraction_seconds = measure(
-                                lambda method=method, encrypted=encrypted, path=path: extract_archive(
-                                    method,
-                                    encrypted,
-                                    path,
-                                    tools,
-                                    binary,
-                                    certificate,
-                                    private_key,
-                                    temporary_directory,
-                                    ENCRYPTED_PASSWORD,
-                                    len(symlinks),
-                                )
-                            )
-                            monitor.stop()
+                            with report_progress(
+                                f"{run_label}: extracting full archive "
+                                f"({archive_bytes / (1024 * 1024):.1f} MiB)"
+                            ):
+                                clean_testresults()
+                                prepare_cache(path)
+                                monitor.start()
+                                try:
+                                    extraction_seconds = measure(
+                                        lambda method=method, encrypted=encrypted, path=path: extract_archive(
+                                            method,
+                                            encrypted,
+                                            path,
+                                            tools,
+                                            binary,
+                                            certificate,
+                                            private_key,
+                                            temporary_directory,
+                                            ENCRYPTED_PASSWORD,
+                                            len(symlinks),
+                                        )
+                                    )
+                                finally:
+                                    monitor.stop()
                             extraction_times.append(extraction_seconds)
                             extraction_resources.append(monitor.samples)
                             print(
                                 f"  Extracted in {_fmt_duration(extraction_seconds)}"
                             )
                             allow_renames = method in ("zarlib", "7z", "7z-zstd")
-                            renamed_paths = verify_extraction(
-                                expected, symlinks, allow_renames
-                            )
-                            clean_testresults()
-                            prepare_cache(path)
-                            partial_seconds, peak_bytes, final_bytes = measure_with_disk_peak(
-                                lambda method=method, encrypted=encrypted, path=path: extract_archive(
-                                    method,
-                                    encrypted,
-                                    path,
-                                    tools,
-                                    binary,
-                                    certificate,
-                                    private_key,
-                                    temporary_directory,
-                                    ENCRYPTED_PASSWORD,
-                                    0,
-                                    list(PARTIAL_FILES),
-                                ),
-                                [TESTRESULTS, temporary_directory],
-                            )
+                            with report_progress(f"{run_label}: verifying extracted files"):
+                                renamed_paths = verify_extraction(
+                                    expected, symlinks, allow_renames
+                                )
+                            with report_progress(
+                                f"{run_label}: extracting {len(PARTIAL_FILES)} selected files"
+                            ):
+                                clean_testresults()
+                                prepare_cache(path)
+                                partial_seconds, peak_bytes, final_bytes = measure_with_disk_peak(
+                                    lambda method=method, encrypted=encrypted, path=path: extract_archive(
+                                        method,
+                                        encrypted,
+                                        path,
+                                        tools,
+                                        binary,
+                                        certificate,
+                                        private_key,
+                                        temporary_directory,
+                                        ENCRYPTED_PASSWORD,
+                                        0,
+                                        list(PARTIAL_FILES),
+                                    ),
+                                    [TESTRESULTS, temporary_directory],
+                                )
                             partial_temp_bytes.append(peak_bytes - final_bytes)
                             verify_partial_extraction()
                             partial_times.append(partial_seconds)
@@ -2162,6 +2203,12 @@ def run_benchmarks(
                         finally:
                             clean_testresults()
                         has_completed_benchmark_run = True
+                        completed_runs += 1
+                        print(
+                            f"Completed {completed_runs}/{total_runs} benchmark runs "
+                            f"({completed_runs / total_runs:.0%}).",
+                            flush=True,
+                        )
 
                     compression_min = min(compression_times)
                     compression_max = max(compression_times)
@@ -2219,14 +2266,15 @@ def run_benchmarks(
                     )
                     path.unlink(missing_ok=True)
 
-        write_report(
-            results,
-            source_bytes,
-            len(expected),
-            len(symlinks),
-            versions,
-            notes,
-        )
+        with report_progress("Writing benchmark report and chart"):
+            write_report(
+                results,
+                source_bytes,
+                len(expected),
+                len(symlinks),
+                versions,
+                notes,
+            )
         print(f"Report written to {REPORT_PATH}")
         print(f"Chart written to {CHART_PATH}")
     finally:
