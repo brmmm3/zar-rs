@@ -11,9 +11,9 @@ until a version is released.
   testing archives from file-manager context menus.
 - Added resumable archive benchmarks with per-run results in `.benchmark_cache`,
   progress-numbered filenames, and cache cleanup after successful report generation.
-- Added benchmark coverage for both repository ZAR datasets: Linux 4.0.1 and
-  the precompiled Linux 6.1.1 kernel, downloading missing inputs and keeping
-  extracted data in `testresults/`.
+- Added benchmark coverage for the Linux 4.0.1 and precompiled Linux 6.1.1
+  trees, plus the `duplicates`, `icons`, and `small_archive` datasets.
+- Added CPU-model and GitHub Actions postfixes to benchmark report and chart names.
 - Added benchmark run counters, completion percentages, and periodic elapsed-time
   progress for long-running archive benchmark steps.
 - Added `scripts/update_version.py` to update current package versions, lockfiles,

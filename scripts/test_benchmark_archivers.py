@@ -1,4 +1,3 @@
-import io
 import json
 import os
 import shutil
@@ -105,41 +104,6 @@ def test_resource_monitor_surfaces_sampling_failure(monkeypatch) -> None:
         monitor.stop()
 
 
-def test_install_missing_ubuntu_kernel_packages(monkeypatch) -> None:
-    monkeypatch.setattr(benchmark_archivers.sys, "platform", "linux")
-    monkeypatch.setattr(
-        benchmark_archivers, "os", SimpleNamespace(name="posix", geteuid=lambda: 0, environ={})
-    )
-    monkeypatch.setattr(
-        benchmark_archivers.platform, "freedesktop_os_release", lambda: {"ID": "ubuntu"}
-    )
-    monkeypatch.setattr(benchmark_archivers.shutil, "which", lambda name: f"/usr/bin/{name}")
-    commands = []
-
-    def run(command, **kwargs):
-        commands.append(command)
-        if command[0] == "dpkg-query":
-            installed = command[-1] not in ("flex", "libelf-dev")
-            return subprocess.CompletedProcess(command, 0 if installed else 1, b"installed" if installed else b"")
-        return subprocess.CompletedProcess(command, 0)
-
-    monkeypatch.setattr(benchmark_archivers.subprocess, "run", run)
-    benchmark_archivers.install_missing_tools()
-
-    assert ["apt-get", "update"] in commands
-    assert ["apt-get", "install", "-y", "flex", "libelf-dev"] in commands
-
-
-def test_missing_kernel_tools_are_reported_before_benchmark(monkeypatch) -> None:
-    monkeypatch.setattr(benchmark_archivers.sys, "platform", "linux")
-    monkeypatch.setattr(
-        benchmark_archivers.shutil, "which",
-        lambda name: None if name in ("flex", "bison") else f"/usr/bin/{name}",
-    )
-    with pytest.raises(RuntimeError, match="kernel build tools.*flex, bison"):
-        benchmark_archivers.require_tools()
-
-
 def test_no_install_skips_package_installation(monkeypatch) -> None:
     monkeypatch.setattr(benchmark_archivers.sys, "argv", ["benchmark_archivers.py", "--no-install"])
     with patch.multiple(
@@ -164,7 +128,13 @@ def test_main_exits_nonzero_after_failed_benchmarks(monkeypatch) -> None:
 def benchmark_runner(tmp_path, monkeypatch):
     monkeypatch.setattr(benchmark_archivers, "TESTDATA", tmp_path)
     monkeypatch.setattr(benchmark_archivers, "TESTRESULTS", tmp_path / "output")
+    monkeypatch.setattr(benchmark_archivers, "DATASET_DIR", tmp_path / "output" / "datasets")
+    monkeypatch.setattr(benchmark_archivers, "EXTRACTION_DIR", tmp_path / "output" / "extracted")
     monkeypatch.setattr(benchmark_archivers, "ARCHIVE_DIR", tmp_path / "archives")
+    monkeypatch.setattr(
+        benchmark_archivers, "DATASETS",
+        ((benchmark_archivers.SOURCE_NAME, benchmark_archivers.PARTIAL_FILES),),
+    )
     monkeypatch.setattr(benchmark_archivers, "BENCHMARK_CACHE_DIR", tmp_path / ".benchmark_cache")
     monkeypatch.setattr(benchmark_archivers, "BENCHMARKS_DIR", tmp_path)
     monkeypatch.setattr(benchmark_archivers, "REPORT_PATH", tmp_path / "report.md")
@@ -172,9 +142,10 @@ def benchmark_runner(tmp_path, monkeypatch):
     monkeypatch.setattr(
         benchmark_archivers, "os", SimpleNamespace(name="nt", cpu_count=lambda: 4)
     )
+    benchmark_archivers.os.environ = {}
     write_report = benchmark_archivers.write_report
     mocked = (
-        "resolve_cache_modes", "ensure_source", "build_zarc", "source_manifest",
+        "resolve_cache_modes", "ensure_dataset_source", "build_zarc", "source_manifest",
         "source_fingerprint",
         "seven_zip_supports_zstd", "tool_versions", "run_command",
         "wait_between_benchmark_runs", "read_files", "drop_caches",
@@ -187,6 +158,9 @@ def benchmark_runner(tmp_path, monkeypatch):
         benchmark_archivers, **{name: DEFAULT for name in mocked}
     ) as mocks:
         mocks["resolve_cache_modes"].return_value = (["hot"], None)
+        mocks["ensure_dataset_source"].side_effect = (
+            lambda binary, name: tmp_path / "output" / "datasets" / name
+        )
         mocks["build_zarc"].return_value = tmp_path / "zarc"
         mocks["source_manifest"].return_value = ([("file", 1)], [], 1)
         mocks["source_fingerprint"].return_value = "source-hash"
@@ -203,6 +177,95 @@ def benchmark_runner(tmp_path, monkeypatch):
             lambda action, roots: (benchmark_archivers.measure(action), 0, 0)
         )
         yield mocks
+
+
+@pytest.mark.parametrize(
+    "dataset_name",
+    [dataset_name for dataset_name, _ in benchmark_archivers.DATASETS],
+)
+def test_missing_dataset_archive_downloads_and_extraction_is_reused(
+    tmp_path, monkeypatch, dataset_name
+) -> None:
+    testdata = tmp_path / "testdata"
+    results = tmp_path / "testresults"
+    dataset_dir = results / "datasets"
+    extraction_dir = results / "extracted"
+    results.mkdir()
+    extraction_dir.mkdir()
+    monkeypatch.setattr(benchmark_archivers, "TESTDATA", testdata)
+    monkeypatch.setattr(benchmark_archivers, "TESTRESULTS", results)
+    monkeypatch.setattr(benchmark_archivers, "DATASET_DIR", dataset_dir)
+    monkeypatch.setattr(benchmark_archivers, "EXTRACTION_DIR", extraction_dir)
+    downloads = []
+    commands = []
+
+    def download(url, destination):
+        downloads.append(url)
+        Path(destination).write_bytes(b"valid archive bytes")
+
+    def run(command, *, cwd=None, input_data=None):
+        commands.append(command)
+        if command[1] == "extract":
+            output = Path(command[command.index("--output") + 1])
+            source = output / dataset_name
+            (source / "init").mkdir(parents=True)
+            (source / "Makefile").write_bytes(b"makefile")
+            if dataset_name == benchmark_archivers.KERNEL_NAME:
+                (source / "init" / "main.o").write_bytes(b"object")
+
+    monkeypatch.setattr(benchmark_archivers.urllib.request, "urlretrieve", download)
+    monkeypatch.setattr(benchmark_archivers, "run_command", run)
+    source = benchmark_archivers.ensure_dataset_source(Path("zarc"), dataset_name)
+
+    assert downloads == [
+        f"{benchmark_archivers.DATASET_URL}/{dataset_name}.zar"
+    ]
+    assert (testdata / f"{dataset_name}.zar").read_bytes() == b"valid archive bytes"
+    assert (source / "Makefile").is_file()
+    if dataset_name == benchmark_archivers.KERNEL_NAME:
+        assert (source / "init" / "main.o").is_file()
+
+    extraction_dir.joinpath("old-run").mkdir()
+    benchmark_archivers.clean_testresults()
+    assert source.is_dir()
+    assert not list(extraction_dir.iterdir())
+    benchmark_archivers.ensure_dataset_source(Path("zarc"), dataset_name)
+    assert sum(command[1] == "extract" for command in commands) == 1
+
+
+def test_dataset_archive_download_replaces_local_lfs_pointer(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(benchmark_archivers, "TESTDATA", tmp_path)
+    archive = tmp_path / f"{benchmark_archivers.SOURCE_NAME}.zar"
+    archive.write_text(
+        "version https://git-lfs.github.com/spec/v1\noid sha256:abc\nsize 3\n"
+    )
+    monkeypatch.setattr(
+        benchmark_archivers.urllib.request,
+        "urlretrieve",
+        lambda _url, destination: Path(destination).write_bytes(b"zar"),
+    )
+    monkeypatch.setattr(benchmark_archivers, "run_command", lambda *_args, **_kwargs: None)
+
+    assert benchmark_archivers.ensure_dataset_archive(
+        Path("zarc"), benchmark_archivers.SOURCE_NAME
+    ) == archive
+    assert archive.read_bytes() == b"zar"
+
+
+def test_missing_remote_dataset_reports_unpublished_lfs_object(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(benchmark_archivers, "TESTDATA", tmp_path)
+
+    def fail_download(_url, _destination):
+        raise benchmark_archivers.urllib.error.URLError("not found")
+
+    monkeypatch.setattr(benchmark_archivers.urllib.request, "urlretrieve", fail_download)
+    with pytest.raises(RuntimeError, match="Ensure the archive and its Git LFS object are published"):
+        benchmark_archivers.ensure_dataset_archive(
+            Path("zarc"), benchmark_archivers.SOURCE_NAME
+        )
+
+    assert not (tmp_path / f"{benchmark_archivers.SOURCE_NAME}.zar").exists()
+    assert not (tmp_path / f".{benchmark_archivers.SOURCE_NAME}.zar.download").exists()
 
 
 @pytest.mark.parametrize(
@@ -249,7 +312,7 @@ def test_benchmarks_resume_after_interruption(benchmark_runner, monkeypatch, cap
 
     cache = benchmark_archivers.BENCHMARK_CACHE_DIR
     assert [path.name for path in cache.iterdir()] == [
-        "001-zarlib-plain-hot-run-1.json"
+        "001-linux-4.0.1-zarlib-plain-hot-run-1.json"
     ]
     payload = json.loads(next(cache.iterdir()).read_text(encoding="utf-8"))
     assert payload["result"]["compression_seconds"] == 1.0
@@ -302,7 +365,7 @@ def test_benchmarks_reject_system_memory_samples_from_old_cache(benchmark_runner
         benchmark_archivers.run_benchmarks(tools, "cargo")
     cache_file = next(benchmark_archivers.BENCHMARK_CACHE_DIR.iterdir())
     payload = json.loads(cache_file.read_text())
-    assert payload["context"]["schema_version"] == 3
+    assert payload["context"]["schema_version"] == 4
     payload["context"]["schema_version"] = 2
     cache_file.write_text(json.dumps(payload))
     benchmark_runner["extract_archive"].reset_mock(side_effect=True)
@@ -396,29 +459,37 @@ def test_missing_openssl_still_runs_unencrypted_tar(benchmark_runner) -> None:
     assert all(not item["encrypted"] for item in results if item["method"] in ("tar", "tar.gz"))
 
 
-def test_failed_source_run_still_benchmarks_compiled_tree(benchmark_runner, monkeypatch) -> None:
-    monkeypatch.setattr(benchmark_archivers.sys, "platform", "linux")
-    monkeypatch.setattr(
-        benchmark_archivers, "os", SimpleNamespace(name="posix", cpu_count=lambda: 4)
+def test_run_benchmarks_prepares_all_datasets_even_if_first_fails(
+    benchmark_runner, monkeypatch
+) -> None:
+    datasets = tuple(benchmark_archivers.DATASET_PARTIAL_FILES.items())
+    monkeypatch.setattr(benchmark_archivers, "DATASETS", datasets)
+    benchmark_archivers.BENCHMARK_CACHE_DIR.mkdir()
+    run_dataset = patch.object(
+        benchmark_archivers, "_run_benchmark_dataset",
+        side_effect=[False, True, True, True, True],
     )
-    compiled = benchmark_archivers.TESTDATA / "compiled" / benchmark_archivers.KERNEL_NAME
-    benchmark_runner["source_manifest"].side_effect = lambda source: (
-        [("vmlinux", 1)] if source == compiled else [("file", 1)], [], 1
-    )
-    compress = benchmark_runner["compress_zarlib"]
-    def fail_first_run(*args):
-        if compress.call_count == 1:
-            raise benchmark_archivers.BenchmarkCommandError("archiver crashed")
-    compress.side_effect = fail_first_run
-
-    with patch.object(benchmark_archivers, "build_kernel", return_value=compiled):
+    with run_dataset as run:
         assert benchmark_archivers.run_benchmarks(
             {"tar": "tar", "7z": "7z", "openssl": "openssl"}, "cargo"
         ) is False
-    reports = benchmark_runner["write_report"].call_args_list
-    assert len(reports) == 2
-    assert reports[0].args[0][0]["failures"]
-    assert all(not item.get("failures") for item in reports[1].args[0])
+
+    expected_names = [name for name, _ in datasets]
+    assert [
+        call.args[1]
+        for call in benchmark_runner["ensure_dataset_source"].call_args_list
+    ] == expected_names
+    assert [call.args[5].name for call in run.call_args_list] == expected_names
+    assert [call.kwargs["partial_files"] for call in run.call_args_list] == [
+        partial_files for _, partial_files in datasets
+    ]
+    assert expected_names == [
+        benchmark_archivers.SOURCE_NAME,
+        benchmark_archivers.KERNEL_NAME,
+        "duplicates",
+        "icons",
+        "small_archive",
+    ]
 
 
 def test_verification_failure_still_stops_benchmarks(benchmark_runner) -> None:
@@ -443,9 +514,9 @@ def test_report_failure_preserves_cache_and_retry_skips_all_runs(
     cache = benchmark_archivers.BENCHMARK_CACHE_DIR
     files = sorted(cache.iterdir())
     assert len(files) == 14
-    assert files[0].name == "001-zarlib-plain-hot-run-1.json"
-    assert files[-1].name == "014-tar.gz-encrypted-hot-run-2.json"
-    files[0].rename(cache / "099-zarlib-plain-hot-run-1.json")
+    assert files[0].name == "001-linux-4.0.1-zarlib-plain-hot-run-1.json"
+    assert files[-1].name == "014-linux-4.0.1-tar.gz-encrypted-hot-run-2.json"
+    files[0].rename(cache / "099-linux-4.0.1-zarlib-plain-hot-run-1.json")
     capsys.readouterr()
     for mock in benchmark_runner.values():
         mock.reset_mock()
@@ -515,134 +586,31 @@ def test_benchmark_cache_write_is_atomic(benchmark_runner) -> None:
     assert list(cache.iterdir()) == [path]
 
 
-def _create_source_tarball(path, entries) -> None:
-    with tarfile.open(path, "w:gz") as archive:
-        for name, contents in entries:
-            member = tarfile.TarInfo(name)
-            member.size = len(contents)
-            archive.addfile(member, io.BytesIO(contents))
-
-
-def test_linux_compiled_benchmarks_resume_separately(benchmark_runner, monkeypatch) -> None:
-    monkeypatch.setattr(benchmark_archivers.sys, "platform", "linux")
-    monkeypatch.setattr(
-        benchmark_archivers, "os", SimpleNamespace(name="posix", cpu_count=lambda: 4)
-    )
-    compiled = benchmark_archivers.TESTDATA / "compiled" / benchmark_archivers.KERNEL_NAME
-    with patch.object(benchmark_archivers, "build_kernel", return_value=compiled) as build:
-        benchmark_runner["source_manifest"].side_effect = lambda source: (
-            [("vmlinux", 2)] if source == compiled else [("file", 1)],
-            [], 2 if source == compiled else 1,
-        )
-        extract = benchmark_runner["extract_archive"]
-        extract.side_effect = [None] * 42 + [KeyboardInterrupt()]
-        tools = {"tar": "tar", "7z": "7z", "openssl": "openssl", "zip": "zip", "unzip": "unzip"}
-        with pytest.raises(KeyboardInterrupt):
-            benchmark_archivers.run_benchmarks(tools, "cargo")
-
-        assert build.call_count == 1
-        assert benchmark_runner["write_report"].call_count == 1
-        cache = benchmark_archivers.BENCHMARK_CACHE_DIR
-        assert len(list(cache.glob("*-compiled-zarlib-plain-hot-run-*.json"))) == 1
-        assert len(list(cache.iterdir())) == 21
-
-        extract.reset_mock(side_effect=True)
-        for name in ("compress_zarlib", "compress_zip", "compress_7z", "compress_tar"):
-            benchmark_runner[name].reset_mock()
-        benchmark_archivers.run_benchmarks(tools, "cargo")
-
-    assert build.call_count == 2
-    assert extract.call_count == 38
-    for name, source_index in (
-        ("compress_zarlib", 3), ("compress_zip", 3), ("compress_7z", 4), ("compress_tar", 8),
-        ("extract_archive", 10),
-    ):
-        calls = benchmark_runner[name].call_args_list
-        assert calls and all(call.args[source_index] == compiled for call in calls)
-    assert benchmark_runner["write_report"].call_count == 3
-    report = benchmark_archivers.REPORT_PATH.with_name("report-compiled.md").read_text()
-    assert "Linux 6.6.1 Compiled Kernel Benchmark" in report
-    assert "`kernel/sched/core.c`" in report
-    assert "Uncompressed source size: 0.0 MiB" in report
-    assert (benchmark_archivers.CHART_PATH.parent / "chart-compiled.svg").is_file()
-    assert not list(cache.iterdir())
-
-
-@pytest.mark.parametrize("files", [[("file", 1)], [("vmlinux", 0), ("file", 1)]])
-def test_compiled_dataset_requires_nonempty_vmlinux(benchmark_runner, files) -> None:
+@pytest.mark.parametrize("files", [[("file", 1)], [("init/main.o", 0), ("file", 1)]])
+def test_precompiled_dataset_requires_nonempty_kernel_object(benchmark_runner, files) -> None:
     benchmark_runner["source_manifest"].return_value = (files, [], 1)
-    with pytest.raises(RuntimeError, match="missing a nonempty vmlinux"):
+    with pytest.raises(RuntimeError, match="missing a nonempty init/main.o"):
         benchmark_archivers._run_benchmark_dataset(
             {"tar": "tar", "7z": "7z"}, Path("zarc"), ["hot"], None, False,
-            Path("source-only"), compiled=True,
+            Path(benchmark_archivers.KERNEL_NAME),
         )
     benchmark_runner["compress_zarlib"].assert_not_called()
 
 
-def test_build_kernel_reuses_completed_tree_and_rejects_changed_archive(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(benchmark_archivers, "TESTDATA", tmp_path)
-    archive = tmp_path / f"{benchmark_archivers.KERNEL_NAME}.tar.gz"
-    _create_source_tarball(archive, [(f"{benchmark_archivers.KERNEL_NAME}/Makefile", b"test")])
-    real_command = benchmark_archivers.run_command
-    commands = []
-
-    def run(command, *, cwd=None, input_data=None):
-        commands.append(command)
-        if command[0] == "tar":
-            real_command(command, cwd=cwd, input_data=input_data)
-        elif command[1].startswith("-j"):
-            (cwd / "vmlinux").write_bytes(b"kernel")
-
-    monkeypatch.setattr(benchmark_archivers, "run_command", run)
-    source = benchmark_archivers.build_kernel("tar")
-    assert (source / "vmlinux").is_file()
-    assert commands[1] == ["make", "defconfig"]
-    assert commands[2][0] == "make"
-    assert benchmark_archivers.build_kernel("tar") == source
-    assert len(commands) == 3
-
-    _create_source_tarball(archive, [(f"{benchmark_archivers.KERNEL_NAME}/Makefile", b"changed")])
-    with pytest.raises(RuntimeError, match="Kernel source archive changed"):
-        benchmark_archivers.build_kernel("tar")
-
-
-def test_failed_kernel_build_is_not_reused(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(benchmark_archivers, "TESTDATA", tmp_path)
-    archive = tmp_path / f"{benchmark_archivers.KERNEL_NAME}.tar.gz"
-    _create_source_tarball(archive, [(f"{benchmark_archivers.KERNEL_NAME}/Makefile", b"test")])
-    real_command = benchmark_archivers.run_command
-    commands = []
-
-    def run(command, *, cwd=None, input_data=None):
-        commands.append(command)
-        if command[0] == "tar":
-            real_command(command, cwd=cwd, input_data=input_data)
-        elif len(commands) == 2:
-            raise RuntimeError("make failed")
-        elif command[1].startswith("-j"):
-            (cwd / "vmlinux").write_bytes(b"kernel")
-
-    monkeypatch.setattr(benchmark_archivers, "run_command", run)
-    with pytest.raises(RuntimeError, match="make failed"):
-        benchmark_archivers.build_kernel("tar")
-    assert not (tmp_path / f"{benchmark_archivers.KERNEL_NAME}-compiled" / ".benchmark-build-complete").exists()
-    assert (benchmark_archivers.build_kernel("tar") / "vmlinux").is_file()
-    assert sum(command[0] == "tar" for command in commands) == 1
-
-
-def test_compiled_dataset_tar_round_trip(tmp_path, monkeypatch) -> None:
-    source = tmp_path / "compiled" / benchmark_archivers.KERNEL_NAME
-    for member in (*benchmark_archivers.KERNEL_PARTIAL_FILES, "vmlinux", "init/main.o", ".config"):
+def test_precompiled_dataset_tar_round_trip(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "datasets" / benchmark_archivers.KERNEL_NAME
+    for member in (*benchmark_archivers.KERNEL_PARTIAL_FILES, "init/main.o", ".config"):
         path = source / member
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(member)
     output = tmp_path / "output"
     output.mkdir()
     monkeypatch.setattr(benchmark_archivers, "TESTRESULTS", output)
-    archive = tmp_path / "compiled.tar"
+    monkeypatch.setattr(benchmark_archivers, "EXTRACTION_DIR", output)
+    archive = tmp_path / "kernel.tar"
     benchmark_archivers.compress_tar("tar", "tar", "", archive, False, None, None, tmp_path, source)
     with tarfile.open(archive) as contents:
-        for member in ("vmlinux", "init/main.o", ".config"):
+        for member in ("init/main.o", ".config"):
             assert contents.getmember(f"{source.name}/{member}").isfile()
     benchmark_archivers.extract_archive(
         "tar", False, archive, {"tar": "tar"}, tmp_path / "zarc",
@@ -656,8 +624,8 @@ def test_compiled_dataset_tar_round_trip(tmp_path, monkeypatch) -> None:
     os.name != "posix" or not shutil.which("zip") or not shutil.which("unzip"),
     reason="requires POSIX symlinks and Info-ZIP",
 )
-def test_compiled_dataset_zip_preserves_directory_symlinks(tmp_path, monkeypatch) -> None:
-    source = tmp_path / "compiled" / benchmark_archivers.KERNEL_NAME
+def test_precompiled_dataset_zip_preserves_directory_symlinks(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "datasets" / benchmark_archivers.KERNEL_NAME
     (source / "include").mkdir(parents=True)
     (source / "include" / "generated.h").write_text("generated")
     (source / ".config").write_text("kernel config")
@@ -665,8 +633,8 @@ def test_compiled_dataset_zip_preserves_directory_symlinks(tmp_path, monkeypatch
     output = tmp_path / "output"
     output.mkdir()
     monkeypatch.setattr(benchmark_archivers, "TESTRESULTS", output)
-    monkeypatch.setattr(benchmark_archivers, "TESTDATA", tmp_path)
-    archive = tmp_path / "compiled.zip"
+    monkeypatch.setattr(benchmark_archivers, "EXTRACTION_DIR", output)
+    archive = tmp_path / "kernel.zip"
     expected, symlinks, _ = benchmark_archivers.source_manifest(source)
 
     benchmark_archivers.compress_zip("zip", archive, False, source)
@@ -686,6 +654,7 @@ def test_verify_extraction_rejects_mismatches(tmp_path, monkeypatch, problem) ->
     extracted = output / source.name
     extracted.mkdir(parents=True)
     monkeypatch.setattr(benchmark_archivers, "TESTRESULTS", output)
+    monkeypatch.setattr(benchmark_archivers, "EXTRACTION_DIR", output)
     if problem != "missing":
         (extracted / "file").write_bytes(b"x" if problem == "size" else b"abc")
     if problem == "extra":
@@ -704,6 +673,7 @@ def test_verify_extraction_accepts_collision_renames(tmp_path, monkeypatch) -> N
     (extracted / "file.txt").write_bytes(b"abc")
     (extracted / "File (1).txt").write_bytes(b"xyz")
     monkeypatch.setattr(benchmark_archivers, "TESTRESULTS", output)
+    monkeypatch.setattr(benchmark_archivers, "EXTRACTION_DIR", output)
 
     assert benchmark_archivers.verify_extraction(
         [("file.txt", 3), ("File.txt", 3)], [], True, source,
@@ -777,45 +747,35 @@ def test_wait_between_benchmark_runs_sleeps_only_after_a_completed_run(
     assert sleeps == [3]
 
 
-def test_source_matches_tarball_tolerates_case_collisions_on_macos(
-    tmp_path, monkeypatch
-) -> None:
-    monkeypatch.setattr(benchmark_archivers, "TESTDATA", tmp_path)
-    monkeypatch.setattr(benchmark_archivers.sys, "platform", "darwin")
-    source = tmp_path / benchmark_archivers.SOURCE_NAME
-    source.mkdir()
-    (source / "README").write_bytes(b"one")
-    tarball = tmp_path / "source.tar.gz"
-    _create_source_tarball(
-        tarball,
-        [
-            (f"{benchmark_archivers.SOURCE_NAME}/README", b"one"),
-            (f"{benchmark_archivers.SOURCE_NAME}/readme", b"longer"),
-        ],
+@pytest.mark.parametrize(
+    "cpu_model, github_actions, expected",
+    [
+        ("AMD Ryzen 5 2400G", False, "-ryzen5"),
+        ("Intel(R) Core(TM) i7-10700", False, "-core-i7"),
+        ("Intel(R) Core(TM) Ultra 7 265HX", False, "-core-u7"),
+        ("Intel Core u7 265HX", False, "-core-u7"),
+        ("Generic CPU", False, ""),
+        ("Generic CPU", True, "-gh"),
+        ("AMD Ryzen 5 2400G", True, "-ryzen5-gh"),
+    ],
+)
+def test_benchmark_result_postfix(cpu_model, github_actions, expected) -> None:
+    assert benchmark_archivers.benchmark_result_postfix(
+        cpu_model, github_actions
+    ) == expected
+
+
+def test_benchmark_result_paths_put_github_suffix_last(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(benchmark_archivers, "REPORT_PATH", tmp_path / "report.md")
+    monkeypatch.setattr(benchmark_archivers, "CHART_PATH", tmp_path / "chart.svg")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+
+    report_path, chart_path = benchmark_archivers.benchmark_result_paths(
+        "duplicates", "Intel(R) Core(TM) i7-10700"
     )
 
-    assert benchmark_archivers.source_matches_tarball(tarball)
-
-
-def test_source_matches_tarball_rejects_non_collision_mismatches_on_macos(
-    tmp_path, monkeypatch
-) -> None:
-    monkeypatch.setattr(benchmark_archivers, "TESTDATA", tmp_path)
-    monkeypatch.setattr(benchmark_archivers.sys, "platform", "darwin")
-    source = tmp_path / benchmark_archivers.SOURCE_NAME
-    source.mkdir()
-    (source / "README").write_bytes(b"one")
-    tarball = tmp_path / "source.tar.gz"
-    _create_source_tarball(
-        tarball,
-        [
-            (f"{benchmark_archivers.SOURCE_NAME}/README", b"one"),
-            (f"{benchmark_archivers.SOURCE_NAME}/readme", b"longer"),
-            (f"{benchmark_archivers.SOURCE_NAME}/missing", b"missing"),
-        ],
-    )
-
-    assert not benchmark_archivers.source_matches_tarball(tarball)
+    assert report_path.name == "report-duplicates-core-i7-gh.md"
+    assert chart_path.name == "chart-duplicates-core-i7-gh.svg"
 
 
 def test_write_report_shows_runtime_minimum_and_maximum(tmp_path, monkeypatch) -> None:
@@ -824,6 +784,7 @@ def test_write_report_shows_runtime_minimum_and_maximum(tmp_path, monkeypatch) -
     monkeypatch.setattr(benchmark_archivers, "BENCHMARKS_DIR", tmp_path)
     monkeypatch.setattr(benchmark_archivers, "REPORT_PATH", report_path)
     monkeypatch.setattr(benchmark_archivers, "CHART_PATH", chart_path)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     monkeypatch.setattr(
         benchmark_archivers,
         "collect_benchmark_hardware",

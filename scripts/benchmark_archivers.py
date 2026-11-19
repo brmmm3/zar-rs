@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark archivers with Linux source and, on Linux, a compiled kernel tree.
+"""Benchmark archivers with the Linux 4.0.1 and precompiled 6.1.1 ZAR datasets.
 
 Every format is measured with a hot file cache (the source tree is read once
 beforehand) and, when running with root/administrator rights, with a cold cache
@@ -23,17 +23,17 @@ import secrets
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.request
 import zipfile
 from collections import deque
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 import scandir_rs
 
@@ -58,10 +58,10 @@ def find_repository_root(script_path: Path) -> Path:
 ROOT = find_repository_root(Path(__file__))
 TESTDATA = ROOT / "testdata"
 TESTRESULTS = ROOT / "testresults"
+DATASET_DIR = TESTRESULTS / "datasets"
+EXTRACTION_DIR = TESTRESULTS / "extracted"
 SOURCE_NAME = "linux-4.0.1"
-SOURCE_ARCHIVE = TESTDATA / f"{SOURCE_NAME}.tar.gz"
-SOURCE_DIR = TESTDATA / SOURCE_NAME
-ARCHIVE_DIR = TESTDATA / "benchmark-archives"
+ARCHIVE_DIR = TESTRESULTS / "benchmark-archives"
 BENCHMARK_CACHE_DIR = ROOT / ".benchmark_cache"
 OS_TAG = {"linux": "linux", "win32": "windows", "darwin": "macos"}.get(
     sys.platform, re.sub(r"\W+", "-", sys.platform)
@@ -79,10 +79,37 @@ PARTIAL_FILES = (
     "lib/xz/xz_dec_test.c",
     "tools/perf/util/build-id.h",
 )
-SOURCE_URL = "https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.0.1.tar.gz"
-KERNEL_NAME = "linux-6.6.1"
-KERNEL_URL = f"https://cdn.kernel.org/pub/linux/kernel/v6.x/{KERNEL_NAME}.tar.gz"
+KERNEL_NAME = "linux-6.1.1"
+DATASET_URL = (
+    "https://media.githubusercontent.com/media/brmmm3/zar-rs/master/testdata"
+)
 KERNEL_PARTIAL_FILES = ("Makefile", "COPYING", "kernel/sched/core.c")
+DUPLICATES_PARTIAL_FILES = (
+    "duplicates/128x128/actions/address-book-new.png",
+    "duplicates/128x128/places/folder.png",
+    "icons/128x128/actions/address-book-new.png",
+)
+ICONS_PARTIAL_FILES = (
+    "128x128/actions/address-book-new.png",
+    "128x128/places/folder.png",
+    "16x16/actions/address-book-new.png",
+)
+SMALL_ARCHIVE_PARTIAL_FILES = ("COPYING", "Makefile", "init/main.c")
+DATASET_PARTIAL_FILES = {
+    SOURCE_NAME: PARTIAL_FILES,
+    KERNEL_NAME: KERNEL_PARTIAL_FILES,
+    "duplicates": DUPLICATES_PARTIAL_FILES,
+    "icons": ICONS_PARTIAL_FILES,
+    "small_archive": SMALL_ARCHIVE_PARTIAL_FILES,
+}
+DATASETS = tuple(DATASET_PARTIAL_FILES.items())
+DATASET_DESCRIPTIONS = {
+    SOURCE_NAME: "Linux 4.0.1 source tree from a ZAR archive",
+    KERNEL_NAME: "precompiled Linux kernel tree from a ZAR archive",
+    "duplicates": "duplicate icon tree from a ZAR archive",
+    "icons": "icon collection from a ZAR archive",
+    "small_archive": "small Linux source tree from a ZAR archive",
+}
 ENCRYPTED_PASSWORD = secrets.token_urlsafe(24)
 PROMPT_RE = re.compile(rb"(?im)^[^\r\n]*(?:password|passphrase)[^\r\n]*:\s*$")
 RAMMAP_URL = "https://download.sysinternals.com/files/RAMMap.zip"
@@ -366,7 +393,7 @@ def collect_benchmark_hardware() -> BenchmarkHardware:
         cpu_model=_cpu_model(),
         storage=(
             _storage_info("Source and archives", TESTDATA),
-            _storage_info("Extraction output", TESTRESULTS),
+            _storage_info("Extraction output", EXTRACTION_DIR),
         ),
     )
 
@@ -509,28 +536,8 @@ _PACKAGE_MANAGERS: dict[str, tuple[list[str], dict[str, list[str]]]] = {
 }
 
 
-def missing_ubuntu_kernel_packages() -> list[str]:
-    if sys.platform != "linux":
-        return []
-    os_release = platform.freedesktop_os_release()
-    if "ubuntu" not in (os_release.get("ID", "").split() + os_release.get("ID_LIKE", "").split()):
-        return []
-    packages = ("build-essential", "flex", "bison", "bc", "libssl-dev", "libelf-dev")
-    missing = []
-    for package in packages:
-        result = subprocess.run(
-            ["dpkg-query", "-W", "-f=${db:Status-Status}", package],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        if result.returncode != 0 or result.stdout.strip() != b"installed":
-            missing.append(package)
-    return missing
-
-
 def install_missing_tools() -> None:
-    """Best-effort installation of missing archive and Ubuntu kernel build tools."""
+    """Best-effort installation of missing archive tools."""
     present = {
         "openssl": shutil.which("openssl"),
         "zip": shutil.which("zip"),
@@ -539,10 +546,9 @@ def install_missing_tools() -> None:
         "tar": shutil.which("tar"),
     }
     missing = [name for name, path in present.items() if not path]
-    kernel_packages = missing_ubuntu_kernel_packages()
-    if not missing and not kernel_packages:
+    if not missing:
         return
-    print(f"Missing tools/packages: {', '.join(missing + kernel_packages)}; trying to install them...")
+    print(f"Missing tools: {', '.join(missing)}; trying to install them...")
     manager = next((m for m in _PACKAGE_MANAGERS if shutil.which(m)), None)
     if manager is None:
         print("warning: no supported package manager found; cannot install tools",
@@ -554,10 +560,6 @@ def install_missing_tools() -> None:
     # winget takes one --id per invocation.
     batches: list[list[str]] = []
     wanted = [p for name in missing for p in packages.get(name, [])]
-    if manager == "apt-get":
-        wanted.extend(kernel_packages)
-    elif kernel_packages:
-        print("warning: Ubuntu kernel build packages require apt-get", file=sys.stderr)
     if manager == "winget":
         batches = [[p] for p in wanted]
     elif wanted:
@@ -631,28 +633,7 @@ def require_tools() -> dict[str, str]:
             print(f"warning: {name} not found; skipping the zip benchmark", file=sys.stderr)
     if missing:
         raise RuntimeError(f"Required benchmark tools are unavailable: {', '.join(missing)}")
-    if sys.platform == "linux":
-        missing_kernel_tools = [
-            name for name in ("make", "gcc", "flex", "bison", "bc")
-            if not shutil.which(name)
-        ]
-        if missing_kernel_tools:
-            raise RuntimeError(
-                "Required Linux kernel build tools are unavailable: "
-                f"{', '.join(missing_kernel_tools)}. On Ubuntu install "
-                "build-essential flex bison bc libssl-dev libelf-dev."
-            )
     return tools
-
-
-def is_gnu_tar(tar_executable: str) -> bool:
-    result = subprocess.run(
-        [tar_executable, "--version"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-    )
-    return b"GNU tar" in result.stdout
 
 
 def is_privileged() -> bool:
@@ -911,166 +892,6 @@ def run_with_password(command: list[str], cwd: Path, password: str) -> None:
         os.close(master_fd)
 
 
-def validate_tarball(path: Path, expected_root: str = SOURCE_NAME) -> None:
-    with tarfile.open(path, "r:gz") as archive:
-        for member in archive:
-            name = PurePosixPath(member.name)
-            if name.is_absolute() or ".." in name.parts or not name.parts:
-                raise RuntimeError(f"Unsafe path in source tarball: {member.name!r}")
-            if name.parts[0] != expected_root:
-                raise RuntimeError(
-                    f"Unexpected top-level path in source tarball: {member.name!r}"
-                )
-            if member.issym() or member.islnk():
-                link = PurePosixPath(member.linkname)
-                if link.is_absolute():
-                    raise RuntimeError(f"Absolute link in source tarball: {member.name!r}")
-                target = (
-                    PurePosixPath(*name.parts[:-1], *link.parts)
-                    if member.issym()
-                    else link
-                )
-                resolved: list[str] = []
-                for part in target.parts:
-                    if part in ("", "."):
-                        continue
-                    if part == "..":
-                        if not resolved:
-                            raise RuntimeError(
-                                f"Link escapes source tree in source tarball: {member.name!r}"
-                            )
-                        resolved.pop()
-                    else:
-                        resolved.append(part)
-                if not resolved or resolved[0] != expected_root:
-                    raise RuntimeError(
-                        f"Link escapes source tree in source tarball: {member.name!r}"
-                    )
-            elif not (member.isfile() or member.isdir()):
-                raise RuntimeError(
-                    f"Unsupported special file in source tarball: {member.name!r}"
-                )
-
-
-def source_matches_tarball(tarball: Path) -> bool:
-    """Check that the extracted source tree matches the tarball.
-
-    On Windows, tolerate known platform limitations:
-    - Missing symlinks and hard links, which the Windows extractor skips.
-    - Case-colliding files (Windows is case-insensitive; the uppercase variant
-      from the tarball overwrites the lowercase one, so sizes may differ).
-    """
-    max_tolerated = 50 if os.name == "nt" else 0
-
-    members: list[tarfile.TarInfo] = []
-    with tarfile.open(tarball, "r:gz") as archive:
-        members = list(archive)
-
-    case_collisions: set[str] = set()
-    if sys.platform == "darwin":
-        paths_by_casefold: dict[str, str] = {}
-        for member in members:
-            path = PurePosixPath(member.name).as_posix()
-            folded_path = path.casefold()
-            previous = paths_by_casefold.setdefault(folded_path, path)
-            if previous != path:
-                case_collisions.add(folded_path)
-
-    mismatches = 0
-    mismatch_lock = threading.Lock()
-    early_exit = threading.Event()
-
-    def _check_member(member: tarfile.TarInfo) -> None:
-        nonlocal mismatches
-        if early_exit.is_set():
-            return
-        path = TESTDATA.joinpath(*PurePosixPath(member.name).parts)
-        ok = True
-        if member.isdir():
-            ok = not path.is_symlink() and path.is_dir()
-        elif member.issym():
-            matches_link = path.is_symlink() and os.readlink(path) == member.linkname
-            ok = matches_link or (
-                os.name == "nt" and not path.exists() and not path.is_symlink()
-            )
-        elif member.islnk():
-            matches_file = not path.is_symlink() and path.is_file()
-            ok = matches_file or (
-                os.name == "nt" and not path.exists() and not path.is_symlink()
-            )
-        else:
-            ok = path.is_file() and not path.is_symlink() and path.stat().st_size == member.size
-        if not ok:
-            if (
-                sys.platform == "darwin"
-                and PurePosixPath(member.name).as_posix().casefold() in case_collisions
-            ):
-                return
-            with mismatch_lock:
-                mismatches += 1
-                if mismatches > max_tolerated:
-                    early_exit.set()
-
-    workers = min(32, (os.cpu_count() or 1) * 2)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-        list(pool.map(_check_member, members))
-    return mismatches <= max_tolerated
-
-
-def extract_source_tarball(tar_executable: str) -> None:
-    if os.name == "nt":
-        with tarfile.open(SOURCE_ARCHIVE, "r:gz") as archive:
-            members = [
-                member
-                for member in archive
-                if member.isfile() or member.isdir()
-            ]
-            skipped_links = len(archive.getmembers()) - len(members)
-            archive.extractall(path=TESTDATA, members=members)
-        print(
-            f"Extracted {len(members):,} source entries; skipped "
-            f"{skipped_links:,} symbolic/hard links unsupported on Windows."
-        )
-        return
-
-    run_command(
-        [
-            tar_executable,
-            "--extract",
-            "--gzip",
-            "--file",
-            str(SOURCE_ARCHIVE),
-            "--directory",
-            str(TESTDATA),
-            "--no-same-owner",
-            *(["--overwrite"] if is_gnu_tar(tar_executable) else []),
-        ]
-    )
-
-
-def ensure_source(tar_executable: str) -> None:
-    print("Ensuring source archive is available and extracted...")
-    TESTDATA.mkdir(parents=True, exist_ok=True)
-    if not SOURCE_ARCHIVE.is_file():
-        temporary = SOURCE_ARCHIVE.with_suffix(".tar.gz.download")
-        try:
-            print(f"Downloading {SOURCE_URL}")
-            urllib.request.urlretrieve(SOURCE_URL, temporary)
-            temporary.replace(SOURCE_ARCHIVE)
-        finally:
-            temporary.unlink(missing_ok=True)
-
-    validate_tarball(SOURCE_ARCHIVE)
-    if not SOURCE_DIR.is_dir() or not source_matches_tarball(SOURCE_ARCHIVE):
-        action = "Extracting" if not SOURCE_DIR.exists() else "Refreshing"
-        print(f"{action} {SOURCE_ARCHIVE.name} in {TESTDATA}")
-        extract_source_tarball(tar_executable)
-    if not SOURCE_DIR.is_dir():
-        raise RuntimeError(f"Source extraction did not create {SOURCE_DIR}")
-    if not source_matches_tarball(SOURCE_ARCHIVE):
-        raise RuntimeError(f"Source folder does not match {SOURCE_ARCHIVE.name}")
-
-
 def _make_writable_and_retry(function: Callable[..., object], path: str, _error: object) -> None:
     os.chmod(path, 0o700)
     function(path)
@@ -1116,23 +937,25 @@ def measure_with_disk_peak(action: Callable[[], None], roots: list[Path]) -> tup
 
 def verify_partial_extraction(source_dir: Path, partial_files: tuple[str, ...]) -> None:
     found = sorted(
-        p.relative_to(TESTRESULTS).as_posix() for p in TESTRESULTS.rglob("*") if p.is_file()
+        p.relative_to(EXTRACTION_DIR).as_posix()
+        for p in EXTRACTION_DIR.rglob("*")
+        if p.is_file()
     )
     wanted = sorted(f"{source_dir.name}/{m}" for m in partial_files)
     if found != wanted:
         raise RuntimeError(f"Partial extraction produced {found}, expected {wanted}")
     for member in partial_files:
-        if (TESTRESULTS / source_dir.name / member).stat().st_size != (
+        if (EXTRACTION_DIR / source_dir.name / member).stat().st_size != (
             source_dir / member
         ).stat().st_size:
             raise RuntimeError(f"Partial extraction size mismatch for {member}")
 
 
 def clean_testresults() -> None:
-    if TESTRESULTS.is_symlink():
-        raise RuntimeError(f"Refusing to clean symlinked results directory: {TESTRESULTS}")
-    TESTRESULTS.mkdir(parents=True, exist_ok=True)
-    for entry in list(TESTRESULTS.iterdir()):
+    if EXTRACTION_DIR.is_symlink():
+        raise RuntimeError(f"Refusing to clean symlinked extraction directory: {EXTRACTION_DIR}")
+    EXTRACTION_DIR.mkdir(parents=True, exist_ok=True)
+    for entry in list(EXTRACTION_DIR.iterdir()):
         if entry.is_symlink() or entry.is_file():
             _remove_with_retry(entry)
         elif entry.is_dir():
@@ -1213,7 +1036,7 @@ def verify_extraction(
     expected: list[tuple[str, int]], symlinks: list[str], allow_collision_renames: bool,
     source_dir: Path,
 ) -> int:
-    extracted_root = TESTRESULTS / source_dir.name
+    extracted_root = EXTRACTION_DIR / source_dir.name
     if not extracted_root.is_dir():
         raise RuntimeError(f"Extraction did not produce the expected folder {source_dir.name}")
 
@@ -1339,7 +1162,9 @@ def measure(action: Callable[[], None]) -> float:
     return time.perf_counter() - start
 
 
-def archive_path(method: str, encrypted: bool) -> Path:
+def archive_path(
+    method: str, encrypted: bool, dataset_name: str = SOURCE_NAME
+) -> Path:
     suffixes = {
         "zarlib": ".zar",
         "zip": ".zip",
@@ -1348,7 +1173,7 @@ def archive_path(method: str, encrypted: bool) -> Path:
         "tar": ".tar",
         "tar.gz": ".tar.gz",
     }
-    name = f"{SOURCE_NAME}-{method}{'-encrypted' if encrypted else ''}{suffixes[method]}"
+    name = f"{dataset_name}-{method}{'-encrypted' if encrypted else ''}{suffixes[method]}"
     if method in ("tar", "tar.gz") and encrypted:
         name += ".cms"
     return ARCHIVE_DIR / name
@@ -1500,29 +1325,29 @@ def extract_archive(
         command.extend(["--collision", "rename"])
         for name in names:
             command.extend(["--include-file", name])
-        command.extend([str(path), "--output", str(TESTRESULTS)])
+        command.extend([str(path), "--output", str(EXTRACTION_DIR)])
         if encrypted:
-            run_with_password(command, TESTDATA, ENCRYPTED_PASSWORD)
+            run_with_password(command, TESTRESULTS, ENCRYPTED_PASSWORD)
         else:
-            run_command(command, cwd=TESTDATA)
+            run_command(command, cwd=TESTRESULTS)
     elif method == "zip":
         command = [tools["unzip"], "-q", "-o"]
         if encrypted and os.name != "posix":
             command.extend(["-P", ENCRYPTED_PASSWORD])
         command.append(str(path))
         command.extend(names)
-        command.extend(["-d", str(TESTRESULTS)])
+        command.extend(["-d", str(EXTRACTION_DIR)])
         if encrypted and os.name == "posix":
-            run_with_password(command, TESTDATA, ENCRYPTED_PASSWORD)
+            run_with_password(command, TESTRESULTS, ENCRYPTED_PASSWORD)
         else:
-            run_command(command, cwd=TESTDATA)
+            run_command(command, cwd=TESTRESULTS)
     elif method in ("7z", "7z-zstd"):
-        command = [tools["7z"], "x", "-bd", "-y", f"-o{TESTRESULTS}"]
+        command = [tools["7z"], "x", "-bd", "-y", f"-o{EXTRACTION_DIR}"]
         if encrypted:
             command.append(f"-p{password}")
         command.append(str(path))
         command.extend(names)
-        run_7z_extract(command, TESTDATA, 0 if names else expected_link_warnings)
+        run_7z_extract(command, TESTRESULTS, 0 if names else expected_link_warnings)
     elif method in ("tar", "tar.gz"):
         compressed = path
         if encrypted:
@@ -1555,7 +1380,7 @@ def extract_archive(
                 "--file",
                 str(compressed),
                 "--directory",
-                str(TESTRESULTS),
+                str(EXTRACTION_DIR),
                 "--no-same-owner",
                 *names,
             ]
@@ -1873,6 +1698,36 @@ def svg_chart(
     )
 
 
+def benchmark_result_postfix(cpu_model: str, github_actions: bool | None = None) -> str:
+    normalized_cpu = re.sub(r"[^a-z0-9]+", " ", cpu_model.casefold())
+    if re.search(r"\bryzen(?:\s+tm)?\s+5\b", normalized_cpu):
+        cpu_postfix = "-ryzen5"
+    elif re.search(r"\bcore(?:\s+tm)?\s+i7\b", normalized_cpu):
+        cpu_postfix = "-core-i7"
+    elif re.search(r"\bcore(?:\s+tm)?\s+(?:u7|ultra\s+7)\b", normalized_cpu):
+        cpu_postfix = "-core-u7"
+    else:
+        cpu_postfix = ""
+
+    if github_actions is None:
+        github_actions = os.environ.get("GITHUB_ACTIONS", "").strip().casefold() == "true"
+    return f"{cpu_postfix}-gh" if github_actions else cpu_postfix
+
+
+def benchmark_result_paths(
+    dataset_name: str, cpu_model: str
+) -> tuple[Path, Path]:
+    dataset_postfix = "" if dataset_name == SOURCE_NAME else f"-{dataset_name}"
+    postfix = dataset_postfix + benchmark_result_postfix(cpu_model)
+    report_path = REPORT_PATH.with_name(
+        f"{REPORT_PATH.stem}{postfix}{REPORT_PATH.suffix}"
+    )
+    chart_path = CHART_PATH.with_name(
+        f"{CHART_PATH.stem}{postfix}{CHART_PATH.suffix}"
+    )
+    return report_path, chart_path
+
+
 def write_report(
     results: list[dict[str, object]],
     source_bytes: int,
@@ -1880,13 +1735,12 @@ def write_report(
     symlink_count: int,
     tools: dict[str, str],
     notes: list[str],
-    compiled: bool = False,
+    dataset_name: str = SOURCE_NAME,
     partial_files: tuple[str, ...] = PARTIAL_FILES,
-) -> None:
+) -> tuple[Path, Path]:
     BENCHMARKS_DIR.mkdir(parents=True, exist_ok=True)
     hardware = collect_benchmark_hardware()
-    chart_path = CHART_PATH.with_name(f"{CHART_PATH.stem}-compiled{CHART_PATH.suffix}") if compiled else CHART_PATH
-    report_path = REPORT_PATH.with_name(f"{REPORT_PATH.stem}-compiled{REPORT_PATH.suffix}") if compiled else REPORT_PATH
+    report_path, chart_path = benchmark_result_paths(dataset_name, hardware.cpu_model)
     chart_path.write_text(
         svg_chart(results, source_bytes, hardware), encoding="utf-8"
     )
@@ -1987,8 +1841,9 @@ def write_report(
     if zarlib_renames and len(set(zarlib_renames)) == 1:
         collision_note += f" ({zarlib_renames[0]} per run)"
     collision_note += " due to case-folded collisions; generated suffixes are normalized only for comparison."
+    dataset_description = DATASET_DESCRIPTIONS[dataset_name]
     report_path.write_text(
-        f"""# Linux {'6.6.1 Compiled Kernel' if compiled else '4.0.1 Archive'} Benchmark
+        f"""# {dataset_name} {'Precompiled Kernel ' if dataset_name == KERNEL_NAME else ''}Archive Benchmark
 
 Run date: {timestamp}
 - Operating system: {hardware.operating_system}
@@ -1999,8 +1854,8 @@ Run date: {timestamp}
 
 ## Results
 
-Source: [`{KERNEL_NAME if compiled else SOURCE_NAME}.tar.gz`]({KERNEL_URL if compiled else SOURCE_URL})
-Dataset: {"source tree after `make defconfig` and `make`" if compiled else "source tree"}
+Source: [`{dataset_name}.zar`](../../testdata/{dataset_name}.zar)
+Dataset: {dataset_description}
 Uncompressed source size: {source_bytes / (1024 * 1024):.1f} MiB
 Regular files verified: {source_files:,}
 Symbolic links excluded from path/size verification: {symlink_count}
@@ -2013,13 +1868,13 @@ Symbolic links excluded from path/size verification: {symlink_count}
 
 "Extract 3 files" is the time to extract only {", ".join(f"`{m}`" for m in partial_files)}
 from the archive (for encrypted tar/tar.gz this includes decrypting the archive). "Temp space"
-is the peak disk usage of the results directory and the runner's temporary
+is the peak disk usage of the extraction output and the runner's temporary
 directory during that extraction minus the size of the extracted files, sampled
 every 5 ms (the maximum over all runs). Temporary files outside these
 directories (e.g. in the system temp directory) are not captured.
 
 Throughput uses the uncompressed regular-file size. Each extraction was run into
-a freshly emptied `testresults/` directory, then checked against the source tree
+a freshly emptied `testresults/extracted/` directory, then checked against the source tree
 for matching regular-file paths and sizes. {collision_note} The results
 directory was emptied again after each check. Symlink entries are excluded
 from verification. `zarlib` stores links but does not restore them by default;
@@ -2088,10 +1943,12 @@ storage; such cases are identified as unknown or non-rotational/possibly virtual
 {tool_lines}
 
 The generated archives and temporary key material are removed after the run.
-The source archive and extracted source trees remain in `testdata/`.
+The source ZAR archives remain in `testdata/`; extracted source trees remain in
+`testresults/datasets/`.
 """,
         encoding="utf-8",
     )
+    return report_path, chart_path
 
 
 def wait_between_benchmark_runs(previous_run_completed: bool) -> None:
@@ -2214,51 +2071,88 @@ def save_benchmark_run(
             temporary.unlink(missing_ok=True)
 
 
-def build_kernel(tar_executable: str) -> Path:
-    archive = TESTDATA / f"{KERNEL_NAME}.tar.gz"
-    if not archive.is_file():
-        temporary = archive.with_suffix(".tar.gz.download")
+def _is_lfs_pointer(path: Path) -> bool:
+    with path.open("rb") as source:
+        return source.read(64).startswith(b"version https://git-lfs.github.com/spec/v1")
+
+
+def ensure_dataset_archive(binary: Path, dataset_name: str) -> Path:
+    if dataset_name not in DATASET_PARTIAL_FILES:
+        raise ValueError(f"Unknown benchmark dataset: {dataset_name}")
+    TESTDATA.mkdir(parents=True, exist_ok=True)
+    archive = TESTDATA / f"{dataset_name}.zar"
+    if archive.is_symlink():
+        raise RuntimeError(f"Refusing symlinked benchmark dataset archive: {archive}")
+    if not archive.is_file() or _is_lfs_pointer(archive):
+        temporary = archive.with_name(f".{archive.name}.download")
+        if temporary.is_symlink():
+            raise RuntimeError(f"Refusing symlinked benchmark download: {temporary}")
         try:
-            print(f"Downloading {KERNEL_URL}")
-            urllib.request.urlretrieve(KERNEL_URL, temporary)
+            url = f"{DATASET_URL}/{archive.name}"
+            print(f"Downloading {url}", flush=True)
+            try:
+                urllib.request.urlretrieve(url, temporary)
+            except urllib.error.URLError as error:
+                raise RuntimeError(
+                    f"Could not download {archive.name} from {url}. "
+                    "Ensure the archive and its Git LFS object are published."
+                ) from error
+            if _is_lfs_pointer(temporary):
+                raise RuntimeError(f"Download returned a Git LFS pointer instead of {archive.name}")
+            run_command([str(binary), "info", "--no-config", str(temporary)])
             temporary.replace(archive)
         finally:
             temporary.unlink(missing_ok=True)
-    validate_tarball(archive, KERNEL_NAME)
+    else:
+        run_command([str(binary), "info", "--no-config", str(archive)])
+    return archive
+
+
+def ensure_dataset_source(binary: Path, dataset_name: str) -> Path:
+    archive = ensure_dataset_archive(binary, dataset_name)
     with archive.open("rb") as source:
         archive_hash = hashlib.file_digest(source, "sha256").hexdigest()
-    build_parent = TESTDATA / f"{KERNEL_NAME}-compiled"
-    source_dir = build_parent / KERNEL_NAME
-    source_marker = build_parent / ".benchmark-source-extracted"
-    marker = build_parent / ".benchmark-build-complete"
-    if any(path.is_symlink() for path in (build_parent, source_dir, source_marker, marker)):
-        raise RuntimeError(f"Refusing symlinked kernel build directory: {build_parent}")
-    if marker.is_file():
-        if marker.read_text(encoding="utf-8").strip() != archive_hash:
-            raise RuntimeError(
-                f"Kernel source archive changed; remove {build_parent} and its compiled benchmark cache to rebuild"
-            )
-        if not (source_dir / "vmlinux").is_file():
-            raise RuntimeError(f"Compiled kernel missing from {source_dir}")
-        print(f"Reusing compiled kernel tree: {source_dir}")
+
+    if DATASET_DIR.is_symlink():
+        raise RuntimeError(f"Refusing symlinked benchmark dataset directory: {DATASET_DIR}")
+    DATASET_DIR.mkdir(parents=True, exist_ok=True)
+    source_dir = DATASET_DIR / dataset_name
+    marker = DATASET_DIR / f".{dataset_name}.archive-sha256"
+    if source_dir.is_symlink() or marker.is_symlink():
+        raise RuntimeError(f"Refusing symlinked benchmark dataset state for {dataset_name}")
+    if (
+        source_dir.is_dir()
+        and marker.is_file()
+        and marker.read_text(encoding="ascii").strip() == archive_hash
+    ):
+        print(f"Reusing extracted benchmark dataset: {source_dir}")
         return source_dir
-    build_parent.mkdir(parents=True, exist_ok=True)
-    if source_marker.is_file():
-        if source_marker.read_text(encoding="utf-8").strip() != archive_hash:
-            raise RuntimeError(f"Kernel source archive changed; remove {build_parent} to rebuild")
-        if not source_dir.is_dir():
-            raise RuntimeError(f"Extracted kernel source missing from {source_dir}")
-    else:
-        run_command([
-            tar_executable, "--extract", "--gzip", "--file", str(archive),
-            "--directory", str(build_parent), "--no-same-owner",
-        ])
-        source_marker.write_text(f"{archive_hash}\n", encoding="utf-8")
-    run_command(["make", "defconfig"], cwd=source_dir)
-    run_command(["make", f"-j{min(os.cpu_count() or 1, 8)}"], cwd=source_dir)
-    if not (source_dir / "vmlinux").is_file():
-        raise RuntimeError(f"Kernel build did not produce {source_dir / 'vmlinux'}")
-    marker.write_text(f"{archive_hash}\n", encoding="utf-8")
+
+    with tempfile.TemporaryDirectory(
+        prefix=f".{dataset_name}-", dir=DATASET_DIR
+    ) as temporary:
+        command = [
+            str(binary), "extract", "--no-config", "--collision", "rename",
+        ]
+        if os.name == "posix":
+            command.append("--symlinks")
+        command.extend([str(archive), "--output", temporary])
+        run_command(command, cwd=TESTRESULTS)
+        extracted_source = Path(temporary) / dataset_name
+        if not extracted_source.is_dir():
+            raise RuntimeError(
+                f"Dataset archive {archive} did not extract {dataset_name}/"
+            )
+        if dataset_name == KERNEL_NAME and not (
+            extracted_source / "init" / "main.o"
+        ).is_file():
+            raise RuntimeError(
+                f"Precompiled Linux kernel archive is missing {dataset_name}/init/main.o"
+            )
+        if source_dir.exists():
+            _rmtree_with_retry(source_dir)
+        extracted_source.replace(source_dir)
+    marker.write_text(f"{archive_hash}\n", encoding="ascii")
     return source_dir
 
 
@@ -2266,20 +2160,23 @@ def run_benchmarks(
     tools: dict[str, str], cargo: str, mode: str = "both", accept_eula: bool = False
 ) -> bool:
     caches, rammap = resolve_cache_modes(mode, accept_eula)
+    if TESTRESULTS.is_symlink():
+        raise RuntimeError(f"Refusing symlinked benchmark results directory: {TESTRESULTS}")
     TESTRESULTS.mkdir(parents=True, exist_ok=True)
-    with report_progress("Preparing source data"):
-        ensure_source(tools["tar"])
     with report_progress("Building release zarc"):
         binary = build_zarc(cargo)
-    successful = _run_benchmark_dataset(tools, binary, caches, rammap, accept_eula, SOURCE_DIR)
-    if sys.platform == "linux" and os.name == "posix":
-        with report_progress("Building Linux kernel"):
-            compiled_source = build_kernel(tools["tar"])
-        compiled_successful = _run_benchmark_dataset(
-            tools, binary, caches, rammap, accept_eula, compiled_source,
-            compiled=True, partial_files=KERNEL_PARTIAL_FILES,
+    with report_progress("Preparing benchmark datasets"):
+        datasets = [
+            (ensure_dataset_source(binary, dataset_name), partial_files)
+            for dataset_name, partial_files in DATASETS
+        ]
+    successful = True
+    for dataset_dir, partial_files in datasets:
+        dataset_successful = _run_benchmark_dataset(
+            tools, binary, caches, rammap, accept_eula, dataset_dir,
+            partial_files=partial_files,
         )
-        successful = successful and compiled_successful
+        successful = dataset_successful and successful
     if BENCHMARK_CACHE_DIR.is_symlink():
         raise RuntimeError(f"Refusing to clean symlinked benchmark cache: {BENCHMARK_CACHE_DIR}")
     for cached_file in BENCHMARK_CACHE_DIR.iterdir():
@@ -2291,19 +2188,23 @@ def run_benchmarks(
 
 def _run_benchmark_dataset(
     tools: dict[str, str], binary: Path, caches: list[str], rammap: Path | None,
-    accept_eula: bool, source_dir: Path, compiled: bool = False,
+    accept_eula: bool, source_dir: Path,
     partial_files: tuple[str, ...] = PARTIAL_FILES,
 ) -> bool:
     with report_progress("Scanning source files"):
         expected, symlinks, source_bytes = source_manifest(source_dir)
     if not expected or not source_bytes:
         raise RuntimeError(f"No regular source files were found in {source_dir}")
-    if compiled and not any(path == "vmlinux" and size > 0 for path, size in expected):
-        raise RuntimeError(f"Compiled kernel dataset is missing a nonempty vmlinux: {source_dir}")
+    if source_dir.name == KERNEL_NAME and not any(
+        path == "init/main.o" and size > 0 for path, size in expected
+    ):
+        raise RuntimeError(
+            f"Precompiled Linux kernel dataset is missing a nonempty init/main.o: {source_dir}"
+        )
     with report_progress("Fingerprinting source files"):
         source_hash = source_fingerprint(source_dir)
     print(
-        f"Benchmarking {'compiled kernel' if compiled else 'source'} at {source_dir}: "
+        f"Benchmarking {source_dir.name} at {source_dir}: "
         f"{len(expected):,} files ({source_bytes / (1024 * 1024):.1f} MiB)"
     )
 
@@ -2344,10 +2245,10 @@ def _run_benchmark_dataset(
     results: list[dict[str, object]] = []
     versions = tool_versions({**tools, "zarc": str(binary)})
     cache_context: dict[str, object] = {
-        "schema_version": 3,
+        "schema_version": 4,
         "os": OS_TAG,
         "architecture": ARCH_TAG,
-        "source": f"{source_dir.name}-compiled" if compiled else source_dir.name,
+        "source": source_dir.name,
         "source_bytes": source_bytes,
         "source_files": len(expected),
         "source_symlinks": len(symlinks),
@@ -2374,7 +2275,7 @@ def _run_benchmark_dataset(
         raise RuntimeError(f"Refusing to overwrite an existing benchmark archive directory: {ARCHIVE_DIR}")
     ARCHIVE_DIR.mkdir()
     try:
-        with tempfile.TemporaryDirectory(prefix="zar-benchmark-", dir=TESTDATA) as temporary:
+        with tempfile.TemporaryDirectory(prefix="zar-benchmark-", dir=TESTRESULTS) as temporary:
             temporary_directory = Path(temporary)
             certificate: Path | None = None
             private_key: Path | None = None
@@ -2410,7 +2311,7 @@ def _run_benchmark_dataset(
                 for encrypted in (False, True):
                     if (method, encrypted) in skipped:
                         continue
-                    path = archive_path(method, encrypted)
+                    path = archive_path(method, encrypted, source_dir.name)
                     path.unlink(missing_ok=True)
                     def prepare_cache(*warm: Path, cache: str = cache) -> None:
                         if cache == "cold":
@@ -2465,7 +2366,7 @@ def _run_benchmark_dataset(
                             f"(encrypted={encrypted}, {cache} cache){label}"
                         )
                         test_name = (
-                            f"{'compiled-' if compiled else ''}{method}-{'encrypted' if encrypted else 'plain'}-"
+                            f"{source_dir.name}-{method}-{'encrypted' if encrypted else 'plain'}-"
                             f"{cache}-run-{run + 1}"
                         )
                         cached_result = load_benchmark_run(test_name, cache_context)
@@ -2578,7 +2479,7 @@ def _run_benchmark_dataset(
                                         ),
                                         "selected extraction",
                                     ),
-                                    [TESTRESULTS, temporary_directory],
+                                    [EXTRACTION_DIR, temporary_directory],
                                 )
                             if failure is not None:
                                 record_failure()
@@ -2683,18 +2584,16 @@ def _run_benchmark_dataset(
                     path.unlink(missing_ok=True)
 
         with report_progress("Writing benchmark report and chart"):
-            write_report(
+            report_path, chart_path = write_report(
                 results,
                 source_bytes,
                 len(expected),
                 len(symlinks),
                 versions,
                 notes,
-                compiled,
+                source_dir.name,
                 partial_files,
             )
-        report_path = REPORT_PATH.with_name(f"{REPORT_PATH.stem}-compiled{REPORT_PATH.suffix}") if compiled else REPORT_PATH
-        chart_path = CHART_PATH.with_name(f"{CHART_PATH.stem}-compiled{CHART_PATH.suffix}") if compiled else CHART_PATH
         print(f"Report written to {report_path}")
         print(f"Chart written to {chart_path}")
         return not any(item.get("failures") for item in results)
@@ -2702,7 +2601,7 @@ def _run_benchmark_dataset(
         clean_testresults()
         for method in methods:
             for encrypted in (False, True):
-                archive_path(method, encrypted).unlink(missing_ok=True)
+                archive_path(method, encrypted, source_dir.name).unlink(missing_ok=True)
         try:
             ARCHIVE_DIR.rmdir()
         except OSError:
@@ -2726,7 +2625,7 @@ def main() -> int:
     parser.add_argument(
         "--no-install",
         action="store_true",
-        help="do not try to install missing archive or Ubuntu kernel build tools",
+        help=        "do not try to install missing archive tools",
     )
     args = parser.parse_args()
     try:
@@ -2735,7 +2634,7 @@ def main() -> int:
         tools = require_tools()
         if not run_benchmarks(tools, args.cargo, args.mode, args.accept_sysinternals_eula):
             return 1
-    except (OSError, RuntimeError, TimeoutError, tarfile.TarError) as error:
+    except (OSError, RuntimeError, TimeoutError) as error:
         print(f"benchmark: {error}", file=sys.stderr)
         return 1
     return 0
