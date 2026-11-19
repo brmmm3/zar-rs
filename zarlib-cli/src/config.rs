@@ -118,7 +118,11 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("zarc.json");
         std::fs::write(&path, r#"{"create":{"compression-level":7,"metadata":true,"include-file":["*.rs","*.txt"]},"info":{"verbose":2}}"#).unwrap();
-        let cli = parse_at(&["zarc", "c", "a.zar", "input"], &[path.clone()]).unwrap();
+        let cli = parse_at(
+            &["zarc", "c", "a.zar", "input"],
+            std::slice::from_ref(&path),
+        )
+        .unwrap();
         assert!(
             matches!(cli.command, Command::Create { compression_level: Some(level), metadata: true, include_files, .. } if level == "7" && include_files == ["*.rs", "*.txt"])
         );
@@ -133,13 +137,13 @@ mod tests {
                 "--include-file",
                 "*.c",
             ],
-            &[path.clone()],
+            std::slice::from_ref(&path),
         )
         .unwrap();
         assert!(
             matches!(cli.command, Command::Create { compression_level: Some(level), include_files, .. } if level == "3" && include_files == ["*.c"])
         );
-        let cli = parse_at(&["zarc", "info", "a.zar"], &[path.clone()]).unwrap();
+        let cli = parse_at(&["zarc", "info", "a.zar"], std::slice::from_ref(&path)).unwrap();
         assert!(matches!(cli.command, Command::Info { verbose: 2, .. }));
         let cli = parse_at(&["zarc", "info", "a.zar", "-v"], &[path]).unwrap();
         assert!(matches!(cli.command, Command::Info { verbose: 1, .. }));
@@ -151,7 +155,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("zarc.json");
         std::fs::write(&path, r#"{"extract":{"recheck-block-checksums":"never"}}"#).unwrap();
-        let cli = parse_at(&["zarc", "extract", "a.zar"], &[path.clone()]).unwrap();
+        let cli = parse_at(&["zarc", "extract", "a.zar"], std::slice::from_ref(&path)).unwrap();
         assert!(matches!(
             cli.command,
             Command::Extract {
@@ -246,7 +250,11 @@ mod tests {
         ] {
             std::fs::write(&path, text).unwrap();
             assert!(
-                parse_at(&["zarc", "create", "a.zar", "input"], &[path.clone()]).is_err(),
+                parse_at(
+                    &["zarc", "create", "a.zar", "input"],
+                    std::slice::from_ref(&path)
+                )
+                .is_err(),
                 "{text}"
             );
         }
