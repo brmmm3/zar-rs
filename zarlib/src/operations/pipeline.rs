@@ -196,19 +196,12 @@ pub fn scan_tree(
 
     for result in &results.results {
         if let Some(ext) = result.ext() {
+            if is_scanned_root_entry(ext, &metadata) {
+                continue;
+            }
             let normalized_path = ext.path.trim_matches(['/', '\\']);
             let scanned_path = Path::new(normalized_path);
-            let root_name = source.file_name().unwrap_or_default();
-            let has_root_prefix = scanned_path
-                .components()
-                .next()
-                .is_some_and(|component| component.as_os_str() == root_name);
-            let relative_path = if has_root_prefix {
-                scanned_path.strip_prefix(root_name).unwrap_or(scanned_path)
-            } else {
-                scanned_path
-            };
-            let relative_components = relative_path
+            let relative_components = scanned_path
                 .components()
                 .filter_map(|component| match component {
                     std::path::Component::Normal(name) => {
@@ -222,7 +215,7 @@ pub fn scan_tree(
             if relative.is_empty() {
                 continue;
             }
-            let source_path = source.join(relative_path);
+            let source_path = source.join(&relative);
             let metadata = std::fs::symlink_metadata(&source_path)?;
             let archive_path = if prefix.is_empty() {
                 relative
@@ -294,6 +287,26 @@ pub fn scan_tree(
         }
     }
     Ok(entries)
+}
+
+#[cfg(all(not(target_os = "wasi"), unix))]
+fn is_scanned_root_entry(entry: &scandir::DirEntryExt, root_metadata: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    entry.is_dir && entry.st_dev == root_metadata.dev() && entry.st_ino == root_metadata.ino()
+}
+
+#[cfg(all(not(target_os = "wasi"), windows))]
+fn is_scanned_root_entry(entry: &scandir::DirEntryExt, root_metadata: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+
+    entry.is_dir
+        && root_metadata
+            .volume_serial_number()
+            .is_some_and(|device| entry.st_dev == u64::from(device))
+        && root_metadata
+            .file_index()
+            .is_some_and(|inode| entry.st_ino == inode)
 }
 
 #[cfg(target_os = "wasi")]
@@ -1997,7 +2010,8 @@ fn open_input_file(
 mod tests {
     use super::{
         ScanContext, ScanPolicy, SmallFilePacker, TreeEntry, TreeEntryKind, archive_prefix,
-        process_file_entries_parallel, process_tree_entries, skip_permission_denied_file,
+        process_file_entries_parallel, process_tree_entries, scan_tree,
+        skip_permission_denied_file,
     };
     use crate::operations::{EncodingOptions, ProgressReporter};
     use crate::{DeviceKind, TocChange};
@@ -2005,6 +2019,35 @@ mod tests {
     use std::io::Write;
     use std::path::Path;
     use std::sync::Mutex;
+
+    #[test]
+    fn scan_tree_preserves_child_named_like_input_root() {
+        let temporary = tempfile::tempdir().unwrap();
+        let source = temporary.path().join("duplicates");
+        let nested = source.join("duplicates/128x128/file.png");
+        std::fs::create_dir_all(nested.parent().unwrap()).unwrap();
+        std::fs::write(&nested, b"icon").unwrap();
+
+        let entries = scan_tree(&source, "duplicates").unwrap();
+        let unique_paths = entries
+            .iter()
+            .map(|entry| entry.archive_path.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            unique_paths.len(),
+            entries.len(),
+            "duplicate paths: {:?}",
+            entries
+                .iter()
+                .map(|entry| &entry.archive_path)
+                .collect::<Vec<_>>()
+        );
+        let entry = entries
+            .iter()
+            .find(|entry| entry.archive_path == "duplicates/duplicates/128x128/file.png")
+            .unwrap();
+        assert_eq!(entry.source_path, nested);
+    }
 
     #[test]
     fn special_entries_follow_scan_policy_and_record_metadata() {

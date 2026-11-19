@@ -11,6 +11,9 @@ until a version is released.
   testing archives from file-manager context menus.
 - Added resumable archive benchmarks with per-run results in `.benchmark_cache`,
   progress-numbered filenames, and cache cleanup after successful report generation.
+- Added benchmark coverage for both repository ZAR datasets: Linux 4.0.1 and
+  the precompiled Linux 6.1.1 kernel, downloading missing inputs and keeping
+  extracted data in `testresults/`.
 - Added benchmark run counters, completion percentages, and periodic elapsed-time
   progress for long-running archive benchmark steps.
 - Added `scripts/update_version.py` to update current package versions, lockfiles,
@@ -27,6 +30,11 @@ until a version is released.
 - Reuse validated archive headers and the table of contents throughout extraction
   instead of reparsing headers for reference discovery and source preparation.
   Filter validated TOC entries directly instead of replaying them as new commits.
+
+### Fixed
+
+- Fix archive creation when an input directory contains a child with the same
+  name as the input root.
 
 ## 0.14.0 - 2026-11-18
 
