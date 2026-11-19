@@ -36,6 +36,23 @@ The v1 and v3 packages use the same internal package version and identity, so th
 one another rather than installing side by side. These workflow changes do
 not rebuild assets already published in older releases.
 
+## Updating package versions
+
+From the repository root, use Python 3.11 or newer:
+
+```sh
+python3 scripts/update_version.py 0.15.0 --dry-run
+python3 scripts/update_version.py 0.15.0
+```
+
+The script updates the Rust workspace and local dependency versions, Cargo and
+Node.js lockfiles, Python, Java, NuGet, Scoop, Chocolatey, and Inno Setup metadata.
+It preserves file line endings, third-party dependency versions, changelog history,
+and existing versioned winget manifests. It does not create Git tags or publish.
+Scoop and Chocolatey checksums are deliberately left unchanged; replace them with
+hashes of the new release artifacts before publishing or installing the packages.
+All manifest edits are prepared and validated before any files are written.
+
 ## Windows (Inno Setup)
 
 ```powershell
@@ -85,7 +102,7 @@ package locally, for example:
 Push-Location packaging\windows\chocolatey\zar-rs
 choco pack zarg.nuspec --output-directory "$env:TEMP"
 Pop-Location
-choco install zar-rs --version 0.14.0 --source "$env:TEMP" -y
+choco install zar-rs --version 0.15.0 --source "$env:TEMP" -y
 ```
 
 For the x86-64-v3 package, pack

@@ -75,6 +75,27 @@ and encrypted configurations where supported. The script does not accept a
 custom input dataset. Encrypted ZAR runs are skipped on Windows; 7-Zip
 receives a temporary random password on its command line.
 
+Console progress includes the current benchmark run and total, compression,
+full and selected-file extraction, verification, and the completed percentage.
+Long-running steps print elapsed-time updates every five seconds, including
+source preparation and the release build. Progress setup and teardown are outside
+the timed operations; benchmark result timings remain separate from step elapsed time.
+
+Each verified benchmark run is saved atomically in the repository's
+`.benchmark_cache/` directory, including individual hot-cache repetitions.
+Filenames start with the overall progress number, for example
+`001-zarlib-plain-hot-run-1.json`. Restarting the script reuses completed runs,
+including resource samples, and only measures missing runs. Cached runs are found
+by test name even if their progress number changes. Source preparation and the
+release build still run on restart.
+
+The script rejects malformed cache files or results with mismatched platform,
+source summary, or tool versions; remove those files to measure the affected
+tests again. Delete all cached files to start an entirely fresh benchmark.
+Cache writes are outside timed operations. If a run or report generation fails,
+completed results remain available. Once the final report and chart are written
+successfully, all files in `.benchmark_cache/` are removed.
+
 **Before running:** save anything important elsewhere. The runner empties
 `testresults/` repeatedly, deletes and recreates
 `testdata/benchmark-archives/`, and overwrites the report and chart for the

@@ -7,6 +7,12 @@ until a version is released.
 
 ### Added
 
+- Added resumable archive benchmarks with per-run results in `.benchmark_cache`,
+  progress-numbered filenames, and cache cleanup after successful report generation.
+- Added benchmark run counters, completion percentages, and periodic elapsed-time
+  progress for long-running archive benchmark steps.
+- Added `scripts/update_version.py` to update current package versions, lockfiles,
+  and release URLs together, with a dry-run mode and unchanged download checksums.
 - Added per-command defaults from `zarc.json`, searched in the current folder
   before the per-user configuration directory, and `--no-config` to skip it.
 - Added `zarc extract --recheck-block-checksums auto|always|never`, defaulting

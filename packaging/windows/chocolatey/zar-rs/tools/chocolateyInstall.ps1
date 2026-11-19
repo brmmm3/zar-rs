@@ -17,7 +17,7 @@ switch ($architecture) {
 $tools = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $archive = Join-Path $tools 'zar-rs.zip'
 Get-ChocolateyWebFile -PackageName 'zar-rs' -FileFullPath $archive `
-    -Url "https://github.com/brmmm3/zar-rs/releases/download/0.14.0/zar-rs-windows-$arch.zip" `
+    -Url "https://github.com/brmmm3/zar-rs/releases/download/0.15.0/zar-rs-windows-$arch.zip" `
     -Checksum $checksum -ChecksumType 'sha256' | Out-Null
 Get-ChocolateyUnzip -FileFullPath $archive -Destination $tools
 Remove-Item $archive
