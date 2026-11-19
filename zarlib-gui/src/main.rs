@@ -7,6 +7,8 @@ mod theme;
 mod ui;
 #[cfg(target_os = "linux")]
 mod wayland_drag;
+#[cfg(windows)]
+mod windows_move;
 #[cfg(target_os = "linux")]
 mod x11_drag;
 
@@ -71,6 +73,8 @@ fn main() -> eframe::Result {
         WINDOW_TITLE,
         options,
         Box::new(move |creation_context| {
+            #[cfg(windows)]
+            windows_move::install(creation_context);
             creation_context.egui_ctx.set_zoom_factor(ui_scale);
             let controller = theme::install(&creation_context.egui_ctx, theme_mode);
             let mut app = app;

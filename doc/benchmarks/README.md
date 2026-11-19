@@ -1,7 +1,8 @@
 # Archive benchmark overview
 
 These reports compare `zarlib` with ZIP, 7z, tar, and tar.gz using the Linux
-4.0.1 source tree (about 525 MiB). Depending on platform and available tools,
+4.0.1 source tree (about 525 MiB). On Linux, the script also benchmarks a
+separate compiled Linux 6.6.1 kernel tree. Depending on platform and available tools,
 they cover archive size, compression, full extraction, extracting three
 selected files, hot and cold file-cache runs, and encrypted runs. Each report
 includes its own methodology, tool versions, and detailed results; its chart
@@ -57,6 +58,12 @@ tar and tar.gz cases. GNU tar's gzip support also needs `gzip`. With the
 default options the script attempts to install missing external tools using a
 supported system package manager, potentially requesting elevated privileges.
 Install the tools yourself and pass `--no-install` to avoid that behavior.
+On Linux, the additional kernel build requires GNU make, GCC, flex, bison, bc,
+and the OpenSSL and ELF development headers. On Ubuntu, the script also
+installs missing `build-essential`, `flex`, `bison`, `bc`, `libssl-dev`, and
+`libelf-dev` packages unless `--no-install` is used. On other Linux distributions,
+install the kernel build prerequisites yourself. Missing build executables are
+reported before the benchmarks begin.
 
 ```sh
 # Hot-cache comparison; no administrator privileges or automatic installs.
@@ -75,34 +82,64 @@ and encrypted configurations where supported. The script does not accept a
 custom input dataset. Encrypted ZAR runs are skipped on Windows; 7-Zip
 receives a temporary random password on its command line.
 
+After all source-tree measurements and their report, Linux runs download and
+validate Linux 6.6.1, run `make defconfig` and `make` (up to eight parallel
+jobs), and repeat every enabled benchmark on the source tree including build
+outputs. This newer kernel is used because 4.0.1 does not support current GCC
+versions. The benchmark input is the build tree at
+`testdata/linux-6.6.1-compiled/linux-6.6.1/`, including `vmlinux`, object
+files, and generated configuration. The runner prints the input path and the
+total regular-file size, and rejects a compiled dataset without a nonempty
+`vmlinux`. A typical build occupies roughly 2.2 GiB on disk, but its size varies
+by platform and configuration; the reported regular-file size can differ from
+disk usage. The compiled run extracts `Makefile`, `COPYING`, and
+`kernel/sched/core.c` for its selected-file measurements. Its separate report
+and chart have `-compiled` appended to their names. Kernel compilation can
+take significant time and disk space; a failed build stops the script.
+
 Console progress includes the current benchmark run and total, compression,
 full and selected-file extraction, verification, and the completed percentage.
 Long-running steps print elapsed-time updates every five seconds, including
 source preparation and the release build. Progress setup and teardown are outside
 the timed operations; benchmark result timings remain separate from step elapsed time.
+If an archiver command fails, the runner records the error and continues with
+the other runs. A configuration with any failed repetition is marked `FAILED`
+in the report and chart, with error details in the report. Failure to create the
+temporary certificate marks encrypted tar cases as failed; other setup, cache,
+and verification errors still stop the runner. After completing all datasets
+and writing their reports, the script exits nonzero if any configuration failed.
 
-Each verified benchmark run is saved atomically in the repository's
-`.benchmark_cache/` directory, including individual hot-cache repetitions.
+Each verified or failed benchmark run is saved atomically in the repository's
+`.benchmark_cache/` directory, including individual hot-cache repetitions and
+separate `compiled-` entries for the compiled kernel dataset.
 Filenames start with the overall progress number, for example
 `001-zarlib-plain-hot-run-1.json`. Restarting the script reuses completed runs,
 including resource samples, and only measures missing runs. Cached runs are found
 by test name even if their progress number changes. Source preparation and the
-release build still run on restart.
+release build still run on restart. A successfully built kernel tree is reused
+on restart, provided its source archive has not changed. To rebuild it, remove
+`testdata/linux-6.6.1-compiled/` and any `compiled-` cache entries.
+After a failed build, a successfully extracted source tree is reused on retry.
 
-The script rejects malformed cache files or results with mismatched platform,
-source summary, or tool versions; remove those files to measure the affected
-tests again. Delete all cached files to start an entirely fresh benchmark.
+The script hashes source file contents and records paths, metadata, and symlink
+targets before each dataset. It rejects malformed cache files or results with a
+mismatched platform, source fingerprint, or tool versions; remove those files to
+measure the affected tests again. Existing cache entries from older versions of
+the runner must also be removed. Delete all cached files to start an entirely
+fresh benchmark.
 Cache writes are outside timed operations. If a run or report generation fails,
 completed results remain available. Once the final report and chart are written
-successfully, all files in `.benchmark_cache/` are removed.
+successfully (including the compiled report on Linux), all files in
+`.benchmark_cache/` are removed.
 
 **Before running:** save anything important elsewhere. The runner empties
 `testresults/` repeatedly, deletes and recreates
 `testdata/benchmark-archives/`, and overwrites the report and chart for the
 detected OS and architecture under `doc/benchmarks/`. The source tarball and
-extracted tree remain in `testdata/`; generated archives and temporary key
-material are removed at the end. Allow enough disk space for the source,
-archives, extraction output, and temporary files.
+extracted trees, including the completed kernel build, remain in `testdata/`;
+generated archives and temporary key material are removed at the end. Allow
+enough disk space for both source trees, kernel build outputs, archives,
+extraction output, and temporary files.
 
 `--mode hot` warms the source and archive cache before measurement. The
 default `--mode both` also attempts cold-cache runs; `--mode cold` requests
@@ -117,8 +154,11 @@ machine, not just this benchmark.
 Hot configurations are measured twice and cold configurations once; the
 report gives minimum and maximum times, not statistical averages. It includes
 archive size, compression and full extraction time and throughput, extraction
-of three selected files, temporary space, and sampled system-wide CPU/RAM (not
-per-process usage). Download,
+of three selected files, temporary space, sampled system-wide CPU utilisation,
+and the summed resident memory (RSS) of the archiver and its child processes.
+Shared memory can be counted more than once, and operations shorter than the
+sampling interval may have no resource samples. Older reports used system-wide
+RAM rather than process RSS and should not be compared directly. Download,
 build, verification and the three-second pauses between runs are not timed.
 Regular-file paths and sizes are checked after extraction, not file contents.
 The report explains format-specific settings, encryption, skipped cases and

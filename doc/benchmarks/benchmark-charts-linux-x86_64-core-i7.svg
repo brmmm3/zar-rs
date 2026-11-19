@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1120" height="3880" viewBox="0 0 1120 3880" role="img" aria-labelledby="title description">
 <title id="title">linux x86_64 archive benchmark charts</title>
-<desc id="description">Archive size, compression time, full and three-file extraction time, CPU utilisation, and RAM usage for archive formats with and without encryption, with hot and cold file caches where available. Source size: 525.1 MiB. Operating system: Linux-5.15.0-198-generic-x86_64-with-glibc2.35. CPU: Intel(R) Core(TM) i7-10700 CPU @ 2.90GHz (x86_64, 16 logical cores). Storage (Source and archives): SSD / non-rotational (may be virtual); model: Not reported; device: dm-2; Storage (Extraction output): SSD / non-rotational (may be virtual); model: Not reported; device: dm-2</desc>
+<desc id="description">Archive size, compression time, full and three-file extraction time, CPU utilisation, and RAM usage for archive formats with and without encryption, with hot and cold file caches where available. Source size: 525.1 MiB. Operating system: Linux-5.15.0-198-generic-x86_64-with-glibc2.35. CPU: Intel(R) Core(TM) i7-10700 CPU @ 2.90GHz (x86_64, 16 logical cores). Storage (Source and archives): SSD / non-rotational (may be virtual); model: Samsung SSD 990 PRO 1TB; device: nvme0n1; Storage (Extraction output): SSD / non-rotational (may be virtual); model: Samsung SSD 990 PRO 1TB; device: nvme0n1</desc>
 <style>
   text { font-family: system-ui, sans-serif; fill: #172033; }
   .heading { font-size: 19px; font-weight: 700; }
@@ -14,8 +14,8 @@
 <text x="24" y="24" class="heading">Benchmark system</text>
 <text x="24" y="46" class="metadata">Operating system: Linux-5.15.0-198-generic-x86_64-with-glibc2.35</text>
 <text x="24" y="64" class="metadata">CPU: Intel(R) Core(TM) i7-10700 CPU @ 2.90GHz (x86_64, 16 logical cores)</text>
-<text x="24" y="82" class="metadata">Storage (Source and archives): SSD / non-rotational (may be virtual); model: Not reported; device: dm-2</text>
-<text x="24" y="100" class="metadata">Storage (Extraction output): SSD / non-rotational (may be virtual); model: Not reported; device: dm-2</text>
+<text x="24" y="82" class="metadata">Storage (Source and archives): SSD / non-rotational (may be virtual); model: Samsung SSD 990 PRO 1TB; device: nvme0n1</text>
+<text x="24" y="100" class="metadata">Storage (Extraction output): SSD / non-rotational (may be virtual); model: Samsung SSD 990 PRO 1TB; device: nvme0n1</text>
 <text x="24" y="120" class="heading">Archive size</text>
 <line x1="250" y1="154" x2="250" y2="754" class="grid"/>
 <text x="250" y="146" text-anchor="middle" class="axis">0.0</text>
@@ -29,16 +29,16 @@
 <text x="950" y="146" text-anchor="middle" class="axis">562.7</text>
 <text x="238" y="171" text-anchor="end" class="label">zarlib - plain - hot</text>
 <rect x="250" y="157" width="143" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
-<text x="401" y="171" class="value">115.49 MiB</text>
+<text x="401" y="171" class="value">115.18 MiB</text>
 <text x="238" y="201" text-anchor="end" class="label">zarlib - encrypted - hot</text>
 <rect x="250" y="187" width="143" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
-<text x="401" y="201" class="value">115.39 MiB</text>
+<text x="401" y="201" class="value">115.30 MiB</text>
 <text x="238" y="231" text-anchor="end" class="label">zip - plain - hot</text>
 <rect x="250" y="217" width="187" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
-<text x="445" y="231" class="value">151.09 MiB</text>
+<text x="445" y="231" class="value">150.34 MiB</text>
 <text x="238" y="261" text-anchor="end" class="label">zip - encrypted - hot</text>
-<rect x="250" y="247" width="189" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
-<text x="447" y="261" class="value">152.42 MiB</text>
+<rect x="250" y="247" width="188" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="446" y="261" class="value">151.65 MiB</text>
 <text x="238" y="291" text-anchor="end" class="label">7z - plain - hot</text>
 <rect x="250" y="277" width="100" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
 <text x="358" y="291" class="value">81.14 MiB</text>
@@ -52,23 +52,23 @@
 <rect x="250" y="367" width="700" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
 <text x="958" y="381" class="value">562.67 MiB</text>
 <text x="238" y="411" text-anchor="end" class="label">tar.gz - plain - hot</text>
-<rect x="250" y="397" width="151" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
-<text x="409" y="411" class="value">122.10 MiB</text>
+<rect x="250" y="397" width="152" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="410" y="411" class="value">122.21 MiB</text>
 <text x="238" y="441" text-anchor="end" class="label">tar.gz - encrypted - hot</text>
-<rect x="250" y="427" width="151" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
-<text x="409" y="441" class="value">122.10 MiB</text>
+<rect x="250" y="427" width="152" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="410" y="441" class="value">122.22 MiB</text>
 <text x="238" y="471" text-anchor="end" class="label">zarlib - plain - cold</text>
 <rect x="250" y="457" width="143" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
-<text x="401" y="471" class="value">115.41 MiB</text>
+<text x="401" y="471" class="value">115.47 MiB</text>
 <text x="238" y="501" text-anchor="end" class="label">zarlib - encrypted - cold</text>
 <rect x="250" y="487" width="143" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
-<text x="401" y="501" class="value">115.42 MiB</text>
+<text x="401" y="501" class="value">115.52 MiB</text>
 <text x="238" y="531" text-anchor="end" class="label">zip - plain - cold</text>
 <rect x="250" y="517" width="187" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
-<text x="445" y="531" class="value">151.09 MiB</text>
+<text x="445" y="531" class="value">150.34 MiB</text>
 <text x="238" y="561" text-anchor="end" class="label">zip - encrypted - cold</text>
-<rect x="250" y="547" width="189" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
-<text x="447" y="561" class="value">152.42 MiB</text>
+<rect x="250" y="547" width="188" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="446" y="561" class="value">151.65 MiB</text>
 <text x="238" y="591" text-anchor="end" class="label">7z - plain - cold</text>
 <rect x="250" y="577" width="100" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
 <text x="358" y="591" class="value">81.14 MiB</text>
@@ -82,368 +82,374 @@
 <rect x="250" y="667" width="700" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
 <text x="958" y="681" class="value">562.67 MiB</text>
 <text x="238" y="711" text-anchor="end" class="label">tar.gz - plain - cold</text>
-<rect x="250" y="697" width="151" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
-<text x="409" y="711" class="value">122.10 MiB</text>
+<rect x="250" y="697" width="152" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="410" y="711" class="value">122.21 MiB</text>
 <text x="238" y="741" text-anchor="end" class="label">tar.gz - encrypted - cold</text>
-<rect x="250" y="727" width="151" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
-<text x="409" y="741" class="value">122.10 MiB</text>
+<rect x="250" y="727" width="152" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="410" y="741" class="value">122.22 MiB</text>
 <text x="24" y="800" class="heading">Compression time</text>
 <line x1="250" y1="834" x2="250" y2="1434" class="grid"/>
 <text x="250" y="826" text-anchor="middle" class="axis">0.0</text>
 <line x1="425" y1="834" x2="425" y2="1434" class="grid"/>
-<text x="425" y="826" text-anchor="middle" class="axis">6.7</text>
+<text x="425" y="826" text-anchor="middle" class="axis">7.3</text>
 <line x1="600" y1="834" x2="600" y2="1434" class="grid"/>
-<text x="600" y="826" text-anchor="middle" class="axis">13.5</text>
+<text x="600" y="826" text-anchor="middle" class="axis">14.6</text>
 <line x1="775" y1="834" x2="775" y2="1434" class="grid"/>
-<text x="775" y="826" text-anchor="middle" class="axis">20.2</text>
+<text x="775" y="826" text-anchor="middle" class="axis">21.9</text>
 <line x1="950" y1="834" x2="950" y2="1434" class="grid"/>
-<text x="950" y="826" text-anchor="middle" class="axis">27.0</text>
+<text x="950" y="826" text-anchor="middle" class="axis">29.2</text>
 <text x="238" y="851" text-anchor="end" class="label">zarlib - plain - hot</text>
-<rect x="272" y="837" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
-<text x="281" y="851" class="value">0.86-0.86 s</text>
+<rect x="273" y="837" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="282" y="851" class="value">0.99-1.04 s</text>
 <text x="238" y="881" text-anchor="end" class="label">zarlib - encrypted - hot</text>
-<rect x="274" y="867" width="1" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
-<text x="283" y="881" class="value">0.96-1.00 s</text>
+<rect x="275" y="867" width="1" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
+<text x="284" y="881" class="value">1.07-1.11 s</text>
 <text x="238" y="911" text-anchor="end" class="label">zip - plain - hot</text>
-<rect x="535" y="897" width="1" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
-<text x="544" y="911" class="value">11.01-11.05 s</text>
+<rect x="532" y="897" width="2" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="542" y="911" class="value">11.77-11.89 s</text>
 <text x="238" y="941" text-anchor="end" class="label">zip - encrypted - hot</text>
-<rect x="548" y="927" width="1" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
-<text x="557" y="941" class="value">11.52-11.59 s</text>
+<rect x="543" y="927" width="6" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="557" y="941" class="value">12.23-12.50 s</text>
 <text x="238" y="971" text-anchor="end" class="label">7z - plain - hot</text>
-<rect x="895" y="957" width="1" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
-<text x="904" y="971" class="value">24.91-24.94 s</text>
+<rect x="881" y="957" width="18" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="907" y="971" class="value">26.33-27.11 s</text>
 <text x="238" y="1001" text-anchor="end" class="label">7z - encrypted - hot</text>
-<rect x="893" y="987" width="3" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
-<text x="904" y="1001" class="value">24.80-24.93 s</text>
+<rect x="869" y="987" width="10" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="887" y="1001" class="value">25.82-26.26 s</text>
 <text x="238" y="1031" text-anchor="end" class="label">tar - plain - hot</text>
-<rect x="263" y="1017" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
-<text x="272" y="1031" class="value">0.52-0.53 s</text>
+<rect x="265" y="1017" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="274" y="1031" class="value">0.64-0.68 s</text>
 <text x="238" y="1061" text-anchor="end" class="label">tar - encrypted - hot</text>
-<rect x="302" y="1047" width="17" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
-<text x="327" y="1061" class="value">2.02-2.69 s</text>
+<rect x="302" y="1047" width="6" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="316" y="1061" class="value">2.21-2.49 s</text>
 <text x="238" y="1091" text-anchor="end" class="label">tar.gz - plain - hot</text>
-<rect x="580" y="1077" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
-<text x="589" y="1091" class="value">12.76-12.79 s</text>
+<rect x="561" y="1077" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="570" y="1091" class="value">12.97-12.97 s</text>
 <text x="238" y="1121" text-anchor="end" class="label">tar.gz - encrypted - hot</text>
-<rect x="586" y="1107" width="5" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
-<text x="599" y="1121" class="value">12.98-13.21 s</text>
+<rect x="568" y="1107" width="17" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="593" y="1121" class="value">13.26-14.01 s</text>
 <text x="238" y="1151" text-anchor="end" class="label">zarlib - plain - cold</text>
 <rect x="276" y="1137" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
-<text x="285" y="1151" class="value">1.03-1.03 s</text>
+<text x="285" y="1151" class="value">1.11-1.11 s</text>
 <text x="238" y="1181" text-anchor="end" class="label">zarlib - encrypted - cold</text>
-<rect x="278" y="1167" width="1" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
-<text x="287" y="1181" class="value">1.10-1.10 s</text>
+<rect x="279" y="1167" width="1" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
+<text x="288" y="1181" class="value">1.24-1.24 s</text>
 <text x="238" y="1211" text-anchor="end" class="label">zip - plain - cold</text>
-<rect x="702" y="1197" width="1" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
-<text x="711" y="1211" class="value">17.47-17.47 s</text>
+<rect x="607" y="1197" width="1" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="616" y="1211" class="value">14.89-14.89 s</text>
 <text x="238" y="1241" text-anchor="end" class="label">zip - encrypted - cold</text>
-<rect x="711" y="1227" width="1" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
-<text x="720" y="1241" class="value">17.81-17.81 s</text>
+<rect x="625" y="1227" width="1" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="634" y="1241" class="value">15.66-15.66 s</text>
 <text x="238" y="1271" text-anchor="end" class="label">7z - plain - cold</text>
-<rect x="943" y="1257" width="1" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
-<text x="952" y="1271" class="value">26.75-26.75 s</text>
+<rect x="950" y="1257" width="1" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="959" y="1271" class="value">29.17-29.17 s</text>
 <text x="238" y="1301" text-anchor="end" class="label">7z - encrypted - cold</text>
-<rect x="950" y="1287" width="1" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
-<text x="959" y="1301" class="value">27.00-27.00 s</text>
+<rect x="918" y="1287" width="1" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="927" y="1301" class="value">27.88-27.88 s</text>
 <text x="238" y="1331" text-anchor="end" class="label">tar - plain - cold</text>
-<rect x="432" y="1317" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
-<text x="441" y="1331" class="value">7.05-7.05 s</text>
+<rect x="349" y="1317" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="358" y="1331" class="value">4.17-4.17 s</text>
 <text x="238" y="1361" text-anchor="end" class="label">tar - encrypted - cold</text>
-<rect x="488" y="1347" width="1" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
-<text x="497" y="1361" class="value">9.19-9.19 s</text>
+<rect x="393" y="1347" width="1" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="402" y="1361" class="value">5.97-5.97 s</text>
 <text x="238" y="1391" text-anchor="end" class="label">tar.gz - plain - cold</text>
-<rect x="603" y="1377" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
-<text x="612" y="1391" class="value">13.63-13.63 s</text>
+<rect x="567" y="1377" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="576" y="1391" class="value">13.25-13.25 s</text>
 <text x="238" y="1421" text-anchor="end" class="label">tar.gz - encrypted - cold</text>
-<rect x="615" y="1407" width="1" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
-<text x="624" y="1421" class="value">14.09-14.09 s</text>
+<rect x="576" y="1407" width="1" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="585" y="1421" class="value">13.62-13.62 s</text>
 <text x="24" y="1480" class="heading">Extraction time</text>
 <line x1="250" y1="1514" x2="250" y2="2114" class="grid"/>
 <text x="250" y="1506" text-anchor="middle" class="axis">0.0</text>
 <line x1="425" y1="1514" x2="425" y2="2114" class="grid"/>
-<text x="425" y="1506" text-anchor="middle" class="axis">1.5</text>
+<text x="425" y="1506" text-anchor="middle" class="axis">1.6</text>
 <line x1="600" y1="1514" x2="600" y2="2114" class="grid"/>
-<text x="600" y="1506" text-anchor="middle" class="axis">2.9</text>
+<text x="600" y="1506" text-anchor="middle" class="axis">3.2</text>
 <line x1="775" y1="1514" x2="775" y2="2114" class="grid"/>
-<text x="775" y="1506" text-anchor="middle" class="axis">4.4</text>
+<text x="775" y="1506" text-anchor="middle" class="axis">4.8</text>
 <line x1="950" y1="1514" x2="950" y2="2114" class="grid"/>
-<text x="950" y="1506" text-anchor="middle" class="axis">5.9</text>
+<text x="950" y="1506" text-anchor="middle" class="axis">6.4</text>
 <text x="238" y="1531" text-anchor="end" class="label">zarlib - plain - hot</text>
-<rect x="355" y="1517" width="26" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
-<text x="389" y="1531" class="value">0.88-1.10 s</text>
+<rect x="344" y="1517" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="353" y="1531" class="value">0.87-0.87 s</text>
 <text x="238" y="1561" text-anchor="end" class="label">zarlib - encrypted - hot</text>
-<rect x="394" y="1547" width="1" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
-<text x="403" y="1561" class="value">1.21-1.22 s</text>
+<rect x="373" y="1547" width="1" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
+<text x="382" y="1561" class="value">1.13-1.14 s</text>
 <text x="238" y="1591" text-anchor="end" class="label">zip - plain - hot</text>
-<rect x="708" y="1577" width="7" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
-<text x="723" y="1591" class="value">3.84-3.90 s</text>
+<rect x="712" y="1577" width="21" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="741" y="1591" class="value">4.25-4.44 s</text>
 <text x="238" y="1621" text-anchor="end" class="label">zip - encrypted - hot</text>
-<rect x="842" y="1607" width="1" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
-<text x="851" y="1621" class="value">4.96-4.97 s</text>
+<rect x="840" y="1607" width="5" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="853" y="1621" class="value">5.43-5.48 s</text>
 <text x="238" y="1651" text-anchor="end" class="label">7z - plain - hot</text>
-<rect x="928" y="1637" width="3" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
-<text x="939" y="1651" class="value">5.68-5.70 s</text>
+<rect x="907" y="1637" width="14" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="929" y="1651" class="value">6.04-6.17 s</text>
 <text x="238" y="1681" text-anchor="end" class="label">7z - encrypted - hot</text>
-<rect x="946" y="1667" width="3" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
-<text x="957" y="1681" class="value">5.83-5.86 s</text>
+<rect x="919" y="1667" width="21" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="948" y="1681" class="value">6.15-6.35 s</text>
 <text x="238" y="1711" text-anchor="end" class="label">tar - plain - hot</text>
-<rect x="358" y="1697" width="10" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
-<text x="376" y="1711" class="value">0.91-1.00 s</text>
+<rect x="355" y="1697" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="364" y="1711" class="value">0.97-0.97 s</text>
 <text x="238" y="1741" text-anchor="end" class="label">tar - encrypted - hot</text>
-<rect x="497" y="1727" width="49" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
-<text x="554" y="1741" class="value">2.07-2.49 s</text>
+<rect x="490" y="1727" width="20" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="518" y="1741" class="value">2.21-2.40 s</text>
 <text x="238" y="1771" text-anchor="end" class="label">tar.gz - plain - hot</text>
-<rect x="517" y="1757" width="2" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
-<text x="527" y="1771" class="value">2.24-2.26 s</text>
+<rect x="501" y="1757" width="4" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="513" y="1771" class="value">2.32-2.36 s</text>
 <text x="238" y="1801" text-anchor="end" class="label">tar.gz - encrypted - hot</text>
-<rect x="547" y="1787" width="55" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
-<text x="610" y="1801" class="value">2.49-2.96 s</text>
+<rect x="538" y="1787" width="7" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="553" y="1801" class="value">2.65-2.72 s</text>
 <text x="238" y="1831" text-anchor="end" class="label">zarlib - plain - cold</text>
-<rect x="384" y="1817" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
-<text x="393" y="1831" class="value">1.13-1.13 s</text>
+<rect x="348" y="1817" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="357" y="1831" class="value">0.91-0.91 s</text>
 <text x="238" y="1861" text-anchor="end" class="label">zarlib - encrypted - cold</text>
-<rect x="408" y="1847" width="1" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
-<text x="417" y="1861" class="value">1.33-1.33 s</text>
+<rect x="385" y="1847" width="1" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
+<text x="394" y="1861" class="value">1.25-1.25 s</text>
 <text x="238" y="1891" text-anchor="end" class="label">zip - plain - cold</text>
-<rect x="743" y="1877" width="1" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
-<text x="752" y="1891" class="value">4.13-4.13 s</text>
+<rect x="721" y="1877" width="1" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="730" y="1891" class="value">4.33-4.33 s</text>
 <text x="238" y="1921" text-anchor="end" class="label">zip - encrypted - cold</text>
-<rect x="869" y="1907" width="1" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
-<text x="878" y="1921" class="value">5.19-5.19 s</text>
+<rect x="853" y="1907" width="1" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="862" y="1921" class="value">5.55-5.55 s</text>
 <text x="238" y="1951" text-anchor="end" class="label">7z - plain - cold</text>
-<rect x="940" y="1937" width="1" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
-<text x="949" y="1951" class="value">5.78-5.78 s</text>
+<rect x="916" y="1937" width="1" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="925" y="1951" class="value">6.13-6.13 s</text>
 <text x="238" y="1981" text-anchor="end" class="label">7z - encrypted - cold</text>
-<rect x="946" y="1967" width="1" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
-<text x="955" y="1981" class="value">5.83-5.83 s</text>
+<rect x="950" y="1967" width="1" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="959" y="1981" class="value">6.43-6.43 s</text>
 <text x="238" y="2011" text-anchor="end" class="label">tar - plain - cold</text>
-<rect x="381" y="1997" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
-<text x="390" y="2011" class="value">1.10-1.10 s</text>
+<rect x="370" y="1997" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="379" y="2011" class="value">1.10-1.10 s</text>
 <text x="238" y="2041" text-anchor="end" class="label">tar - encrypted - cold</text>
-<rect x="637" y="2027" width="1" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
-<text x="646" y="2041" class="value">3.25-3.25 s</text>
+<rect x="548" y="2027" width="1" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="557" y="2041" class="value">2.75-2.75 s</text>
 <text x="238" y="2071" text-anchor="end" class="label">tar.gz - plain - cold</text>
-<rect x="544" y="2057" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
-<text x="553" y="2071" class="value">2.47-2.47 s</text>
+<rect x="516" y="2057" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="525" y="2071" class="value">2.45-2.45 s</text>
 <text x="238" y="2101" text-anchor="end" class="label">tar.gz - encrypted - cold</text>
-<rect x="660" y="2087" width="1" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
-<text x="669" y="2101" class="value">3.44-3.44 s</text>
+<rect x="548" y="2087" width="1" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="557" y="2101" class="value">2.75-2.75 s</text>
 <text x="24" y="2160" class="heading">Extraction time (3 files)</text>
 <line x1="250" y1="2194" x2="250" y2="2794" class="grid"/>
 <text x="250" y="2186" text-anchor="middle" class="axis">0.0</text>
 <line x1="425" y1="2194" x2="425" y2="2794" class="grid"/>
-<text x="425" y="2186" text-anchor="middle" class="axis">0.9</text>
+<text x="425" y="2186" text-anchor="middle" class="axis">1.0</text>
 <line x1="600" y1="2194" x2="600" y2="2794" class="grid"/>
-<text x="600" y="2186" text-anchor="middle" class="axis">1.8</text>
+<text x="600" y="2186" text-anchor="middle" class="axis">2.1</text>
 <line x1="775" y1="2194" x2="775" y2="2794" class="grid"/>
-<text x="775" y="2186" text-anchor="middle" class="axis">2.7</text>
+<text x="775" y="2186" text-anchor="middle" class="axis">3.1</text>
 <line x1="950" y1="2194" x2="950" y2="2794" class="grid"/>
-<text x="950" y="2186" text-anchor="middle" class="axis">3.6</text>
+<text x="950" y="2186" text-anchor="middle" class="axis">4.2</text>
 <text x="238" y="2211" text-anchor="end" class="label">zarlib - plain - hot</text>
-<rect x="274" y="2197" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
-<text x="283" y="2211" class="value">0.12-0.13 s</text>
+<rect x="268" y="2197" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="277" y="2211" class="value">0.11-0.11 s</text>
 <text x="238" y="2241" text-anchor="end" class="label">zarlib - encrypted - hot</text>
-<rect x="317" y="2227" width="1" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
-<text x="326" y="2241" class="value">0.35-0.35 s</text>
+<rect x="284" y="2227" width="12" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
+<text x="304" y="2241" class="value">0.20-0.28 s</text>
 <text x="238" y="2271" text-anchor="end" class="label">zip - plain - hot</text>
 <rect x="251" y="2257" width="1" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
 <text x="260" y="2271" class="value">0.01-0.01 s</text>
 <text x="238" y="2301" text-anchor="end" class="label">zip - encrypted - hot</text>
 <rect x="252" y="2287" width="1" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
-<text x="261" y="2301" class="value">0.01-0.01 s</text>
+<text x="261" y="2301" class="value">0.01-0.02 s</text>
 <text x="238" y="2331" text-anchor="end" class="label">7z - plain - hot</text>
-<rect x="914" y="2317" width="5" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
-<text x="927" y="2331" class="value">3.41-3.43 s</text>
+<rect x="881" y="2317" width="68" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="957" y="2331" class="value">3.78-4.19 s</text>
 <text x="238" y="2361" text-anchor="end" class="label">7z - encrypted - hot</text>
-<rect x="943" y="2347" width="5" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
-<text x="956" y="2361" class="value">3.55-3.58 s</text>
+<rect x="905" y="2347" width="2" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="915" y="2361" class="value">3.92-3.94 s</text>
 <text x="238" y="2391" text-anchor="end" class="label">tar - plain - hot</text>
-<rect x="262" y="2377" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
-<text x="271" y="2391" class="value">0.06-0.06 s</text>
+<rect x="261" y="2377" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="270" y="2391" class="value">0.07-0.07 s</text>
 <text x="238" y="2421" text-anchor="end" class="label">tar - encrypted - hot</text>
-<rect x="515" y="2407" width="1" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
-<text x="524" y="2421" class="value">1.36-1.37 s</text>
+<rect x="508" y="2407" width="11" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="527" y="2421" class="value">1.55-1.62 s</text>
 <text x="238" y="2451" text-anchor="end" class="label">tar.gz - plain - hot</text>
-<rect x="673" y="2437" width="10" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
-<text x="691" y="2451" class="value">2.17-2.22 s</text>
+<rect x="632" y="2437" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="641" y="2451" class="value">2.29-2.29 s</text>
 <text x="238" y="2481" text-anchor="end" class="label">tar.gz - encrypted - hot</text>
-<rect x="732" y="2467" width="1" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
-<text x="741" y="2481" class="value">2.47-2.48 s</text>
+<rect x="691" y="2467" width="3" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="702" y="2481" class="value">2.64-2.66 s</text>
 <text x="238" y="2511" text-anchor="end" class="label">zarlib - plain - cold</text>
-<rect x="281" y="2497" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
-<text x="290" y="2511" class="value">0.16-0.16 s</text>
+<rect x="279" y="2497" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="288" y="2511" class="value">0.18-0.18 s</text>
 <text x="238" y="2541" text-anchor="end" class="label">zarlib - encrypted - cold</text>
-<rect x="328" y="2527" width="1" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
-<text x="337" y="2541" class="value">0.40-0.40 s</text>
+<rect x="290" y="2527" width="1" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
+<text x="299" y="2541" class="value">0.24-0.24 s</text>
 <text x="238" y="2571" text-anchor="end" class="label">zip - plain - cold</text>
-<rect x="253" y="2557" width="1" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
-<text x="262" y="2571" class="value">0.02-0.02 s</text>
+<rect x="252" y="2557" width="1" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="261" y="2571" class="value">0.02-0.02 s</text>
 <text x="238" y="2601" text-anchor="end" class="label">zip - encrypted - cold</text>
 <rect x="254" y="2587" width="1" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
 <text x="263" y="2601" class="value">0.02-0.02 s</text>
 <text x="238" y="2631" text-anchor="end" class="label">7z - plain - cold</text>
-<rect x="936" y="2617" width="1" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
-<text x="945" y="2631" class="value">3.52-3.52 s</text>
+<rect x="905" y="2617" width="1" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="914" y="2631" class="value">3.92-3.92 s</text>
 <text x="238" y="2661" text-anchor="end" class="label">7z - encrypted - cold</text>
-<rect x="950" y="2647" width="1" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
-<text x="959" y="2661" class="value">3.59-3.59 s</text>
+<rect x="913" y="2647" width="1" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="922" y="2661" class="value">3.97-3.97 s</text>
 <text x="238" y="2691" text-anchor="end" class="label">tar - plain - cold</text>
-<rect x="419" y="2677" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
-<text x="428" y="2691" class="value">0.87-0.87 s</text>
+<rect x="313" y="2677" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="322" y="2691" class="value">0.38-0.38 s</text>
 <text x="238" y="2721" text-anchor="end" class="label">tar - encrypted - cold</text>
-<rect x="715" y="2707" width="1" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
-<text x="724" y="2721" class="value">2.38-2.38 s</text>
+<rect x="532" y="2707" width="1" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="541" y="2721" class="value">1.69-1.69 s</text>
 <text x="238" y="2751" text-anchor="end" class="label">tar.gz - plain - cold</text>
-<rect x="697" y="2737" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
-<text x="706" y="2751" class="value">2.29-2.29 s</text>
+<rect x="652" y="2737" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="661" y="2751" class="value">2.41-2.41 s</text>
 <text x="238" y="2781" text-anchor="end" class="label">tar.gz - encrypted - cold</text>
-<rect x="871" y="2767" width="1" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
-<text x="880" y="2781" class="value">3.19-3.19 s</text>
+<rect x="701" y="2767" width="1" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="710" y="2781" class="value">2.70-2.70 s</text>
 <text x="24" y="2850" class="heading">CPU during compression</text>
 <line x1="250" y1="3044" x2="950" y2="3044" class="grid"/>
 <text x="242" y="3048" text-anchor="end" class="axis">0</text>
 <line x1="250" y1="3004" x2="950" y2="3004" class="grid"/>
-<text x="242" y="3008" text-anchor="end" class="axis">23</text>
+<text x="242" y="3008" text-anchor="end" class="axis">25</text>
 <line x1="250" y1="2964" x2="950" y2="2964" class="grid"/>
-<text x="242" y="2968" text-anchor="end" class="axis">46</text>
+<text x="242" y="2968" text-anchor="end" class="axis">50</text>
 <line x1="250" y1="2924" x2="950" y2="2924" class="grid"/>
-<text x="242" y="2928" text-anchor="end" class="axis">69</text>
+<text x="242" y="2928" text-anchor="end" class="axis">74</text>
 <line x1="250" y1="2884" x2="950" y2="2884" class="grid"/>
-<text x="242" y="2888" text-anchor="end" class="axis">92</text>
+<text x="242" y="2888" text-anchor="end" class="axis">99</text>
 <text x="242" y="2870" text-anchor="end" class="axis">CPU (%)</text>
 <text x="250" y="3060" text-anchor="middle" class="axis">0.0s</text>
-<text x="425" y="3060" text-anchor="middle" class="axis">6.2s</text>
-<text x="600" y="3060" text-anchor="middle" class="axis">12.5s</text>
-<text x="775" y="3060" text-anchor="middle" class="axis">18.8s</text>
-<text x="950" y="3060" text-anchor="middle" class="axis">25.0s</text>
-<polyline points="250,3024" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3033 278,3027 306,3033 334,3033 362,3033 390,3033 418,3033 446,3032 474,3032 502,3033 530,3033" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3035 278,3033 306,3033 334,3033 362,3033 390,3033 418,3033 446,3033 474,3027 502,3033 530,3033" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3029 278,2901 306,2908 334,2912 362,2912 390,2911 418,2913 446,2904 474,2914 502,2907 530,2913 558,2914 586,2914 614,2915 642,2913 670,2914 698,2917 726,2914 754,2915 782,2907 810,2953 838,2988 866,3026 894,3032" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3029 278,2899 306,2907 334,2911 362,2911 390,2913 418,2913 446,2914 474,2911 502,2911 530,2913 558,2913 586,2914 614,2904 642,2912 670,2911 698,2913 726,2913 754,2913 782,2914 810,2954 838,2993 866,3028 894,3033" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3033 278,3034" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3034 278,3032 306,3033 334,3033 362,3033 390,3033 418,3032 446,3033 474,3033 502,3033 530,3033 558,3032" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3033 278,3033 306,3033 334,3033 362,3032 390,3033 418,3033 446,3033 474,3032 502,3033 530,3032 558,3033 586,3030" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3027" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3025" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3031 278,3036 306,3036 334,3033 362,3036 390,3036 418,3036 446,3035 474,3035 502,3036 530,3037 558,3038 586,3036 614,3023 642,3038 670,3037 698,3037" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3039 278,3036 306,3035 334,3036 362,3036 390,3034 418,3036 446,3035 474,3036 502,3035 530,3037 558,3038 586,3036 614,3034 642,3031 670,3024 698,3038" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3039 278,3011 306,2952 334,2912 362,2906 390,2902 418,2912 446,2914 474,2911 502,2912 530,2912 558,2912 586,2914 614,2915 642,2915 670,2905 698,2909 726,2916 754,2913 782,2915 810,2912 838,2946 866,2991 894,3015 922,3031 950,3034" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3036 278,3010 306,2953 334,2909 362,2884 390,2910 418,2915 446,2911 474,2911 502,2912 530,2911 558,2911 586,2913 614,2914 642,2916 670,2914 698,2913 726,2913 754,2915 782,2915 810,2915 838,2937 866,2983 894,3010 922,3027 950,3025" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3035 278,3042 306,3041 334,3032 362,3042 390,3041 418,3041" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3038 278,3042 306,3040 334,3031 362,3038 390,3042 418,3030 446,3015 474,3031" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3035 278,3032 306,3032 334,3031 362,3030 390,3022 418,3032 446,3032 474,3033 502,3033 530,3033 558,3027 586,3026" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3036 278,3031 306,3020 334,3032 362,3032 390,3032 418,3032 446,3032 474,3033 502,3032 530,3033 558,3032 586,3032 614,3030" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="425" y="3060" text-anchor="middle" class="axis">7.0s</text>
+<text x="600" y="3060" text-anchor="middle" class="axis">14.0s</text>
+<text x="775" y="3060" text-anchor="middle" class="axis">21.0s</text>
+<text x="950" y="3060" text-anchor="middle" class="axis">28.0s</text>
+<polyline points="250,3044" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3044 275,2903" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3030 275,3020 300,3023 325,3023 350,3019 375,3012 400,3017 425,3029 450,3031 475,3033 500,3023 525,3018" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3018 275,3015 300,3014 325,3017 350,3004 375,2999 400,3005 425,3027 450,3029 475,3032 500,3025 525,3031 550,3031" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2997 275,2909 300,2901 325,2907 350,2906 375,2904 400,2906 425,2900 450,2909 475,2910 500,2916 525,2914 550,2922 575,2921 600,2922 625,2915 650,2915 675,2920 700,2921 725,2920 750,2921 775,2918 800,2945 825,2986 850,3023 875,3031 900,3026" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2977 275,2911 300,2912 325,2917 350,2919 375,2917 400,2918 425,2919 450,2920 475,2919 500,2920 525,2921 550,2923 575,2922 600,2922 625,2913 650,2914 675,2918 700,2921 725,2916 750,2919 775,2937 800,2971 825,3008 850,3030 875,3032 900,3030" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3004" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3037 275,3028 300,3023" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3029 275,3031 300,3028 325,3027 350,3026 375,3031 400,3025 425,3028 450,3028 475,3031 500,3031 525,3022 550,3030" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3036 275,3024 300,3027 325,3031 350,3030 375,3031 400,3030 425,3031 450,3031 475,3030 500,3028 525,3031 550,3026 575,3031" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3025" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3013 275,2884" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3023 275,3031 300,3031 325,3033 350,3031 375,3034 400,3031 425,3030 450,3025 475,3029 500,3021 525,3032 550,3018 575,3032 600,3033" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3024 275,3018 300,3019 325,3020 350,3014 375,3013 400,2993 425,2999 450,3022 475,3026 500,3029 525,3033 550,3030 575,3033 600,3033 625,3024" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3022 275,3011 300,2955 325,2907 350,2902 375,2903 400,2901 425,2896 450,2900 475,2900 500,2908 525,2913 550,2910 575,2920 600,2923 625,2913 650,2921 675,2920 700,2911 725,2904 750,2914 775,2921 800,2921 825,2923 850,2956 875,3005 900,3026 925,3031 950,3031" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3020 275,3014 300,2958 325,2907 350,2900 375,2915 400,2921 425,2920 450,2917 475,2919 500,2921 525,2918 550,2915 575,2920 600,2921 625,2923 650,2915 675,2921 700,2919 725,2919 750,2924 775,2921 800,2929 825,2969 850,2996 875,3026 900,3031 925,3032" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3017 275,3002 300,3030 325,3032" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3034 275,3039 300,3029 325,3034 350,3033 375,3027" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3033 275,3029 300,3028 325,3031 350,3030 375,3017 400,3025 425,3031 450,3030 475,3030 500,3031 525,3029 550,3033 575,3030" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3028 275,3030 300,3021 325,3031 350,3031 375,3031 400,3027 425,3024 450,3031 475,3031 500,3033 525,3028 550,3028 575,3029" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
 <text x="250" y="3080" class="axis" font-weight="600">Line colour = archive format; solid = plain, dashed = encrypted</text>
 <text x="24" y="3100" class="heading">RAM during compression</text>
 <line x1="250" y1="3294" x2="950" y2="3294" class="grid"/>
-<text x="242" y="3298" text-anchor="end" class="axis">0.0</text>
+<text x="242" y="3298" text-anchor="end" class="axis">0.00</text>
 <line x1="250" y1="3254" x2="950" y2="3254" class="grid"/>
-<text x="242" y="3258" text-anchor="end" class="axis">2.1</text>
+<text x="242" y="3258" text-anchor="end" class="axis">0.47</text>
 <line x1="250" y1="3214" x2="950" y2="3214" class="grid"/>
-<text x="242" y="3218" text-anchor="end" class="axis">4.2</text>
+<text x="242" y="3218" text-anchor="end" class="axis">0.95</text>
 <line x1="250" y1="3174" x2="950" y2="3174" class="grid"/>
-<text x="242" y="3178" text-anchor="end" class="axis">6.3</text>
+<text x="242" y="3178" text-anchor="end" class="axis">1.42</text>
 <line x1="250" y1="3134" x2="950" y2="3134" class="grid"/>
-<text x="242" y="3138" text-anchor="end" class="axis">8.4</text>
+<text x="242" y="3138" text-anchor="end" class="axis">1.89</text>
 <text x="242" y="3120" text-anchor="end" class="axis">RAM (GiB)</text>
 <text x="250" y="3310" text-anchor="middle" class="axis">0.0s</text>
-<text x="425" y="3310" text-anchor="middle" class="axis">6.2s</text>
-<text x="600" y="3310" text-anchor="middle" class="axis">12.5s</text>
-<text x="775" y="3310" text-anchor="middle" class="axis">18.8s</text>
-<text x="950" y="3310" text-anchor="middle" class="axis">25.0s</text>
-<polyline points="250,3167" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3170 278,3170 306,3170 334,3170 362,3170 390,3170 418,3170 446,3170 474,3170 502,3170 530,3170" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3170 278,3170 306,3170 334,3170 362,3170 390,3170 418,3170 446,3170 474,3170 502,3170 530,3170" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3152 278,3148 306,3144 334,3140 362,3137 390,3136 418,3136 446,3135 474,3135 502,3135 530,3135 558,3135 586,3135 614,3135 642,3135 670,3135 698,3135 726,3135 754,3135 782,3135 810,3135 838,3135 866,3170 894,3170" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3152 278,3148 306,3144 334,3140 362,3137 390,3136 418,3136 446,3136 474,3136 502,3136 530,3135 558,3135 586,3135 614,3135 642,3135 670,3135 698,3135 726,3135 754,3135 782,3135 810,3135 838,3134 866,3170 894,3170" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3163 278,3152" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3171 278,3171 306,3171 334,3171 362,3171 390,3171 418,3171 446,3171 474,3171 502,3171 530,3171 558,3171" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3170 278,3170 306,3170 334,3170 362,3170 390,3170 418,3170 446,3170 474,3170 502,3170 530,3170 558,3170 586,3168" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3164" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3165" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3172 278,3172 306,3172 334,3172 362,3172 390,3172 418,3172 446,3172 474,3172 502,3172 530,3172 558,3172 586,3172 614,3172 642,3172 670,3172 698,3172" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3172 278,3172 306,3172 334,3172 362,3172 390,3172 418,3172 446,3172 474,3172 502,3172 530,3172 558,3172 586,3172 614,3172 642,3172 670,3172 698,3172" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3172 278,3165 306,3155 334,3148 362,3144 390,3141 418,3139 446,3138 474,3137 502,3137 530,3137 558,3137 586,3137 614,3137 642,3137 670,3136 698,3137 726,3137 754,3137 782,3137 810,3137 838,3137 866,3136 894,3137 922,3172 950,3172" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3172 278,3165 306,3155 334,3148 362,3144 390,3142 418,3139 446,3138 474,3137 502,3137 530,3137 558,3137 586,3137 614,3137 642,3137 670,3137 698,3137 726,3137 754,3137 782,3137 810,3137 838,3137 866,3137 894,3136 922,3172 950,3171" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3173 278,3173 306,3173 334,3172 362,3172 390,3172 418,3172" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3173 278,3173 306,3173 334,3172 362,3173 390,3173 418,3172 446,3158 474,3147" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3173 278,3173 306,3173 334,3173 362,3173 390,3172 418,3172 446,3172 474,3172 502,3172 530,3173 558,3172 586,3173" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3173 278,3173 306,3172 334,3172 362,3172 390,3172 418,3172 446,3172 474,3173 502,3173 530,3173 558,3173 586,3173 614,3169" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="425" y="3310" text-anchor="middle" class="axis">7.0s</text>
+<text x="600" y="3310" text-anchor="middle" class="axis">14.0s</text>
+<text x="775" y="3310" text-anchor="middle" class="axis">21.0s</text>
+<text x="950" y="3310" text-anchor="middle" class="axis">28.0s</text>
+<polyline points="250,3236" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3239 275,3294" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3293 275,3293 300,3293 325,3292 350,3292 375,3292 400,3292 425,3292 450,3292 475,3292 500,3292 525,3292" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3293 275,3293 300,3293 325,3292 350,3292 375,3292 400,3292 425,3292 450,3292 475,3292 500,3292 525,3292 550,3292" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3267 275,3208 300,3189 325,3172 350,3156 375,3145 400,3140 425,3139 450,3139 475,3138 500,3138 525,3138 550,3137 575,3137 600,3137 625,3137 650,3136 675,3136 700,3136 725,3135 750,3135 775,3135 800,3135 825,3135 850,3251 875,3290 900,3290" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3267 275,3208 300,3188 325,3170 350,3154 375,3143 400,3139 425,3139 450,3138 475,3138 500,3138 525,3138 550,3137 575,3137 600,3137 625,3136 650,3136 675,3136 700,3136 725,3135 750,3135 775,3135 800,3134 825,3174 850,3290 875,3290 900,3290" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3294" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3294 275,3256 300,3211" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3294 275,3294 300,3294 325,3294 350,3294 375,3294 400,3294 425,3294 450,3294 475,3294 500,3294 525,3294 550,3294" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3294 275,3294 300,3294 325,3294 350,3294 375,3294 400,3294 425,3294 450,3294 475,3294 500,3294 525,3294 550,3294 575,3291" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3244" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3248 275,3225" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3293 275,3293 300,3293 325,3293 350,3292 375,3292 400,3292 425,3292 450,3292 475,3292 500,3292 525,3292 550,3292 575,3292 600,3292" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3293 275,3293 300,3293 325,3293 350,3292 375,3292 400,3292 425,3292 450,3292 475,3292 500,3292 525,3292 550,3292 575,3292 600,3292 625,3292" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3292 275,3275 300,3234 325,3196 350,3176 375,3162 400,3150 425,3144 450,3141 475,3139 500,3138 525,3138 550,3138 575,3138 600,3137 625,3137 650,3137 675,3137 700,3136 725,3136 750,3136 775,3135 800,3135 825,3135 850,3135 875,3135 900,3154 925,3290 950,3290" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3292 275,3275 300,3232 325,3194 350,3175 375,3161 400,3148 425,3141 450,3140 475,3139 500,3138 525,3138 550,3138 575,3137 600,3137 625,3137 650,3137 675,3136 700,3136 725,3136 750,3135 775,3135 800,3135 825,3135 850,3135 875,3212 900,3290 925,3290" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3294 275,3294 300,3294 325,3294" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3294 275,3294 300,3294 325,3294 350,3285 375,3219" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3294 275,3294 300,3294 325,3294 350,3294 375,3294 400,3294 425,3294 450,3294 475,3294 500,3294 525,3294 550,3294 575,3294" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3294 275,3294 300,3294 325,3294 350,3294 375,3294 400,3294 425,3294 450,3294 475,3294 500,3294 525,3294 550,3294 575,3284" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
 <text x="250" y="3330" class="axis" font-weight="600">Line colour = archive format; solid = plain, dashed = encrypted</text>
 <text x="24" y="3350" class="heading">CPU during extraction</text>
 <line x1="250" y1="3544" x2="950" y2="3544" class="grid"/>
 <text x="242" y="3548" text-anchor="end" class="axis">0</text>
 <line x1="250" y1="3504" x2="950" y2="3504" class="grid"/>
-<text x="242" y="3508" text-anchor="end" class="axis">6</text>
+<text x="242" y="3508" text-anchor="end" class="axis">15</text>
 <line x1="250" y1="3464" x2="950" y2="3464" class="grid"/>
-<text x="242" y="3468" text-anchor="end" class="axis">11</text>
+<text x="242" y="3468" text-anchor="end" class="axis">30</text>
 <line x1="250" y1="3424" x2="950" y2="3424" class="grid"/>
-<text x="242" y="3428" text-anchor="end" class="axis">17</text>
+<text x="242" y="3428" text-anchor="end" class="axis">44</text>
 <line x1="250" y1="3384" x2="950" y2="3384" class="grid"/>
-<text x="242" y="3388" text-anchor="end" class="axis">22</text>
+<text x="242" y="3388" text-anchor="end" class="axis">59</text>
 <text x="242" y="3370" text-anchor="end" class="axis">CPU (%)</text>
 <text x="250" y="3560" text-anchor="middle" class="axis">0.0s</text>
-<text x="425" y="3560" text-anchor="middle" class="axis">1.0s</text>
-<text x="600" y="3560" text-anchor="middle" class="axis">2.0s</text>
-<text x="775" y="3560" text-anchor="middle" class="axis">3.0s</text>
-<text x="950" y="3560" text-anchor="middle" class="axis">4.0s</text>
-<polyline points="250,3544" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3407" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3497 425,3499 600,3497" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3498 425,3496 600,3472 775,3490" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3497 425,3497 600,3495 775,3499 950,3498" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3486 425,3498 600,3498 775,3498 950,3497" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3501 425,3475" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3477 425,3473" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3487 425,3488" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3384" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3454" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3506 425,3498 600,3451 775,3499" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3509 425,3499 600,3497 775,3500 950,3498" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3490 425,3497 600,3498 775,3498 950,3497" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3495 425,3498 600,3496 775,3498 950,3496" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3506" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3491 425,3467 600,3476" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3495 425,3484" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3506 425,3431 600,3471" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="425" y="3560" text-anchor="middle" class="axis">1.5s</text>
+<text x="600" y="3560" text-anchor="middle" class="axis">3.0s</text>
+<text x="775" y="3560" text-anchor="middle" class="axis">4.5s</text>
+<text x="950" y="3560" text-anchor="middle" class="axis">6.0s</text>
+<polyline points="250,3402" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3400 366,3384" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3515 366,3483 483,3513 600,3506 716,3505" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3517 366,3499 483,3511 600,3510 716,3513 833,3504" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3509 366,3508 483,3516 600,3498 716,3502 833,3517" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3518 366,3512 483,3514 600,3514 716,3502 833,3502 950,3520" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3501" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3502 366,3523 483,3516" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3505 366,3502 483,3516" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3517 366,3495 483,3510" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3514" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3451 366,3400" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3518 366,3508 483,3504 600,3511 716,3501" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3500 366,3480 483,3512 600,3516 716,3506 833,3507" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3517 366,3517 483,3519 600,3513 716,3508 833,3511" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3516 366,3509 483,3511 600,3519 716,3506 833,3496 950,3477" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3521 366,3517" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3501 366,3510 483,3486" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3518 366,3502 483,3512" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3524 366,3501 483,3516" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
 <text x="250" y="3580" class="axis" font-weight="600">Line colour = archive format; solid = plain, dashed = encrypted</text>
 <text x="24" y="3600" class="heading">RAM during extraction</text>
 <line x1="250" y1="3794" x2="950" y2="3794" class="grid"/>
-<text x="242" y="3798" text-anchor="end" class="axis">0.0</text>
+<text x="242" y="3798" text-anchor="end" class="axis">0.00</text>
 <line x1="250" y1="3754" x2="950" y2="3754" class="grid"/>
-<text x="242" y="3758" text-anchor="end" class="axis">1.9</text>
+<text x="242" y="3758" text-anchor="end" class="axis">0.26</text>
 <line x1="250" y1="3714" x2="950" y2="3714" class="grid"/>
-<text x="242" y="3718" text-anchor="end" class="axis">3.8</text>
+<text x="242" y="3718" text-anchor="end" class="axis">0.52</text>
 <line x1="250" y1="3674" x2="950" y2="3674" class="grid"/>
-<text x="242" y="3678" text-anchor="end" class="axis">5.6</text>
+<text x="242" y="3678" text-anchor="end" class="axis">0.78</text>
 <line x1="250" y1="3634" x2="950" y2="3634" class="grid"/>
-<text x="242" y="3638" text-anchor="end" class="axis">7.5</text>
+<text x="242" y="3638" text-anchor="end" class="axis">1.05</text>
 <text x="242" y="3620" text-anchor="end" class="axis">RAM (GiB)</text>
 <text x="250" y="3810" text-anchor="middle" class="axis">0.0s</text>
-<text x="425" y="3810" text-anchor="middle" class="axis">1.0s</text>
-<text x="600" y="3810" text-anchor="middle" class="axis">2.0s</text>
-<text x="775" y="3810" text-anchor="middle" class="axis">3.0s</text>
-<text x="950" y="3810" text-anchor="middle" class="axis">4.0s</text>
-<polyline points="250,3646" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3645" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3656 425,3656 600,3656" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3657 425,3657 600,3657 775,3656" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3656 425,3656 600,3656 775,3656 950,3656" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3656 425,3656 600,3656 775,3656 950,3656" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3645 425,3653" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3656 425,3656" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3656 425,3656" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3652" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3655" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3659 425,3659 600,3659 775,3659" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3659 425,3659 600,3659 775,3659 950,3659" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3659 425,3659 600,3659 775,3659 950,3658" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3659 425,3659 600,3659 775,3659 950,3659" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3659" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3634 425,3656 600,3659" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3659 425,3659" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3659 425,3658 600,3658" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="425" y="3810" text-anchor="middle" class="axis">1.5s</text>
+<text x="600" y="3810" text-anchor="middle" class="axis">3.0s</text>
+<text x="775" y="3810" text-anchor="middle" class="axis">4.5s</text>
+<text x="950" y="3810" text-anchor="middle" class="axis">6.0s</text>
+<polyline points="250,3708" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3695 366,3634" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3794 366,3794 483,3794 600,3794 716,3794" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3794 366,3794 483,3794 600,3794 716,3794 833,3794" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3790 366,3790 483,3790 600,3790 716,3790 833,3790" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3790 366,3790 483,3790 600,3790 716,3790 833,3790 950,3790" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3794" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3713 366,3752 483,3794" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3794 366,3794 483,3794" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3794 366,3794 483,3794" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3712" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3698 366,3636" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3794 366,3794 483,3794 600,3794 716,3794" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3794 366,3794 483,3794 600,3794 716,3794 833,3794" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3790 366,3790 483,3790 600,3790 716,3790 833,3790" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3790 366,3790 483,3790 600,3790 716,3790 833,3790 950,3790" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3794 366,3794" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3714 366,3751 483,3794" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3794 366,3794 483,3794" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3794 366,3794 483,3794" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
 <text x="250" y="3830" class="axis" font-weight="600">Line colour = archive format; solid = plain, dashed = encrypted</text>
 </svg>

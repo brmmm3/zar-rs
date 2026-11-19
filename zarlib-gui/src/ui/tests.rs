@@ -177,6 +177,36 @@ fn existing_dialog_builder_does_not_reset_position() {
             true,
         );
         assert_eq!(builder.position, None);
+        assert_eq!(builder.inner_size, None);
+        assert_eq!(builder.max_inner_size, None);
+        let mut previous = egui::ViewportBuilder::default().with_inner_size([500.0, 400.0]);
+        let (commands, _) = previous.patch(builder);
+        assert!(
+            !commands
+                .iter()
+                .any(|command| matches!(command, egui::ViewportCommand::InnerSize(_)))
+        );
+    });
+    output.drop_without_applying_deltas();
+}
+
+#[test]
+fn new_dialog_builder_restores_remembered_size() {
+    let context = egui::Context::default();
+    let viewport_id = egui::ViewportId::from_hash_of("settings-dialog");
+    let mut app = ZargApp::default();
+    app.record_dialog_size("settings", Some([320.0, 240.0]));
+
+    let output = context.run_ui(egui::RawInput::default(), |ui| {
+        let builder = ZargApp::centered_dialog_viewport_builder(
+            ui.ctx(),
+            viewport_id,
+            "Settings",
+            app.dialog_size("settings", [420.0, 360.0]),
+            true,
+        );
+        assert_eq!(builder.inner_size, Some(egui::vec2(320.0, 240.0)));
+        assert!(builder.position.is_some());
     });
     output.drop_without_applying_deltas();
 }

@@ -5722,6 +5722,13 @@ impl ZargApp {
         resizable: bool,
     ) -> egui::ViewportBuilder {
         let viewport_exists = context.input(|input| input.raw.viewports.contains_key(&viewport_id));
+        let builder = egui::ViewportBuilder::default()
+            .with_title(title)
+            .with_resizable(resizable)
+            .with_clamp_size_to_monitor_size(true);
+        if viewport_exists {
+            return builder;
+        }
         let parent_rect = context
             .input(|input| input.viewport().outer_rect)
             .unwrap_or_else(|| context.content_rect());
@@ -5757,14 +5764,7 @@ impl ZargApp {
             Self::snap_to_device_pixel(position.y, pixels_per_point),
         );
 
-        let mut builder = egui::ViewportBuilder::default()
-            .with_title(title)
-            .with_inner_size(inner_size)
-            .with_resizable(resizable)
-            .with_clamp_size_to_monitor_size(true);
-        if !viewport_exists {
-            builder = builder.with_position(position);
-        }
+        let mut builder = builder.with_inner_size(inner_size).with_position(position);
         if let Some(max_inner_size) = max_inner_size {
             builder = builder.with_max_inner_size(max_inner_size);
         }
@@ -7273,6 +7273,8 @@ impl eframe::App for ZargApp {
         self.render_operation_error_dialog(&context);
         self.render_file_picker_dialog(&context);
         self.render_settings_dialog(&context);
+        #[cfg(windows)]
+        crate::windows_move::install_viewports(_frame);
         self.update_window_title(&context);
         if self.exit_requested {
             self.exit_requested = false;

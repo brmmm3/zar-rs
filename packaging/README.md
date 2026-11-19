@@ -49,9 +49,17 @@ The script updates the Rust workspace and local dependency versions, Cargo and
 Node.js lockfiles, Python, Java, NuGet, Scoop, Chocolatey, and Inno Setup metadata.
 It preserves file line endings, third-party dependency versions, changelog history,
 and existing versioned winget manifests. It does not create Git tags or publish.
-Scoop and Chocolatey checksums are deliberately left unchanged; replace them with
-hashes of the new release artifacts before publishing or installing the packages.
-All manifest edits are prepared and validated before any files are written.
+Scoop and Chocolatey checksums are deliberately left unchanged. After the release
+assets are published, update them before publishing or installing the packages:
+
+```sh
+python3 scripts/update_checksums.py 0.15.0 --dry-run
+python3 scripts/update_checksums.py 0.15.0
+```
+
+The checksum updater fetches SHA-256 digests from GitHub and defaults to the Scoop
+manifest version when no version is provided. Both scripts prepare and validate
+all manifest edits before writing files.
 
 ## Windows (Inno Setup)
 

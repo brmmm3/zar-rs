@@ -50,7 +50,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes 7zip zip unzip openssl
+          sudo apt-get install --yes 7zip zip unzip openssl build-essential flex bison bc libssl-dev libelf-dev
       - name: Install benchmark tools (macOS)
         if: runner.os == 'macOS'
         run: |

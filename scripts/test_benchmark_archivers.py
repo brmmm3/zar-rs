@@ -1,6 +1,9 @@
 import io
 import json
+import os
+import shutil
 import subprocess
+import sys
 import tarfile
 import threading
 from contextlib import nullcontext
@@ -43,6 +46,120 @@ def test_progress_flushes_updates_and_stops_on_exit(monkeypatch, fails) -> None:
     assert all(flush for _, flush in messages)
 
 
+def test_resource_monitor_excludes_existing_children_and_includes_workload_tree() -> None:
+    sleeper = (
+        "import sys,time; data=bytearray(int(sys.argv[1])*1024*1024); "
+        "print('ready', flush=True); time.sleep(float(sys.argv[2]))"
+    )
+    parent_code = (
+        "import subprocess,sys,time; data=bytearray(8*1024*1024); "
+        f"p=subprocess.Popen([sys.executable,'-c',{sleeper!r},'16','2.5'],"
+        "stdout=subprocess.PIPE,text=True); "
+        "assert p.stdout.readline().strip() == 'ready'; "
+        "print('ready', flush=True); p.wait()"
+    )
+    unrelated = subprocess.Popen(
+        [sys.executable, "-c", sleeper, "128", "10"],
+        stdout=subprocess.PIPE, text=True,
+    )
+    try:
+        assert unrelated.stdout is not None
+        assert unrelated.stdout.readline().strip() == "ready"
+        monitor = benchmark_archivers.ResourceMonitor()
+        monitor.start()
+        try:
+            workload = subprocess.Popen(
+                [sys.executable, "-c", parent_code], stdout=subprocess.PIPE, text=True,
+            )
+            try:
+                assert workload.stdout is not None
+                assert workload.stdout.readline().strip() == "ready"
+                assert workload.wait(timeout=6) == 0
+            finally:
+                if workload.poll() is None:
+                    workload.terminate()
+                    workload.wait(timeout=5)
+        finally:
+            monitor.stop()
+        assert monitor.samples
+        observed_mib = [sample[2] * 1024 for sample in monitor.samples]
+        assert all(24 < value < 100 for value in observed_mib)
+    finally:
+        unrelated.terminate()
+        unrelated.wait(timeout=5)
+
+
+def test_resource_monitor_surfaces_sampling_failure(monkeypatch) -> None:
+    monkeypatch.setattr(benchmark_archivers, "RESOURCE_SAMPLE_INTERVAL_SECONDS", 0.01)
+    sampled = threading.Event()
+
+    def fail_cpu(*args, **kwargs):
+        sampled.set()
+        raise RuntimeError("sampling failed")
+
+    monkeypatch.setattr(benchmark_archivers.psutil, "cpu_percent", fail_cpu)
+    monitor = benchmark_archivers.ResourceMonitor()
+    monitor.start()
+    assert sampled.wait(timeout=2)
+    with pytest.raises(RuntimeError, match="sampling failed"):
+        monitor.stop()
+
+
+def test_install_missing_ubuntu_kernel_packages(monkeypatch) -> None:
+    monkeypatch.setattr(benchmark_archivers.sys, "platform", "linux")
+    monkeypatch.setattr(
+        benchmark_archivers, "os", SimpleNamespace(name="posix", geteuid=lambda: 0, environ={})
+    )
+    monkeypatch.setattr(
+        benchmark_archivers.platform, "freedesktop_os_release", lambda: {"ID": "ubuntu"}
+    )
+    monkeypatch.setattr(benchmark_archivers.shutil, "which", lambda name: f"/usr/bin/{name}")
+    commands = []
+
+    def run(command, **kwargs):
+        commands.append(command)
+        if command[0] == "dpkg-query":
+            installed = command[-1] not in ("flex", "libelf-dev")
+            return subprocess.CompletedProcess(command, 0 if installed else 1, b"installed" if installed else b"")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(benchmark_archivers.subprocess, "run", run)
+    benchmark_archivers.install_missing_tools()
+
+    assert ["apt-get", "update"] in commands
+    assert ["apt-get", "install", "-y", "flex", "libelf-dev"] in commands
+
+
+def test_missing_kernel_tools_are_reported_before_benchmark(monkeypatch) -> None:
+    monkeypatch.setattr(benchmark_archivers.sys, "platform", "linux")
+    monkeypatch.setattr(
+        benchmark_archivers.shutil, "which",
+        lambda name: None if name in ("flex", "bison") else f"/usr/bin/{name}",
+    )
+    with pytest.raises(RuntimeError, match="kernel build tools.*flex, bison"):
+        benchmark_archivers.require_tools()
+
+
+def test_no_install_skips_package_installation(monkeypatch) -> None:
+    monkeypatch.setattr(benchmark_archivers.sys, "argv", ["benchmark_archivers.py", "--no-install"])
+    with patch.multiple(
+        benchmark_archivers, install_missing_tools=DEFAULT,
+        require_tools=DEFAULT, run_benchmarks=DEFAULT,
+    ) as mocks:
+        assert benchmark_archivers.main() == 0
+        mocks["install_missing_tools"].assert_not_called()
+        mocks["run_benchmarks"].assert_called_once()
+
+
+def test_main_exits_nonzero_after_failed_benchmarks(monkeypatch) -> None:
+    monkeypatch.setattr(benchmark_archivers.sys, "argv", ["benchmark_archivers.py", "--no-install"])
+    with patch.multiple(
+        benchmark_archivers, require_tools=DEFAULT, run_benchmarks=DEFAULT,
+    ) as mocks:
+        mocks["run_benchmarks"].return_value = False
+        assert benchmark_archivers.main() == 1
+
+
 @pytest.fixture
 def benchmark_runner(tmp_path, monkeypatch):
     monkeypatch.setattr(benchmark_archivers, "TESTDATA", tmp_path)
@@ -58,9 +175,10 @@ def benchmark_runner(tmp_path, monkeypatch):
     write_report = benchmark_archivers.write_report
     mocked = (
         "resolve_cache_modes", "ensure_source", "build_zarc", "source_manifest",
+        "source_fingerprint",
         "seven_zip_supports_zstd", "tool_versions", "run_command",
         "wait_between_benchmark_runs", "read_files", "drop_caches",
-        "archive_path", "compress_zarlib", "compress_7z", "compress_tar",
+        "archive_path", "compress_zarlib", "compress_zip", "compress_7z", "compress_tar",
         "extract_archive", "verify_extraction", "verify_partial_extraction",
         "clean_testresults", "write_report", "measure_with_disk_peak",
         "ResourceMonitor", "collect_benchmark_hardware",
@@ -71,6 +189,7 @@ def benchmark_runner(tmp_path, monkeypatch):
         mocks["resolve_cache_modes"].return_value = (["hot"], None)
         mocks["build_zarc"].return_value = tmp_path / "zarc"
         mocks["source_manifest"].return_value = ([("file", 1)], [], 1)
+        mocks["source_fingerprint"].return_value = "source-hash"
         mocks["tool_versions"].return_value = {"zarc": "zarc 0.15.0"}
         mocks["seven_zip_supports_zstd"].return_value = False
         mocks["archive_path"].return_value.stat.return_value.st_size = 1
@@ -160,6 +279,155 @@ def test_benchmarks_resume_after_interruption(benchmark_runner, monkeypatch, cap
     assert benchmark_archivers.CHART_PATH.is_file()
     assert not list(cache.iterdir())
     assert "using cached results" in capsys.readouterr().out
+
+
+def test_benchmarks_reject_cache_when_source_fingerprint_changes(benchmark_runner) -> None:
+    benchmark_runner["extract_archive"].side_effect = [None, None, KeyboardInterrupt()]
+    tools = {"tar": "tar", "7z": "7z", "openssl": "openssl"}
+    with pytest.raises(KeyboardInterrupt):
+        benchmark_archivers.run_benchmarks(tools, "cargo")
+
+    benchmark_runner["extract_archive"].reset_mock(side_effect=True)
+    benchmark_runner["source_fingerprint"].return_value = "changed-source-hash"
+    with pytest.raises(RuntimeError, match="Invalid benchmark cache"):
+        benchmark_archivers.run_benchmarks(tools, "cargo")
+
+    benchmark_runner["extract_archive"].assert_not_called()
+
+
+def test_benchmarks_reject_system_memory_samples_from_old_cache(benchmark_runner) -> None:
+    benchmark_runner["extract_archive"].side_effect = [None, None, KeyboardInterrupt()]
+    tools = {"tar": "tar", "7z": "7z", "openssl": "openssl"}
+    with pytest.raises(KeyboardInterrupt):
+        benchmark_archivers.run_benchmarks(tools, "cargo")
+    cache_file = next(benchmark_archivers.BENCHMARK_CACHE_DIR.iterdir())
+    payload = json.loads(cache_file.read_text())
+    assert payload["context"]["schema_version"] == 3
+    payload["context"]["schema_version"] = 2
+    cache_file.write_text(json.dumps(payload))
+    benchmark_runner["extract_archive"].reset_mock(side_effect=True)
+    with pytest.raises(RuntimeError, match="Invalid benchmark cache"):
+        benchmark_archivers.run_benchmarks(tools, "cargo")
+    benchmark_runner["extract_archive"].assert_not_called()
+
+
+@pytest.mark.parametrize("phase", ["compression", "full extraction", "selected extraction"])
+def test_program_failure_is_reported_and_other_runs_continue(benchmark_runner, phase, capsys) -> None:
+    failure = benchmark_archivers.BenchmarkCommandError("program failed")
+    if phase == "compression":
+        benchmark_runner["compress_zarlib"].side_effect = [failure, None]
+    else:
+        benchmark_runner["extract_archive"].side_effect = (
+            [failure] if phase == "full extraction" else [None, failure]
+        ) + [None] * 30
+
+    tools = {"tar": "tar", "7z": "7z", "openssl": "openssl"}
+    assert benchmark_archivers.run_benchmarks(tools, "cargo") is False
+
+    results = benchmark_runner["write_report"].call_args.args[0]
+    assert results[0]["method"] == "zarlib"
+    assert results[0]["failures"][0]["phase"] == phase
+    assert results[-1]["method"] == "tar.gz"
+    report = benchmark_archivers.REPORT_PATH.read_text()
+    chart = benchmark_archivers.CHART_PATH.read_text()
+    assert "FAILED" in report and phase in report and "program failed" in report
+    assert "FAILED" in chart
+    assert "FAILED" in capsys.readouterr().err
+    assert not list(benchmark_archivers.BENCHMARK_CACHE_DIR.iterdir())
+
+
+def test_program_failure_cache_survives_interruption(benchmark_runner) -> None:
+    benchmark_runner["compress_zarlib"].side_effect = [
+        benchmark_archivers.BenchmarkCommandError("program failed"), KeyboardInterrupt(),
+    ]
+    tools = {"tar": "tar", "7z": "7z", "openssl": "openssl"}
+    with pytest.raises(KeyboardInterrupt):
+        benchmark_archivers.run_benchmarks(tools, "cargo")
+
+    cache = benchmark_archivers.BENCHMARK_CACHE_DIR
+    payload = json.loads(next(cache.iterdir()).read_text())
+    assert payload["result"]["phase"] == "compression"
+    benchmark_runner["compress_zarlib"].reset_mock(side_effect=True)
+    benchmark_archivers.run_benchmarks(tools, "cargo")
+    assert benchmark_runner["write_report"].call_args.args[0][0]["failures"][0]["phase"] == "compression"
+    assert benchmark_runner["compress_zarlib"].call_count == 1
+
+
+def test_certificate_failure_only_marks_encrypted_tar_cases_failed(benchmark_runner) -> None:
+    benchmark_runner["run_command"].side_effect = benchmark_archivers.BenchmarkCommandError(
+        "certificate creation failed"
+    )
+    assert benchmark_archivers.run_benchmarks(
+        {"tar": "tar", "7z": "7z", "openssl": "openssl"}, "cargo"
+    ) is False
+    results = benchmark_runner["write_report"].call_args.args[0]
+    failed = [(item["method"], item["encrypted"]) for item in results if item.get("failures")]
+    assert failed == [("tar", True), ("tar.gz", True)]
+    assert "certificate creation failed" in benchmark_archivers.REPORT_PATH.read_text()
+
+
+def test_command_failure_removes_password_from_report_and_cache(benchmark_runner, monkeypatch) -> None:
+    monkeypatch.setattr(benchmark_archivers, "ENCRYPTED_PASSWORD", "secret-password")
+    benchmark_runner["compress_zarlib"].side_effect = [
+        benchmark_archivers.BenchmarkCommandError("command -psecret-password failed"),
+        KeyboardInterrupt(),
+    ]
+    tools = {"tar": "tar", "7z": "7z", "openssl": "openssl"}
+    with pytest.raises(KeyboardInterrupt):
+        benchmark_archivers.run_benchmarks(tools, "cargo")
+    cache = benchmark_archivers.BENCHMARK_CACHE_DIR
+    cached = next(cache.iterdir()).read_text()
+    assert "secret-password" not in cached
+    assert "[redacted]" in cached
+    benchmark_runner["compress_zarlib"].reset_mock(side_effect=True)
+    assert benchmark_archivers.run_benchmarks(tools, "cargo") is False
+    assert "secret-password" not in benchmark_archivers.REPORT_PATH.read_text()
+
+
+def test_run_command_reports_real_nonzero_exit() -> None:
+    with pytest.raises(benchmark_archivers.BenchmarkCommandError, match="exit code 7"):
+        benchmark_archivers.run_command([sys.executable, "-c", "raise SystemExit(7)"])
+
+
+def test_missing_openssl_still_runs_unencrypted_tar(benchmark_runner) -> None:
+    assert benchmark_archivers.run_benchmarks({"tar": "tar", "7z": "7z"}, "cargo") is True
+    results = benchmark_runner["write_report"].call_args.args[0]
+    assert any(item["method"] == "tar" and not item["encrypted"] for item in results)
+    assert all(not item["encrypted"] for item in results if item["method"] in ("tar", "tar.gz"))
+
+
+def test_failed_source_run_still_benchmarks_compiled_tree(benchmark_runner, monkeypatch) -> None:
+    monkeypatch.setattr(benchmark_archivers.sys, "platform", "linux")
+    monkeypatch.setattr(
+        benchmark_archivers, "os", SimpleNamespace(name="posix", cpu_count=lambda: 4)
+    )
+    compiled = benchmark_archivers.TESTDATA / "compiled" / benchmark_archivers.KERNEL_NAME
+    benchmark_runner["source_manifest"].side_effect = lambda source: (
+        [("vmlinux", 1)] if source == compiled else [("file", 1)], [], 1
+    )
+    compress = benchmark_runner["compress_zarlib"]
+    def fail_first_run(*args):
+        if compress.call_count == 1:
+            raise benchmark_archivers.BenchmarkCommandError("archiver crashed")
+    compress.side_effect = fail_first_run
+
+    with patch.object(benchmark_archivers, "build_kernel", return_value=compiled):
+        assert benchmark_archivers.run_benchmarks(
+            {"tar": "tar", "7z": "7z", "openssl": "openssl"}, "cargo"
+        ) is False
+    reports = benchmark_runner["write_report"].call_args_list
+    assert len(reports) == 2
+    assert reports[0].args[0][0]["failures"]
+    assert all(not item.get("failures") for item in reports[1].args[0])
+
+
+def test_verification_failure_still_stops_benchmarks(benchmark_runner) -> None:
+    benchmark_runner["verify_extraction"].side_effect = RuntimeError("verification failed")
+    with pytest.raises(RuntimeError, match="verification failed"):
+        benchmark_archivers.run_benchmarks(
+            {"tar": "tar", "7z": "7z", "openssl": "openssl"}, "cargo"
+        )
+    benchmark_runner["write_report"].assert_not_called()
 
 
 def test_report_failure_preserves_cache_and_retry_skips_all_runs(
@@ -253,6 +521,226 @@ def _create_source_tarball(path, entries) -> None:
             member = tarfile.TarInfo(name)
             member.size = len(contents)
             archive.addfile(member, io.BytesIO(contents))
+
+
+def test_linux_compiled_benchmarks_resume_separately(benchmark_runner, monkeypatch) -> None:
+    monkeypatch.setattr(benchmark_archivers.sys, "platform", "linux")
+    monkeypatch.setattr(
+        benchmark_archivers, "os", SimpleNamespace(name="posix", cpu_count=lambda: 4)
+    )
+    compiled = benchmark_archivers.TESTDATA / "compiled" / benchmark_archivers.KERNEL_NAME
+    with patch.object(benchmark_archivers, "build_kernel", return_value=compiled) as build:
+        benchmark_runner["source_manifest"].side_effect = lambda source: (
+            [("vmlinux", 2)] if source == compiled else [("file", 1)],
+            [], 2 if source == compiled else 1,
+        )
+        extract = benchmark_runner["extract_archive"]
+        extract.side_effect = [None] * 42 + [KeyboardInterrupt()]
+        tools = {"tar": "tar", "7z": "7z", "openssl": "openssl", "zip": "zip", "unzip": "unzip"}
+        with pytest.raises(KeyboardInterrupt):
+            benchmark_archivers.run_benchmarks(tools, "cargo")
+
+        assert build.call_count == 1
+        assert benchmark_runner["write_report"].call_count == 1
+        cache = benchmark_archivers.BENCHMARK_CACHE_DIR
+        assert len(list(cache.glob("*-compiled-zarlib-plain-hot-run-*.json"))) == 1
+        assert len(list(cache.iterdir())) == 21
+
+        extract.reset_mock(side_effect=True)
+        for name in ("compress_zarlib", "compress_zip", "compress_7z", "compress_tar"):
+            benchmark_runner[name].reset_mock()
+        benchmark_archivers.run_benchmarks(tools, "cargo")
+
+    assert build.call_count == 2
+    assert extract.call_count == 38
+    for name, source_index in (
+        ("compress_zarlib", 3), ("compress_zip", 3), ("compress_7z", 4), ("compress_tar", 8),
+        ("extract_archive", 10),
+    ):
+        calls = benchmark_runner[name].call_args_list
+        assert calls and all(call.args[source_index] == compiled for call in calls)
+    assert benchmark_runner["write_report"].call_count == 3
+    report = benchmark_archivers.REPORT_PATH.with_name("report-compiled.md").read_text()
+    assert "Linux 6.6.1 Compiled Kernel Benchmark" in report
+    assert "`kernel/sched/core.c`" in report
+    assert "Uncompressed source size: 0.0 MiB" in report
+    assert (benchmark_archivers.CHART_PATH.parent / "chart-compiled.svg").is_file()
+    assert not list(cache.iterdir())
+
+
+@pytest.mark.parametrize("files", [[("file", 1)], [("vmlinux", 0), ("file", 1)]])
+def test_compiled_dataset_requires_nonempty_vmlinux(benchmark_runner, files) -> None:
+    benchmark_runner["source_manifest"].return_value = (files, [], 1)
+    with pytest.raises(RuntimeError, match="missing a nonempty vmlinux"):
+        benchmark_archivers._run_benchmark_dataset(
+            {"tar": "tar", "7z": "7z"}, Path("zarc"), ["hot"], None, False,
+            Path("source-only"), compiled=True,
+        )
+    benchmark_runner["compress_zarlib"].assert_not_called()
+
+
+def test_build_kernel_reuses_completed_tree_and_rejects_changed_archive(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(benchmark_archivers, "TESTDATA", tmp_path)
+    archive = tmp_path / f"{benchmark_archivers.KERNEL_NAME}.tar.gz"
+    _create_source_tarball(archive, [(f"{benchmark_archivers.KERNEL_NAME}/Makefile", b"test")])
+    real_command = benchmark_archivers.run_command
+    commands = []
+
+    def run(command, *, cwd=None, input_data=None):
+        commands.append(command)
+        if command[0] == "tar":
+            real_command(command, cwd=cwd, input_data=input_data)
+        elif command[1].startswith("-j"):
+            (cwd / "vmlinux").write_bytes(b"kernel")
+
+    monkeypatch.setattr(benchmark_archivers, "run_command", run)
+    source = benchmark_archivers.build_kernel("tar")
+    assert (source / "vmlinux").is_file()
+    assert commands[1] == ["make", "defconfig"]
+    assert commands[2][0] == "make"
+    assert benchmark_archivers.build_kernel("tar") == source
+    assert len(commands) == 3
+
+    _create_source_tarball(archive, [(f"{benchmark_archivers.KERNEL_NAME}/Makefile", b"changed")])
+    with pytest.raises(RuntimeError, match="Kernel source archive changed"):
+        benchmark_archivers.build_kernel("tar")
+
+
+def test_failed_kernel_build_is_not_reused(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(benchmark_archivers, "TESTDATA", tmp_path)
+    archive = tmp_path / f"{benchmark_archivers.KERNEL_NAME}.tar.gz"
+    _create_source_tarball(archive, [(f"{benchmark_archivers.KERNEL_NAME}/Makefile", b"test")])
+    real_command = benchmark_archivers.run_command
+    commands = []
+
+    def run(command, *, cwd=None, input_data=None):
+        commands.append(command)
+        if command[0] == "tar":
+            real_command(command, cwd=cwd, input_data=input_data)
+        elif len(commands) == 2:
+            raise RuntimeError("make failed")
+        elif command[1].startswith("-j"):
+            (cwd / "vmlinux").write_bytes(b"kernel")
+
+    monkeypatch.setattr(benchmark_archivers, "run_command", run)
+    with pytest.raises(RuntimeError, match="make failed"):
+        benchmark_archivers.build_kernel("tar")
+    assert not (tmp_path / f"{benchmark_archivers.KERNEL_NAME}-compiled" / ".benchmark-build-complete").exists()
+    assert (benchmark_archivers.build_kernel("tar") / "vmlinux").is_file()
+    assert sum(command[0] == "tar" for command in commands) == 1
+
+
+def test_compiled_dataset_tar_round_trip(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "compiled" / benchmark_archivers.KERNEL_NAME
+    for member in (*benchmark_archivers.KERNEL_PARTIAL_FILES, "vmlinux", "init/main.o", ".config"):
+        path = source / member
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(member)
+    output = tmp_path / "output"
+    output.mkdir()
+    monkeypatch.setattr(benchmark_archivers, "TESTRESULTS", output)
+    archive = tmp_path / "compiled.tar"
+    benchmark_archivers.compress_tar("tar", "tar", "", archive, False, None, None, tmp_path, source)
+    with tarfile.open(archive) as contents:
+        for member in ("vmlinux", "init/main.o", ".config"):
+            assert contents.getmember(f"{source.name}/{member}").isfile()
+    benchmark_archivers.extract_archive(
+        "tar", False, archive, {"tar": "tar"}, tmp_path / "zarc",
+        None, None, tmp_path, "", 0, source,
+        list(benchmark_archivers.KERNEL_PARTIAL_FILES),
+    )
+    benchmark_archivers.verify_partial_extraction(source, benchmark_archivers.KERNEL_PARTIAL_FILES)
+
+
+@pytest.mark.skipif(
+    os.name != "posix" or not shutil.which("zip") or not shutil.which("unzip"),
+    reason="requires POSIX symlinks and Info-ZIP",
+)
+def test_compiled_dataset_zip_preserves_directory_symlinks(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "compiled" / benchmark_archivers.KERNEL_NAME
+    (source / "include").mkdir(parents=True)
+    (source / "include" / "generated.h").write_text("generated")
+    (source / ".config").write_text("kernel config")
+    (source / "links").symlink_to("include", target_is_directory=True)
+    output = tmp_path / "output"
+    output.mkdir()
+    monkeypatch.setattr(benchmark_archivers, "TESTRESULTS", output)
+    monkeypatch.setattr(benchmark_archivers, "TESTDATA", tmp_path)
+    archive = tmp_path / "compiled.zip"
+    expected, symlinks, _ = benchmark_archivers.source_manifest(source)
+
+    benchmark_archivers.compress_zip("zip", archive, False, source)
+    benchmark_archivers.extract_archive(
+        "zip", False, archive, {"unzip": "unzip"}, tmp_path / "zarc",
+        None, None, tmp_path, "", 0, source,
+    )
+    assert (output / source.name / "links").is_symlink()
+    assert benchmark_archivers.verify_extraction(expected, symlinks, False, source) == 0
+
+
+@pytest.mark.parametrize("problem", ["missing", "extra", "size"])
+def test_verify_extraction_rejects_mismatches(tmp_path, monkeypatch, problem) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    output = tmp_path / "output"
+    extracted = output / source.name
+    extracted.mkdir(parents=True)
+    monkeypatch.setattr(benchmark_archivers, "TESTRESULTS", output)
+    if problem != "missing":
+        (extracted / "file").write_bytes(b"x" if problem == "size" else b"abc")
+    if problem == "extra":
+        (extracted / "extra").write_bytes(b"x")
+
+    with pytest.raises(RuntimeError, match="Extracted files do not match"):
+        benchmark_archivers.verify_extraction([("file", 3)], [], False, source)
+
+
+def test_verify_extraction_accepts_collision_renames(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    output = tmp_path / "output"
+    extracted = output / source.name
+    extracted.mkdir(parents=True)
+    (extracted / "file.txt").write_bytes(b"abc")
+    (extracted / "File (1).txt").write_bytes(b"xyz")
+    monkeypatch.setattr(benchmark_archivers, "TESTRESULTS", output)
+
+    assert benchmark_archivers.verify_extraction(
+        [("file.txt", 3), ("File.txt", 3)], [], True, source,
+    ) == 1
+
+
+def test_source_fingerprint_detects_same_size_content_and_path_changes(tmp_path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    path = source / "file"
+    path.write_bytes(b"abc")
+    original_stat = path.stat()
+    original = benchmark_archivers.source_fingerprint(source)
+    path.write_bytes(b"xyz")
+    os.utime(path, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+    assert benchmark_archivers.source_fingerprint(source) != original
+    path.write_bytes(b"abc")
+    os.utime(path, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+    assert benchmark_archivers.source_fingerprint(source) == original
+    path.rename(source / "other")
+    assert benchmark_archivers.source_fingerprint(source) != original
+
+
+@pytest.mark.skipif(os.name != "posix", reason="requires POSIX symlinks")
+def test_source_fingerprint_detects_symlink_target_changes(tmp_path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    link = source / "link"
+    link.symlink_to("first")
+    link_stat = link.lstat()
+    original = benchmark_archivers.source_fingerprint(source)
+    link.unlink()
+    link.symlink_to("other")
+    os.utime(
+        link, ns=(link_stat.st_atime_ns, link_stat.st_mtime_ns), follow_symlinks=False,
+    )
+    assert benchmark_archivers.source_fingerprint(source) != original
 
 
 @pytest.mark.parametrize("link_type", ["link", "symbolic link"])
@@ -354,7 +842,7 @@ def test_write_report_shows_runtime_minimum_and_maximum(tmp_path, monkeypatch) -
             "partial_extraction_min_seconds": 0.2,
             "partial_extraction_max_seconds": 0.3,
             "partial_temp_bytes": 0,
-            "compression_resources": [],
+            "compression_resources": [(1.0, 10.0, 0.015), (2.0, 30.0, 0.025)],
             "extraction_resources": [],
         }
     ]
@@ -375,6 +863,8 @@ def test_write_report_shows_runtime_minimum_and_maximum(tmp_path, monkeypatch) -
     assert "2.00-3.00 s" in report
     assert "4.00-5.00 s" in report
     assert "0.200-0.300 s" in report
+    assert "| 20 % / 0.02 GiB | N/A |" in report
+    assert "summed resident set size (RSS)" in report
     assert "2.00-3.00 s" in chart
     assert "4.00-5.00 s" in chart
     assert "Extraction time (3 files)" in chart
