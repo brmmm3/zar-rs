@@ -66,12 +66,21 @@ BENCHMARK_CACHE_DIR = ROOT / ".benchmark_cache"
 OS_TAG = {"linux": "linux", "win32": "windows", "darwin": "macos"}.get(
     sys.platform, re.sub(r"\W+", "-", sys.platform)
 )
-_ARCH_ALIASES = {"amd64": "x86_64", "x64": "x86_64", "aarch64": "arm64", "i686": "x86", "i386": "x86"}
-ARCH_TAG = _ARCH_ALIASES.get(platform.machine().casefold(), re.sub(r"\W+", "-", platform.machine().casefold()) or "unknown")
+_ARCH_ALIASES = {
+    "amd64": "x86_64",
+    "x64": "x86_64",
+    "aarch64": "arm64",
+    "i686": "x86",
+    "i386": "x86",
+}
+ARCH_TAG = _ARCH_ALIASES.get(
+    platform.machine().casefold(),
+    re.sub(r"\W+", "-", platform.machine().casefold()) or "unknown",
+)
 BENCHMARKS_DIR = ROOT / "doc" / "benchmarks"
 REPORT_PATH = BENCHMARKS_DIR / f"benchmark-report-{OS_TAG}-{ARCH_TAG}.md"
 CHART_PATH = BENCHMARKS_DIR / f"benchmark-charts-{OS_TAG}-{ARCH_TAG}.svg"
-BENCHMARK_RUN_DELAY_SECONDS = 3
+BENCHMARK_RUN_DELAY_SECONDS = 1
 PROGRESS_INTERVAL_SECONDS = 5
 RESOURCE_SAMPLE_INTERVAL_SECONDS = 0.5
 PARTIAL_FILES = (
@@ -80,9 +89,7 @@ PARTIAL_FILES = (
     "tools/perf/util/build-id.h",
 )
 KERNEL_NAME = "linux-6.1.1"
-DATASET_URL = (
-    "https://media.githubusercontent.com/media/brmmm3/zar-rs/master/testdata"
-)
+DATASET_URL = "https://media.githubusercontent.com/media/brmmm3/zar-rs/master/testdata"
 KERNEL_PARTIAL_FILES = ("Makefile", "COPYING", "kernel/sched/core.c")
 DUPLICATES_PARTIAL_FILES = (
     "duplicates/128x128/actions/address-book-new.png",
@@ -96,19 +103,19 @@ ICONS_PARTIAL_FILES = (
 )
 SMALL_ARCHIVE_PARTIAL_FILES = ("COPYING", "Makefile", "init/main.c")
 DATASET_PARTIAL_FILES = {
+    "small_archive": SMALL_ARCHIVE_PARTIAL_FILES,
+    "icons": ICONS_PARTIAL_FILES,
+    "duplicates": DUPLICATES_PARTIAL_FILES,
     SOURCE_NAME: PARTIAL_FILES,
     KERNEL_NAME: KERNEL_PARTIAL_FILES,
-    "duplicates": DUPLICATES_PARTIAL_FILES,
-    "icons": ICONS_PARTIAL_FILES,
-    "small_archive": SMALL_ARCHIVE_PARTIAL_FILES,
 }
 DATASETS = tuple(DATASET_PARTIAL_FILES.items())
 DATASET_DESCRIPTIONS = {
+    "small_archive": "small Linux source tree from a ZAR archive",
+    "icons": "icon collection from a ZAR archive",
+    "duplicates": "duplicate icon tree from a ZAR archive",
     SOURCE_NAME: "Linux 4.0.1 source tree from a ZAR archive",
     KERNEL_NAME: "precompiled Linux kernel tree from a ZAR archive",
-    "duplicates": "duplicate icon tree from a ZAR archive",
-    "icons": "icon collection from a ZAR archive",
-    "small_archive": "small Linux source tree from a ZAR archive",
 }
 ENCRYPTED_PASSWORD = secrets.token_urlsafe(24)
 PROMPT_RE = re.compile(rb"(?im)^[^\r\n]*(?:password|passphrase)[^\r\n]*:\s*$")
@@ -132,9 +139,7 @@ class BenchmarkHardware:
     storage: tuple[StorageInfo, ...]
 
 
-def _hardware_command_output(
-    command: list[str], timeout: float = 10.0
-) -> bytes | None:
+def _hardware_command_output(command: list[str], timeout: float = 10.0) -> bytes | None:
     try:
         result = subprocess.run(
             command,
@@ -153,9 +158,11 @@ def _hardware_command_output(
 def _cpu_model() -> str:
     if sys.platform.startswith("linux"):
         try:
-            lines = Path("/proc/cpuinfo").read_text(
-                encoding="utf-8", errors="replace"
-            ).splitlines()
+            lines = (
+                Path("/proc/cpuinfo")
+                .read_text(encoding="utf-8", errors="replace")
+                .splitlines()
+            )
         except OSError:
             lines = []
         for key in ("model name", "hardware", "processor"):
@@ -175,8 +182,10 @@ def _cpu_model() -> str:
                     "-NoProfile",
                     "-NonInteractive",
                     "-Command",
-                    ("(Get-CimInstance Win32_Processor | "
-                    "Select-Object -First 1 -ExpandProperty Name)"),
+                    (
+                        "(Get-CimInstance Win32_Processor | "
+                        "Select-Object -First 1 -ExpandProperty Name)"
+                    ),
                 ]
             )
             if output:
@@ -243,9 +252,9 @@ def _linux_storage_info(location: str, path: Path) -> StorageInfo:
         block = block.parent
     device = block.name
     try:
-        rotational = (block / "queue" / "rotational").read_text(
-            encoding="ascii"
-        ).strip()
+        rotational = (
+            (block / "queue" / "rotational").read_text(encoding="ascii").strip()
+        )
     except OSError:
         rotational = ""
     media_type = {
@@ -337,9 +346,7 @@ def _macos_storage_info(location: str, path: Path) -> StorageInfo:
             "Not reported",
             "device unavailable",
         )
-    output = _hardware_command_output(
-        [diskutil, "info", "-plist", str(path.resolve())]
-    )
+    output = _hardware_command_output([diskutil, "info", "-plist", str(path.resolve())])
     if not output:
         return StorageInfo(
             location,
@@ -402,7 +409,9 @@ class ResourceMonitor:
     """Records system CPU and benchmark process-tree RSS in a background thread."""
 
     def __init__(self) -> None:
-        self._samples: list[tuple[float, float, float]] = []  # (timestamp_offset, cpu_percent, ram_gib)
+        self._samples: list[tuple[float, float, float]] = (
+            []
+        )  # (timestamp_offset, cpu_percent, ram_gib)
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._start_time = 0.0
@@ -425,7 +434,9 @@ class ResourceMonitor:
             self._thread.join()
             self._thread = None
         if self._error is not None:
-            raise RuntimeError(f"Resource monitoring failed: {self._error}") from self._error
+            raise RuntimeError(
+                f"Resource monitoring failed: {self._error}"
+            ) from self._error
 
     @property
     def samples(self) -> list[tuple[float, float, float]]:
@@ -452,7 +463,7 @@ class ResourceMonitor:
                         except psutil.NoSuchProcess:
                             continue
                 if sampled:
-                    self._samples.append((elapsed, cpu, rss / (1024 ** 3)))
+                    self._samples.append((elapsed, cpu, rss / (1024**3)))
         except Exception as error:
             self._error = error
 
@@ -480,7 +491,10 @@ def report_progress(message: str) -> Iterator[None]:
 def _find_7z() -> str | None:
     found = next((f for n in ("7z", "7zz", "7za") if (f := shutil.which(n))), None)
     if found is None and os.name == "nt":
-        for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
+        for base in (
+            os.environ.get("ProgramFiles"),
+            os.environ.get("ProgramFiles(x86)"),
+        ):
             candidate = Path(base) / "7-Zip" / "7z.exe" if base else None
             if candidate and candidate.is_file():
                 return str(candidate)
@@ -491,42 +505,83 @@ def _find_7z() -> str | None:
 _PACKAGE_MANAGERS: dict[str, tuple[list[str], dict[str, list[str]]]] = {
     "apt-get": (
         ["apt-get", "install", "-y"],
-        {"openssl": ["openssl"], "zip": ["zip"], "unzip": ["unzip"],
-         "7z": ["p7zip-full"], "tar": ["tar"]},
+        {
+            "openssl": ["openssl"],
+            "zip": ["zip"],
+            "unzip": ["unzip"],
+            "7z": ["p7zip-full"],
+            "tar": ["tar"],
+        },
     ),
     "dnf": (
         ["dnf", "install", "-y"],
-        {"openssl": ["openssl"], "zip": ["zip"], "unzip": ["unzip"],
-         "7z": ["p7zip", "p7zip-plugins"], "tar": ["tar"]},
+        {
+            "openssl": ["openssl"],
+            "zip": ["zip"],
+            "unzip": ["unzip"],
+            "7z": ["p7zip", "p7zip-plugins"],
+            "tar": ["tar"],
+        },
     ),
     "yum": (
         ["yum", "install", "-y"],
-        {"openssl": ["openssl"], "zip": ["zip"], "unzip": ["unzip"],
-         "7z": ["p7zip", "p7zip-plugins"], "tar": ["tar"]},
+        {
+            "openssl": ["openssl"],
+            "zip": ["zip"],
+            "unzip": ["unzip"],
+            "7z": ["p7zip", "p7zip-plugins"],
+            "tar": ["tar"],
+        },
     ),
     "pacman": (
         ["pacman", "-S", "--noconfirm", "--needed"],
-        {"openssl": ["openssl"], "zip": ["zip"], "unzip": ["unzip"],
-         "7z": ["p7zip"], "tar": ["tar"]},
+        {
+            "openssl": ["openssl"],
+            "zip": ["zip"],
+            "unzip": ["unzip"],
+            "7z": ["p7zip"],
+            "tar": ["tar"],
+        },
     ),
     "zypper": (
         ["zypper", "--non-interactive", "install"],
-        {"openssl": ["openssl"], "zip": ["zip"], "unzip": ["unzip"],
-         "7z": ["p7zip-full"], "tar": ["tar"]},
+        {
+            "openssl": ["openssl"],
+            "zip": ["zip"],
+            "unzip": ["unzip"],
+            "7z": ["p7zip-full"],
+            "tar": ["tar"],
+        },
     ),
     "apk": (
         ["apk", "add"],
-        {"openssl": ["openssl"], "zip": ["zip"], "unzip": ["unzip"],
-         "7z": ["7zip"], "tar": ["tar"]},
+        {
+            "openssl": ["openssl"],
+            "zip": ["zip"],
+            "unzip": ["unzip"],
+            "7z": ["7zip"],
+            "tar": ["tar"],
+        },
     ),
     "brew": (
         ["brew", "install"],
-        {"openssl": ["openssl"], "zip": ["zip"], "unzip": ["unzip"],
-         "7z": ["sevenzip"], "tar": ["gnu-tar"]},
+        {
+            "openssl": ["openssl"],
+            "zip": ["zip"],
+            "unzip": ["unzip"],
+            "7z": ["sevenzip"],
+            "tar": ["gnu-tar"],
+        },
     ),
     "winget": (
-        ["winget", "install", "--silent", "--accept-package-agreements",
-         "--accept-source-agreements", "--id"],
+        [
+            "winget",
+            "install",
+            "--silent",
+            "--accept-package-agreements",
+            "--accept-source-agreements",
+            "--id",
+        ],
         {"openssl": ["ShiningLight.OpenSSL.Light"], "7z": ["7zip.7zip"]},
     ),
     "choco": (
@@ -551,8 +606,10 @@ def install_missing_tools() -> None:
     print(f"Missing tools: {', '.join(missing)}; trying to install them...")
     manager = next((m for m in _PACKAGE_MANAGERS if shutil.which(m)), None)
     if manager is None:
-        print("warning: no supported package manager found; cannot install tools",
-              file=sys.stderr)
+        print(
+            "warning: no supported package manager found; cannot install tools",
+            file=sys.stderr,
+        )
         return
     prefix, packages = _PACKAGE_MANAGERS[manager]
     prefix = list(prefix)
@@ -564,11 +621,18 @@ def install_missing_tools() -> None:
         batches = [[p] for p in wanted]
     elif wanted:
         batches = [wanted]
-    if os.name != "nt" and manager != "brew" and hasattr(os, "geteuid") and os.geteuid() != 0:
+    if (
+        os.name != "nt"
+        and manager != "brew"
+        and hasattr(os, "geteuid")
+        and os.geteuid() != 0
+    ):
         sudo = shutil.which("sudo")
         if sudo is None:
-            print("warning: not root and sudo is unavailable; cannot install tools",
-                  file=sys.stderr)
+            print(
+                "warning: not root and sudo is unavailable; cannot install tools",
+                file=sys.stderr,
+            )
             return
         elevate = [sudo]
     env = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
@@ -577,8 +641,11 @@ def install_missing_tools() -> None:
     for batch in batches:
         result = subprocess.run([*elevate, *prefix, *batch], env=env, check=False)
         if result.returncode != 0:
-            print(f"warning: installing {' '.join(batch)} failed "
-                  f"(exit code {result.returncode})", file=sys.stderr)
+            print(
+                f"warning: installing {' '.join(batch)} failed "
+                f"(exit code {result.returncode})",
+                file=sys.stderr,
+            )
     # Newly installed tools on Windows may not be on this process's PATH yet;
     # require_tools() reports whatever is still missing.
 
@@ -607,7 +674,10 @@ def require_tools() -> dict[str, str]:
         (found for name in ("7z", "7zz", "7za") if (found := shutil.which(name))), None
     )
     if seven_zip is None and os.name == "nt":
-        for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
+        for base in (
+            os.environ.get("ProgramFiles"),
+            os.environ.get("ProgramFiles(x86)"),
+        ):
             candidate = Path(base) / "7-Zip" / "7z.exe" if base else None
             if candidate and candidate.is_file():
                 seven_zip = str(candidate)
@@ -630,9 +700,14 @@ def require_tools() -> dict[str, str]:
         elif os.name != "nt":
             missing.append(name)
         else:
-            print(f"warning: {name} not found; skipping the zip benchmark", file=sys.stderr)
+            print(
+                f"warning: {name} not found; skipping the zip benchmark",
+                file=sys.stderr,
+            )
     if missing:
-        raise RuntimeError(f"Required benchmark tools are unavailable: {', '.join(missing)}")
+        raise RuntimeError(
+            f"Required benchmark tools are unavailable: {', '.join(missing)}"
+        )
     return tools
 
 
@@ -651,7 +726,9 @@ def rammap_eula_accepted() -> bool:
     import winreg
 
     try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Sysinternals\RAMMap") as key:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, r"Software\Sysinternals\RAMMap"
+        ) as key:
             return winreg.QueryValueEx(key, "EulaAccepted")[0] == 1
     except OSError:
         return False
@@ -668,7 +745,9 @@ def download_rammap() -> Path:
         urllib.request.urlretrieve(RAMMAP_URL, archive)
         with zipfile.ZipFile(archive) as bundle:
             for name in ("RAMMap.exe", "Eula.txt"):
-                with bundle.open(name) as source, (TOOLS_DIR / name).open("wb") as target:
+                with bundle.open(name) as source, (TOOLS_DIR / name).open(
+                    "wb"
+                ) as target:
                     shutil.copyfileobj(source, target)
     finally:
         archive.unlink(missing_ok=True)
@@ -779,7 +858,9 @@ def run_command(
             check=False,
         )
     except OSError as error:
-        raise BenchmarkCommandError(f"Unable to start {' '.join(command)}: {error}") from error
+        raise BenchmarkCommandError(
+            f"Unable to start {' '.join(command)}: {error}"
+        ) from error
     if result.returncode:
         output = result.stdout.decode("utf-8", errors="replace")
         raise BenchmarkCommandError(
@@ -798,7 +879,9 @@ def run_7z_extract(command: list[str], cwd: Path, expected_link_warnings: int) -
             check=False,
         )
     except OSError as error:
-        raise BenchmarkCommandError(f"Unable to start {' '.join(command)}: {error}") from error
+        raise BenchmarkCommandError(
+            f"Unable to start {' '.join(command)}: {error}"
+        ) from error
     output = result.stdout.decode("utf-8", errors="replace")
     link_errors = re.findall(
         r"(?m)^ERROR: Dangerous (?:symbolic )?link path was ignored :", output
@@ -841,7 +924,9 @@ def run_with_password(command: list[str], cwd: Path, password: str) -> None:
     except OSError as error:
         os.close(master_fd)
         os.close(slave_fd)
-        raise BenchmarkCommandError(f"Unable to start {' '.join(command)}: {error}") from error
+        raise BenchmarkCommandError(
+            f"Unable to start {' '.join(command)}: {error}"
+        ) from error
     os.close(slave_fd)
     output = bytearray()
     handled_prompts = 0
@@ -851,7 +936,9 @@ def run_with_password(command: list[str], cwd: Path, password: str) -> None:
         while True:
             if time.monotonic() > deadline:
                 process.kill()
-                raise BenchmarkCommandError(f"Command exceeded two hours: {' '.join(command)}")
+                raise BenchmarkCommandError(
+                    f"Command exceeded two hours: {' '.join(command)}"
+                )
             ready, _, _ = select.select([master_fd], [], [], 0.2)
             if ready:
                 try:
@@ -892,7 +979,9 @@ def run_with_password(command: list[str], cwd: Path, password: str) -> None:
         os.close(master_fd)
 
 
-def _make_writable_and_retry(function: Callable[..., object], path: str, _error: object) -> None:
+def _make_writable_and_retry(
+    function: Callable[..., object], path: str, _error: object
+) -> None:
     os.chmod(path, 0o700)
     function(path)
 
@@ -909,7 +998,9 @@ def _tree_bytes(roots: list[Path]) -> int:
     return total
 
 
-def measure_with_disk_peak(action: Callable[[], None], roots: list[Path]) -> tuple[float, int, int]:
+def measure_with_disk_peak(
+    action: Callable[[], None], roots: list[Path]
+) -> tuple[float, int, int]:
     """Run `action`; return (seconds, peak bytes above baseline, final bytes above baseline).
 
     The peak minus the final size is the temporary space used by the action.
@@ -953,7 +1044,9 @@ def verify_partial_extraction(source_dir: Path, partial_files: tuple[str, ...]) 
 
 def clean_testresults() -> None:
     if EXTRACTION_DIR.is_symlink():
-        raise RuntimeError(f"Refusing to clean symlinked extraction directory: {EXTRACTION_DIR}")
+        raise RuntimeError(
+            f"Refusing to clean symlinked extraction directory: {EXTRACTION_DIR}"
+        )
     EXTRACTION_DIR.mkdir(parents=True, exist_ok=True)
     for entry in list(EXTRACTION_DIR.iterdir()):
         if entry.is_symlink() or entry.is_file():
@@ -1018,7 +1111,9 @@ def source_fingerprint(source_dir: Path) -> str:
             path = directory / name
             metadata = path.lstat()
             entry: list[object] = [
-                path.relative_to(source_dir).as_posix(), metadata.st_mode, metadata.st_mtime_ns,
+                path.relative_to(source_dir).as_posix(),
+                metadata.st_mode,
+                metadata.st_mtime_ns,
             ]
             if path.is_symlink():
                 entry.append(os.readlink(path))
@@ -1026,19 +1121,25 @@ def source_fingerprint(source_dir: Path) -> str:
                 with path.open("rb") as source:
                     entry.append(hashlib.file_digest(source, "sha256").hexdigest())
             elif not path.is_dir():
-                raise RuntimeError(f"Unsupported special file in benchmark source: {path}")
+                raise RuntimeError(
+                    f"Unsupported special file in benchmark source: {path}"
+                )
             digest.update(json.dumps(entry, ensure_ascii=True).encode("ascii"))
             digest.update(b"\n")
     return digest.hexdigest()
 
 
 def verify_extraction(
-    expected: list[tuple[str, int]], symlinks: list[str], allow_collision_renames: bool,
+    expected: list[tuple[str, int]],
+    symlinks: list[str],
+    allow_collision_renames: bool,
     source_dir: Path,
 ) -> int:
     extracted_root = EXTRACTION_DIR / source_dir.name
     if not extracted_root.is_dir():
-        raise RuntimeError(f"Extraction did not produce the expected folder {source_dir.name}")
+        raise RuntimeError(
+            f"Extraction did not produce the expected folder {source_dir.name}"
+        )
 
     expected_files = dict(expected)
     actual_files: dict[str, int] = {}
@@ -1062,9 +1163,7 @@ def verify_extraction(
     # Windows reserved DOS device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
     # cause some archivers to rename files like aux.c -> _aux.c on extraction.
     _WINDOWS_RESERVED = re.compile(
-        r"(?:^|/)"
-        r"(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])"
-        r"(?=\.[^/]*$|$)",
+        r"(?:^|/)" r"(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])" r"(?=\.[^/]*$|$)",
         re.IGNORECASE,
     )
 
@@ -1162,9 +1261,7 @@ def measure(action: Callable[[], None]) -> float:
     return time.perf_counter() - start
 
 
-def archive_path(
-    method: str, encrypted: bool, dataset_name: str = SOURCE_NAME
-) -> Path:
+def archive_path(method: str, encrypted: bool, dataset_name: str = SOURCE_NAME) -> Path:
     suffixes = {
         "zarlib": ".zar",
         "zip": ".zip",
@@ -1173,7 +1270,9 @@ def archive_path(
         "tar": ".tar",
         "tar.gz": ".tar.gz",
     }
-    name = f"{dataset_name}-{method}{'-encrypted' if encrypted else ''}{suffixes[method]}"
+    name = (
+        f"{dataset_name}-{method}{'-encrypted' if encrypted else ''}{suffixes[method]}"
+    )
     if method in ("tar", "tar.gz") and encrypted:
         name += ".cms"
     return ARCHIVE_DIR / name
@@ -1188,7 +1287,9 @@ def build_zarc(cargo: str) -> Path:
     return binary
 
 
-def compress_zarlib(binary: Path, path: Path, encrypted: bool, source_dir: Path) -> None:
+def compress_zarlib(
+    binary: Path, path: Path, encrypted: bool, source_dir: Path
+) -> None:
     command = [str(binary), "create"]
     if encrypted:
         command.extend(["--password", "--aead", "aes-256-gcm"])
@@ -1199,7 +1300,9 @@ def compress_zarlib(binary: Path, path: Path, encrypted: bool, source_dir: Path)
         run_command(command, cwd=source_dir.parent)
 
 
-def compress_zip(zip_executable: str, path: Path, encrypted: bool, source_dir: Path) -> None:
+def compress_zip(
+    zip_executable: str, path: Path, encrypted: bool, source_dir: Path
+) -> None:
     command = [zip_executable, "-q", "-r", "-6", "-y"]
     interactive = encrypted and os.name == "posix"
     if interactive:
@@ -1219,7 +1322,15 @@ def seven_zip_supports_zstd(seven_zip: str) -> bool:
         sample = Path(directory) / "sample.txt"
         sample.write_text("zstd probe\n" * 64, encoding="utf-8")
         result = subprocess.run(
-            [seven_zip, "a", "-t7z", "-m0=zstd", "-bd", str(Path(directory) / "p.7z"), str(sample)],
+            [
+                seven_zip,
+                "a",
+                "-t7z",
+                "-m0=zstd",
+                "-bd",
+                str(Path(directory) / "p.7z"),
+                str(sample),
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
@@ -1228,7 +1339,11 @@ def seven_zip_supports_zstd(seven_zip: str) -> bool:
 
 
 def compress_7z(
-    seven_zip: str, path: Path, encrypted: bool, password: str, source_dir: Path,
+    seven_zip: str,
+    path: Path,
+    encrypted: bool,
+    password: str,
+    source_dir: Path,
     codec: str = "lzma2",
 ) -> None:
     if codec == "zstd":
@@ -1352,7 +1467,9 @@ def extract_archive(
         compressed = path
         if encrypted:
             if certificate is None or private_key is None:
-                raise RuntimeError("The temporary OpenSSL certificate was not initialized")
+                raise RuntimeError(
+                    "The temporary OpenSSL certificate was not initialized"
+                )
             compressed = temporary_directory / f"decrypted-source.{method}"
             run_command(
                 [
@@ -1433,7 +1550,8 @@ def svg_chart(
     ) -> str:
         values = [
             float(item[maximum_key or key]) / divisor
-            for item in results if not item.get("failures")
+            for item in results
+            if not item.get("failures")
         ]
         maximum = max(values) if values else 1.0
         maximum = max(maximum, 1.0)
@@ -1469,9 +1587,7 @@ def svg_chart(
                     f'<text x="{plot_x + 8}" y="{row_y + 17}" class="value">FAILED</text>'
                 )
                 continue
-            minimum = (
-                float(item[minimum_key]) / divisor if minimum_key else 0.0
-            )
+            minimum = float(item[minimum_key]) / divisor if minimum_key else 0.0
             value = float(item[maximum_key or key]) / divisor
             bar_x = plot_x + int(plot_width * minimum / maximum)
             bar_width = max(1, int(plot_width * (value - minimum) / maximum))
@@ -1484,10 +1600,14 @@ def svg_chart(
             )
             parts.extend(
                 [
-                    (f'<rect x="{bar_x}" y="{row_y + 3}" width="{bar_width}" '
-                    f'height="18" rx="4" fill="{color}" opacity="{opacity}"/>'),
-                    (f'<text x="{bar_x + bar_width + 8}" y="{row_y + 17}" '
-                    f'class="value">{value_label}</text>'),
+                    (
+                        f'<rect x="{bar_x}" y="{row_y + 3}" width="{bar_width}" '
+                        f'height="18" rx="4" fill="{color}" opacity="{opacity}"/>'
+                    ),
+                    (
+                        f'<text x="{bar_x + bar_width + 8}" y="{row_y + 17}" '
+                        f'class="value">{value_label}</text>'
+                    ),
                 ]
             )
         return "\n".join(parts)
@@ -1532,9 +1652,7 @@ def svg_chart(
             y_pos = chart_bottom - int(chart_height * tick / 4)
             tick_value = value_max * tick / 4
             tick_label = (
-                f"{tick_value:.0f}"
-                if metric_index == 1
-                else f"{tick_value:.2f}"
+                f"{tick_value:.0f}" if metric_index == 1 else f"{tick_value:.2f}"
             )
             parts.append(
                 f'<line x1="{plot_x}" y1="{y_pos}" x2="{plot_x + plot_width}" '
@@ -1590,7 +1708,9 @@ def svg_chart(
 
         return "\n".join(parts)
 
-    archive_panel = chart_panel("Archive size", "archive_bytes", "MiB", top, 1024 * 1024)
+    archive_panel = chart_panel(
+        "Archive size", "archive_bytes", "MiB", top, 1024 * 1024
+    )
     compression_panel = chart_panel(
         "Compression time",
         "compression_max_seconds",
@@ -1653,8 +1773,10 @@ def svg_chart(
     # Removed extraneous closing parenthesis
     metadata = [
         '<text x="24" y="24" class="heading">Benchmark system</text>',
-        (f'<text x="24" y="46" class="metadata">'
-        f'Operating system: {html.escape(hardware.operating_system)}</text>'),
+        (
+            f'<text x="24" y="46" class="metadata">'
+            f"Operating system: {html.escape(hardware.operating_system)}</text>"
+        ),
         f'<text x="24" y="64" class="metadata">{html.escape(cpu_summary)}</text>',
     ]
     metadata.extend(
@@ -1667,10 +1789,10 @@ def svg_chart(
         f'viewBox="0 0 {width} {height}" role="img" aria-labelledby="title description">\n'
         f'<title id="title">{html.escape(OS_TAG)} {html.escape(ARCH_TAG)} archive benchmark charts</title>\n'
         f'<desc id="description">Archive size, compression time, full and three-file '
-        f'extraction time, CPU utilisation, and RAM usage '
-        f'for archive formats with and without encryption, with hot and cold file caches where available. Source size: '
-        f'{source_bytes / (1024 * 1024):.1f} MiB. Operating system: '
-        f'{html.escape(hardware.operating_system)}. {html.escape(cpu_summary)}. '
+        f"extraction time, CPU utilisation, and RAM usage "
+        f"for archive formats with and without encryption, with hot and cold file caches where available. Source size: "
+        f"{source_bytes / (1024 * 1024):.1f} MiB. Operating system: "
+        f"{html.escape(hardware.operating_system)}. {html.escape(cpu_summary)}. "
         f'{html.escape("; ".join(storage_summaries))}</desc>\n'
         """<style>
   text { font-family: system-ui, sans-serif; fill: #172033; }
@@ -1710,21 +1832,19 @@ def benchmark_result_postfix(cpu_model: str, github_actions: bool | None = None)
         cpu_postfix = ""
 
     if github_actions is None:
-        github_actions = os.environ.get("GITHUB_ACTIONS", "").strip().casefold() == "true"
+        github_actions = (
+            os.environ.get("GITHUB_ACTIONS", "").strip().casefold() == "true"
+        )
     return f"{cpu_postfix}-gh" if github_actions else cpu_postfix
 
 
-def benchmark_result_paths(
-    dataset_name: str, cpu_model: str
-) -> tuple[Path, Path]:
+def benchmark_result_paths(dataset_name: str, cpu_model: str) -> tuple[Path, Path]:
     dataset_postfix = "" if dataset_name == SOURCE_NAME else f"-{dataset_name}"
     postfix = dataset_postfix + benchmark_result_postfix(cpu_model)
     report_path = REPORT_PATH.with_name(
         f"{REPORT_PATH.stem}{postfix}{REPORT_PATH.suffix}"
     )
-    chart_path = CHART_PATH.with_name(
-        f"{CHART_PATH.stem}{postfix}{CHART_PATH.suffix}"
-    )
+    chart_path = CHART_PATH.with_name(f"{CHART_PATH.stem}{postfix}{CHART_PATH.suffix}")
     return report_path, chart_path
 
 
@@ -1741,9 +1861,7 @@ def write_report(
     BENCHMARKS_DIR.mkdir(parents=True, exist_ok=True)
     hardware = collect_benchmark_hardware()
     report_path, chart_path = benchmark_result_paths(dataset_name, hardware.cpu_model)
-    chart_path.write_text(
-        svg_chart(results, source_bytes, hardware), encoding="utf-8"
-    )
+    chart_path.write_text(svg_chart(results, source_bytes, hardware), encoding="utf-8")
     timestamp = dt.datetime.now(dt.UTC).astimezone().isoformat(timespec="seconds")
     logical_cores = os.cpu_count() or "unknown"
     storage_lines = "\n".join(
@@ -1828,7 +1946,9 @@ def write_report(
                 extraction_resources=extraction_resources,
             )
         )
-    tool_lines = "\n".join(f"- `{name}`: `{version}`" for name, version in tools.items())
+    tool_lines = "\n".join(
+        f"- `{name}`: `{version}`" for name, version in tools.items()
+    )
     zarlib_renames = [
         int(item.get("renamed_paths", 0))
         for item in results
@@ -1981,7 +2101,9 @@ class BenchmarkRunResult:
             )
 
         for name in (
-            "compression_seconds", "extraction_seconds", "partial_extraction_seconds"
+            "compression_seconds",
+            "extraction_seconds",
+            "partial_extraction_seconds",
         ):
             if not valid_measurement(getattr(self, name)):
                 raise ValueError(f"{name} must be a finite, nonnegative number")
@@ -1998,7 +2120,9 @@ class BenchmarkRunResult:
                 for sample in samples
             ):
                 raise ValueError(f"{name} must contain timestamp, CPU, and RAM samples")
-            setattr(self, name, [(sample[0], sample[1], sample[2]) for sample in samples])
+            setattr(
+                self, name, [(sample[0], sample[1], sample[2]) for sample in samples]
+            )
 
 
 @dataclass
@@ -2017,7 +2141,8 @@ def load_benchmark_run(
     test_name: str, context: dict[str, object]
 ) -> BenchmarkRunResult | BenchmarkRunFailure | None:
     paths = [
-        path for path in BENCHMARK_CACHE_DIR.glob(f"*-{test_name}.json")
+        path
+        for path in BENCHMARK_CACHE_DIR.glob(f"*-{test_name}.json")
         if path.name.partition("-")[2] == f"{test_name}.json"
     ]
     if not paths:
@@ -2056,13 +2181,19 @@ def save_benchmark_run(
     temporary: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=BENCHMARK_CACHE_DIR,
-            prefix=f".{path.stem}-", suffix=".tmp", delete=False,
+            mode="w",
+            encoding="utf-8",
+            dir=BENCHMARK_CACHE_DIR,
+            prefix=f".{path.stem}-",
+            suffix=".tmp",
+            delete=False,
         ) as output:
             temporary = Path(output.name)
             json.dump(
                 {"test": test_name, "context": context, "result": asdict(result)},
-                output, allow_nan=False, indent=2,
+                output,
+                allow_nan=False,
+                indent=2,
             )
             output.write("\n")
         temporary.replace(path)
@@ -2098,7 +2229,9 @@ def ensure_dataset_archive(binary: Path, dataset_name: str) -> Path:
                     "Ensure the archive and its Git LFS object are published."
                 ) from error
             if _is_lfs_pointer(temporary):
-                raise RuntimeError(f"Download returned a Git LFS pointer instead of {archive.name}")
+                raise RuntimeError(
+                    f"Download returned a Git LFS pointer instead of {archive.name}"
+                )
             run_command([str(binary), "info", "--no-config", str(temporary)])
             temporary.replace(archive)
         finally:
@@ -2114,12 +2247,16 @@ def ensure_dataset_source(binary: Path, dataset_name: str) -> Path:
         archive_hash = hashlib.file_digest(source, "sha256").hexdigest()
 
     if DATASET_DIR.is_symlink():
-        raise RuntimeError(f"Refusing symlinked benchmark dataset directory: {DATASET_DIR}")
+        raise RuntimeError(
+            f"Refusing symlinked benchmark dataset directory: {DATASET_DIR}"
+        )
     DATASET_DIR.mkdir(parents=True, exist_ok=True)
     source_dir = DATASET_DIR / dataset_name
     marker = DATASET_DIR / f".{dataset_name}.archive-sha256"
     if source_dir.is_symlink() or marker.is_symlink():
-        raise RuntimeError(f"Refusing symlinked benchmark dataset state for {dataset_name}")
+        raise RuntimeError(
+            f"Refusing symlinked benchmark dataset state for {dataset_name}"
+        )
     if (
         source_dir.is_dir()
         and marker.is_file()
@@ -2132,7 +2269,11 @@ def ensure_dataset_source(binary: Path, dataset_name: str) -> Path:
         prefix=f".{dataset_name}-", dir=DATASET_DIR
     ) as temporary:
         command = [
-            str(binary), "extract", "--no-config", "--collision", "rename",
+            str(binary),
+            "extract",
+            "--no-config",
+            "--collision",
+            "rename",
         ]
         if os.name == "posix":
             command.append("--symlinks")
@@ -2143,9 +2284,10 @@ def ensure_dataset_source(binary: Path, dataset_name: str) -> Path:
             raise RuntimeError(
                 f"Dataset archive {archive} did not extract {dataset_name}/"
             )
-        if dataset_name == KERNEL_NAME and not (
-            extracted_source / "init" / "main.o"
-        ).is_file():
+        if (
+            dataset_name == KERNEL_NAME
+            and not (extracted_source / "init" / "main.o").is_file()
+        ):
             raise RuntimeError(
                 f"Precompiled Linux kernel archive is missing {dataset_name}/init/main.o"
             )
@@ -2161,7 +2303,9 @@ def run_benchmarks(
 ) -> bool:
     caches, rammap = resolve_cache_modes(mode, accept_eula)
     if TESTRESULTS.is_symlink():
-        raise RuntimeError(f"Refusing symlinked benchmark results directory: {TESTRESULTS}")
+        raise RuntimeError(
+            f"Refusing symlinked benchmark results directory: {TESTRESULTS}"
+        )
     TESTRESULTS.mkdir(parents=True, exist_ok=True)
     with report_progress("Building release zarc"):
         binary = build_zarc(cargo)
@@ -2173,12 +2317,19 @@ def run_benchmarks(
     successful = True
     for dataset_dir, partial_files in datasets:
         dataset_successful = _run_benchmark_dataset(
-            tools, binary, caches, rammap, accept_eula, dataset_dir,
+            tools,
+            binary,
+            caches,
+            rammap,
+            accept_eula,
+            dataset_dir,
             partial_files=partial_files,
         )
         successful = dataset_successful and successful
     if BENCHMARK_CACHE_DIR.is_symlink():
-        raise RuntimeError(f"Refusing to clean symlinked benchmark cache: {BENCHMARK_CACHE_DIR}")
+        raise RuntimeError(
+            f"Refusing to clean symlinked benchmark cache: {BENCHMARK_CACHE_DIR}"
+        )
     for cached_file in BENCHMARK_CACHE_DIR.iterdir():
         if cached_file.is_file() or cached_file.is_symlink():
             cached_file.unlink()
@@ -2187,8 +2338,12 @@ def run_benchmarks(
 
 
 def _run_benchmark_dataset(
-    tools: dict[str, str], binary: Path, caches: list[str], rammap: Path | None,
-    accept_eula: bool, source_dir: Path,
+    tools: dict[str, str],
+    binary: Path,
+    caches: list[str],
+    rammap: Path | None,
+    accept_eula: bool,
+    source_dir: Path,
     partial_files: tuple[str, ...] = PARTIAL_FILES,
 ) -> bool:
     with report_progress("Scanning source files"):
@@ -2256,7 +2411,9 @@ def _run_benchmark_dataset(
         "versions": versions,
     }
     if BENCHMARK_CACHE_DIR.is_symlink():
-        raise RuntimeError(f"Refusing to use symlinked benchmark cache: {BENCHMARK_CACHE_DIR}")
+        raise RuntimeError(
+            f"Refusing to use symlinked benchmark cache: {BENCHMARK_CACHE_DIR}"
+        )
     BENCHMARK_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     has_completed_benchmark_run = False
     total_runs = sum(
@@ -2272,10 +2429,14 @@ def _run_benchmark_dataset(
         print(f"Remove existing benchmark archive directory: {ARCHIVE_DIR}")
         shutil.rmtree(ARCHIVE_DIR)
     if ARCHIVE_DIR.exists():
-        raise RuntimeError(f"Refusing to overwrite an existing benchmark archive directory: {ARCHIVE_DIR}")
+        raise RuntimeError(
+            f"Refusing to overwrite an existing benchmark archive directory: {ARCHIVE_DIR}"
+        )
     ARCHIVE_DIR.mkdir()
     try:
-        with tempfile.TemporaryDirectory(prefix="zar-benchmark-", dir=TESTRESULTS) as temporary:
+        with tempfile.TemporaryDirectory(
+            prefix="zar-benchmark-", dir=TESTRESULTS
+        ) as temporary:
             temporary_directory = Path(temporary)
             certificate: Path | None = None
             private_key: Path | None = None
@@ -2303,8 +2464,13 @@ def _run_benchmark_dataset(
                         ]
                     )
                 except BenchmarkCommandError as error:
-                    certificate_failure = str(error).replace(ENCRYPTED_PASSWORD, "[redacted]")
-                    print(f"OpenSSL certificate setup FAILED: {certificate_failure}", file=sys.stderr)
+                    certificate_failure = str(error).replace(
+                        ENCRYPTED_PASSWORD, "[redacted]"
+                    )
+                    print(
+                        f"OpenSSL certificate setup FAILED: {certificate_failure}",
+                        file=sys.stderr,
+                    )
 
             for cache, method in ((c, m) for c in caches for m in methods):
                 runs_per_test = 2 if cache == "hot" else 1
@@ -2313,6 +2479,7 @@ def _run_benchmark_dataset(
                         continue
                     path = archive_path(method, encrypted, source_dir.name)
                     path.unlink(missing_ok=True)
+
                     def prepare_cache(*warm: Path, cache: str = cache) -> None:
                         if cache == "cold":
                             drop_caches(rammap, accept_eula)
@@ -2382,20 +2549,31 @@ def _run_benchmark_dataset(
                         wait_between_benchmark_runs(has_completed_benchmark_run)
                         failure: BenchmarkRunFailure | None = None
 
-                        def run_benchmark_command(action: Callable[[], None], phase: str) -> None:
+                        def run_benchmark_command(
+                            action: Callable[[], None], phase: str
+                        ) -> None:
                             nonlocal failure
                             try:
                                 action()
                             except BenchmarkCommandError as error:
                                 failure = BenchmarkRunFailure(
-                                    phase, str(error).replace(ENCRYPTED_PASSWORD, "[redacted]")
+                                    phase,
+                                    str(error).replace(
+                                        ENCRYPTED_PASSWORD, "[redacted]"
+                                    ),
                                 )
 
                         def record_failure() -> None:
                             nonlocal completed_runs, has_completed_benchmark_run
                             assert failure is not None
-                            print(f"{run_label}: FAILED during {failure.phase}: {failure.error}", file=sys.stderr, flush=True)
-                            save_benchmark_run(completed_runs + 1, test_name, cache_context, failure)
+                            print(
+                                f"{run_label}: FAILED during {failure.phase}: {failure.error}",
+                                file=sys.stderr,
+                                flush=True,
+                            )
+                            save_benchmark_run(
+                                completed_runs + 1, test_name, cache_context, failure
+                            )
                             run_results.append(failure)
                             completed_runs += 1
                             has_completed_benchmark_run = True
@@ -2411,7 +2589,9 @@ def _run_benchmark_dataset(
                             monitor.start()
                             try:
                                 compression_seconds = measure(
-                                    lambda: run_benchmark_command(compress, "compression")
+                                    lambda: run_benchmark_command(
+                                        compress, "compression"
+                                    )
                                 )
                             finally:
                                 monitor.stop()
@@ -2444,9 +2624,17 @@ def _run_benchmark_dataset(
                                     extraction_seconds = measure(
                                         lambda: run_benchmark_command(
                                             lambda: extract_archive(
-                                                method, encrypted, path, tools, binary, certificate,
-                                                private_key, temporary_directory, ENCRYPTED_PASSWORD,
-                                                len(symlinks), source_dir,
+                                                method,
+                                                encrypted,
+                                                path,
+                                                tools,
+                                                binary,
+                                                certificate,
+                                                private_key,
+                                                temporary_directory,
+                                                ENCRYPTED_PASSWORD,
+                                                len(symlinks),
+                                                source_dir,
                                             ),
                                             "full extraction",
                                         )
@@ -2457,11 +2645,11 @@ def _run_benchmark_dataset(
                                 record_failure()
                                 continue
                             extraction_samples = monitor.samples
-                            print(
-                                f"  Extracted in {_fmt_duration(extraction_seconds)}"
-                            )
+                            print(f"  Extracted in {_fmt_duration(extraction_seconds)}")
                             allow_renames = method in ("zarlib", "7z", "7z-zstd")
-                            with report_progress(f"{run_label}: verifying extracted files"):
+                            with report_progress(
+                                f"{run_label}: verifying extracted files"
+                            ):
                                 renamed_paths = verify_extraction(
                                     expected, symlinks, allow_renames, source_dir
                                 )
@@ -2470,16 +2658,27 @@ def _run_benchmark_dataset(
                             ):
                                 clean_testresults()
                                 prepare_cache(path)
-                                partial_seconds, peak_bytes, final_bytes = measure_with_disk_peak(
-                                    lambda: run_benchmark_command(
-                                        lambda: extract_archive(
-                                            method, encrypted, path, tools, binary, certificate,
-                                            private_key, temporary_directory, ENCRYPTED_PASSWORD,
-                                            0, source_dir, list(partial_files),
+                                partial_seconds, peak_bytes, final_bytes = (
+                                    measure_with_disk_peak(
+                                        lambda: run_benchmark_command(
+                                            lambda: extract_archive(
+                                                method,
+                                                encrypted,
+                                                path,
+                                                tools,
+                                                binary,
+                                                certificate,
+                                                private_key,
+                                                temporary_directory,
+                                                ENCRYPTED_PASSWORD,
+                                                0,
+                                                source_dir,
+                                                list(partial_files),
+                                            ),
+                                            "selected extraction",
                                         ),
-                                        "selected extraction",
-                                    ),
-                                    [EXTRACTION_DIR, temporary_directory],
+                                        [EXTRACTION_DIR, temporary_directory],
+                                    )
                                 )
                             if failure is not None:
                                 record_failure()
@@ -2519,23 +2718,43 @@ def _run_benchmark_dataset(
                         if isinstance(item, BenchmarkRunFailure)
                     ]
                     if failures:
-                        results.append({
-                            "method": method, "cache": cache, "encrypted": encrypted,
-                            "failures": failures,
-                        })
-                        print(f"  {method} (encrypted={encrypted}, {cache} cache): FAILED")
+                        results.append(
+                            {
+                                "method": method,
+                                "cache": cache,
+                                "encrypted": encrypted,
+                                "failures": failures,
+                            }
+                        )
+                        print(
+                            f"  {method} (encrypted={encrypted}, {cache} cache): FAILED"
+                        )
                         path.unlink(missing_ok=True)
                         continue
 
                     successful_runs = [
-                        item for item in run_results if isinstance(item, BenchmarkRunResult)
+                        item
+                        for item in run_results
+                        if isinstance(item, BenchmarkRunResult)
                     ]
-                    compression_min = min(item.compression_seconds for item in successful_runs)
-                    compression_max = max(item.compression_seconds for item in successful_runs)
-                    extraction_min = min(item.extraction_seconds for item in successful_runs)
-                    extraction_max = max(item.extraction_seconds for item in successful_runs)
-                    partial_min = min(item.partial_extraction_seconds for item in successful_runs)
-                    partial_max = max(item.partial_extraction_seconds for item in successful_runs)
+                    compression_min = min(
+                        item.compression_seconds for item in successful_runs
+                    )
+                    compression_max = max(
+                        item.compression_seconds for item in successful_runs
+                    )
+                    extraction_min = min(
+                        item.extraction_seconds for item in successful_runs
+                    )
+                    extraction_max = max(
+                        item.extraction_seconds for item in successful_runs
+                    )
+                    partial_min = min(
+                        item.partial_extraction_seconds for item in successful_runs
+                    )
+                    partial_max = max(
+                        item.partial_extraction_seconds for item in successful_runs
+                    )
                     print(
                         f"  {method} (encrypted={encrypted}, {cache} cache): "
                         f"compress {compression_min:.2f}-{compression_max:.2f}s, "
@@ -2569,7 +2788,9 @@ def _run_benchmark_dataset(
                             "compression_max_seconds": compression_max,
                             "extraction_min_seconds": extraction_min,
                             "extraction_max_seconds": extraction_max,
-                            "partial_temp_bytes": max(item.partial_temp_bytes for item in successful_runs),
+                            "partial_temp_bytes": max(
+                                item.partial_temp_bytes for item in successful_runs
+                            ),
                             "partial_extraction_min_seconds": partial_min,
                             "partial_extraction_max_seconds": partial_max,
                             "renamed_paths": successful_runs[-1].renamed_paths,
@@ -2610,7 +2831,9 @@ def _run_benchmark_dataset(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cargo", default="cargo", help="cargo executable (default: cargo)")
+    parser.add_argument(
+        "--cargo", default="cargo", help="cargo executable (default: cargo)"
+    )
     parser.add_argument(
         "--mode",
         choices=("hot", "cold", "both"),
@@ -2625,14 +2848,16 @@ def main() -> int:
     parser.add_argument(
         "--no-install",
         action="store_true",
-        help=        "do not try to install missing archive tools",
+        help="do not try to install missing archive tools",
     )
     args = parser.parse_args()
     try:
         if not args.no_install:
             install_missing_tools()
         tools = require_tools()
-        if not run_benchmarks(tools, args.cargo, args.mode, args.accept_sysinternals_eula):
+        if not run_benchmarks(
+            tools, args.cargo, args.mode, args.accept_sysinternals_eula
+        ):
             return 1
     except (OSError, RuntimeError, TimeoutError) as error:
         print(f"benchmark: {error}", file=sys.stderr)
@@ -2675,7 +2900,9 @@ def tool_versions(tools: dict[str, str]) -> dict[str, str]:
             if package["name"] == "zarlib"
         )
     except (KeyError, StopIteration, TypeError, json.JSONDecodeError) as error:
-        raise RuntimeError("Unable to read zarlib version from cargo metadata") from error
+        raise RuntimeError(
+            "Unable to read zarlib version from cargo metadata"
+        ) from error
     versions["zarlib"] = str(zarlib_version)
     for name, executable in tools.items():
         result = subprocess.run(
@@ -2688,7 +2915,9 @@ def tool_versions(tools: dict[str, str]) -> dict[str, str]:
             raise RuntimeError(f"Unable to read version from {name}")
         lines = result.stdout.decode("utf-8", errors="replace").splitlines()
         if name == "zip":
-            version = next((line.strip() for line in lines if line.startswith("This is Zip")), "")
+            version = next(
+                (line.strip() for line in lines if line.startswith("This is Zip")), ""
+            )
         else:
             version = next((line.strip() for line in lines if line.strip()), "")
         versions[name] = version or "version unavailable"
