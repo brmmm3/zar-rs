@@ -2,8 +2,8 @@
 
 [![crates.io](https://img.shields.io/crates/v/zarlib?style=flat-square&logo=rust)](https://crates.io/crates/zarlib)
 [![docs.rs](https://img.shields.io/badge/docs.rs-zarlib-4c8bfd?logo=docs.rs&style=flat-square)](https://docs.rs/zarlib)
-[![PyPI](https://img.shields.io/pypi/v/pyzarlib?style=flat-square&logo=pypi&logoColor=white)](https://pypi.org/project/pyzarlib/)
-[![CI](https://github.com/brmmm3/zar-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/brmmm3/zar-rs/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/pyzarlib?style=flat-square&logo=pypi&logoColor=white&cacheSeconds=60)](https://pypi.org/project/pyzarlib/)
+[![CI](https://github.com/brmmm3/zar-rs/actions/workflows/ci.yml/badge.svg?branch=0.15.0)](https://github.com/brmmm3/zar-rs/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue?style=flat-square)](LICENSE-MIT)
 
 ZAR is an archive format and toolkit with compression, deduplication, and
