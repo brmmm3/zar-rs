@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="3640" viewBox="0 0 1120 3640" role="img" aria-labelledby="title description">
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="3580" viewBox="0 0 1120 3580" role="img" aria-labelledby="title description">
 <title id="title">windows x86_64 archive benchmark charts</title>
-<desc id="description">Archive size, compression time, full and three-file extraction time, CPU utilisation, and RAM usage for archive formats with and without encryption, with hot and cold file caches where available. Source size: 525.0 MiB. Operating system: Windows-11-10.0.26200-SP0. CPU: Intel(R) Core(TM) Ultra 7 265HX (AMD64, 20 logical cores). Storage (Source and archives): SSD (NVMe); model: Samsung SSD 990 EVO Plus 1TB; device: disk 1 (NVMe); Storage (Extraction output): SSD (NVMe); model: Samsung SSD 990 EVO Plus 1TB; device: disk 1 (NVMe)</desc>
+<desc id="description">Archive size, compression time, full and three-file extraction time, CPU utilisation, and RAM usage for archive formats with and without encryption, with hot and cold file caches where available. Source size: 525.1 MiB. Operating system: Windows-11-10.0.26200-SP0. CPU: Intel(R) Core(TM) Ultra 7 265HX (AMD64, 20 logical cores). Storage (Source and archives): SSD (NVMe); model: SAMSUNG MZVL21T0HCLR-00BH1; device: disk 0 (NVMe); Storage (Extraction output): SSD (NVMe); model: SAMSUNG MZVL21T0HCLR-00BH1; device: disk 0 (NVMe)</desc>
 <style>
   text { font-family: system-ui, sans-serif; fill: #172033; }
   .heading { font-size: 19px; font-weight: 700; }
@@ -14,410 +14,412 @@
 <text x="24" y="24" class="heading">Benchmark system</text>
 <text x="24" y="46" class="metadata">Operating system: Windows-11-10.0.26200-SP0</text>
 <text x="24" y="64" class="metadata">CPU: Intel(R) Core(TM) Ultra 7 265HX (AMD64, 20 logical cores)</text>
-<text x="24" y="82" class="metadata">Storage (Source and archives): SSD (NVMe); model: Samsung SSD 990 EVO Plus 1TB; device: disk 1 (NVMe)</text>
-<text x="24" y="100" class="metadata">Storage (Extraction output): SSD (NVMe); model: Samsung SSD 990 EVO Plus 1TB; device: disk 1 (NVMe)</text>
+<text x="24" y="82" class="metadata">Storage (Source and archives): SSD (NVMe); model: SAMSUNG MZVL21T0HCLR-00BH1; device: disk 0 (NVMe)</text>
+<text x="24" y="100" class="metadata">Storage (Extraction output): SSD (NVMe); model: SAMSUNG MZVL21T0HCLR-00BH1; device: disk 0 (NVMe)</text>
 <text x="24" y="120" class="heading">Archive size</text>
-<line x1="250" y1="154" x2="250" y2="694" class="grid"/>
+<line x1="250" y1="154" x2="250" y2="454" class="grid"/>
 <text x="250" y="146" text-anchor="middle" class="axis">0.0</text>
-<line x1="425" y1="154" x2="425" y2="694" class="grid"/>
+<line x1="425" y1="154" x2="425" y2="454" class="grid"/>
 <text x="425" y="146" text-anchor="middle" class="axis">140.7</text>
-<line x1="600" y1="154" x2="600" y2="694" class="grid"/>
+<line x1="600" y1="154" x2="600" y2="454" class="grid"/>
 <text x="600" y="146" text-anchor="middle" class="axis">281.3</text>
-<line x1="775" y1="154" x2="775" y2="694" class="grid"/>
+<line x1="775" y1="154" x2="775" y2="454" class="grid"/>
 <text x="775" y="146" text-anchor="middle" class="axis">422.0</text>
-<line x1="950" y1="154" x2="950" y2="694" class="grid"/>
-<text x="950" y="146" text-anchor="middle" class="axis">562.6</text>
-<text x="238" y="171" text-anchor="end" class="label">zarlib - plain - hot</text>
-<rect x="250" y="157" width="144" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
-<text x="402" y="171" class="value">115.81 MiB</text>
-<text x="238" y="201" text-anchor="end" class="label">zip - plain - hot</text>
-<rect x="250" y="187" width="192" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
-<text x="450" y="201" class="value">154.62 MiB</text>
-<text x="238" y="231" text-anchor="end" class="label">zip - encrypted - hot</text>
-<rect x="250" y="217" width="193" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
-<text x="451" y="231" class="value">155.93 MiB</text>
-<text x="238" y="261" text-anchor="end" class="label">7z - plain - hot</text>
-<rect x="250" y="247" width="99" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
-<text x="357" y="261" class="value">80.23 MiB</text>
-<text x="238" y="291" text-anchor="end" class="label">7z - encrypted - hot</text>
-<rect x="250" y="277" width="99" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
-<text x="357" y="291" class="value">80.23 MiB</text>
-<text x="238" y="321" text-anchor="end" class="label">tar - plain - hot</text>
-<rect x="250" y="307" width="699" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
-<text x="957" y="321" class="value">562.63 MiB</text>
-<text x="238" y="351" text-anchor="end" class="label">tar - encrypted - hot</text>
-<rect x="250" y="337" width="700" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
-<text x="958" y="351" class="value">562.63 MiB</text>
-<text x="238" y="381" text-anchor="end" class="label">tar.gz - plain - hot</text>
-<rect x="250" y="367" width="148" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
-<text x="406" y="381" class="value">119.40 MiB</text>
-<text x="238" y="411" text-anchor="end" class="label">tar.gz - encrypted - hot</text>
-<rect x="250" y="397" width="148" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
-<text x="406" y="411" class="value">119.40 MiB</text>
-<text x="238" y="441" text-anchor="end" class="label">zarlib - plain - cold</text>
-<rect x="250" y="427" width="143" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
-<text x="401" y="441" class="value">115.16 MiB</text>
-<text x="238" y="471" text-anchor="end" class="label">zip - plain - cold</text>
-<rect x="250" y="457" width="192" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
-<text x="450" y="471" class="value">154.62 MiB</text>
-<text x="238" y="501" text-anchor="end" class="label">zip - encrypted - cold</text>
-<rect x="250" y="487" width="193" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
-<text x="451" y="501" class="value">155.93 MiB</text>
-<text x="238" y="531" text-anchor="end" class="label">7z - plain - cold</text>
-<rect x="250" y="517" width="99" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
-<text x="357" y="531" class="value">80.23 MiB</text>
-<text x="238" y="561" text-anchor="end" class="label">7z - encrypted - cold</text>
-<rect x="250" y="547" width="99" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
-<text x="357" y="561" class="value">80.23 MiB</text>
-<text x="238" y="591" text-anchor="end" class="label">tar - plain - cold</text>
-<rect x="250" y="577" width="699" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
-<text x="957" y="591" class="value">562.63 MiB</text>
-<text x="238" y="621" text-anchor="end" class="label">tar - encrypted - cold</text>
-<rect x="250" y="607" width="700" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
-<text x="958" y="621" class="value">562.63 MiB</text>
-<text x="238" y="651" text-anchor="end" class="label">tar.gz - plain - cold</text>
-<rect x="250" y="637" width="148" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
-<text x="406" y="651" class="value">119.40 MiB</text>
-<text x="238" y="681" text-anchor="end" class="label">tar.gz - encrypted - cold</text>
-<rect x="250" y="667" width="148" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
-<text x="406" y="681" class="value">119.40 MiB</text>
-<text x="24" y="740" class="heading">Compression time</text>
-<line x1="250" y1="774" x2="250" y2="1314" class="grid"/>
-<text x="250" y="766" text-anchor="middle" class="axis">0.0</text>
-<line x1="425" y1="774" x2="425" y2="1314" class="grid"/>
-<text x="425" y="766" text-anchor="middle" class="axis">92.1</text>
-<line x1="600" y1="774" x2="600" y2="1314" class="grid"/>
-<text x="600" y="766" text-anchor="middle" class="axis">184.2</text>
-<line x1="775" y1="774" x2="775" y2="1314" class="grid"/>
-<text x="775" y="766" text-anchor="middle" class="axis">276.4</text>
-<line x1="950" y1="774" x2="950" y2="1314" class="grid"/>
-<text x="950" y="766" text-anchor="middle" class="axis">368.5</text>
-<text x="238" y="791" text-anchor="end" class="label">zarlib - plain - hot</text>
-<rect x="254" y="777" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
-<text x="263" y="791" class="value">2.28-2.40 s</text>
-<text x="238" y="821" text-anchor="end" class="label">zip - plain - hot</text>
-<rect x="278" y="807" width="5" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
-<text x="291" y="821" class="value">14.80-17.81 s</text>
-<text x="238" y="851" text-anchor="end" class="label">zip - encrypted - hot</text>
-<rect x="283" y="837" width="1" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
-<text x="292" y="851" class="value">17.59-17.83 s</text>
-<text x="238" y="881" text-anchor="end" class="label">7z - plain - hot</text>
-<rect x="331" y="867" width="44" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
-<text x="383" y="881" class="value">42.90-66.33 s</text>
-<text x="238" y="911" text-anchor="end" class="label">7z - encrypted - hot</text>
-<rect x="334" y="897" width="7" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
-<text x="349" y="911" class="value">44.52-48.59 s</text>
-<text x="238" y="941" text-anchor="end" class="label">tar - plain - hot</text>
-<rect x="253" y="927" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
-<text x="262" y="941" class="value">1.97-2.26 s</text>
-<text x="238" y="971" text-anchor="end" class="label">tar - encrypted - hot</text>
-<rect x="260" y="957" width="5" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
-<text x="273" y="971" class="value">5.63-8.70 s</text>
-<text x="238" y="1001" text-anchor="end" class="label">tar.gz - plain - hot</text>
-<rect x="271" y="987" width="7" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
-<text x="286" y="1001" class="value">11.46-15.52 s</text>
-<text x="238" y="1031" text-anchor="end" class="label">tar.gz - encrypted - hot</text>
-<rect x="286" y="1017" width="1" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
-<text x="295" y="1031" class="value">19.31-19.54 s</text>
-<text x="238" y="1061" text-anchor="end" class="label">zarlib - plain - cold</text>
-<rect x="316" y="1047" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
-<text x="325" y="1061" class="value">34.76-34.76 s</text>
-<text x="238" y="1091" text-anchor="end" class="label">zip - plain - cold</text>
-<rect x="950" y="1077" width="1" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
-<text x="959" y="1091" class="value">368.49-368.49 s</text>
-<text x="238" y="1121" text-anchor="end" class="label">zip - encrypted - cold</text>
-<rect x="853" y="1107" width="1" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
-<text x="862" y="1121" class="value">317.87-317.87 s</text>
-<text x="238" y="1151" text-anchor="end" class="label">7z - plain - cold</text>
-<rect x="413" y="1137" width="1" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
-<text x="422" y="1151" class="value">85.89-85.89 s</text>
-<text x="238" y="1181" text-anchor="end" class="label">7z - encrypted - cold</text>
-<rect x="465" y="1167" width="1" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
-<text x="474" y="1181" class="value">113.70-113.70 s</text>
-<text x="238" y="1211" text-anchor="end" class="label">tar - plain - cold</text>
-<rect x="926" y="1197" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
-<text x="935" y="1211" class="value">356.08-356.08 s</text>
-<text x="238" y="1241" text-anchor="end" class="label">tar - encrypted - cold</text>
-<rect x="779" y="1227" width="1" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
-<text x="788" y="1241" class="value">278.93-278.93 s</text>
-<text x="238" y="1271" text-anchor="end" class="label">tar.gz - plain - cold</text>
-<rect x="833" y="1257" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
-<text x="842" y="1271" class="value">307.12-307.12 s</text>
-<text x="238" y="1301" text-anchor="end" class="label">tar.gz - encrypted - cold</text>
-<rect x="793" y="1287" width="1" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
-<text x="802" y="1301" class="value">286.27-286.27 s</text>
-<text x="24" y="1360" class="heading">Extraction time</text>
-<line x1="250" y1="1394" x2="250" y2="1934" class="grid"/>
-<text x="250" y="1386" text-anchor="middle" class="axis">0.0</text>
-<line x1="425" y1="1394" x2="425" y2="1934" class="grid"/>
-<text x="425" y="1386" text-anchor="middle" class="axis">91.8</text>
-<line x1="600" y1="1394" x2="600" y2="1934" class="grid"/>
-<text x="600" y="1386" text-anchor="middle" class="axis">183.6</text>
-<line x1="775" y1="1394" x2="775" y2="1934" class="grid"/>
-<text x="775" y="1386" text-anchor="middle" class="axis">275.4</text>
-<line x1="950" y1="1394" x2="950" y2="1934" class="grid"/>
-<text x="950" y="1386" text-anchor="middle" class="axis">367.2</text>
-<text x="238" y="1411" text-anchor="end" class="label">zarlib - plain - hot</text>
-<rect x="314" y="1397" width="4" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
-<text x="326" y="1411" class="value">33.84-36.11 s</text>
-<text x="238" y="1441" text-anchor="end" class="label">zip - plain - hot</text>
-<rect x="303" y="1427" width="3" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
-<text x="314" y="1441" class="value">28.31-30.19 s</text>
-<text x="238" y="1471" text-anchor="end" class="label">zip - encrypted - hot</text>
-<rect x="305" y="1457" width="1" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
-<text x="314" y="1471" class="value">29.22-29.42 s</text>
-<text x="238" y="1501" text-anchor="end" class="label">7z - plain - hot</text>
-<rect x="897" y="1487" width="52" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
-<text x="957" y="1501" class="value">339.76-367.20 s</text>
-<text x="238" y="1531" text-anchor="end" class="label">7z - encrypted - hot</text>
-<rect x="879" y="1517" width="37" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
-<text x="924" y="1531" class="value">330.02-349.91 s</text>
-<text x="238" y="1561" text-anchor="end" class="label">tar - plain - hot</text>
-<rect x="277" y="1547" width="36" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
-<text x="321" y="1561" class="value">14.61-33.93 s</text>
-<text x="238" y="1591" text-anchor="end" class="label">tar - encrypted - hot</text>
-<rect x="271" y="1577" width="1" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
-<text x="280" y="1591" class="value">11.13-11.40 s</text>
-<text x="238" y="1621" text-anchor="end" class="label">tar.gz - plain - hot</text>
-<rect x="267" y="1607" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
-<text x="276" y="1621" class="value">9.05-9.39 s</text>
-<text x="238" y="1651" text-anchor="end" class="label">tar.gz - encrypted - hot</text>
-<rect x="267" y="1637" width="2" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
-<text x="277" y="1651" class="value">9.27-10.75 s</text>
-<text x="238" y="1681" text-anchor="end" class="label">zarlib - plain - cold</text>
-<rect x="319" y="1667" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
-<text x="328" y="1681" class="value">36.21-36.21 s</text>
-<text x="238" y="1711" text-anchor="end" class="label">zip - plain - cold</text>
-<rect x="292" y="1697" width="1" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
-<text x="301" y="1711" class="value">22.41-22.41 s</text>
-<text x="238" y="1741" text-anchor="end" class="label">zip - encrypted - cold</text>
-<rect x="299" y="1727" width="1" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
-<text x="308" y="1741" class="value">26.01-26.01 s</text>
-<text x="238" y="1771" text-anchor="end" class="label">7z - plain - cold</text>
-<rect x="880" y="1757" width="1" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
-<text x="889" y="1771" class="value">330.51-330.51 s</text>
-<text x="238" y="1801" text-anchor="end" class="label">7z - encrypted - cold</text>
-<rect x="876" y="1787" width="1" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
-<text x="885" y="1801" class="value">328.87-328.87 s</text>
-<text x="238" y="1831" text-anchor="end" class="label">tar - plain - cold</text>
-<rect x="269" y="1817" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
-<text x="278" y="1831" class="value">10.36-10.36 s</text>
-<text x="238" y="1861" text-anchor="end" class="label">tar - encrypted - cold</text>
-<rect x="272" y="1847" width="1" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
-<text x="281" y="1861" class="value">12.01-12.01 s</text>
-<text x="238" y="1891" text-anchor="end" class="label">tar.gz - plain - cold</text>
-<rect x="270" y="1877" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
-<text x="279" y="1891" class="value">10.60-10.60 s</text>
-<text x="238" y="1921" text-anchor="end" class="label">tar.gz - encrypted - cold</text>
-<rect x="272" y="1907" width="1" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
-<text x="281" y="1921" class="value">11.77-11.77 s</text>
-<text x="24" y="1980" class="heading">Extraction time (3 files)</text>
-<line x1="250" y1="2014" x2="250" y2="2554" class="grid"/>
-<text x="250" y="2006" text-anchor="middle" class="axis">0.0</text>
-<line x1="425" y1="2014" x2="425" y2="2554" class="grid"/>
-<text x="425" y="2006" text-anchor="middle" class="axis">0.7</text>
-<line x1="600" y1="2014" x2="600" y2="2554" class="grid"/>
-<text x="600" y="2006" text-anchor="middle" class="axis">1.5</text>
-<line x1="775" y1="2014" x2="775" y2="2554" class="grid"/>
-<text x="775" y="2006" text-anchor="middle" class="axis">2.2</text>
-<line x1="950" y1="2014" x2="950" y2="2554" class="grid"/>
-<text x="950" y="2006" text-anchor="middle" class="axis">3.0</text>
-<text x="238" y="2031" text-anchor="end" class="label">zarlib - plain - hot</text>
-<rect x="303" y="2017" width="3" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
-<text x="314" y="2031" class="value">0.23-0.24 s</text>
-<text x="238" y="2061" text-anchor="end" class="label">zip - plain - hot</text>
-<rect x="267" y="2047" width="1" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
-<text x="276" y="2061" class="value">0.07-0.08 s</text>
-<text x="238" y="2091" text-anchor="end" class="label">zip - encrypted - hot</text>
-<rect x="267" y="2077" width="13" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
-<text x="288" y="2091" class="value">0.07-0.13 s</text>
-<text x="238" y="2121" text-anchor="end" class="label">7z - plain - hot</text>
-<rect x="435" y="2107" width="5" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
-<text x="448" y="2121" class="value">0.79-0.82 s</text>
-<text x="238" y="2151" text-anchor="end" class="label">7z - encrypted - hot</text>
-<rect x="432" y="2137" width="11" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
-<text x="451" y="2151" class="value">0.78-0.83 s</text>
-<text x="238" y="2181" text-anchor="end" class="label">tar - plain - hot</text>
-<rect x="287" y="2167" width="12" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
-<text x="307" y="2181" class="value">0.16-0.22 s</text>
-<text x="238" y="2211" text-anchor="end" class="label">tar - encrypted - hot</text>
-<rect x="943" y="2197" width="6" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
-<text x="957" y="2211" class="value">2.97-3.00 s</text>
-<text x="238" y="2241" text-anchor="end" class="label">tar.gz - plain - hot</text>
-<rect x="425" y="2227" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
-<text x="434" y="2241" class="value">0.75-0.76 s</text>
-<text x="238" y="2271" text-anchor="end" class="label">tar.gz - encrypted - hot</text>
-<rect x="562" y="2257" width="9" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
-<text x="579" y="2271" class="value">1.34-1.38 s</text>
-<text x="238" y="2301" text-anchor="end" class="label">zarlib - plain - cold</text>
-<rect x="637" y="2287" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
-<text x="646" y="2301" class="value">1.66-1.66 s</text>
-<text x="238" y="2331" text-anchor="end" class="label">zip - plain - cold</text>
-<rect x="284" y="2317" width="1" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
-<text x="293" y="2331" class="value">0.15-0.15 s</text>
-<text x="238" y="2361" text-anchor="end" class="label">zip - encrypted - cold</text>
-<rect x="286" y="2347" width="1" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
-<text x="295" y="2361" class="value">0.15-0.15 s</text>
-<text x="238" y="2391" text-anchor="end" class="label">7z - plain - cold</text>
-<rect x="441" y="2377" width="1" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
-<text x="450" y="2391" class="value">0.82-0.82 s</text>
-<text x="238" y="2421" text-anchor="end" class="label">7z - encrypted - cold</text>
-<rect x="443" y="2407" width="1" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
-<text x="452" y="2421" class="value">0.83-0.83 s</text>
-<text x="238" y="2451" text-anchor="end" class="label">tar - plain - cold</text>
-<rect x="501" y="2437" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
-<text x="510" y="2451" class="value">1.08-1.08 s</text>
-<text x="238" y="2481" text-anchor="end" class="label">tar - encrypted - cold</text>
-<rect x="879" y="2467" width="1" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
-<text x="888" y="2481" class="value">2.69-2.69 s</text>
-<text x="238" y="2511" text-anchor="end" class="label">tar.gz - plain - cold</text>
-<rect x="420" y="2497" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
-<text x="429" y="2511" class="value">0.73-0.73 s</text>
-<text x="238" y="2541" text-anchor="end" class="label">tar.gz - encrypted - cold</text>
-<rect x="715" y="2527" width="1" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
-<text x="724" y="2541" class="value">1.99-1.99 s</text>
-<text x="24" y="2610" class="heading">CPU during compression</text>
-<line x1="250" y1="2804" x2="950" y2="2804" class="grid"/>
-<text x="242" y="2808" text-anchor="end" class="axis">0</text>
-<line x1="250" y1="2764" x2="950" y2="2764" class="grid"/>
-<text x="242" y="2768" text-anchor="end" class="axis">25</text>
-<line x1="250" y1="2724" x2="950" y2="2724" class="grid"/>
-<text x="242" y="2728" text-anchor="end" class="axis">50</text>
-<line x1="250" y1="2684" x2="950" y2="2684" class="grid"/>
-<text x="242" y="2688" text-anchor="end" class="axis">75</text>
-<line x1="250" y1="2644" x2="950" y2="2644" class="grid"/>
-<text x="242" y="2648" text-anchor="end" class="axis">100</text>
-<text x="242" y="2630" text-anchor="end" class="axis">CPU (%)</text>
-<text x="250" y="2820" text-anchor="middle" class="axis">0.0s</text>
-<text x="425" y="2820" text-anchor="middle" class="axis">91.0s</text>
-<text x="600" y="2820" text-anchor="middle" class="axis">182.0s</text>
-<text x="775" y="2820" text-anchor="middle" class="axis">273.0s</text>
-<text x="950" y="2820" text-anchor="middle" class="axis">364.0s</text>
-<polyline points="250,2804 251,2746" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,2804 251,2766 253,2770 255,2765 257,2767 259,2763 261,2769 263,2773 265,2780 267,2782 269,2776 271,2781 273,2778 275,2779 276,2777 278,2775 280,2784" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,2804 251,2772 253,2774 255,2776 257,2778 259,2777 261,2776 263,2766 265,2772 267,2763 269,2767 271,2775 273,2779 275,2781 276,2782 278,2780 280,2777" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,2804 251,2698 253,2687 255,2701 257,2709 259,2713 261,2702 263,2702 265,2720 267,2723 269,2734 271,2726 273,2722 275,2721 276,2731 278,2728 280,2716 282,2731 284,2736 286,2740 288,2740 290,2746 292,2745 294,2730 296,2734 298,2737 300,2744 301,2749 303,2749 305,2739 307,2725 309,2725 311,2745 313,2738 315,2741 317,2750 319,2751 321,2753 323,2762 325,2753 326,2724 328,2711 330,2681 332,2694 334,2718 336,2705 338,2729 340,2746 342,2725 344,2722 346,2749 348,2737 350,2741 351,2733 353,2705 355,2748 357,2744 359,2761 361,2754 363,2764 365,2771 367,2769 369,2774 371,2772 373,2750" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,2804 251,2728 253,2730 255,2745 257,2750 259,2751 261,2751 263,2747 265,2753 267,2754 269,2758 271,2753 273,2753 275,2755 276,2758 278,2759 280,2757 282,2756 284,2759 286,2757 288,2761 290,2759 292,2756 294,2760 296,2746 298,2751 300,2754 301,2754 303,2752 305,2755 307,2757 309,2756 311,2755 313,2760 315,2756 317,2760 319,2759 321,2754 323,2761 325,2767 326,2772 328,2770 330,2772 332,2784 334,2781 336,2780 338,2792 340,2788" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,2804 251,2765" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,2804 251,2772 253,2779 255,2783 257,2786 259,2778 261,2785 263,2790" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,2804 251,2780 253,2781 255,2777 257,2778 259,2776 261,2782 263,2780 265,2780 267,2781 269,2783 271,2792 273,2799 275,2801 276,2800" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,2804 251,2771 253,2783 255,2785 257,2783 259,2786 261,2779 263,2782 265,2785 267,2784 269,2784 271,2782 273,2787 275,2788 276,2788 278,2781 280,2786 282,2788 284,2792" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,2717 251,2787 253,2783 255,2792 257,2788 259,2787 261,2791 263,2793 265,2786 267,2751 269,2736 271,2766 273,2763 275,2718 276,2669 278,2700 280,2667 282,2702 284,2644 286,2645 288,2644 290,2644 292,2644 294,2646 296,2645 298,2645 300,2644 301,2644 303,2644 305,2644 307,2644 309,2645 311,2645 313,2645" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,2804 251,2783 253,2778 255,2772 257,2772 259,2778 261,2782 263,2785 265,2788 267,2785 269,2789 271,2788 273,2779 275,2777 276,2781 278,2787 280,2787 282,2784 284,2790 286,2788 288,2780 290,2781 292,2787 294,2791 296,2789 298,2788 300,2782 301,2782 303,2796 305,2796 307,2795 309,2797 311,2790 313,2787 315,2794 317,2799 319,2792 321,2780 323,2788 325,2798 326,2796 328,2796 330,2792 332,2797 334,2797 336,2800 338,2797 340,2789 342,2797 344,2796 346,2793 348,2789 350,2789 351,2784 353,2780 355,2784 357,2788 359,2788 361,2793 363,2792 365,2787 367,2789 369,2790 371,2789 373,2791 375,2788 376,2787 378,2788 380,2793 382,2794 384,2786 386,2779 388,2787 390,2793 392,2793 394,2794 396,2787 398,2783 400,2793 401,2793 403,2791 405,2790 407,2787 409,2793 411,2793 413,2791 415,2788 417,2780 419,2779 421,2792 423,2791 425,2787 426,2794 428,2787 430,2791 432,2794 434,2788 436,2790 438,2791 440,2794 442,2792 444,2789 446,2788 448,2790 450,2779 451,2781 453,2783 455,2791 457,2792 459,2793 461,2792 463,2788 465,2792 467,2791 469,2792 471,2790 473,2783 475,2792 476,2791 478,2792 480,2788 482,2776 484,2783 486,2792 488,2791 490,2791 492,2783 494,2793 496,2791 498,2793 500,2793 501,2787 503,2792 505,2793 507,2791 509,2788 511,2786 513,2788 515,2778 517,2780 519,2793 521,2788 523,2791 525,2792 526,2792 528,2790 530,2788 532,2790 534,2790 536,2792 538,2787 540,2788 542,2791 544,2792 546,2780 548,2776 550,2780 551,2792 553,2791 555,2791 557,2791 559,2790 561,2791 563,2794 565,2793 567,2791 569,2785 571,2793 573,2793 575,2791 576,2789 578,2783 580,2782 582,2783 584,2789 586,2776 588,2784 590,2791 592,2792 594,2792 596,2784 598,2790 600,2792 601,2791 603,2791 605,2792 607,2789 609,2792 611,2783 613,2780 615,2785 617,2791 619,2793 621,2791 623,2791 625,2791 626,2789 628,2791 630,2791 632,2790 634,2787 636,2791 638,2792 640,2793 642,2791 644,2780 646,2780 648,2790 650,2793 651,2790 653,2788 655,2792 657,2787 659,2776 661,2783 663,2788 665,2790 667,2792 669,2792 671,2792 673,2786 675,2793 676,2783 678,2782 680,2789 682,2784 684,2790 686,2793 688,2791 690,2790 692,2788 694,2791 696,2792 698,2792 700,2788 701,2788 703,2789 705,2788 707,2791 709,2779 711,2771 713,2790 715,2790 717,2793 719,2788 721,2786 723,2793 725,2792 726,2790 728,2792 730,2787 732,2783 734,2792 736,2789 738,2791 740,2785 742,2778 744,2784 746,2791 748,2792 750,2787 751,2792 753,2790 755,2790 757,2791 759,2786 761,2793 763,2793 765,2788 767,2792 769,2790 771,2791 773,2786 775,2778 776,2783 778,2779 780,2790 782,2792 784,2792 786,2792 788,2792 790,2789 792,2792 794,2791 796,2793 798,2785 800,2791 801,2791 803,2793 805,2785 807,2776 809,2784 811,2791 813,2793 815,2791 817,2784 819,2794 821,2790 823,2789 825,2788 826,2787 828,2791 830,2792 832,2792 834,2790 836,2786 838,2782 840,2781 842,2788 844,2790 846,2793 848,2786 850,2792 851,2795 853,2792 855,2784 857,2787 859,2791 861,2795 863,2788 865,2792 867,2787 869,2792 871,2779 873,2777 875,2787 876,2788 878,2791 880,2793 882,2790 884,2790 886,2793 888,2793 890,2792 892,2788 894,2783 896,2791 898,2791 900,2788 901,2786 903,2781 905,2781 907,2792 909,2793 911,2787 913,2793 915,2793 917,2787 919,2790 921,2790 923,2792 925,2791 926,2792 928,2791 930,2788 932,2789 934,2788 936,2784 938,2779 940,2786 942,2788 944,2793 946,2789 948,2792 950,2788" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,2804 251,2779 253,2788 255,2792 257,2796 259,2796 261,2797 263,2793 265,2792 267,2794 269,2786 271,2783 273,2791 275,2797 276,2796 278,2796 280,2793 282,2793 284,2797 286,2799 288,2798 290,2794 292,2789 294,2798 296,2796 298,2792 300,2793 301,2784 303,2786 305,2789 307,2794 309,2792 311,2792 313,2792 315,2790 317,2789 319,2787 321,2792 323,2793 325,2792 326,2792 328,2790 330,2789 332,2791 334,2778 336,2784 338,2780 340,2751 342,2768 344,2787 346,2780 348,2781 350,2788 351,2790 353,2789 355,2792 357,2771 359,2777 361,2790 363,2778 365,2791 367,2773 369,2784 371,2792 373,2772 375,2791 376,2780 378,2793 380,2792 382,2790 384,2789 386,2790 388,2794 390,2792 392,2791 394,2777 396,2781 398,2788 400,2784 401,2783 403,2791 405,2781 407,2792 409,2792 411,2792 413,2790 415,2787 417,2789 419,2793 421,2790 423,2787 425,2792 426,2795 428,2793 430,2786 432,2774 434,2782 436,2792 438,2792 440,2792 442,2788 444,2791 446,2791 448,2793 450,2793 451,2789 453,2786 455,2792 457,2789 459,2792 461,2792 463,2780 465,2782 467,2787 469,2790 471,2787 473,2787 475,2791 476,2790 478,2788 480,2783 482,2793 484,2793 486,2791 488,2793 490,2788 492,2789 494,2787 496,2782 498,2775 500,2777 501,2788 503,2789 505,2792 507,2792 509,2788 511,2788 513,2787 515,2793 517,2791 519,2789 521,2786 523,2792 525,2792 526,2792 528,2786 530,2778 532,2784 534,2792 536,2787 538,2788 540,2790 542,2793 544,2790 546,2789 548,2789 550,2789 551,2789 553,2791 555,2788 557,2789 559,2794 561,2786 563,2777 565,2780 567,2785 569,2789 571,2792 573,2791 575,2790 576,2788 578,2788 580,2791 582,2792 584,2788 586,2790 588,2792 590,2791 592,2788 594,2787 596,2773 598,2783 600,2793 601,2791 603,2787 605,2780 607,2785 609,2782 611,2777 613,2783 615,2782 617,2778 619,2786 621,2776 623,2785 625,2784 626,2790 628,2775 630,2778 632,2788 634,2792 636,2787 638,2790 640,2791 642,2792 644,2783 646,2794 648,2789 650,2793 651,2790 653,2790 655,2792 657,2791 659,2790 661,2775 663,2778 665,2793 667,2792 669,2791 671,2790 673,2789 675,2791 676,2792 678,2793 680,2791 682,2786 684,2794 686,2788 688,2794 690,2791 692,2786 694,2780 696,2783 698,2792 700,2792 701,2789 703,2793 705,2790 707,2789 709,2787 711,2787 713,2788 715,2789 717,2792 719,2791 721,2789 723,2793 725,2783 726,2781 728,2785 730,2790 732,2789 734,2792 736,2790 738,2788 740,2787 742,2792 744,2790 746,2788 748,2776 750,2787 751,2787 753,2786 755,2791 757,2781 759,2775 761,2786 763,2794 765,2792 767,2789 769,2790 771,2792 773,2793 775,2788 776,2792 778,2785 780,2791 782,2790 784,2794 786,2792 788,2787 790,2785 792,2780 794,2786 796,2789 798,2791 800,2791 801,2792 803,2775 805,2786 807,2788 809,2793 811,2790 813,2791 815,2790 817,2786 819,2792 821,2792 823,2749 825,2769 826,2780 828,2788 830,2791 832,2786 834,2790 836,2790 838,2794 840,2791 842,2790 844,2789 846,2792 848,2793 850,2788 851,2790 853,2787" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,2804 251,2791 253,2787 255,2788 257,2796 259,2799 261,2796 263,2796 265,2796 267,2801 269,2792 271,2790 273,2800 275,2794 276,2798 278,2790 280,2790 282,2798 284,2798 286,2798 288,2798 290,2796 292,2776 294,2790 296,2797 298,2796 300,2792 301,2793 303,2788 305,2792 307,2786 309,2788 311,2781 313,2775 315,2780 317,2782 319,2782 321,2779 323,2771 325,2771 326,2772 328,2764 330,2760 332,2756 334,2758 336,2748 338,2748 340,2751 342,2757 344,2750 346,2751 348,2759 350,2756 351,2755 353,2760 355,2760 357,2759 359,2759 361,2761 363,2762 365,2756 367,2738 369,2758 371,2756 373,2759 375,2757 376,2749 378,2751 380,2762 382,2771 384,2769 386,2766 388,2763 390,2765 392,2776 394,2773 396,2781 398,2778 400,2784 401,2790 403,2791 405,2791 407,2777 409,2780 411,2786" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,2804 251,2777 253,2784 255,2784 257,2781 259,2784 261,2780 263,2781 265,2784 267,2788 269,2782 271,2781 273,2787 275,2783 276,2795 278,2800 280,2794 282,2801 284,2800 286,2798 288,2799 290,2795 292,2798 294,2799 296,2794 298,2794 300,2794 301,2800 303,2798 305,2789 307,2791 309,2795 311,2798 313,2801 315,2797 317,2801 319,2796 321,2796 323,2800 325,2794 326,2798 328,2795 330,2801 332,2799 334,2800 336,2797 338,2784 340,2793 342,2801 344,2798 346,2798 348,2798 350,2796 351,2800 353,2800 355,2799 357,2797 359,2797 361,2801 363,2797 365,2799 367,2783 369,2769 371,2768 373,2771 375,2780 376,2765 378,2772 380,2774 382,2770 384,2762 386,2759 388,2756 390,2761 392,2761 394,2756 396,2747 398,2748 400,2750 401,2751 403,2749 405,2751 407,2762 409,2760 411,2757 413,2753 415,2747 417,2760 419,2762 421,2759 423,2754 425,2760 426,2762 428,2762 430,2762 432,2767 434,2760 436,2759 438,2765 440,2764 442,2778 444,2780 446,2781 448,2781 450,2784 451,2782 453,2788 455,2792 457,2793 459,2790 461,2785 463,2790" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,2804 251,2784 253,2774 255,2770 257,2777 259,2777 261,2784 263,2784 265,2785 267,2790 269,2789 271,2790 273,2790 275,2779 276,2787 278,2791 280,2790 282,2791 284,2787 286,2778 288,2780 290,2791 292,2787 294,2784 296,2788 298,2787 300,2792 301,2791 303,2786 305,2790 307,2788 309,2790 311,2789 313,2784 315,2789 317,2789 319,2777 321,2782 323,2788 325,2791 326,2791 328,2789 330,2784 332,2772 334,2792 336,2792 338,2783 340,2790 342,2789 344,2783 346,2793 348,2789 350,2784 351,2772 353,2781 355,2790 357,2792 359,2787 361,2789 363,2792 365,2785 367,2782 369,2782 371,2774 373,2774 375,2779 376,2776 378,2773 380,2775 382,2768 384,2768 386,2778 388,2781 390,2780 392,2774 394,2784 396,2782 398,2786 400,2783 401,2785 403,2784 405,2785 407,2782 409,2780 411,2779 413,2786 415,2772 417,2776 419,2768 421,2784 423,2781 425,2783 426,2784 428,2777 430,2780 432,2763 434,2783 436,2787 438,2790 440,2793 442,2791 444,2794 446,2790 448,2768 450,2772 451,2792 453,2786 455,2789 457,2793 459,2792 461,2790 463,2787 465,2790 467,2787 469,2789 471,2793 473,2794 475,2790 476,2787 478,2792 480,2779 482,2784 484,2790 486,2790 488,2789 490,2790 492,2791 494,2787 496,2794 498,2792 500,2789 501,2793 503,2788 505,2792 507,2790 509,2790 511,2791 513,2774 515,2783 517,2793 519,2791 521,2790 523,2788 525,2792 526,2793 528,2788 530,2791 532,2787 534,2792 536,2790 538,2793 540,2790 542,2784 544,2780 546,2780 548,2783 550,2792 551,2790 553,2792 555,2792 557,2792 559,2791 561,2783 563,2787 565,2793 567,2790 569,2792 571,2783 573,2791 575,2792 576,2784 578,2781 580,2779 582,2788 584,2793 586,2790 588,2792 590,2788 592,2792 594,2790 596,2791 598,2794 600,2788 601,2792 603,2788 605,2792 607,2788 609,2779 611,2782 613,2787 615,2792 617,2788 619,2785 621,2792 623,2791 625,2793 626,2788 628,2791 630,2794 632,2792 634,2789 636,2789 638,2788 640,2792 642,2783 644,2781 646,2788 648,2788 650,2793 651,2791 653,2793 655,2793 657,2784 659,2790 661,2793 663,2793 665,2791 667,2790 669,2790 671,2793 673,2792 675,2778 676,2771 678,2793 680,2792 682,2793 684,2784 686,2789 688,2789 690,2792 692,2791 694,2788 696,2787 698,2787 700,2792 701,2791 703,2792 705,2791 707,2778 709,2780 711,2788 713,2792 715,2789 717,2792 719,2794 721,2792 723,2792 725,2786 726,2795 728,2792 730,2792 732,2790 734,2789 736,2793 738,2792 740,2779 742,2780 744,2787 746,2795 748,2793 750,2791 751,2788 753,2788 755,2793 757,2793 759,2793 761,2786 763,2789 765,2790 767,2794 769,2791 771,2792 773,2778 775,2783 776,2788 778,2791 780,2790 782,2789 784,2793 786,2792 788,2792 790,2789 792,2789 794,2794 796,2792 798,2791 800,2790 801,2792 803,2783 805,2779 807,2781 809,2789 811,2791 813,2788 815,2793 817,2791 819,2790 821,2793 823,2790 825,2794 826,2793 828,2785 830,2791 832,2792 834,2791 836,2792 838,2777 840,2784 842,2791 844,2791 846,2793 848,2787 850,2793 851,2793 853,2791 855,2794 857,2790 859,2795 861,2791 863,2792 865,2790 867,2782 869,2790 871,2779 873,2782 875,2793 876,2789 878,2792 880,2792 882,2791 884,2791 886,2788 888,2793 890,2793 892,2791 894,2792 896,2791 898,2794 900,2791 901,2742 903,2726 905,2737 907,2749 909,2768 911,2780 913,2789 915,2774 917,2786 919,2778 921,2782 923,2788 925,2781 926,2792" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,2804 251,2766 253,2782 255,2781 257,2783 259,2787 261,2785 263,2762 265,2756 267,2770 269,2774 271,2785 273,2791 275,2794 276,2798 278,2794 280,2792 282,2785 284,2786 286,2792 288,2794 290,2796 292,2798 294,2800 296,2781 298,2783 300,2785 301,2792 303,2792 305,2798 307,2793 309,2791 311,2792 313,2794 315,2779 317,2777 319,2782 321,2786 323,2789 325,2788 326,2792 328,2788 330,2787 332,2793 334,2794 336,2793 338,2783 340,2791 342,2792 344,2790 346,2789 348,2776 350,2786 351,2793 353,2792 355,2791 357,2786 359,2791 361,2792 363,2792 365,2791 367,2790 369,2791 371,2790 373,2791 375,2790 376,2783 378,2786 380,2769 382,2783 384,2790 386,2779 388,2788 390,2791 392,2793 394,2793 396,2786 398,2790 400,2790 401,2793 403,2792 405,2789 407,2792 409,2792 411,2780 413,2780 415,2785 417,2790 419,2790 421,2793 423,2793 425,2790 426,2792 428,2792 430,2792 432,2791 434,2780 436,2791 438,2787 440,2791 442,2792 444,2780 446,2783 448,2791 450,2793 451,2793 453,2787 455,2789 457,2791 459,2791 461,2790 463,2791 465,2793 467,2792 469,2793 471,2790 473,2788 475,2789 476,2778 478,2784 480,2785 482,2792 484,2794 486,2794 488,2789 490,2791 492,2792 494,2788 496,2791 498,2792 500,2790 501,2793 503,2791 505,2791 507,2793 509,2777 511,2782 513,2790 515,2791 517,2791 519,2788 521,2791 523,2792 525,2792 526,2788 528,2787 530,2790 532,2794 534,2791 536,2794 538,2788 540,2788 542,2779 544,2778 546,2787 548,2783 550,2784 551,2788 553,2787 555,2792 557,2790 559,2792 561,2793 563,2791 565,2792 567,2786 569,2791 571,2793 573,2784 575,2780 576,2784 578,2792 580,2793 582,2793 584,2793 586,2789 588,2793 590,2795 592,2791 594,2794 596,2791 598,2791 600,2786 601,2790 603,2793 605,2779 607,2782 609,2785 611,2793 613,2793 615,2790 617,2789 619,2795 621,2793 623,2791 625,2787 626,2791 628,2792 630,2793 632,2791 634,2790 636,2791 638,2785 640,2781 642,2788 644,2785 646,2790 648,2792 650,2794 651,2793 653,2791 655,2793 657,2790 659,2795 661,2793 663,2779 665,2793 667,2787 669,2788 671,2779 673,2780 675,2789 676,2792 678,2793 680,2793 682,2788 684,2793 686,2791 688,2784 690,2791 692,2789 694,2794 696,2793 698,2792 700,2793 701,2788 703,2780 705,2783 707,2792 709,2793 711,2783 713,2794 715,2794 717,2794 719,2791 721,2788 723,2792 725,2791 726,2792 728,2793 730,2790 732,2790 734,2792 736,2768 738,2781 740,2788 742,2793 744,2792 746,2792 748,2791 750,2791 751,2793 753,2790 755,2792 757,2777 759,2788 761,2790 763,2789 765,2793 767,2789 769,2780 771,2783 773,2787 775,2794 776,2787 778,2789" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,2804 251,2784 253,2786 255,2778 257,2769 259,2774 261,2791 263,2786 265,2798 267,2793 269,2793 271,2797 273,2797 275,2797 276,2781 278,2799 280,2794 282,2794 284,2792 286,2792 288,2783 290,2774 292,2785 294,2785 296,2786 298,2792 300,2783 301,2787 303,2791 305,2791 307,2792 309,2789 311,2791 313,2792 315,2785 317,2788 319,2793 321,2773 323,2777 325,2781 326,2788 328,2791 330,2792 332,2791 334,2785 336,2793 338,2790 340,2792 342,2791 344,2792 346,2791 348,2792 350,2790 351,2787 353,2774 355,2783 357,2789 359,2792 361,2787 363,2791 365,2791 367,2789 369,2792 371,2788 373,2789 375,2792 376,2793 378,2792 380,2785 382,2791 384,2792 386,2776 388,2782 390,2787 392,2789 394,2793 396,2789 398,2789 400,2790 401,2793 403,2792 405,2791 407,2790 409,2789 411,2788 413,2792 415,2769 417,2784 419,2775 421,2788 423,2792 425,2793 426,2791 428,2790 430,2790 432,2794 434,2791 436,2786 438,2778 440,2791 442,2789 444,2790 446,2791 448,2786 450,2788 451,2782 453,2786 455,2791 457,2789 459,2795 461,2793 463,2793 465,2779 467,2787 469,2783 471,2790 473,2792 475,2789 476,2789 478,2792 480,2793 482,2785 484,2780 486,2778 488,2790 490,2791 492,2794 494,2794 496,2789 498,2795 500,2792 501,2793 503,2792 505,2785 507,2792 509,2795 511,2792 513,2790 515,2784 517,2779 519,2785 521,2792 523,2789 525,2784 526,2794 528,2788 530,2793 532,2793 534,2791 536,2794 538,2790 540,2792 542,2793 544,2783 546,2793 548,2784 550,2779 551,2783 553,2789 555,2786 557,2792 559,2793 561,2793 563,2782 565,2794 567,2792 569,2792 571,2791 573,2791 575,2793 576,2791 578,2792 580,2789 582,2772 584,2787 586,2790 588,2793 590,2793 592,2788 594,2793 596,2792 598,2792 600,2792 601,2784 603,2790 605,2791 607,2793 609,2793 611,2787 613,2784 615,2780 617,2787 619,2792 621,2788 623,2792 625,2792 626,2792 628,2794 630,2790 632,2794 634,2791 636,2791 638,2790 640,2782 642,2792 644,2794 646,2778 648,2781 650,2782 651,2793 653,2792 655,2785 657,2792 659,2787 661,2791 663,2793 665,2793 667,2788 669,2790 671,2791 673,2789 675,2793 676,2791 678,2779 680,2773 682,2786 684,2792 686,2793 688,2789 690,2790 692,2791 694,2793 696,2792 698,2786 700,2792 701,2793 703,2795 705,2788 707,2778 709,2795 711,2786 713,2780 715,2784 717,2786 719,2792 721,2791 723,2792 725,2792 726,2794 728,2792 730,2789 732,2793 734,2789 736,2789 738,2790 740,2789 742,2790 744,2781 746,2783 748,2788 750,2791 751,2792 753,2771 755,2787 757,2793 759,2792 761,2793 763,2789 765,2794 767,2794 769,2792 771,2794 773,2785 775,2793 776,2783 778,2778 780,2787 782,2780 784,2793 786,2793 788,2785 790,2791 792,2787 794,2791 796,2791 798,2785 800,2791 801,2790 803,2793 805,2792 807,2793 809,2783 811,2773 813,2788 815,2791 817,2791 819,2791 821,2787 823,2790 825,2793 826,2792 828,2793 830,2785 832,2773 834,2792" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,2804 251,2770 253,2784 255,2787 257,2792 259,2791 261,2785 263,2791 265,2792 267,2787 269,2784 271,2770 273,2788 275,2789 276,2797 278,2791 280,2781 282,2788 284,2788 286,2787 288,2791 290,2793 292,2797 294,2794 296,2792 298,2793 300,2787 301,2793 303,2791 305,2792 307,2792 309,2787 311,2790 313,2784 315,2776 317,2783 319,2786 321,2791 323,2793 325,2793 326,2792 328,2790 330,2791 332,2791 334,2792 336,2792 338,2786 340,2792 342,2793 344,2794 346,2786 348,2776 350,2786 351,2794 353,2790 355,2791 357,2791 359,2792 361,2788 363,2792 365,2792 367,2790 369,2783 371,2780 373,2787 375,2789 376,2791 378,2788 380,2781 382,2785 384,2792 386,2784 388,2789 390,2794 392,2793 394,2787 396,2785 398,2792 400,2793 401,2790 403,2791 405,2793 407,2790 409,2794 411,2786 413,2777 415,2784 417,2793 419,2793 421,2790 423,2790 425,2794 426,2790 428,2790 430,2792 432,2791 434,2787 436,2794 438,2794 440,2791 442,2789 444,2782 446,2781 448,2787 450,2792 451,2790 453,2792 455,2789 457,2792 459,2794 461,2790 463,2793 465,2792 467,2792 469,2792 471,2780 473,2794 475,2795 476,2781 478,2779 480,2786 482,2791 484,2794 486,2790 488,2792 490,2786 492,2794 494,2795 496,2794 498,2793 500,2783 501,2790 503,2791 505,2791 507,2791 509,2771 511,2776 513,2787 515,2794 517,2793 519,2788 521,2792 523,2792 525,2793 526,2793 528,2785 530,2792 532,2792 534,2791 536,2794 538,2791 540,2792 542,2778 544,2780 546,2792 548,2787 550,2792 551,2793 553,2792 555,2787 557,2788 559,2793 561,2792 563,2792 565,2791 567,2789 569,2792 571,2793 573,2784 575,2778 576,2781 578,2793 580,2790 582,2789 584,2791 586,2789 588,2792 590,2793 592,2792 594,2791 596,2793 598,2789 600,2790 601,2792 603,2789 605,2788 607,2776 609,2784 611,2793 613,2789 615,2787 617,2792 619,2793 621,2793 623,2784 625,2791 626,2789 628,2792 630,2791 632,2790 634,2792 636,2792 638,2786 640,2778 642,2780 644,2793 646,2791 648,2789 650,2793 651,2792 653,2790 655,2792 657,2793 659,2792 661,2782 663,2791 665,2793 667,2793 669,2792 671,2784 673,2778 675,2785 676,2791 678,2787 680,2784 682,2791 684,2793 686,2794 688,2790 690,2792 692,2790 694,2794 696,2788 698,2793 700,2774 701,2789 703,2788 705,2781 707,2787 709,2789 711,2793 713,2794 715,2792 717,2794 719,2784 721,2791 723,2792 725,2791 726,2793 728,2791 730,2787 732,2791 734,2794 736,2785 738,2776 740,2787 742,2792 744,2783 746,2793 748,2789 750,2793 751,2791 753,2792 755,2791 757,2784 759,2789 761,2792 763,2794 765,2792 767,2789 769,2781 771,2782 773,2789 775,2793 776,2786 778,2788 780,2794 782,2793 784,2791 786,2790 788,2793 790,2793 792,2791 794,2789" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
-<text x="250" y="2840" class="axis" font-weight="600">Line colour = archive format; solid = plain, dashed = encrypted</text>
-<text x="24" y="2860" class="heading">RAM during compression</text>
-<line x1="250" y1="3054" x2="950" y2="3054" class="grid"/>
-<text x="242" y="3058" text-anchor="end" class="axis">0.0</text>
-<line x1="250" y1="3014" x2="950" y2="3014" class="grid"/>
-<text x="242" y="3018" text-anchor="end" class="axis">8.8</text>
-<line x1="250" y1="2974" x2="950" y2="2974" class="grid"/>
-<text x="242" y="2978" text-anchor="end" class="axis">17.7</text>
-<line x1="250" y1="2934" x2="950" y2="2934" class="grid"/>
-<text x="242" y="2938" text-anchor="end" class="axis">26.5</text>
-<line x1="250" y1="2894" x2="950" y2="2894" class="grid"/>
-<text x="242" y="2898" text-anchor="end" class="axis">35.3</text>
-<text x="242" y="2880" text-anchor="end" class="axis">RAM (GiB)</text>
-<text x="250" y="3070" text-anchor="middle" class="axis">0.0s</text>
-<text x="425" y="3070" text-anchor="middle" class="axis">91.0s</text>
-<text x="600" y="3070" text-anchor="middle" class="axis">182.0s</text>
-<text x="775" y="3070" text-anchor="middle" class="axis">273.0s</text>
-<text x="950" y="3070" text-anchor="middle" class="axis">364.0s</text>
-<polyline points="250,2907 251,2905" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,2901 251,2901 253,2901 255,2900 257,2901 259,2903 261,2903 263,2903 265,2903 267,2903 269,2903 271,2904 273,2903 275,2904 276,2907 278,2907 280,2907" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,2909 251,2909 253,2909 255,2909 257,2909 259,2909 261,2909 263,2909 265,2909 267,2909 269,2909 271,2909 273,2909 275,2909 276,2909 278,2909 280,2909" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,2903 251,2899 253,2899 255,2901 257,2901 259,2899 261,2898 263,2897 265,2897 267,2897 269,2897 271,2897 273,2897 275,2896 276,2897 278,2896 280,2897 282,2897 284,2897 286,2896 288,2896 290,2896 292,2896 294,2895 296,2894 298,2896 300,2896 301,2896 303,2896 305,2895 307,2895 309,2898 311,2900 313,2900 315,2901 317,2901 319,2901 321,2901 323,2898 325,2901 326,2904 328,2904 330,2898 332,2898 334,2898 336,2899 338,2899 340,2898 342,2898 344,2899 346,2899 348,2899 350,2899 351,2900 353,2900 355,2899 357,2899 359,2899 361,2897 363,2899 365,2899 367,2899 369,2899 371,2907 373,2906" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,2911 251,2907 253,2908 255,2907 257,2906 259,2906 261,2905 263,2905 265,2905 267,2905 269,2905 271,2905 273,2905 275,2905 276,2905 278,2905 280,2905 282,2905 284,2905 286,2905 288,2905 290,2905 292,2905 294,2905 296,2905 298,2905 300,2905 301,2905 303,2905 305,2905 307,2905 309,2905 311,2905 313,2905 315,2905 317,2905 319,2905 321,2905 323,2905 325,2905 326,2904 328,2904 330,2909 332,2909 334,2904 336,2904 338,2913 340,2913" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,2921 251,2917" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,2921 251,2922 253,2922 255,2921 257,2919 259,2917 261,2918 263,2918" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,2920 251,2920 253,2920 255,2920 257,2920 259,2923 261,2923 263,2923 265,2922 267,2923 269,2922 271,2925 273,2925 275,2925 276,2925" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,2921 251,2921 253,2921 255,2921 257,2921 259,2921 261,2923 263,2924 265,2924 267,2924 269,2924 271,2923 273,2923 275,2924 276,2924 278,2925 280,2925 282,2925 284,2925" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,2930 251,2931 253,2932 255,2932 257,2932 259,2932 261,2932 263,2932 265,2932 267,2931 269,2930 271,2931 273,2930 275,2930 276,2929 278,2928 280,2928 282,2928 284,2928 286,2927 288,2927 290,2927 292,2927 294,2927 296,2927 298,2927 300,2927 301,2927 303,2927 305,2927 307,2927 309,2927 311,2927 313,2927" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,2928 251,2928 253,2928 255,2928 257,2928 259,2928 261,2928 263,2928 265,2928 267,2928 269,2928 271,2928 273,2928 275,2928 276,2928 278,2928 280,2928 282,2928 284,2928 286,2928 288,2928 290,2934 292,2934 294,2934 296,2934 298,2934 300,2934 301,2934 303,2934 305,2934 307,2934 309,2934 311,2934 313,2935 315,2935 317,2935 319,2935 321,2935 323,2935 325,2935 326,2935 328,2935 330,2935 332,2935 334,2935 336,2935 338,2935 340,2935 342,2935 344,2935 346,2935 348,2935 350,2935 351,2935 353,2935 355,2935 357,2935 359,2935 361,2935 363,2935 365,2935 367,2935 369,2935 371,2935 373,2935 375,2935 376,2935 378,2936 380,2936 382,2936 384,2936 386,2935 388,2936 390,2936 392,2936 394,2936 396,2936 398,2936 400,2936 401,2936 403,2936 405,2936 407,2936 409,2936 411,2936 413,2936 415,2936 417,2936 419,2936 421,2936 423,2936 425,2936 426,2936 428,2936 430,2936 432,2936 434,2936 436,2936 438,2936 440,2936 442,2936 444,2936 446,2936 448,2936 450,2936 451,2936 453,2936 455,2936 457,2936 459,2936 461,2936 463,2936 465,2936 467,2936 469,2936 471,2936 473,2936 475,2936 476,2936 478,2936 480,2936 482,2936 484,2936 486,2936 488,2936 490,2936 492,2936 494,2936 496,2936 498,2936 500,2936 501,2936 503,2936 505,2936 507,2936 509,2936 511,2936 513,2936 515,2936 517,2936 519,2936 521,2936 523,2936 525,2936 526,2936 528,2936 530,2936 532,2936 534,2936 536,2936 538,2936 540,2936 542,2936 544,2936 546,2936 548,2936 550,2936 551,2936 553,2936 555,2936 557,2936 559,2936 561,2936 563,2936 565,2936 567,2936 569,2936 571,2936 573,2936 575,2936 576,2936 578,2936 580,2936 582,2936 584,2936 586,2936 588,2936 590,2936 592,2936 594,2936 596,2936 598,2936 600,2936 601,2936 603,2936 605,2936 607,2936 609,2936 611,2936 613,2936 615,2936 617,2936 619,2936 621,2936 623,2936 625,2936 626,2936 628,2936 630,2936 632,2936 634,2936 636,2936 638,2936 640,2936 642,2936 644,2936 646,2936 648,2936 650,2936 651,2936 653,2936 655,2936 657,2936 659,2936 661,2936 663,2936 665,2936 667,2936 669,2936 671,2936 673,2936 675,2936 676,2936 678,2936 680,2936 682,2936 684,2936 686,2936 688,2936 690,2936 692,2936 694,2936 696,2936 698,2936 700,2936 701,2936 703,2936 705,2936 707,2936 709,2936 711,2936 713,2936 715,2936 717,2936 719,2936 721,2936 723,2936 725,2936 726,2936 728,2936 730,2936 732,2936 734,2936 736,2936 738,2936 740,2936 742,2936 744,2936 746,2936 748,2936 750,2936 751,2936 753,2936 755,2936 757,2936 759,2936 761,2936 763,2936 765,2936 767,2936 769,2936 771,2936 773,2936 775,2936 776,2936 778,2936 780,2936 782,2936 784,2936 786,2936 788,2936 790,2936 792,2936 794,2936 796,2936 798,2936 800,2936 801,2936 803,2936 805,2936 807,2936 809,2936 811,2936 813,2936 815,2936 817,2936 819,2936 821,2936 823,2936 825,2936 826,2936 828,2936 830,2936 832,2936 834,2936 836,2936 838,2936 840,2936 842,2936 844,2936 846,2936 848,2936 850,2936 851,2936 853,2936 855,2936 857,2936 859,2936 861,2936 863,2936 865,2936 867,2936 869,2936 871,2936 873,2936 875,2936 876,2936 878,2936 880,2936 882,2936 884,2936 886,2936 888,2936 890,2936 892,2935 894,2936 896,2936 898,2935 900,2935 901,2935 903,2936 905,2936 907,2936 909,2936 911,2936 913,2936 915,2936 917,2936 919,2936 921,2936 923,2936 925,2936 926,2936 928,2936 930,2935 932,2936 934,2935 936,2935 938,2935 940,2935 942,2936 944,2936 946,2935 948,2935 950,2935" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,2935 251,2935 253,2935 255,2935 257,2935 259,2935 261,2935 263,2935 265,2936 267,2936 269,2936 271,2936 273,2936 275,2936 276,2936 278,2936 280,2936 282,2936 284,2936 286,2936 288,2936 290,2936 292,2936 294,2936 296,2936 298,2936 300,2936 301,2936 303,2936 305,2936 307,2936 309,2936 311,2936 313,2936 315,2936 317,2936 319,2936 321,2936 323,2936 325,2936 326,2936 328,2936 330,2936 332,2936 334,2936 336,2936 338,2936 340,2935 342,2934 344,2934 346,2934 348,2934 350,2934 351,2934 353,2934 355,2934 357,2935 359,2935 361,2935 363,2935 365,2935 367,2935 369,2935 371,2935 373,2935 375,2935 376,2935 378,2935 380,2935 382,2935 384,2935 386,2935 388,2935 390,2935 392,2935 394,2935 396,2935 398,2935 400,2935 401,2935 403,2935 405,2935 407,2935 409,2935 411,2935 413,2935 415,2935 417,2935 419,2935 421,2935 423,2935 425,2935 426,2935 428,2935 430,2935 432,2935 434,2935 436,2935 438,2935 440,2935 442,2935 444,2935 446,2935 448,2935 450,2935 451,2935 453,2935 455,2935 457,2935 459,2935 461,2935 463,2935 465,2935 467,2935 469,2935 471,2935 473,2935 475,2935 476,2935 478,2935 480,2935 482,2935 484,2935 486,2935 488,2935 490,2935 492,2935 494,2935 496,2935 498,2935 500,2935 501,2935 503,2935 505,2935 507,2935 509,2935 511,2935 513,2935 515,2935 517,2935 519,2935 521,2935 523,2935 525,2935 526,2935 528,2935 530,2935 532,2935 534,2935 536,2935 538,2935 540,2935 542,2935 544,2935 546,2935 548,2935 550,2935 551,2935 553,2935 555,2935 557,2935 559,2935 561,2935 563,2935 565,2935 567,2935 569,2935 571,2935 573,2935 575,2935 576,2935 578,2935 580,2935 582,2935 584,2935 586,2935 588,2935 590,2935 592,2935 594,2935 596,2935 598,2935 600,2935 601,2935 603,2935 605,2935 607,2935 609,2935 611,2935 613,2935 615,2935 617,2935 619,2935 621,2935 623,2935 625,2935 626,2935 628,2935 630,2935 632,2935 634,2935 636,2935 638,2935 640,2935 642,2935 644,2935 646,2935 648,2935 650,2935 651,2935 653,2935 655,2935 657,2935 659,2935 661,2935 663,2935 665,2935 667,2935 669,2935 671,2935 673,2935 675,2935 676,2935 678,2935 680,2935 682,2935 684,2935 686,2935 688,2935 690,2935 692,2935 694,2935 696,2935 698,2935 700,2935 701,2935 703,2935 705,2935 707,2935 709,2935 711,2935 713,2935 715,2935 717,2935 719,2935 721,2935 723,2935 725,2935 726,2935 728,2935 730,2935 732,2935 734,2935 736,2935 738,2935 740,2935 742,2935 744,2935 746,2935 748,2935 750,2935 751,2935 753,2935 755,2935 757,2935 759,2935 761,2935 763,2935 765,2935 767,2935 769,2935 771,2935 773,2935 775,2935 776,2935 778,2935 780,2935 782,2935 784,2935 786,2935 788,2935 790,2935 792,2935 794,2935 796,2935 798,2935 800,2935 801,2935 803,2935 805,2935 807,2935 809,2935 811,2935 813,2935 815,2935 817,2935 819,2935 821,2935 823,2935 825,2935 826,2935 828,2935 830,2935 832,2935 834,2935 836,2935 838,2935 840,2935 842,2935 844,2935 846,2935 848,2935 850,2935 851,2935 853,2935" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,2935 251,2935 253,2935 255,2935 257,2935 259,2935 261,2935 263,2935 265,2935 267,2935 269,2935 271,2935 273,2935 275,2935 276,2935 278,2935 280,2935 282,2935 284,2935 286,2935 288,2935 290,2935 292,2935 294,2935 296,2935 298,2935 300,2935 301,2935 303,2935 305,2935 307,2935 309,2934 311,2934 313,2934 315,2933 317,2933 319,2933 321,2932 323,2932 325,2931 326,2931 328,2930 330,2930 332,2929 334,2929 336,2928 338,2927 340,2927 342,2926 344,2926 346,2926 348,2926 350,2926 351,2926 353,2926 355,2926 357,2926 359,2926 361,2926 363,2926 365,2926 367,2926 369,2926 371,2926 373,2926 375,2926 376,2925 378,2925 380,2925 382,2925 384,2925 386,2925 388,2925 390,2925 392,2925 394,2925 396,2925 398,2925 400,2925 401,2925 403,2925 405,2925 407,2925 409,2934 411,2934" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,2934 251,2934 253,2934 255,2934 257,2934 259,2934 261,2934 263,2934 265,2934 267,2934 269,2934 271,2934 273,2934 275,2934 276,2934 278,2934 280,2934 282,2934 284,2934 286,2934 288,2934 290,2934 292,2934 294,2934 296,2934 298,2934 300,2934 301,2934 303,2934 305,2934 307,2934 309,2934 311,2934 313,2934 315,2934 317,2934 319,2934 321,2934 323,2934 325,2934 326,2934 328,2934 330,2934 332,2934 334,2934 336,2934 338,2934 340,2934 342,2934 344,2934 346,2934 348,2934 350,2934 351,2934 353,2934 355,2934 357,2934 359,2934 361,2934 363,2934 365,2934 367,2933 369,2933 371,2932 373,2932 375,2931 376,2931 378,2931 380,2930 382,2930 384,2929 386,2928 388,2928 390,2928 392,2928 394,2927 396,2926 398,2926 400,2926 401,2925 403,2925 405,2925 407,2925 409,2925 411,2925 413,2925 415,2925 417,2925 419,2925 421,2925 423,2925 425,2925 426,2925 428,2925 430,2925 432,2925 434,2925 436,2925 438,2925 440,2925 442,2925 444,2925 446,2925 448,2925 450,2925 451,2925 453,2925 455,2925 457,2925 459,2925 461,2925 463,2934" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,2934 251,2934 253,2934 255,2934 257,2934 259,2934 261,2934 263,2934 265,2934 267,2934 269,2934 271,2934 273,2934 275,2934 276,2934 278,2934 280,2934 282,2934 284,2934 286,2934 288,2934 290,2934 292,2934 294,2934 296,2934 298,2934 300,2934 301,2935 303,2935 305,2934 307,2935 309,2935 311,2935 313,2935 315,2935 317,2935 319,2935 321,2935 323,2935 325,2935 326,2935 328,2935 330,2935 332,2935 334,2935 336,2935 338,2935 340,2935 342,2935 344,2935 346,2935 348,2935 350,2935 351,2935 353,2935 355,2935 357,2935 359,2935 361,2935 363,2935 365,2935 367,2935 369,2935 371,2935 373,2935 375,2935 376,2935 378,2935 380,2935 382,2935 384,2935 386,2935 388,2935 390,2934 392,2935 394,2935 396,2935 398,2935 400,2935 401,2935 403,2935 405,2935 407,2935 409,2935 411,2934 413,2935 415,2934 417,2934 419,2935 421,2934 423,2934 425,2934 426,2934 428,2934 430,2934 432,2934 434,2934 436,2935 438,2935 440,2935 442,2935 444,2935 446,2935 448,2935 450,2935 451,2935 453,2935 455,2935 457,2935 459,2935 461,2935 463,2935 465,2935 467,2935 469,2935 471,2935 473,2935 475,2935 476,2935 478,2935 480,2935 482,2935 484,2935 486,2935 488,2935 490,2935 492,2935 494,2935 496,2935 498,2935 500,2935 501,2935 503,2935 505,2935 507,2935 509,2935 511,2935 513,2935 515,2935 517,2935 519,2935 521,2935 523,2935 525,2935 526,2935 528,2935 530,2935 532,2935 534,2935 536,2935 538,2935 540,2935 542,2935 544,2935 546,2935 548,2935 550,2935 551,2935 553,2935 555,2935 557,2935 559,2935 561,2935 563,2935 565,2935 567,2935 569,2935 571,2935 573,2935 575,2935 576,2935 578,2935 580,2935 582,2935 584,2935 586,2935 588,2935 590,2935 592,2935 594,2935 596,2935 598,2935 600,2935 601,2935 603,2935 605,2935 607,2935 609,2935 611,2935 613,2935 615,2935 617,2935 619,2935 621,2935 623,2935 625,2935 626,2935 628,2935 630,2935 632,2935 634,2935 636,2935 638,2935 640,2935 642,2935 644,2935 646,2935 648,2935 650,2935 651,2935 653,2935 655,2935 657,2935 659,2935 661,2935 663,2935 665,2935 667,2935 669,2935 671,2935 673,2935 675,2935 676,2935 678,2935 680,2935 682,2935 684,2935 686,2935 688,2935 690,2935 692,2935 694,2935 696,2935 698,2935 700,2935 701,2935 703,2935 705,2935 707,2935 709,2935 711,2935 713,2935 715,2935 717,2935 719,2935 721,2935 723,2935 725,2935 726,2935 728,2935 730,2935 732,2935 734,2935 736,2935 738,2935 740,2935 742,2935 744,2935 746,2935 748,2935 750,2935 751,2935 753,2935 755,2935 757,2935 759,2935 761,2935 763,2935 765,2935 767,2935 769,2935 771,2935 773,2935 775,2935 776,2935 778,2935 780,2935 782,2935 784,2935 786,2935 788,2935 790,2935 792,2935 794,2935 796,2935 798,2935 800,2935 801,2935 803,2935 805,2935 807,2935 809,2935 811,2935 813,2935 815,2935 817,2935 819,2935 821,2935 823,2935 825,2935 826,2935 828,2935 830,2935 832,2935 834,2935 836,2935 838,2935 840,2935 842,2935 844,2935 846,2935 848,2935 850,2935 851,2935 853,2935 855,2935 857,2935 859,2935 861,2935 863,2935 865,2935 867,2935 869,2935 871,2935 873,2935 875,2935 876,2935 878,2935 880,2935 882,2935 884,2935 886,2935 888,2935 890,2935 892,2935 894,2935 896,2935 898,2935 900,2935 901,2933 903,2932 905,2932 907,2931 909,2931 911,2931 913,2931 915,2930 917,2931 919,2932 921,2932 923,2931 925,2932 926,2932" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,2928 251,2928 253,2928 255,2927 257,2928 259,2928 261,2928 263,2927 265,2926 267,2928 269,2928 271,2928 273,2928 275,2928 276,2928 278,2928 280,2930 282,2930 284,2931 286,2931 288,2931 290,2931 292,2931 294,2931 296,2932 298,2933 300,2933 301,2933 303,2933 305,2933 307,2933 309,2933 311,2934 313,2934 315,2933 317,2933 319,2934 321,2934 323,2934 325,2934 326,2934 328,2934 330,2934 332,2934 334,2934 336,2934 338,2934 340,2934 342,2934 344,2934 346,2934 348,2934 350,2934 351,2934 353,2934 355,2934 357,2934 359,2934 361,2934 363,2934 365,2934 367,2934 369,2934 371,2934 373,2934 375,2934 376,2934 378,2934 380,2934 382,2934 384,2934 386,2934 388,2934 390,2934 392,2934 394,2934 396,2934 398,2934 400,2934 401,2934 403,2934 405,2934 407,2934 409,2934 411,2934 413,2934 415,2934 417,2935 419,2935 421,2935 423,2935 425,2935 426,2934 428,2934 430,2934 432,2934 434,2935 436,2935 438,2935 440,2935 442,2935 444,2935 446,2935 448,2935 450,2935 451,2935 453,2935 455,2935 457,2935 459,2935 461,2935 463,2935 465,2935 467,2935 469,2935 471,2935 473,2935 475,2935 476,2935 478,2935 480,2935 482,2935 484,2935 486,2935 488,2935 490,2935 492,2935 494,2935 496,2935 498,2935 500,2935 501,2935 503,2935 505,2935 507,2935 509,2935 511,2935 513,2935 515,2935 517,2935 519,2935 521,2935 523,2935 525,2935 526,2935 528,2935 530,2935 532,2935 534,2935 536,2935 538,2935 540,2935 542,2935 544,2935 546,2934 548,2934 550,2934 551,2934 553,2934 555,2934 557,2934 559,2934 561,2934 563,2934 565,2934 567,2934 569,2934 571,2934 573,2934 575,2934 576,2934 578,2934 580,2934 582,2934 584,2934 586,2934 588,2934 590,2934 592,2934 594,2934 596,2934 598,2934 600,2934 601,2934 603,2934 605,2934 607,2934 609,2934 611,2934 613,2934 615,2934 617,2934 619,2934 621,2934 623,2934 625,2934 626,2934 628,2934 630,2934 632,2934 634,2934 636,2934 638,2934 640,2934 642,2934 644,2934 646,2934 648,2934 650,2934 651,2934 653,2934 655,2934 657,2934 659,2934 661,2934 663,2934 665,2934 667,2934 669,2934 671,2934 673,2934 675,2934 676,2934 678,2934 680,2934 682,2934 684,2934 686,2934 688,2934 690,2934 692,2934 694,2934 696,2934 698,2934 700,2934 701,2934 703,2934 705,2934 707,2934 709,2934 711,2934 713,2934 715,2934 717,2934 719,2934 721,2934 723,2934 725,2934 726,2934 728,2934 730,2934 732,2934 734,2934 736,2934 738,2934 740,2934 742,2934 744,2934 746,2934 748,2934 750,2934 751,2934 753,2934 755,2934 757,2934 759,2934 761,2934 763,2934 765,2934 767,2934 769,2934 771,2934 773,2934 775,2934 776,2934 778,2930" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,2929 251,2929 253,2929 255,2930 257,2930 259,2930 261,2930 263,2930 265,2930 267,2931 269,2931 271,2931 273,2931 275,2931 276,2934 278,2934 280,2934 282,2934 284,2934 286,2934 288,2934 290,2934 292,2934 294,2934 296,2934 298,2934 300,2934 301,2934 303,2934 305,2934 307,2934 309,2934 311,2934 313,2934 315,2934 317,2934 319,2934 321,2934 323,2934 325,2934 326,2935 328,2935 330,2935 332,2935 334,2935 336,2935 338,2935 340,2935 342,2935 344,2935 346,2935 348,2935 350,2935 351,2935 353,2935 355,2935 357,2935 359,2935 361,2935 363,2935 365,2935 367,2935 369,2935 371,2935 373,2935 375,2935 376,2935 378,2935 380,2935 382,2935 384,2935 386,2935 388,2935 390,2935 392,2935 394,2935 396,2935 398,2935 400,2935 401,2935 403,2935 405,2935 407,2935 409,2935 411,2935 413,2935 415,2934 417,2934 419,2934 421,2934 423,2934 425,2934 426,2934 428,2934 430,2934 432,2934 434,2934 436,2934 438,2934 440,2934 442,2935 444,2935 446,2935 448,2934 450,2934 451,2934 453,2934 455,2935 457,2934 459,2935 461,2935 463,2934 465,2934 467,2934 469,2934 471,2934 473,2934 475,2934 476,2934 478,2934 480,2934 482,2934 484,2934 486,2934 488,2934 490,2934 492,2934 494,2934 496,2934 498,2934 500,2934 501,2934 503,2934 505,2934 507,2934 509,2934 511,2934 513,2934 515,2934 517,2934 519,2934 521,2934 523,2934 525,2934 526,2934 528,2934 530,2934 532,2934 534,2934 536,2934 538,2934 540,2934 542,2934 544,2934 546,2934 548,2934 550,2934 551,2934 553,2934 555,2934 557,2934 559,2934 561,2934 563,2934 565,2934 567,2934 569,2934 571,2934 573,2934 575,2934 576,2934 578,2934 580,2934 582,2934 584,2934 586,2934 588,2934 590,2934 592,2934 594,2934 596,2934 598,2934 600,2934 601,2934 603,2934 605,2934 607,2934 609,2934 611,2934 613,2934 615,2934 617,2934 619,2934 621,2934 623,2934 625,2934 626,2934 628,2934 630,2934 632,2934 634,2934 636,2934 638,2934 640,2934 642,2934 644,2934 646,2934 648,2934 650,2934 651,2934 653,2934 655,2935 657,2935 659,2935 661,2935 663,2934 665,2934 667,2934 669,2934 671,2934 673,2934 675,2934 676,2934 678,2934 680,2935 682,2934 684,2934 686,2934 688,2934 690,2934 692,2934 694,2934 696,2934 698,2934 700,2934 701,2934 703,2934 705,2935 707,2934 709,2934 711,2934 713,2934 715,2934 717,2934 719,2934 721,2934 723,2934 725,2934 726,2934 728,2934 730,2934 732,2934 734,2934 736,2934 738,2934 740,2934 742,2934 744,2934 746,2934 748,2934 750,2934 751,2934 753,2934 755,2934 757,2934 759,2934 761,2934 763,2934 765,2934 767,2934 769,2934 771,2934 773,2934 775,2934 776,2934 778,2934 780,2934 782,2934 784,2934 786,2934 788,2934 790,2934 792,2934 794,2934 796,2934 798,2934 800,2934 801,2934 803,2934 805,2934 807,2934 809,2934 811,2934 813,2934 815,2934 817,2934 819,2934 821,2934 823,2934 825,2934 826,2934 828,2934 830,2934 832,2934 834,2934" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,2930 251,2931 253,2931 255,2931 257,2931 259,2931 261,2931 263,2931 265,2931 267,2931 269,2931 271,2931 273,2931 275,2931 276,2931 278,2931 280,2931 282,2931 284,2931 286,2934 288,2934 290,2934 292,2935 294,2935 296,2935 298,2935 300,2934 301,2935 303,2935 305,2935 307,2935 309,2935 311,2935 313,2935 315,2935 317,2935 319,2935 321,2935 323,2935 325,2935 326,2935 328,2935 330,2935 332,2935 334,2935 336,2935 338,2935 340,2935 342,2935 344,2935 346,2935 348,2935 350,2935 351,2935 353,2935 355,2935 357,2935 359,2935 361,2935 363,2935 365,2935 367,2935 369,2935 371,2934 373,2934 375,2934 376,2934 378,2934 380,2934 382,2934 384,2934 386,2935 388,2935 390,2934 392,2935 394,2934 396,2934 398,2934 400,2934 401,2934 403,2934 405,2934 407,2934 409,2934 411,2934 413,2934 415,2935 417,2935 419,2935 421,2935 423,2934 425,2935 426,2934 428,2935 430,2935 432,2935 434,2935 436,2935 438,2935 440,2935 442,2934 444,2935 446,2935 448,2935 450,2935 451,2935 453,2935 455,2935 457,2935 459,2935 461,2935 463,2935 465,2935 467,2935 469,2935 471,2935 473,2935 475,2935 476,2935 478,2935 480,2935 482,2935 484,2935 486,2935 488,2935 490,2935 492,2935 494,2935 496,2935 498,2935 500,2935 501,2935 503,2935 505,2935 507,2935 509,2935 511,2935 513,2935 515,2935 517,2935 519,2935 521,2935 523,2935 525,2935 526,2935 528,2935 530,2935 532,2935 534,2935 536,2935 538,2935 540,2935 542,2935 544,2935 546,2935 548,2935 550,2935 551,2935 553,2935 555,2935 557,2935 559,2935 561,2935 563,2935 565,2935 567,2935 569,2935 571,2935 573,2935 575,2935 576,2935 578,2935 580,2935 582,2935 584,2935 586,2935 588,2935 590,2935 592,2935 594,2935 596,2935 598,2935 600,2935 601,2935 603,2935 605,2935 607,2935 609,2935 611,2935 613,2935 615,2935 617,2935 619,2935 621,2935 623,2935 625,2935 626,2935 628,2935 630,2935 632,2935 634,2935 636,2935 638,2935 640,2935 642,2935 644,2935 646,2935 648,2935 650,2935 651,2935 653,2935 655,2935 657,2935 659,2935 661,2935 663,2935 665,2935 667,2935 669,2935 671,2935 673,2935 675,2935 676,2935 678,2935 680,2935 682,2935 684,2935 686,2935 688,2935 690,2935 692,2935 694,2935 696,2935 698,2935 700,2934 701,2934 703,2934 705,2934 707,2934 709,2934 711,2934 713,2934 715,2934 717,2934 719,2934 721,2934 723,2934 725,2934 726,2934 728,2934 730,2934 732,2934 734,2934 736,2934 738,2934 740,2934 742,2934 744,2934 746,2934 748,2934 750,2934 751,2934 753,2934 755,2934 757,2934 759,2934 761,2934 763,2934 765,2934 767,2934 769,2934 771,2934 773,2934 775,2934 776,2934 778,2934 780,2934 782,2934 784,2934 786,2934 788,2934 790,2934 792,2934 794,2933" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
-<text x="250" y="3090" class="axis" font-weight="600">Line colour = archive format; solid = plain, dashed = encrypted</text>
-<text x="24" y="3110" class="heading">CPU during extraction</text>
-<line x1="250" y1="3304" x2="950" y2="3304" class="grid"/>
-<text x="242" y="3308" text-anchor="end" class="axis">0</text>
-<line x1="250" y1="3264" x2="950" y2="3264" class="grid"/>
-<text x="242" y="3268" text-anchor="end" class="axis">25</text>
-<line x1="250" y1="3224" x2="950" y2="3224" class="grid"/>
-<text x="242" y="3228" text-anchor="end" class="axis">50</text>
-<line x1="250" y1="3184" x2="950" y2="3184" class="grid"/>
-<text x="242" y="3188" text-anchor="end" class="axis">75</text>
-<line x1="250" y1="3144" x2="950" y2="3144" class="grid"/>
-<text x="242" y="3148" text-anchor="end" class="axis">100</text>
-<text x="242" y="3130" text-anchor="end" class="axis">CPU (%)</text>
-<text x="250" y="3320" text-anchor="middle" class="axis">0.0s</text>
-<text x="425" y="3320" text-anchor="middle" class="axis">90.5s</text>
-<text x="600" y="3320" text-anchor="middle" class="axis">181.0s</text>
-<text x="775" y="3320" text-anchor="middle" class="axis">271.5s</text>
-<text x="950" y="3320" text-anchor="middle" class="axis">362.0s</text>
-<polyline points="250,3304 251,3203 253,3153 255,3145 257,3146 259,3147 261,3145 263,3144 265,3145 267,3145 269,3145 271,3144 273,3144 275,3145 277,3145 279,3145 280,3145 282,3145 284,3145 286,3144 288,3144 290,3144 292,3144 294,3145 296,3148 298,3165 300,3175 302,3188 304,3204 306,3210 308,3219 309,3207 311,3171 313,3269" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3270 251,3254 253,3261 255,3266 257,3264 259,3247 261,3256 263,3254 265,3254 267,3270 269,3264 271,3260 273,3264 275,3262 277,3264 279,3266 280,3235 282,3219 284,3256 286,3258 288,3253 290,3251 292,3236 294,3245 296,3258 298,3255 300,3232 302,3246 304,3246" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3304 251,3251 253,3252 255,3245 257,3260 259,3261 261,3256 263,3254 265,3248 267,3254 269,3252 271,3253 273,3266 275,3258 277,3263 279,3265 280,3262 282,3265 284,3263 286,3264 288,3264 290,3254 292,3263 294,3256 296,3255 298,3248 300,3249 302,3209 304,3253" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3304 251,3246 253,3272 255,3261 257,3266 259,3263 261,3267 263,3272 265,3272 267,3269 269,3273 271,3268 273,3277 275,3270 277,3270 279,3282 280,3275 282,3265 284,3244 286,3273 288,3271 290,3276 292,3262 294,3255 296,3253 298,3259 300,3256 302,3271 304,3276 306,3275 308,3279 309,3275 311,3278 313,3273 315,3271 317,3279 319,3275 321,3274 323,3272 325,3274 327,3272 329,3283 331,3282 333,3280 335,3284 337,3283 338,3285 340,3279 342,3277 344,3279 346,3256 348,3260 350,3266 352,3259 354,3268 356,3269 358,3272 360,3271 362,3281 364,3282 366,3282 367,3282 369,3286 371,3287 373,3286 375,3284 377,3287 379,3286 381,3285 383,3288 385,3285 387,3279 389,3281 391,3276 393,3280 395,3290 396,3286 398,3286 400,3285 402,3286 404,3286 406,3288 408,3286 410,3288 412,3287 414,3287 416,3286 418,3282 420,3280 422,3284 424,3281 425,3284 427,3286 429,3289 431,3289 433,3287 435,3285 437,3287 439,3286 441,3290 443,3285 445,3289 447,3289 449,3287 451,3285 453,3286 454,3285 456,3279 458,3283 460,3288 462,3288 464,3286 466,3288 468,3283 470,3290 472,3288 474,3286 476,3287 478,3286 480,3289 482,3289 483,3283 485,3282 487,3284 489,3279 491,3281 493,3283 495,3283 497,3286 499,3289 501,3287 503,3288 505,3284 507,3288 509,3290 511,3284 512,3282 514,3271 516,3275 518,3271 520,3268 522,3278 524,3283 526,3282 528,3283 530,3283 532,3278 534,3284 536,3278 538,3287 540,3286 541,3285 543,3287 545,3288 547,3288 549,3280 551,3283 553,3276 555,3284 557,3285 559,3288 561,3285 563,3285 565,3286 567,3290 569,3284 570,3288 572,3282 574,3289 576,3289 578,3288 580,3285 582,3283 584,3278 586,3281 588,3283 590,3283 592,3284 594,3290 596,3289 598,3286 600,3286 601,3288 603,3287 605,3284 607,3282 609,3281 611,3285 613,3290 615,3276 617,3278 619,3275 621,3276 623,3283 625,3285 627,3280 629,3282 630,3281 632,3282 634,3286 636,3283 638,3280 640,3283 642,3285 644,3285 646,3282 648,3273 650,3274 652,3279 654,3276 656,3284 658,3286 659,3288 661,3288 663,3287 665,3290 667,3283 669,3284 671,3286 673,3290 675,3290 677,3287 679,3290 681,3282 683,3282 685,3280 687,3282 688,3286 690,3286 692,3289 694,3291 696,3288 698,3286 700,3285 702,3287 704,3291 706,3285 708,3286 710,3289 712,3284 714,3281 716,3282 717,3281 719,3287 721,3288 723,3289 725,3282 727,3284 729,3288 731,3288 733,3290 735,3287 737,3285 739,3288 741,3288 743,3289 745,3284 746,3276 748,3283 750,3284 752,3284 754,3285 756,3285 758,3289 760,3289 762,3289 764,3283 766,3284 768,3288 770,3289 772,3289 774,3287 775,3288 777,3288 779,3278 781,3277 783,3280 785,3285 787,3288 789,3289 791,3290 793,3285 795,3288 797,3285 799,3288 801,3285 803,3289 804,3283 806,3291 808,3287 810,3286 812,3279 814,3283 816,3283 818,3284 820,3283 822,3282 824,3283 826,3289 828,3285 830,3286 832,3287 833,3288 835,3285 837,3287 839,3281 841,3286 843,3279 845,3282 847,3281 849,3283 851,3284 853,3288 855,3284 857,3286 859,3264 861,3278 862,3286 864,3285 866,3284 868,3288 870,3284 872,3289 874,3287 876,3284 878,3281 880,3277 882,3281 884,3286 886,3288 888,3285 890,3248 891,3278 893,3282 895,3282 897,3279 899,3282 901,3285 903,3290 905,3278 907,3283 909,3235 911,3273 913,3280 915,3281 917,3275 919,3284 920,3284 922,3287 924,3286 926,3282 928,3283 930,3288 932,3287 934,3282 936,3284 938,3286 940,3290 942,3200 944,3280 946,3268 948,3279 950,3279" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3304 251,3260 253,3278 255,3292 257,3290 259,3288 261,3288 263,3287 265,3290 267,3287 269,3280 271,3284 273,3284 275,3288 277,3290 279,3284 280,3288 282,3285 284,3282 286,3279 288,3288 290,3290 292,3282 294,3288 296,3289 298,3282 300,3289 302,3282 304,3285 306,3285 308,3281 309,3290 311,3284 313,3291 315,3286 317,3277 319,3285 321,3287 323,3290 325,3289 327,3285 329,3292 331,3286 333,3282 335,3277 337,3284 338,3288 340,3283 342,3288 344,3289 346,3289 348,3285 350,3280 352,3286 354,3291 356,3288 358,3286 360,3288 362,3291 364,3286 366,3282 367,3283 369,3284 371,3286 373,3282 375,3285 377,3287 379,3288 381,3283 383,3283 385,3285 387,3287 389,3285 391,3288 393,3288 395,3284 396,3284 398,3282 400,3286 402,3286 404,3289 406,3287 408,3286 410,3287 412,3284 414,3275 416,3274 418,3282 420,3281 422,3282 424,3283 425,3279 427,3290 429,3287 431,3275 433,3284 435,3286 437,3289 439,3288 441,3288 443,3287 445,3286 447,3282 449,3280 451,3286 453,3288 454,3286 456,3291 458,3284 460,3287 462,3284 464,3282 466,3287 468,3287 470,3288 472,3287 474,3287 476,3287 478,3287 480,3278 482,3282 483,3285 485,3290 487,3290 489,3282 491,3287 493,3287 495,3283 497,3281 499,3285 501,3284 503,3286 505,3286 507,3290 509,3283 511,3286 512,3274 514,3286 516,3288 518,3286 520,3287 522,3288 524,3290 526,3286 528,3274 530,3282 532,3284 534,3291 536,3286 538,3289 540,3287 541,3282 543,3280 545,3282 547,3281 549,3288 551,3283 553,3286 555,3288 557,3285 559,3289 561,3277 563,3284 565,3286 567,3285 569,3284 570,3287 572,3287 574,3286 576,3283 578,3275 580,3281 582,3285 584,3285 586,3276 588,3284 590,3288 592,3288 594,3279 596,3276 598,3283 600,3284 601,3288 603,3286 605,3279 607,3288 609,3282 611,3285 613,3284 615,3289 617,3285 619,3285 621,3286 623,3287 625,3285 627,3279 629,3281 630,3290 632,3288 634,3288 636,3288 638,3287 640,3290 642,3279 644,3282 646,3281 648,3280 650,3288 652,3286 654,3287 656,3287 658,3285 659,3283 661,3285 663,3288 665,3285 667,3284 669,3281 671,3287 673,3289 675,3280 677,3283 679,3289 681,3288 683,3289 685,3285 687,3288 688,3287 690,3284 692,3280 694,3282 696,3288 698,3288 700,3282 702,3284 704,3279 706,3281 708,3279 710,3276 712,3282 714,3278 716,3280 717,3278 719,3272 721,3285 723,3284 725,3284 727,3284 729,3284 731,3289 733,3287 735,3289 737,3289 739,3285 741,3280 743,3281 745,3287 746,3287 748,3289 750,3288 752,3286 754,3286 756,3284 758,3279 760,3286 762,3287 764,3289 766,3283 768,3289 770,3289 772,3279 774,3283 775,3286 777,3279 779,3287 781,3287 783,3286 785,3283 787,3283 789,3284 791,3279 793,3287 795,3290 797,3286 799,3286 801,3289 803,3289 804,3280 806,3284 808,3288 810,3291 812,3283 814,3289 816,3285 818,3287 820,3287 822,3283 824,3283 826,3285 828,3286 830,3285 832,3287 833,3286 835,3283 837,3282 839,3272 841,3265 843,3285 845,3290 847,3287 849,3290 851,3288 853,3289 855,3279 857,3282 859,3285 861,3288 862,3284 864,3289 866,3284 868,3285 870,3285 872,3238 874,3283 876,3275 878,3268 880,3285 882,3286 884,3286 886,3284 888,3260 890,3290 891,3287 893,3284 895,3283 897,3287 899,3290 901,3281 903,3272 905,3277 907,3286 909,3240 911,3244 913,3282 915,3281 917,3289" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3304 251,3244 253,3270 255,3248 257,3244 259,3221 261,3263 263,3265 265,3276 267,3276 269,3276 271,3272 273,3275 275,3271 277,3272 279,3267 280,3262 282,3280 284,3287 286,3287 288,3287 290,3284 292,3284 294,3271 296,3262 298,3267 300,3274 302,3275 304,3274 306,3276 308,3278 309,3264 311,3268" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3304 251,3285 253,3268 255,3225 257,3215 259,3216 261,3250 263,3252 265,3255 267,3256 269,3246" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3249 251,3213 253,3237 255,3252 257,3255 259,3260 261,3261 263,3263 265,3243" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3304 251,3252 253,3222 255,3236 257,3261 259,3257 261,3258 263,3260 265,3260 267,3261" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3304 251,3149 253,3144 255,3144 257,3145 259,3144 261,3145 263,3145 265,3145 267,3145 269,3145 271,3144 273,3144 275,3145 277,3145 279,3144 280,3144 282,3144 284,3144 286,3144 288,3144 290,3144 292,3146 294,3146 296,3144 298,3144 300,3145 302,3173 304,3181 306,3198 308,3219 309,3263 311,3231 313,3239 315,3216" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3304 251,3269 253,3263 255,3248 257,3263 259,3264 261,3262 263,3255 265,3244 267,3257 269,3264 271,3266 273,3265 275,3269 277,3268 279,3269 280,3267 282,3263 284,3254 286,3265 288,3253 290,3218" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3304 251,3264 253,3257 255,3256 257,3269 259,3263 261,3269 263,3268 265,3262 267,3265 269,3252 271,3268 273,3268 275,3264 277,3268 279,3272 280,3256 282,3257 284,3266 286,3266 288,3266 290,3265 292,3265 294,3265 296,3201" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3304 251,3270 253,3287 255,3287 257,3286 259,3289 261,3289 263,3288 265,3287 267,3292 269,3292 271,3283 273,3286 275,3279 277,3277 279,3287 280,3282 282,3287 284,3288 286,3292 288,3292 290,3284 292,3291 294,3292 296,3288 298,3292 300,3279 302,3289 304,3289 306,3289 308,3280 309,3276 311,3289 313,3289 315,3291 317,3288 319,3285 321,3286 323,3290 325,3291 327,3291 329,3280 331,3288 333,3285 335,3285 337,3276 338,3275 340,3274 342,3281 344,3288 346,3289 348,3287 350,3288 352,3292 354,3289 356,3291 358,3284 360,3289 362,3286 364,3289 366,3290 367,3282 369,3289 371,3282 373,3272 375,3285 377,3279 379,3286 381,3290 383,3291 385,3288 387,3288 389,3289 391,3290 393,3290 395,3290 396,3280 398,3286 400,3292 402,3288 404,3286 406,3273 408,3285 410,3288 412,3286 414,3293 416,3285 418,3284 420,3290 422,3289 424,3294 425,3284 427,3291 429,3293 431,3291 433,3286 435,3285 437,3280 439,3280 441,3290 443,3288 445,3287 447,3290 449,3291 451,3288 453,3291 454,3280 456,3284 458,3288 460,3289 462,3290 464,3290 466,3289 468,3291 470,3278 472,3273 474,3286 476,3290 478,3288 480,3291 482,3288 483,3292 485,3288 487,3287 489,3288 491,3288 493,3275 495,3291 497,3287 499,3288 501,3284 503,3278 505,3284 507,3291 509,3291 511,3288 512,3284 514,3287 516,3286 518,3288 520,3282 522,3293 524,3290 526,3288 528,3292 530,3286 532,3290 534,3286 536,3280 538,3285 540,3286 541,3286 543,3291 545,3290 547,3286 549,3288 551,3292 553,3291 555,3287 557,3291 559,3287 561,3292 563,3291 565,3290 567,3279 569,3275 570,3283 572,3284 574,3290 576,3289 578,3288 580,3291 582,3283 584,3287 586,3292 588,3280 590,3288 592,3287 594,3290 596,3283 598,3285 600,3283 601,3278 603,3284 605,3290 607,3285 609,3286 611,3291 613,3291 615,3288 617,3286 619,3290 621,3284 623,3290 625,3290 627,3288 629,3290 630,3289 632,3280 634,3276 636,3285 638,3292 640,3290 642,3289 644,3290 646,3285 648,3287 650,3291 652,3288 654,3285 656,3288 658,3291 659,3289 661,3283 663,3290 665,3272 667,3277 669,3290 671,3290 673,3287 675,3288 677,3288 679,3288 681,3291 683,3282 685,3284 687,3288 688,3286 690,3288 692,3290 694,3286 696,3289 698,3275 700,3279 702,3273 704,3287 706,3290 708,3290 710,3288 712,3286 714,3288 716,3287 717,3288 719,3287 721,3288 723,3289 725,3291 727,3290 729,3284 731,3277 733,3273 735,3290 737,3289 739,3290 741,3284 743,3288 745,3290 746,3292 748,3290 750,3287 752,3287 754,3287 756,3291 758,3291 760,3282 762,3284 764,3277 766,3283 768,3289 770,3286 772,3285 774,3290 775,3287 777,3287 779,3281 781,3289 783,3288 785,3291 787,3288 789,3286 791,3289 793,3291 795,3281 797,3281 799,3279 801,3291 803,3289 804,3284 806,3285 808,3281 810,3291 812,3285 814,3291 816,3290 818,3282 820,3291 822,3290 824,3290 826,3290 828,3278 830,3280 832,3284 833,3289 835,3288 837,3284 839,3289 841,3273 843,3246 845,3281 847,3283 849,3289 851,3285 853,3289 855,3290 857,3280 859,3291 861,3279 862,3281 864,3290 866,3290 868,3292 870,3284 872,3261 874,3233 876,3281 878,3290 880,3291" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3304 251,3267 253,3276 255,3290 257,3291 259,3289 261,3288 263,3286 265,3286 267,3290 269,3290 271,3283 273,3282 275,3291 277,3288 279,3290 280,3292 282,3273 284,3280 286,3287 288,3291 290,3288 292,3284 294,3292 296,3286 298,3290 300,3287 302,3286 304,3291 306,3293 308,3284 309,3285 311,3288 313,3284 315,3278 317,3280 319,3284 321,3287 323,3291 325,3290 327,3290 329,3286 331,3288 333,3279 335,3290 337,3284 338,3288 340,3290 342,3291 344,3286 346,3287 348,3270 350,3277 352,3291 354,3289 356,3289 358,3287 360,3288 362,3291 364,3284 366,3285 367,3288 369,3288 371,3283 373,3290 375,3290 377,3289 379,3285 381,3279 383,3279 385,3292 387,3285 389,3286 391,3284 393,3290 395,3288 396,3286 398,3290 400,3292 402,3286 404,3284 406,3265 408,3290 410,3288 412,3286 414,3278 416,3268 418,3290 420,3289 422,3291 424,3292 425,3282 427,3286 429,3289 431,3288 433,3289 435,3283 437,3293 439,3281 441,3289 443,3290 445,3282 447,3276 449,3282 451,3282 453,3288 454,3286 456,3289 458,3290 460,3288 462,3288 464,3275 466,3289 468,3290 470,3285 472,3286 474,3287 476,3292 478,3284 480,3275 482,3277 483,3275 485,3289 487,3290 489,3280 491,3289 493,3285 495,3288 497,3288 499,3286 501,3292 503,3281 505,3291 507,3282 509,3283 511,3280 512,3273 514,3282 516,3284 518,3286 520,3284 522,3284 524,3290 526,3290 528,3289 530,3285 532,3286 534,3286 536,3291 538,3286 540,3287 541,3284 543,3278 545,3277 547,3286 549,3281 551,3285 553,3289 555,3287 557,3291 559,3287 561,3282 563,3291 565,3290 567,3283 569,3284 570,3288 572,3287 574,3292 576,3276 578,3273 580,3286 582,3291 584,3289 586,3284 588,3286 590,3289 592,3287 594,3288 596,3283 598,3288 600,3287 601,3285 603,3288 605,3291 607,3275 609,3279 611,3281 613,3289 615,3289 617,3285 619,3283 621,3289 623,3286 625,3289 627,3281 629,3290 630,3287 632,3286 634,3285 636,3276 638,3288 640,3279 642,3281 644,3283 646,3288 648,3284 650,3288 652,3288 654,3289 656,3273 658,3284 659,3289 661,3292 663,3287 665,3286 667,3288 669,3290 671,3289 673,3281 675,3272 677,3287 679,3286 681,3290 683,3288 685,3288 687,3285 688,3288 690,3290 692,3290 694,3283 696,3291 698,3290 700,3289 702,3290 704,3286 706,3276 708,3269 710,3287 712,3292 714,3282 716,3284 717,3290 719,3291 721,3288 723,3283 725,3291 727,3288 729,3290 731,3283 733,3285 735,3288 737,3291 739,3283 741,3274 743,3285 745,3289 746,3288 748,3288 750,3289 752,3282 754,3280 756,3288 758,3290 760,3288 762,3288 764,3291 766,3287 768,3291 770,3288 772,3270 774,3277 775,3285 777,3292 779,3286 781,3285 783,3291 785,3289 787,3286 789,3290 791,3281 793,3288 795,3292 797,3288 799,3288 801,3288 803,3291 804,3272 806,3282 808,3283 810,3280 812,3287 814,3288 816,3289 818,3285 820,3288 822,3291 824,3287 826,3279 828,3287 830,3287 832,3292 833,3288 835,3280 837,3248 839,3244 841,3285 843,3287 845,3279 847,3283 849,3282 851,3291 853,3288 855,3293 857,3289 859,3290 861,3283 862,3283 864,3272 866,3275 868,3244 870,3222 872,3275 874,3290 876,3283" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3304 251,3203 253,3226 255,3204 257,3246 259,3254 261,3252 263,3252 265,3255 267,3252" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3304 251,3288 253,3276 255,3206 257,3195 259,3256 261,3262 263,3247 265,3262 267,3242 269,3244" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3304 251,3201 253,3217 255,3232 257,3249 259,3257 261,3254 263,3253 265,3261 267,3249" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3304 251,3255 253,3188 255,3201 257,3243 259,3259 261,3256 263,3253 265,3249 267,3249 269,3254" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
-<text x="250" y="3340" class="axis" font-weight="600">Line colour = archive format; solid = plain, dashed = encrypted</text>
-<text x="24" y="3360" class="heading">RAM during extraction</text>
-<line x1="250" y1="3554" x2="950" y2="3554" class="grid"/>
-<text x="242" y="3558" text-anchor="end" class="axis">0.0</text>
-<line x1="250" y1="3514" x2="950" y2="3514" class="grid"/>
-<text x="242" y="3518" text-anchor="end" class="axis">8.7</text>
-<line x1="250" y1="3474" x2="950" y2="3474" class="grid"/>
-<text x="242" y="3478" text-anchor="end" class="axis">17.3</text>
-<line x1="250" y1="3434" x2="950" y2="3434" class="grid"/>
-<text x="242" y="3438" text-anchor="end" class="axis">26.0</text>
-<line x1="250" y1="3394" x2="950" y2="3394" class="grid"/>
-<text x="242" y="3398" text-anchor="end" class="axis">34.7</text>
-<text x="242" y="3380" text-anchor="end" class="axis">RAM (GiB)</text>
-<text x="250" y="3570" text-anchor="middle" class="axis">0.0s</text>
-<text x="425" y="3570" text-anchor="middle" class="axis">90.5s</text>
-<text x="600" y="3570" text-anchor="middle" class="axis">181.0s</text>
-<text x="775" y="3570" text-anchor="middle" class="axis">271.5s</text>
-<text x="950" y="3570" text-anchor="middle" class="axis">362.0s</text>
-<polyline points="250,3404 251,3403 253,3403 255,3402 257,3402 259,3402 261,3402 263,3402 265,3402 267,3402 269,3401 271,3401 273,3401 275,3401 277,3401 279,3401 280,3400 282,3400 284,3400 286,3400 288,3400 290,3400 292,3399 294,3399 296,3399 298,3399 300,3399 302,3399 304,3399 306,3399 308,3399 309,3399 311,3397 313,3397" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3401 251,3401 253,3401 255,3401 257,3401 259,3400 261,3400 263,3401 265,3401 267,3401 269,3402 271,3402 273,3402 275,3401 277,3401 279,3401 280,3400 282,3400 284,3400 286,3400 288,3399 290,3399 292,3399 294,3398 296,3398 298,3398 300,3398 302,3395 304,3394" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3406 251,3406 253,3406 255,3406 257,3405 259,3405 261,3405 263,3405 265,3404 267,3404 269,3404 271,3404 273,3403 275,3404 277,3403 279,3403 280,3402 282,3402 284,3402 286,3402 288,3402 290,3401 292,3401 294,3401 296,3401 298,3400 300,3400 302,3400 304,3401" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3404 251,3403 253,3403 255,3402 257,3402 259,3402 261,3403 263,3403 265,3403 267,3403 269,3403 271,3403 273,3403 275,3402 277,3403 279,3403 280,3403 282,3404 284,3404 286,3405 288,3405 290,3405 292,3404 294,3404 296,3404 298,3403 300,3403 302,3403 304,3403 306,3403 308,3403 309,3403 311,3403 313,3403 315,3402 317,3402 319,3402 321,3402 323,3402 325,3402 327,3401 329,3401 331,3401 333,3401 335,3401 337,3401 338,3401 340,3400 342,3400 344,3400 346,3399 348,3402 350,3404 352,3405 354,3405 356,3404 358,3404 360,3405 362,3405 364,3405 366,3405 367,3405 369,3405 371,3406 373,3406 375,3405 377,3406 379,3406 381,3406 383,3406 385,3406 387,3406 389,3406 391,3406 393,3406 395,3406 396,3406 398,3406 400,3406 402,3407 404,3406 406,3406 408,3406 410,3406 412,3406 414,3407 416,3407 418,3407 420,3406 422,3406 424,3407 425,3407 427,3407 429,3407 431,3407 433,3406 435,3407 437,3407 439,3407 441,3407 443,3407 445,3407 447,3407 449,3407 451,3407 453,3407 454,3407 456,3407 458,3407 460,3407 462,3407 464,3407 466,3407 468,3407 470,3407 472,3407 474,3407 476,3407 478,3407 480,3407 482,3407 483,3407 485,3407 487,3407 489,3407 491,3407 493,3407 495,3407 497,3407 499,3407 501,3407 503,3407 505,3407 507,3407 509,3407 511,3407 512,3407 514,3407 516,3407 518,3407 520,3407 522,3407 524,3407 526,3407 528,3407 530,3407 532,3407 534,3407 536,3407 538,3407 540,3407 541,3407 543,3407 545,3407 547,3407 549,3407 551,3407 553,3407 555,3407 557,3407 559,3407 561,3407 563,3407 565,3407 567,3407 569,3407 570,3407 572,3407 574,3407 576,3407 578,3407 580,3407 582,3407 584,3407 586,3407 588,3407 590,3407 592,3407 594,3407 596,3407 598,3407 600,3407 601,3407 603,3407 605,3407 607,3407 609,3407 611,3407 613,3407 615,3407 617,3406 619,3406 621,3405 623,3405 625,3406 627,3408 629,3407 630,3408 632,3408 634,3408 636,3408 638,3408 640,3407 642,3407 644,3407 646,3408 648,3407 650,3407 652,3407 654,3407 656,3407 658,3407 659,3407 661,3407 663,3407 665,3407 667,3407 669,3407 671,3407 673,3407 675,3407 677,3407 679,3407 681,3407 683,3407 685,3407 687,3407 688,3407 690,3407 692,3407 694,3407 696,3407 698,3407 700,3407 702,3407 704,3407 706,3407 708,3407 710,3407 712,3407 714,3407 716,3407 717,3407 719,3407 721,3407 723,3407 725,3407 727,3407 729,3407 731,3407 733,3407 735,3407 737,3407 739,3407 741,3407 743,3407 745,3407 746,3407 748,3407 750,3407 752,3407 754,3407 756,3407 758,3407 760,3407 762,3407 764,3407 766,3407 768,3407 770,3407 772,3407 774,3407 775,3407 777,3407 779,3407 781,3407 783,3407 785,3407 787,3407 789,3407 791,3407 793,3407 795,3407 797,3407 799,3407 801,3407 803,3407 804,3407 806,3407 808,3407 810,3407 812,3407 814,3407 816,3407 818,3407 820,3407 822,3407 824,3407 826,3407 828,3407 830,3407 832,3407 833,3407 835,3407 837,3407 839,3407 841,3407 843,3407 845,3407 847,3407 849,3407 851,3407 853,3407 855,3407 857,3407 859,3407 861,3407 862,3407 864,3407 866,3407 868,3407 870,3407 872,3407 874,3407 876,3407 878,3407 880,3407 882,3407 884,3407 886,3407 888,3407 890,3407 891,3407 893,3407 895,3407 897,3407 899,3405 901,3405 903,3405 905,3406 907,3406 909,3406 911,3406 913,3405 915,3405 917,3406 919,3405 920,3406 922,3405 924,3405 926,3406 928,3405 930,3405 932,3405 934,3405 936,3405 938,3405 940,3405 942,3405 944,3405 946,3405 948,3405 950,3405" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3409 251,3408 253,3408 255,3408 257,3408 259,3407 261,3408 263,3408 265,3408 267,3408 269,3408 271,3408 273,3408 275,3408 277,3408 279,3408 280,3408 282,3408 284,3408 286,3408 288,3408 290,3408 292,3408 294,3408 296,3408 298,3408 300,3408 302,3408 304,3408 306,3408 308,3408 309,3408 311,3408 313,3408 315,3408 317,3408 319,3408 321,3408 323,3408 325,3408 327,3408 329,3408 331,3408 333,3408 335,3408 337,3408 338,3408 340,3408 342,3408 344,3408 346,3408 348,3408 350,3408 352,3408 354,3408 356,3408 358,3408 360,3408 362,3408 364,3408 366,3408 367,3408 369,3408 371,3408 373,3408 375,3408 377,3408 379,3408 381,3408 383,3408 385,3408 387,3408 389,3408 391,3408 393,3408 395,3408 396,3408 398,3408 400,3408 402,3408 404,3408 406,3408 408,3408 410,3408 412,3408 414,3409 416,3410 418,3411 420,3413 422,3414 424,3415 425,3415 427,3415 429,3415 431,3415 433,3415 435,3415 437,3415 439,3415 441,3415 443,3415 445,3415 447,3415 449,3415 451,3415 453,3415 454,3415 456,3415 458,3415 460,3415 462,3415 464,3415 466,3415 468,3415 470,3415 472,3415 474,3415 476,3415 478,3415 480,3415 482,3415 483,3415 485,3415 487,3415 489,3415 491,3415 493,3415 495,3415 497,3415 499,3415 501,3415 503,3415 505,3415 507,3415 509,3415 511,3415 512,3415 514,3415 516,3415 518,3415 520,3415 522,3415 524,3415 526,3415 528,3415 530,3415 532,3415 534,3415 536,3415 538,3415 540,3415 541,3415 543,3415 545,3415 547,3415 549,3415 551,3415 553,3415 555,3415 557,3415 559,3415 561,3415 563,3415 565,3415 567,3415 569,3415 570,3415 572,3415 574,3415 576,3415 578,3415 580,3416 582,3416 584,3416 586,3415 588,3415 590,3415 592,3416 594,3415 596,3416 598,3416 600,3415 601,3415 603,3416 605,3416 607,3416 609,3416 611,3416 613,3415 615,3415 617,3416 619,3415 621,3416 623,3416 625,3415 627,3415 629,3416 630,3416 632,3415 634,3416 636,3416 638,3415 640,3415 642,3416 644,3415 646,3415 648,3416 650,3415 652,3415 654,3416 656,3415 658,3415 659,3415 661,3416 663,3415 665,3415 667,3415 669,3415 671,3415 673,3415 675,3415 677,3415 679,3416 681,3415 683,3415 685,3415 687,3415 688,3415 690,3415 692,3415 694,3415 696,3415 698,3415 700,3415 702,3415 704,3415 706,3415 708,3415 710,3415 712,3415 714,3415 716,3415 717,3415 719,3415 721,3415 723,3415 725,3415 727,3416 729,3416 731,3415 733,3415 735,3415 737,3415 739,3415 741,3415 743,3415 745,3415 746,3415 748,3415 750,3415 752,3415 754,3415 756,3415 758,3415 760,3415 762,3415 764,3415 766,3415 768,3415 770,3415 772,3415 774,3415 775,3415 777,3415 779,3415 781,3415 783,3415 785,3415 787,3415 789,3415 791,3415 793,3415 795,3415 797,3415 799,3415 801,3415 803,3415 804,3415 806,3415 808,3415 810,3415 812,3415 814,3415 816,3415 818,3415 820,3415 822,3415 824,3415 826,3415 828,3415 830,3415 832,3415 833,3415 835,3415 837,3415 839,3415 841,3415 843,3415 845,3415 847,3415 849,3415 851,3415 853,3415 855,3415 857,3415 859,3415 861,3415 862,3415 864,3415 866,3415 868,3415 870,3415 872,3415 874,3415 876,3415 878,3415 880,3415 882,3409 884,3409 886,3409 888,3406 890,3406 891,3406 893,3406 895,3406 897,3406 899,3406 901,3406 903,3406 905,3406 907,3406 909,3406 911,3406 913,3406 915,3406 917,3406" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3419 251,3418 253,3418 255,3418 257,3420 259,3420 261,3419 263,3420 265,3419 267,3419 269,3419 271,3418 273,3418 275,3418 277,3420 279,3420 280,3420 282,3420 284,3420 286,3420 288,3419 290,3419 292,3419 294,3419 296,3418 298,3418 300,3417 302,3418 304,3418 306,3417 308,3417 309,3417 311,3416" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3418 251,3415 253,3419 255,3417 257,3418 259,3417 261,3417 263,3417 265,3417 267,3416 269,3416" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3420 251,3419 253,3419 255,3419 257,3418 259,3417 261,3417 263,3416 265,3417" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3423 251,3423 253,3422 255,3422 257,3421 259,3421 261,3420 263,3420 265,3420 267,3418" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3427 251,3426 253,3426 255,3426 257,3425 259,3428 261,3428 263,3428 265,3428 267,3428 269,3427 271,3428 273,3428 275,3428 277,3427 279,3427 280,3427 282,3426 284,3427 286,3426 288,3426 290,3425 292,3425 294,3425 296,3425 298,3425 300,3424 302,3424 304,3423 306,3423 308,3423 309,3423 311,3422 313,3422 315,3422" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3434 251,3434 253,3433 255,3432 257,3432 259,3432 261,3432 263,3431 265,3431 267,3431 269,3430 271,3430 273,3430 275,3429 277,3429 279,3428 280,3428 282,3427 284,3427 286,3426 288,3426 290,3425" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3433 251,3433 253,3433 255,3432 257,3431 259,3431 261,3431 263,3431 265,3431 267,3431 269,3430 271,3430 273,3429 275,3429 277,3429 279,3429 280,3428 282,3428 284,3427 286,3427 288,3427 290,3427 292,3426 294,3426 296,3425" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3430 251,3430 253,3430 255,3430 257,3430 259,3430 261,3430 263,3430 265,3430 267,3430 269,3430 271,3430 273,3430 275,3429 277,3430 279,3430 280,3430 282,3430 284,3430 286,3430 288,3430 290,3430 292,3430 294,3430 296,3430 298,3430 300,3430 302,3430 304,3430 306,3430 308,3430 309,3430 311,3430 313,3430 315,3430 317,3430 319,3430 321,3430 323,3430 325,3430 327,3429 329,3430 331,3430 333,3430 335,3429 337,3429 338,3430 340,3430 342,3430 344,3430 346,3430 348,3429 350,3430 352,3430 354,3430 356,3429 358,3429 360,3429 362,3430 364,3430 366,3430 367,3429 369,3429 371,3429 373,3430 375,3430 377,3429 379,3429 381,3429 383,3429 385,3430 387,3430 389,3430 391,3429 393,3429 395,3429 396,3430 398,3430 400,3430 402,3429 404,3429 406,3429 408,3430 410,3430 412,3430 414,3429 416,3429 418,3430 420,3430 422,3430 424,3430 425,3430 427,3430 429,3429 431,3430 433,3430 435,3430 437,3429 439,3429 441,3429 443,3430 445,3430 447,3430 449,3430 451,3430 453,3429 454,3430 456,3430 458,3430 460,3430 462,3430 464,3429 466,3430 468,3430 470,3430 472,3429 474,3429 476,3429 478,3430 480,3430 482,3430 483,3429 485,3429 487,3429 489,3430 491,3430 493,3429 495,3429 497,3429 499,3429 501,3430 503,3430 505,3429 507,3429 509,3429 511,3429 512,3429 514,3430 516,3429 518,3429 520,3430 522,3429 524,3429 526,3429 528,3429 530,3429 532,3429 534,3429 536,3429 538,3429 540,3429 541,3430 543,3430 545,3429 547,3429 549,3429 551,3429 553,3429 555,3429 557,3429 559,3429 561,3429 563,3429 565,3429 567,3429 569,3430 570,3430 572,3430 574,3429 576,3429 578,3429 580,3429 582,3430 584,3429 586,3429 588,3429 590,3429 592,3429 594,3429 596,3430 598,3429 600,3429 601,3429 603,3429 605,3429 607,3429 609,3429 611,3429 613,3429 615,3429 617,3429 619,3429 621,3430 623,3430 625,3429 627,3429 629,3429 630,3429 632,3429 634,3429 636,3429 638,3429 640,3429 642,3429 644,3429 646,3429 648,3430 650,3430 652,3430 654,3429 656,3429 658,3429 659,3429 661,3430 663,3430 665,3430 667,3429 669,3429 671,3429 673,3429 675,3430 677,3429 679,3429 681,3429 683,3429 685,3429 687,3429 688,3430 690,3429 692,3429 694,3429 696,3429 698,3429 700,3429 702,3429 704,3429 706,3429 708,3429 710,3429 712,3429 714,3429 716,3429 717,3429 719,3429 721,3429 723,3429 725,3429 727,3429 729,3429 731,3429 733,3429 735,3429 737,3429 739,3429 741,3429 743,3429 745,3429 746,3429 748,3429 750,3429 752,3429 754,3429 756,3429 758,3429 760,3429 762,3429 764,3429 766,3429 768,3429 770,3429 772,3429 774,3429 775,3429 777,3429 779,3429 781,3429 783,3429 785,3429 787,3429 789,3429 791,3429 793,3429 795,3429 797,3429 799,3429 801,3429 803,3429 804,3429 806,3429 808,3429 810,3429 812,3429 814,3429 816,3429 818,3429 820,3429 822,3429 824,3429 826,3429 828,3429 830,3429 832,3429 833,3429 835,3429 837,3429 839,3429 841,3428 843,3429 845,3428 847,3428 849,3428 851,3428 853,3428 855,3428 857,3428 859,3428 861,3428 862,3428 864,3428 866,3428 868,3428 870,3428 872,3428 874,3428 876,3428 878,3428 880,3428" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3431 251,3429 253,3430 255,3430 257,3430 259,3430 261,3430 263,3430 265,3430 267,3430 269,3430 271,3430 273,3430 275,3430 277,3430 279,3430 280,3430 282,3430 284,3430 286,3430 288,3430 290,3430 292,3430 294,3430 296,3430 298,3430 300,3430 302,3430 304,3430 306,3430 308,3430 309,3430 311,3430 313,3430 315,3430 317,3430 319,3430 321,3430 323,3430 325,3430 327,3430 329,3430 331,3430 333,3430 335,3430 337,3430 338,3430 340,3430 342,3430 344,3430 346,3429 348,3430 350,3430 352,3430 354,3430 356,3430 358,3430 360,3430 362,3430 364,3430 366,3430 367,3430 369,3430 371,3430 373,3430 375,3430 377,3430 379,3430 381,3429 383,3430 385,3430 387,3430 389,3430 391,3430 393,3430 395,3430 396,3430 398,3430 400,3430 402,3430 404,3429 406,3430 408,3430 410,3430 412,3430 414,3430 416,3430 418,3430 420,3430 422,3430 424,3430 425,3430 427,3430 429,3430 431,3430 433,3430 435,3430 437,3429 439,3430 441,3430 443,3430 445,3430 447,3430 449,3430 451,3430 453,3430 454,3430 456,3430 458,3430 460,3430 462,3430 464,3430 466,3430 468,3430 470,3430 472,3430 474,3430 476,3430 478,3430 480,3430 482,3430 483,3429 485,3430 487,3430 489,3430 491,3430 493,3430 495,3430 497,3430 499,3430 501,3430 503,3430 505,3430 507,3430 509,3430 511,3430 512,3430 514,3430 516,3430 518,3430 520,3430 522,3430 524,3429 526,3430 528,3430 530,3429 532,3430 534,3430 536,3429 538,3430 540,3430 541,3429 543,3430 545,3430 547,3429 549,3430 551,3429 553,3429 555,3430 557,3430 559,3429 561,3430 563,3430 565,3430 567,3430 569,3430 570,3430 572,3430 574,3430 576,3430 578,3430 580,3430 582,3430 584,3430 586,3430 588,3430 590,3430 592,3430 594,3430 596,3430 598,3430 600,3429 601,3430 603,3429 605,3429 607,3430 609,3430 611,3430 613,3430 615,3430 617,3429 619,3429 621,3430 623,3429 625,3429 627,3430 629,3429 630,3430 632,3429 634,3430 636,3430 638,3429 640,3429 642,3429 644,3430 646,3429 648,3429 650,3429 652,3429 654,3429 656,3429 658,3429 659,3429 661,3429 663,3429 665,3429 667,3429 669,3429 671,3429 673,3429 675,3429 677,3429 679,3429 681,3429 683,3429 685,3429 687,3429 688,3429 690,3429 692,3429 694,3429 696,3429 698,3429 700,3429 702,3429 704,3429 706,3429 708,3429 710,3429 712,3429 714,3429 716,3429 717,3429 719,3429 721,3429 723,3429 725,3429 727,3429 729,3429 731,3429 733,3429 735,3429 737,3429 739,3429 741,3429 743,3429 745,3429 746,3429 748,3429 750,3429 752,3429 754,3429 756,3429 758,3429 760,3429 762,3429 764,3429 766,3429 768,3429 770,3429 772,3429 774,3429 775,3429 777,3429 779,3429 781,3429 783,3429 785,3429 787,3429 789,3429 791,3429 793,3429 795,3429 797,3429 799,3429 801,3429 803,3429 804,3429 806,3429 808,3429 810,3429 812,3429 814,3429 816,3429 818,3429 820,3429 822,3429 824,3429 826,3429 828,3429 830,3429 832,3429 833,3429 835,3429 837,3429 839,3429 841,3429 843,3429 845,3429 847,3429 849,3429 851,3429 853,3429 855,3429 857,3429 859,3429 861,3428 862,3428 864,3428 866,3428 868,3428 870,3428 872,3428 874,3428 876,3429" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3430 251,3427 253,3427 255,3427 257,3427 259,3427 261,3426 263,3426 265,3426 267,3425" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3430 251,3428 253,3430 255,3429 257,3429 259,3428 261,3428 263,3427 265,3427 267,3426 269,3426" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
-<polyline points="250,3431 251,3431 253,3430 255,3429 257,3428 259,3428 261,3428 263,3427 265,3427 267,3427" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
-<polyline points="250,3432 251,3431 253,3429 255,3430 257,3429 259,3429 261,3428 263,3428 265,3428 267,3428 269,3428" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
-<text x="250" y="3590" class="axis" font-weight="600">Line colour = archive format; solid = plain, dashed = encrypted</text>
+<line x1="950" y1="154" x2="950" y2="454" class="grid"/>
+<text x="950" y="146" text-anchor="middle" class="axis">562.7</text>
+<text x="238" y="171" text-anchor="end" class="label">zarlib - plain</text>
+<rect x="250" y="157" width="143" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="401" y="171" class="value">115.21 MiB</text>
+<text x="238" y="201" text-anchor="end" class="label">zarlib - encrypted</text>
+<rect x="250" y="187" width="143" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
+<text x="401" y="201" class="value">115.31 MiB</text>
+<text x="238" y="231" text-anchor="end" class="label">zip - plain</text>
+<rect x="250" y="217" width="191" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="449" y="231" class="value">154.02 MiB</text>
+<text x="238" y="261" text-anchor="end" class="label">zip - encrypted</text>
+<rect x="250" y="247" width="193" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="451" y="261" class="value">155.32 MiB</text>
+<text x="238" y="291" text-anchor="end" class="label">7z - plain</text>
+<rect x="250" y="277" width="99" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="357" y="291" class="value">80.28 MiB</text>
+<text x="238" y="321" text-anchor="end" class="label">7z - encrypted</text>
+<rect x="250" y="307" width="99" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="357" y="321" class="value">80.28 MiB</text>
+<text x="238" y="351" text-anchor="end" class="label">tar - plain</text>
+<rect x="250" y="337" width="699" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="957" y="351" class="value">562.66 MiB</text>
+<text x="238" y="381" text-anchor="end" class="label">tar - encrypted</text>
+<rect x="250" y="367" width="700" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="958" y="381" class="value">562.66 MiB</text>
+<text x="238" y="411" text-anchor="end" class="label">tar.gz - plain</text>
+<rect x="250" y="397" width="148" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="406" y="411" class="value">119.42 MiB</text>
+<text x="238" y="441" text-anchor="end" class="label">tar.gz - encrypted</text>
+<rect x="250" y="427" width="148" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="406" y="441" class="value">119.42 MiB</text>
+<text x="24" y="500" class="heading">Compression time</text>
+<line x1="250" y1="534" x2="250" y2="1134" class="grid"/>
+<text x="250" y="526" text-anchor="middle" class="axis">0.0</text>
+<line x1="425" y1="534" x2="425" y2="1134" class="grid"/>
+<text x="425" y="526" text-anchor="middle" class="axis">15.5</text>
+<line x1="600" y1="534" x2="600" y2="1134" class="grid"/>
+<text x="600" y="526" text-anchor="middle" class="axis">31.0</text>
+<line x1="775" y1="534" x2="775" y2="1134" class="grid"/>
+<text x="775" y="526" text-anchor="middle" class="axis">46.5</text>
+<line x1="950" y1="534" x2="950" y2="1134" class="grid"/>
+<text x="950" y="526" text-anchor="middle" class="axis">62.0</text>
+<text x="238" y="551" text-anchor="end" class="label">zarlib - plain - hot</text>
+<rect x="293" y="537" width="6" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="307" y="551" class="value">3.89-4.49 s</text>
+<text x="238" y="581" text-anchor="end" class="label">zarlib - encrypted - hot</text>
+<rect x="295" y="567" width="5" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
+<text x="308" y="581" class="value">4.04-4.55 s</text>
+<text x="238" y="611" text-anchor="end" class="label">zip - plain - hot</text>
+<rect x="514" y="597" width="1" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="523" y="611" class="value">23.40-23.50 s</text>
+<text x="238" y="641" text-anchor="end" class="label">zip - encrypted - hot</text>
+<rect x="533" y="627" width="7" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="548" y="641" class="value">25.11-25.76 s</text>
+<text x="238" y="671" text-anchor="end" class="label">7z - plain - hot</text>
+<rect x="742" y="657" width="36" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="786" y="671" class="value">43.61-46.84 s</text>
+<text x="238" y="701" text-anchor="end" class="label">7z - encrypted - hot</text>
+<rect x="759" y="687" width="11" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="778" y="701" class="value">45.14-46.13 s</text>
+<text x="238" y="731" text-anchor="end" class="label">tar - plain - hot</text>
+<rect x="285" y="717" width="10" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="303" y="731" class="value">3.10-4.02 s</text>
+<text x="238" y="761" text-anchor="end" class="label">tar - encrypted - hot</text>
+<rect x="306" y="747" width="1" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="315" y="761" class="value">5.04-5.18 s</text>
+<text x="238" y="791" text-anchor="end" class="label">tar.gz - plain - hot</text>
+<rect x="395" y="777" width="8" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="411" y="791" class="value">12.91-13.70 s</text>
+<text x="238" y="821" text-anchor="end" class="label">tar.gz - encrypted - hot</text>
+<rect x="403" y="807" width="3" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="414" y="821" class="value">13.59-13.92 s</text>
+<text x="238" y="851" text-anchor="end" class="label">zarlib - plain - cold</text>
+<rect x="319" y="837" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="328" y="851" class="value">6.17-6.17 s</text>
+<text x="238" y="881" text-anchor="end" class="label">zarlib - encrypted - cold</text>
+<rect x="329" y="867" width="1" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
+<text x="338" y="881" class="value">7.02-7.02 s</text>
+<text x="238" y="911" text-anchor="end" class="label">zip - plain - cold</text>
+<rect x="773" y="897" width="1" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="782" y="911" class="value">46.35-46.35 s</text>
+<text x="238" y="941" text-anchor="end" class="label">zip - encrypted - cold</text>
+<rect x="766" y="927" width="1" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="775" y="941" class="value">45.78-45.78 s</text>
+<text x="238" y="971" text-anchor="end" class="label">7z - plain - cold</text>
+<rect x="950" y="957" width="1" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="959" y="971" class="value">62.00-62.00 s</text>
+<text x="238" y="1001" text-anchor="end" class="label">7z - encrypted - cold</text>
+<rect x="928" y="987" width="1" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="937" y="1001" class="value">60.07-60.07 s</text>
+<text x="238" y="1031" text-anchor="end" class="label">tar - plain - cold</text>
+<rect x="490" y="1017" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="499" y="1031" class="value">21.33-21.33 s</text>
+<text x="238" y="1061" text-anchor="end" class="label">tar - encrypted - cold</text>
+<rect x="500" y="1047" width="1" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="509" y="1061" class="value">22.19-22.19 s</text>
+<text x="238" y="1091" text-anchor="end" class="label">tar.gz - plain - cold</text>
+<rect x="597" y="1077" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="606" y="1091" class="value">30.79-30.79 s</text>
+<text x="238" y="1121" text-anchor="end" class="label">tar.gz - encrypted - cold</text>
+<rect x="596" y="1107" width="1" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="605" y="1121" class="value">30.71-30.71 s</text>
+<text x="24" y="1180" class="heading">Extraction time</text>
+<line x1="250" y1="1214" x2="250" y2="1814" class="grid"/>
+<text x="250" y="1206" text-anchor="middle" class="axis">0.0</text>
+<line x1="425" y1="1214" x2="425" y2="1814" class="grid"/>
+<text x="425" y="1206" text-anchor="middle" class="axis">15.0</text>
+<line x1="600" y1="1214" x2="600" y2="1814" class="grid"/>
+<text x="600" y="1206" text-anchor="middle" class="axis">30.1</text>
+<line x1="775" y1="1214" x2="775" y2="1814" class="grid"/>
+<text x="775" y="1206" text-anchor="middle" class="axis">45.1</text>
+<line x1="950" y1="1214" x2="950" y2="1814" class="grid"/>
+<text x="950" y="1206" text-anchor="middle" class="axis">60.2</text>
+<text x="238" y="1231" text-anchor="end" class="label">zarlib - plain - hot</text>
+<rect x="338" y="1217" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="347" y="1231" class="value">7.61-7.64 s</text>
+<text x="238" y="1261" text-anchor="end" class="label">zarlib - encrypted - hot</text>
+<rect x="342" y="1247" width="2" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
+<text x="352" y="1261" class="value">7.93-8.14 s</text>
+<text x="238" y="1291" text-anchor="end" class="label">zip - plain - hot</text>
+<rect x="893" y="1277" width="43" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="944" y="1291" class="value">55.33-59.10 s</text>
+<text x="238" y="1321" text-anchor="end" class="label">zip - encrypted - hot</text>
+<rect x="936" y="1307" width="5" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="949" y="1321" class="value">58.99-59.45 s</text>
+<text x="238" y="1351" text-anchor="end" class="label">7z - plain - hot</text>
+<rect x="749" y="1337" width="10" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="767" y="1351" class="value">42.92-43.82 s</text>
+<text x="238" y="1381" text-anchor="end" class="label">7z - encrypted - hot</text>
+<rect x="747" y="1367" width="16" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="771" y="1381" class="value">42.75-44.13 s</text>
+<text x="238" y="1411" text-anchor="end" class="label">tar - plain - hot</text>
+<rect x="538" y="1397" width="23" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="569" y="1411" class="value">24.78-26.77 s</text>
+<text x="238" y="1441" text-anchor="end" class="label">tar - encrypted - hot</text>
+<rect x="583" y="1427" width="9" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="600" y="1441" class="value">28.71-29.50 s</text>
+<text x="238" y="1471" text-anchor="end" class="label">tar.gz - plain - hot</text>
+<rect x="561" y="1457" width="3" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="572" y="1471" class="value">26.79-27.06 s</text>
+<text x="238" y="1501" text-anchor="end" class="label">tar.gz - encrypted - hot</text>
+<rect x="556" y="1487" width="8" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="572" y="1501" class="value">26.38-27.14 s</text>
+<text x="238" y="1531" text-anchor="end" class="label">zarlib - plain - cold</text>
+<rect x="339" y="1517" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="348" y="1531" class="value">7.73-7.73 s</text>
+<text x="238" y="1561" text-anchor="end" class="label">zarlib - encrypted - cold</text>
+<rect x="351" y="1547" width="1" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
+<text x="360" y="1561" class="value">8.76-8.76 s</text>
+<text x="238" y="1591" text-anchor="end" class="label">zip - plain - cold</text>
+<rect x="922" y="1577" width="1" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="931" y="1591" class="value">57.82-57.82 s</text>
+<text x="238" y="1621" text-anchor="end" class="label">zip - encrypted - cold</text>
+<rect x="950" y="1607" width="1" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="959" y="1621" class="value">60.19-60.19 s</text>
+<text x="238" y="1651" text-anchor="end" class="label">7z - plain - cold</text>
+<rect x="761" y="1637" width="1" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="770" y="1651" class="value">43.97-43.97 s</text>
+<text x="238" y="1681" text-anchor="end" class="label">7z - encrypted - cold</text>
+<rect x="739" y="1667" width="1" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="748" y="1681" class="value">42.08-42.08 s</text>
+<text x="238" y="1711" text-anchor="end" class="label">tar - plain - cold</text>
+<rect x="570" y="1697" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="579" y="1711" class="value">27.56-27.56 s</text>
+<text x="238" y="1741" text-anchor="end" class="label">tar - encrypted - cold</text>
+<rect x="591" y="1727" width="1" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="600" y="1741" class="value">29.35-29.35 s</text>
+<text x="238" y="1771" text-anchor="end" class="label">tar.gz - plain - cold</text>
+<rect x="584" y="1757" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="593" y="1771" class="value">28.72-28.72 s</text>
+<text x="238" y="1801" text-anchor="end" class="label">tar.gz - encrypted - cold</text>
+<rect x="582" y="1787" width="1" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="591" y="1801" class="value">28.56-28.56 s</text>
+<text x="24" y="1860" class="heading">Extraction time (3 files)</text>
+<line x1="250" y1="1894" x2="250" y2="2494" class="grid"/>
+<text x="250" y="1886" text-anchor="middle" class="axis">0.0</text>
+<line x1="425" y1="1894" x2="425" y2="2494" class="grid"/>
+<text x="425" y="1886" text-anchor="middle" class="axis">0.9</text>
+<line x1="600" y1="1894" x2="600" y2="2494" class="grid"/>
+<text x="600" y="1886" text-anchor="middle" class="axis">1.7</text>
+<line x1="775" y1="1894" x2="775" y2="2494" class="grid"/>
+<text x="775" y="1886" text-anchor="middle" class="axis">2.6</text>
+<line x1="950" y1="1894" x2="950" y2="2494" class="grid"/>
+<text x="950" y="1886" text-anchor="middle" class="axis">3.5</text>
+<text x="238" y="1911" text-anchor="end" class="label">zarlib - plain - hot</text>
+<rect x="284" y="1897" width="2" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="294" y="1911" class="value">0.17-0.18 s</text>
+<text x="238" y="1941" text-anchor="end" class="label">zarlib - encrypted - hot</text>
+<rect x="300" y="1927" width="5" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
+<text x="313" y="1941" class="value">0.25-0.28 s</text>
+<text x="238" y="1971" text-anchor="end" class="label">zip - plain - hot</text>
+<rect x="267" y="1957" width="1" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="276" y="1971" class="value">0.08-0.09 s</text>
+<text x="238" y="2001" text-anchor="end" class="label">zip - encrypted - hot</text>
+<rect x="266" y="1987" width="1" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="275" y="2001" class="value">0.08-0.09 s</text>
+<text x="238" y="2031" text-anchor="end" class="label">7z - plain - hot</text>
+<rect x="403" y="2017" width="1" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="412" y="2031" class="value">0.77-0.77 s</text>
+<text x="238" y="2061" text-anchor="end" class="label">7z - encrypted - hot</text>
+<rect x="407" y="2047" width="8" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="423" y="2061" class="value">0.78-0.83 s</text>
+<text x="238" y="2091" text-anchor="end" class="label">tar - plain - hot</text>
+<rect x="285" y="2077" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="294" y="2091" class="value">0.18-0.19 s</text>
+<text x="238" y="2121" text-anchor="end" class="label">tar - encrypted - hot</text>
+<rect x="801" y="2107" width="148" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="957" y="2121" class="value">2.75-3.49 s</text>
+<text x="238" y="2151" text-anchor="end" class="label">tar.gz - plain - hot</text>
+<rect x="392" y="2137" width="5" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="405" y="2151" class="value">0.71-0.74 s</text>
+<text x="238" y="2181" text-anchor="end" class="label">tar.gz - encrypted - hot</text>
+<rect x="516" y="2167" width="16" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="540" y="2181" class="value">1.33-1.41 s</text>
+<text x="238" y="2211" text-anchor="end" class="label">zarlib - plain - cold</text>
+<rect x="286" y="2197" width="1" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="295" y="2211" class="value">0.18-0.18 s</text>
+<text x="238" y="2241" text-anchor="end" class="label">zarlib - encrypted - cold</text>
+<rect x="311" y="2227" width="1" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
+<text x="320" y="2241" class="value">0.31-0.31 s</text>
+<text x="238" y="2271" text-anchor="end" class="label">zip - plain - cold</text>
+<rect x="270" y="2257" width="1" height="18" rx="4" fill="#16a34a" opacity="1.0"/>
+<text x="279" y="2271" class="value">0.10-0.10 s</text>
+<text x="238" y="2301" text-anchor="end" class="label">zip - encrypted - cold</text>
+<rect x="270" y="2287" width="1" height="18" rx="4" fill="#16a34a" opacity="0.60"/>
+<text x="279" y="2301" class="value">0.10-0.10 s</text>
+<text x="238" y="2331" text-anchor="end" class="label">7z - plain - cold</text>
+<rect x="406" y="2317" width="1" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="415" y="2331" class="value">0.78-0.78 s</text>
+<text x="238" y="2361" text-anchor="end" class="label">7z - encrypted - cold</text>
+<rect x="415" y="2347" width="1" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="424" y="2361" class="value">0.83-0.83 s</text>
+<text x="238" y="2391" text-anchor="end" class="label">tar - plain - cold</text>
+<rect x="426" y="2377" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="435" y="2391" class="value">0.88-0.88 s</text>
+<text x="238" y="2421" text-anchor="end" class="label">tar - encrypted - cold</text>
+<rect x="854" y="2407" width="1" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="863" y="2421" class="value">3.02-3.02 s</text>
+<text x="238" y="2451" text-anchor="end" class="label">tar.gz - plain - cold</text>
+<rect x="398" y="2437" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="407" y="2451" class="value">0.74-0.74 s</text>
+<text x="238" y="2481" text-anchor="end" class="label">tar.gz - encrypted - cold</text>
+<rect x="529" y="2467" width="1" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="538" y="2481" class="value">1.39-1.39 s</text>
+<text x="24" y="2550" class="heading">CPU during compression</text>
+<line x1="250" y1="2744" x2="950" y2="2744" class="grid"/>
+<text x="242" y="2748" text-anchor="end" class="axis">0</text>
+<line x1="250" y1="2704" x2="950" y2="2704" class="grid"/>
+<text x="242" y="2708" text-anchor="end" class="axis">25</text>
+<line x1="250" y1="2664" x2="950" y2="2664" class="grid"/>
+<text x="242" y="2668" text-anchor="end" class="axis">50</text>
+<line x1="250" y1="2624" x2="950" y2="2624" class="grid"/>
+<text x="242" y="2628" text-anchor="end" class="axis">75</text>
+<line x1="250" y1="2584" x2="950" y2="2584" class="grid"/>
+<text x="242" y="2588" text-anchor="end" class="axis">100</text>
+<text x="242" y="2570" text-anchor="end" class="axis">CPU (%)</text>
+<text x="250" y="2760" text-anchor="middle" class="axis">0.0s</text>
+<text x="425" y="2760" text-anchor="middle" class="axis">15.2s</text>
+<text x="600" y="2760" text-anchor="middle" class="axis">30.5s</text>
+<text x="775" y="2760" text-anchor="middle" class="axis">45.8s</text>
+<text x="950" y="2760" text-anchor="middle" class="axis">61.0s</text>
+<polyline points="250,2744 261,2716 272,2725 284,2701 295,2642" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2744 261,2723 272,2730 284,2714 295,2658" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2744 261,2712 272,2716 284,2718 295,2724 307,2720 318,2719 330,2714 341,2714 353,2712 364,2696 376,2709 387,2708 399,2706 410,2720 422,2723 433,2719 445,2719 456,2716 468,2721 479,2719 490,2711 502,2695 513,2710" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2744 261,2713 272,2718 284,2719 295,2718 307,2718 318,2711 330,2714 341,2723 353,2718 364,2721 376,2713 387,2715 399,2718 410,2707 422,2716 433,2714 445,2713 456,2717 468,2721 479,2722 490,2711 502,2716 513,2715 525,2708 536,2720" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2744 261,2700 272,2667 284,2674 295,2677 307,2688 318,2692 330,2682 341,2691 353,2684 364,2691 376,2689 387,2681 399,2682 410,2689 422,2691 433,2694 445,2687 456,2682 468,2684 479,2689 490,2690 502,2688 513,2687 525,2689 536,2695 548,2695 559,2692 571,2694 582,2689 594,2688 605,2692 617,2691 628,2692 640,2694 651,2674 663,2680 674,2698 686,2700 697,2709 709,2723 720,2717 731,2722 743,2724 754,2723 766,2725 777,2734" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2744 261,2691 272,2669 284,2669 295,2672 307,2678 318,2687 330,2686 341,2691 353,2682 364,2688 376,2683 387,2686 399,2689 410,2680 422,2690 433,2682 445,2690 456,2688 468,2680 479,2684 490,2686 502,2689 513,2691 525,2688 536,2691 548,2687 559,2683 571,2673 582,2683 594,2689 605,2684 617,2690 628,2686 640,2687 651,2690 663,2692 674,2691 686,2691 697,2700 709,2714 720,2719 731,2727 743,2725 754,2729 766,2731 777,2732" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2744 261,2705 272,2708 284,2708" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2744 261,2712 272,2715 284,2712 295,2720" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2744 261,2711 272,2715 284,2715 295,2719 307,2718 318,2717 330,2717 341,2711 353,2716 364,2713 376,2712 387,2708 399,2708" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2744 261,2716 272,2719 284,2722 295,2713 307,2709 318,2718 330,2721 341,2717 353,2715 364,2716 376,2720 387,2720 399,2718" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2744 261,2697 272,2717 284,2717 295,2719 307,2605" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2744 261,2709 272,2715 284,2714 295,2707 307,2685 318,2584" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2744 261,2720 272,2716 284,2719 295,2721 307,2721 318,2719 330,2710 341,2704 353,2711 364,2721 376,2724 387,2722 399,2726 410,2723 422,2723 433,2719 445,2714 456,2717 468,2724 479,2723 490,2724 502,2713 513,2717 525,2714 536,2679 548,2694 559,2688 571,2701 582,2694 594,2700 605,2702 617,2692 628,2701 640,2700 651,2713 663,2722 674,2714 686,2726 697,2714 709,2699 720,2717 731,2710 743,2718 754,2729 766,2732" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2744 261,2718 272,2724 284,2722 295,2716 307,2716 318,2719 330,2724 341,2727 353,2723 364,2721 376,2714 387,2712 399,2716 410,2722 422,2720 433,2723 445,2723 456,2723 468,2719 479,2722 490,2717 502,2726 513,2724 525,2724 536,2719 548,2713 559,2723 571,2720 582,2713 594,2716 605,2720 617,2717 628,2724 640,2724 651,2714 663,2716 674,2724 686,2723 697,2722 709,2719 720,2719 731,2723 743,2724 754,2721 766,2718" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2744 261,2724 272,2722 284,2716 295,2724 307,2718 318,2723 330,2720 341,2705 353,2686 364,2682 376,2697 387,2691 399,2684 410,2684 422,2677 433,2672 445,2676 456,2680 468,2677 479,2668 490,2672 502,2678 513,2679 525,2683 536,2674 548,2655 559,2676 571,2690 582,2685 594,2688 605,2698 617,2692 628,2692 640,2696 651,2693 663,2696 674,2694 686,2700 697,2700 709,2684 720,2699 731,2689 743,2683 754,2694 766,2692 777,2695 789,2698 800,2709 812,2709 823,2698 835,2704 846,2719 858,2715 869,2717 881,2720 892,2727 904,2727 915,2727 927,2720 938,2714 950,2726" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2744 261,2716 272,2719 284,2722 295,2723 307,2723 318,2717 330,2722 341,2721 353,2701 364,2706 376,2702 387,2710 399,2702 410,2698 422,2691 433,2686 445,2692 456,2694 468,2691 479,2682 490,2671 502,2668 513,2683 525,2683 536,2682 548,2664 559,2674 571,2681 582,2683 594,2680 605,2679 617,2684 628,2682 640,2682 651,2681 663,2677 674,2681 686,2683 697,2683 709,2685 720,2673 731,2684 743,2673 754,2675 766,2687 777,2694 789,2701 800,2703 812,2703 823,2703 835,2702 846,2716 858,2724 869,2730 881,2727 892,2723 904,2729 915,2727 927,2729" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2744 261,2727 272,2725 284,2721 295,2722 307,2722 318,2726 330,2717 341,2722 353,2724 364,2725 376,2725 387,2724 399,2718 410,2722 422,2716 433,2717 445,2721 456,2723 468,2724 479,2726" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2744 261,2724 272,2719 284,2716 295,2706 307,2719 318,2726 330,2724 341,2714 353,2718 364,2725 376,2726 387,2722 399,2724 410,2723 422,2723 433,2726 445,2723 456,2728 468,2723 479,2706 490,2713" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2744 261,2717 272,2722 284,2720 295,2722 307,2709 318,2716 330,2723 341,2722 353,2722 364,2725 376,2725 387,2723 399,2719 410,2723 422,2723 433,2724 445,2718 456,2713 468,2717 479,2723 490,2712 502,2713 513,2713 525,2724 536,2724 548,2724 559,2719 571,2723 582,2723 594,2727" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2744 261,2714 272,2702 284,2719 295,2723 307,2719 318,2716 330,2724 341,2724 353,2722 364,2723 376,2719 387,2721 399,2722 410,2722 422,2724 433,2718 445,2719 456,2718 468,2714 479,2721 490,2713 502,2724 513,2722 525,2722 536,2722 548,2721 559,2723 571,2724 582,2727 594,2723" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="250" y="2780" class="axis" font-weight="600">Line colour = archive format; solid = plain, dashed = encrypted</text>
+<text x="24" y="2800" class="heading">RAM during compression</text>
+<line x1="250" y1="2994" x2="950" y2="2994" class="grid"/>
+<text x="242" y="2998" text-anchor="end" class="axis">0.00</text>
+<line x1="250" y1="2954" x2="950" y2="2954" class="grid"/>
+<text x="242" y="2958" text-anchor="end" class="axis">0.51</text>
+<line x1="250" y1="2914" x2="950" y2="2914" class="grid"/>
+<text x="242" y="2918" text-anchor="end" class="axis">1.02</text>
+<line x1="250" y1="2874" x2="950" y2="2874" class="grid"/>
+<text x="242" y="2878" text-anchor="end" class="axis">1.52</text>
+<line x1="250" y1="2834" x2="950" y2="2834" class="grid"/>
+<text x="242" y="2838" text-anchor="end" class="axis">2.03</text>
+<text x="242" y="2820" text-anchor="end" class="axis">RAM (GiB)</text>
+<text x="250" y="3010" text-anchor="middle" class="axis">0.0s</text>
+<text x="425" y="3010" text-anchor="middle" class="axis">15.2s</text>
+<text x="600" y="3010" text-anchor="middle" class="axis">30.5s</text>
+<text x="775" y="3010" text-anchor="middle" class="axis">45.8s</text>
+<text x="950" y="3010" text-anchor="middle" class="axis">61.0s</text>
+<polyline points="250,2989 261,2988 272,2989 284,2978 295,2949" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2986 261,2985 272,2985 284,2974 295,2946" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2992 261,2991 272,2990 284,2990 295,2990 307,2990 318,2990 330,2990 341,2990 353,2990 364,2989 376,2989 387,2989 399,2989 410,2989 422,2989 433,2989 445,2989 456,2989 468,2989 479,2989 490,2989 502,2989 513,2989" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2992 261,2991 272,2990 284,2990 295,2990 307,2990 318,2990 330,2990 341,2990 353,2990 364,2990 376,2989 387,2989 399,2989 410,2989 422,2989 433,2989 445,2989 456,2989 468,2989 479,2989 490,2989 502,2989 513,2989 525,2989 536,2989" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2989 261,2966 272,2917 284,2894 295,2881 307,2869 318,2857 330,2850 341,2845 353,2841 364,2839 376,2839 387,2839 399,2838 410,2838 422,2838 433,2838 445,2838 456,2838 468,2838 479,2837 490,2837 502,2837 513,2837 525,2837 536,2837 548,2837 559,2836 571,2836 582,2836 594,2836 605,2836 617,2836 628,2836 640,2835 651,2835 663,2835 674,2835 686,2835 697,2835 709,2835 720,2835 731,2913 743,2887 754,2835 766,2933 777,2991" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2989 261,2966 272,2916 284,2894 295,2881 307,2870 318,2858 330,2850 341,2847 353,2842 364,2839 376,2839 387,2839 399,2838 410,2838 422,2838 433,2838 445,2838 456,2838 468,2838 479,2837 490,2837 502,2837 513,2837 525,2837 536,2837 548,2837 559,2836 571,2836 582,2836 594,2836 605,2836 617,2836 628,2836 640,2836 651,2835 663,2835 674,2835 686,2835 697,2835 709,2835 720,2835 731,2835 743,2874 754,2939 766,2991 777,2991" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2994 261,2994 272,2994 284,2994" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2994 261,2994 272,2994 284,2978 295,2924" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2994 261,2994 272,2994 284,2994 295,2994 307,2994 318,2994 330,2994 341,2994 353,2994 364,2994 376,2994 387,2994 399,2994" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2994 261,2994 272,2994 284,2994 295,2994 307,2994 318,2994 330,2994 341,2994 353,2994 364,2994 376,2994 387,2994 399,2990" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2989 261,2989 272,2989 284,2989 295,2988 307,2973" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2986 261,2986 272,2985 284,2985 295,2985 307,2980 318,2962" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2992 261,2992 272,2990 284,2990 295,2990 307,2990 318,2990 330,2990 341,2990 353,2990 364,2990 376,2990 387,2990 399,2990 410,2990 422,2990 433,2990 445,2990 456,2990 468,2990 479,2989 490,2989 502,2989 513,2989 525,2989 536,2989 548,2989 559,2989 571,2989 582,2989 594,2989 605,2989 617,2989 628,2989 640,2989 651,2989 663,2989 674,2989 686,2989 697,2989 709,2989 720,2989 731,2989 743,2989 754,2989 766,2989" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2993 261,2992 272,2991 284,2991 295,2990 307,2990 318,2990 330,2990 341,2990 353,2990 364,2990 376,2990 387,2990 399,2990 410,2990 422,2990 433,2990 445,2990 456,2990 468,2990 479,2990 490,2989 502,2989 513,2989 525,2989 536,2989 548,2989 559,2989 571,2989 582,2989 594,2989 605,2989 617,2989 628,2989 640,2989 651,2989 663,2989 674,2989 686,2989 697,2989 709,2989 720,2989 731,2989 743,2989 754,2989 766,2989" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2994 261,2992 272,2991 284,2989 295,2988 307,2987 318,2986 330,2984 341,2979 353,2970 364,2966 376,2960 387,2954 399,2939 410,2930 422,2925 433,2912 445,2906 456,2901 468,2895 479,2888 490,2877 502,2864 513,2855 525,2850 536,2847 548,2845 559,2843 571,2841 582,2839 594,2838 605,2838 617,2838 628,2838 640,2838 651,2837 663,2837 674,2837 686,2837 697,2837 709,2837 720,2837 731,2836 743,2836 754,2836 766,2836 777,2836 789,2836 800,2835 812,2835 823,2835 835,2835 846,2835 858,2835 869,2835 881,2835 892,2835 904,2835 915,2835 927,2835 938,2913 950,2991" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2993 261,2992 272,2991 284,2989 295,2988 307,2987 318,2985 330,2984 341,2978 353,2967 364,2960 376,2955 387,2945 399,2931 410,2925 422,2911 433,2901 445,2895 456,2888 468,2884 479,2869 490,2858 502,2851 513,2846 525,2844 536,2842 548,2840 559,2839 571,2838 582,2838 594,2838 605,2838 617,2837 628,2837 640,2837 651,2837 663,2837 674,2837 686,2837 697,2836 709,2836 720,2836 731,2836 743,2836 754,2836 766,2836 777,2835 789,2835 800,2835 812,2835 823,2835 835,2835 846,2835 858,2835 869,2835 881,2835 892,2835 904,2834 915,2913 927,2991" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2994 261,2994 272,2994 284,2994 295,2994 307,2994 318,2994 330,2994 341,2994 353,2994 364,2994 376,2994 387,2994 399,2994 410,2994 422,2994 433,2994 445,2994 456,2994 468,2994 479,2994" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2994 261,2994 272,2994 284,2994 295,2994 307,2994 318,2994 330,2994 341,2994 353,2994 364,2994 376,2994 387,2994 399,2994 410,2994 422,2994 433,2994 445,2994 456,2994 468,2994 479,2974 490,2930" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2994 261,2994 272,2994 284,2994 295,2994 307,2994 318,2994 330,2994 341,2994 353,2994 364,2994 376,2994 387,2994 399,2994 410,2994 422,2994 433,2994 445,2994 456,2994 468,2994 479,2994 490,2994 502,2994 513,2994 525,2994 536,2994 548,2994 559,2994 571,2994 582,2994 594,2994" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2994 261,2994 272,2994 284,2994 295,2994 307,2994 318,2994 330,2994 341,2994 353,2994 364,2994 376,2994 387,2994 399,2994 410,2994 422,2994 433,2994 445,2994 456,2994 468,2994 479,2994 490,2994 502,2994 513,2994 525,2994 536,2994 548,2994 559,2994 571,2994 582,2994 594,2988" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="250" y="3030" class="axis" font-weight="600">Line colour = archive format; solid = plain, dashed = encrypted</text>
+<text x="24" y="3050" class="heading">CPU during extraction</text>
+<line x1="250" y1="3244" x2="950" y2="3244" class="grid"/>
+<text x="242" y="3248" text-anchor="end" class="axis">0</text>
+<line x1="250" y1="3204" x2="950" y2="3204" class="grid"/>
+<text x="242" y="3208" text-anchor="end" class="axis">22</text>
+<line x1="250" y1="3164" x2="950" y2="3164" class="grid"/>
+<text x="242" y="3168" text-anchor="end" class="axis">43</text>
+<line x1="250" y1="3124" x2="950" y2="3124" class="grid"/>
+<text x="242" y="3128" text-anchor="end" class="axis">65</text>
+<line x1="250" y1="3084" x2="950" y2="3084" class="grid"/>
+<text x="242" y="3088" text-anchor="end" class="axis">87</text>
+<text x="242" y="3070" text-anchor="end" class="axis">CPU (%)</text>
+<text x="250" y="3260" text-anchor="middle" class="axis">0.0s</text>
+<text x="425" y="3260" text-anchor="middle" class="axis">14.8s</text>
+<text x="600" y="3260" text-anchor="middle" class="axis">29.5s</text>
+<text x="775" y="3260" text-anchor="middle" class="axis">44.2s</text>
+<text x="950" y="3260" text-anchor="middle" class="axis">59.0s</text>
+<polyline points="250,3244 261,3217 273,3110 285,3089 297,3091 309,3095 321,3094 333,3098" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3244 261,3211 273,3138 285,3084 297,3094 309,3086 321,3108 333,3103 344,3124" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3244 261,3187 273,3192 285,3174 297,3179 309,3184 321,3181 333,3189 344,3187 356,3189 368,3194 380,3197 392,3196 404,3186 416,3182 427,3192 439,3199 451,3193 463,3201 475,3194 487,3182 499,3189 511,3191 522,3197 534,3195 546,3197 558,3195 570,3193 582,3193 594,3187 605,3188 617,3202 629,3200 641,3196 653,3190 665,3179 677,3192 688,3180 700,3184 712,3186 724,3183 736,3200 748,3192 760,3188 772,3197 783,3198 795,3192 807,3193 819,3200 831,3192 843,3186 855,3195 866,3190 878,3183 890,3183 902,3178 914,3190 926,3175 938,3198" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3244 261,3194 273,3197 285,3201 297,3197 309,3193 321,3191 333,3201 344,3201 356,3197 368,3192 380,3200 392,3194 404,3205 416,3185 427,3174 439,3190 451,3188 463,3192 475,3182 487,3178 499,3179 511,3187 522,3184 534,3184 546,3184 558,3179 570,3184 582,3197 594,3196 605,3200 617,3197 629,3194 641,3200 653,3206 665,3204 677,3200 688,3202 700,3201 712,3200 724,3195 736,3204 748,3204 760,3199 772,3197 783,3197 795,3202 807,3203 819,3203 831,3190 843,3192 855,3195 866,3188 878,3201 890,3203 902,3192 914,3198 926,3198 938,3198 950,3202" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3244 261,3178 273,3175 285,3190 297,3190 309,3186 321,3188 333,3187 344,3176 356,3173 368,3190 380,3185 392,3189 404,3190 416,3189 427,3194 439,3188 451,3183 463,3186 475,3195 487,3191 499,3195 511,3193 522,3197 534,3193 546,3195 558,3188 570,3193 582,3183 594,3190 605,3193 617,3193 629,3192 641,3189 653,3182 665,3182 677,3184 688,3183 700,3191 712,3186 724,3189 736,3186 748,3186 760,3194" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3244 261,3190 273,3174 285,3180 297,3185 309,3189 321,3187 333,3196 344,3194 356,3184 368,3193 380,3196 392,3199 404,3195 416,3189 427,3193 439,3192 451,3183 463,3187 475,3188 487,3188 499,3198 511,3194 522,3190 534,3182 546,3183 558,3184 570,3186 582,3194 594,3185 605,3190 617,3188 629,3193 641,3187 653,3180 665,3185 677,3193 688,3193 700,3187 712,3177 724,3185 736,3189 748,3183 760,3181 772,3181" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3244 261,3175 273,3177 285,3180 297,3185 309,3184 321,3189 333,3185 344,3184 356,3185 368,3185 380,3197 392,3180 404,3174 416,3169 427,3179 439,3187 451,3189 463,3186 475,3167 487,3177 499,3188 511,3187 522,3185 534,3180 546,3166 558,3188" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3211 261,3223 273,3221 285,3178 297,3173 309,3180 321,3183 333,3184 344,3187 356,3177 368,3183 380,3181 392,3184 404,3190 416,3165 427,3144 439,3173 451,3176 463,3180 475,3184 487,3172 499,3178 511,3178 522,3184 534,3178 546,3172 558,3177 570,3173 582,3172 594,3187" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3244 261,3176 273,3176 285,3171 297,3183 309,3178 321,3186 333,3190 344,3180 356,3178 368,3179 380,3183 392,3172 404,3183 416,3174 427,3166 439,3175 451,3165 463,3163 475,3161 487,3156 499,3160 511,3166 522,3168 534,3169 546,3166 558,3169" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3244 261,3186 273,3173 285,3184 297,3191 309,3186 321,3185 333,3181 344,3186 356,3189 368,3186 380,3187 392,3181 404,3186 416,3183 427,3169 439,3167 451,3169 463,3156 475,3169 487,3165 499,3162 511,3164 522,3163 534,3171 546,3169 558,3160 570,3187" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3101 261,3191 273,3136 285,3108 297,3121 309,3112 321,3105 333,3129" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3244 261,3210 273,3176 285,3116 297,3114 309,3110 321,3104 333,3132 344,3118" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3244 261,3183 273,3187 285,3192 297,3193 309,3193 321,3204 333,3194 344,3199 356,3202 368,3201 380,3201 392,3189 404,3186 416,3197 427,3190 439,3199 451,3204 463,3198 475,3193 487,3198 499,3206 511,3190 522,3203 534,3195 546,3201 558,3210 570,3207 582,3203 594,3201 605,3173 617,3198 629,3209 641,3205 653,3200 665,3197 677,3198 688,3203 700,3205 712,3203 724,3198 736,3200 748,3202 760,3202 772,3206 783,3195 795,3197 807,3193 819,3187 831,3204 843,3197 855,3201 866,3205 878,3204 890,3195 902,3200 914,3207 926,3198" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3244 261,3170 273,3186 285,3180 297,3182 309,3199 321,3203 333,3199 344,3201 356,3194 368,3190 380,3206 392,3202 404,3193 416,3184 427,3194 439,3199 451,3191 463,3190 475,3203 487,3191 499,3194 511,3195 522,3197 534,3199 546,3194 558,3202 570,3211 582,3200 594,3197 605,3205 617,3198 629,3202 641,3199 653,3176 665,3170 677,3191 688,3195 700,3207 712,3193 724,3193 736,3202 748,3202 760,3195 772,3187 783,3192 795,3193 807,3206 819,3193 831,3191 843,3199 855,3193 866,3191 878,3196 890,3204 902,3201 914,3204 926,3200 938,3204 950,3194" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3244 261,3185 273,3192 285,3189 297,3204 309,3195 321,3195 333,3192 344,3200 356,3199 368,3199 380,3191 392,3192 404,3191 416,3185 427,3186 439,3198 451,3187 463,3190 475,3195 487,3188 499,3191 511,3198 522,3190 534,3196 546,3196 558,3193 570,3189 582,3177 594,3182 605,3197 617,3178 629,3179 641,3185 653,3199 665,3191 677,3193 688,3204 700,3193 712,3193 724,3195 736,3189 748,3192 760,3189" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3244 261,3166 273,3182 285,3195 297,3204 309,3189 321,3190 333,3201 344,3194 356,3199 368,3195 380,3195 392,3195 404,3192 416,3197 427,3195 439,3191 451,3186 463,3187 475,3199 487,3185 499,3179 511,3198 522,3194 534,3195 546,3193 558,3192 570,3200 582,3198 594,3196 605,3192 617,3187 629,3199 641,3198 653,3182 665,3184 677,3190 688,3201 700,3191 712,3187 724,3175 736,3194" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3244 261,3177 273,3184 285,3191 297,3192 309,3184 321,3181 333,3191 344,3195 356,3190 368,3180 380,3172 392,3192 404,3193 416,3186 427,3189 439,3173 451,3177 463,3177 475,3172 487,3166 499,3167 511,3167 522,3175 534,3168 546,3175 558,3163 570,3157" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3244 261,3219 273,3205 285,3191 297,3189 309,3188 321,3191 333,3181 344,3189 356,3192 368,3192 380,3192 392,3190 404,3188 416,3178 427,3179 439,3183 451,3151 463,3159 475,3167 487,3156 499,3167 511,3158 522,3159 534,3165 546,3168 558,3166 570,3170 582,3176 594,3186" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3244 261,3183 273,3180 285,3190 297,3184 309,3194 321,3188 333,3171 344,3170 356,3165 368,3162 380,3166 392,3149 404,3164 416,3178 427,3170 439,3158 451,3163 463,3173 475,3170 487,3178 499,3184 511,3177 522,3175 534,3175 546,3164 558,3172 570,3164 582,3171" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3244 261,3187 273,3185 285,3190 297,3175 309,3175 321,3160 333,3151 344,3163 356,3170 368,3169 380,3175 392,3189 404,3182 416,3175 427,3163 439,3166 451,3179 463,3174 475,3174 487,3165 499,3159 511,3157 522,3165 534,3169 546,3152 558,3168 570,3183 582,3185" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="250" y="3280" class="axis" font-weight="600">Line colour = archive format; solid = plain, dashed = encrypted</text>
+<text x="24" y="3300" class="heading">RAM during extraction</text>
+<line x1="250" y1="3494" x2="950" y2="3494" class="grid"/>
+<text x="242" y="3498" text-anchor="end" class="axis">0.00</text>
+<line x1="250" y1="3454" x2="950" y2="3454" class="grid"/>
+<text x="242" y="3458" text-anchor="end" class="axis">0.28</text>
+<line x1="250" y1="3414" x2="950" y2="3414" class="grid"/>
+<text x="242" y="3418" text-anchor="end" class="axis">0.55</text>
+<line x1="250" y1="3374" x2="950" y2="3374" class="grid"/>
+<text x="242" y="3378" text-anchor="end" class="axis">0.83</text>
+<line x1="250" y1="3334" x2="950" y2="3334" class="grid"/>
+<text x="242" y="3338" text-anchor="end" class="axis">1.11</text>
+<text x="242" y="3320" text-anchor="end" class="axis">RAM (GiB)</text>
+<text x="250" y="3510" text-anchor="middle" class="axis">0.0s</text>
+<text x="425" y="3510" text-anchor="middle" class="axis">14.8s</text>
+<text x="600" y="3510" text-anchor="middle" class="axis">29.5s</text>
+<text x="775" y="3510" text-anchor="middle" class="axis">44.2s</text>
+<text x="950" y="3510" text-anchor="middle" class="axis">59.0s</text>
+<polyline points="250,3474 261,3475 273,3441 285,3436 297,3432 309,3429 321,3428 333,3437" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3411 261,3433 273,3423 285,3402 297,3399 309,3397 321,3393 333,3398 344,3459" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3491 261,3491 273,3491 285,3491 297,3491 309,3491 321,3491 333,3491 344,3491 356,3491 368,3491 380,3491 392,3491 404,3491 416,3491 427,3491 439,3491 451,3491 463,3491 475,3491 487,3491 499,3491 511,3491 522,3491 534,3491 546,3491 558,3491 570,3491 582,3491 594,3491 605,3491 617,3491 629,3491 641,3491 653,3491 665,3491 677,3491 688,3491 700,3491 712,3491 724,3491 736,3491 748,3491 760,3491 772,3491 783,3491 795,3491 807,3491 819,3491 831,3491 843,3491 855,3491 866,3491 878,3491 890,3491 902,3491 914,3491 926,3491 938,3491" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3491 261,3491 273,3491 285,3491 297,3491 309,3491 321,3491 333,3491 344,3491 356,3491 368,3491 380,3491 392,3491 404,3491 416,3491 427,3491 439,3491 451,3491 463,3491 475,3491 487,3491 499,3491 511,3491 522,3491 534,3491 546,3491 558,3491 570,3491 582,3491 594,3491 605,3491 617,3491 629,3491 641,3491 653,3491 665,3491 677,3491 688,3491 700,3491 712,3491 724,3491 736,3491 748,3491 760,3491 772,3491 783,3491 795,3491 807,3491 819,3491 831,3491 843,3491 855,3491 866,3491 878,3491 890,3491 902,3491 914,3491 926,3491 938,3491 950,3491" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3492 261,3492 273,3421 285,3407 297,3407 309,3407 321,3407 333,3407 344,3407 356,3407 368,3407 380,3407 392,3407 404,3407 416,3407 427,3407 439,3407 451,3407 463,3407 475,3407 487,3407 499,3407 511,3407 522,3407 534,3407 546,3407 558,3407 570,3407 582,3407 594,3407 605,3407 617,3407 629,3407 641,3407 653,3407 665,3407 677,3407 688,3407 700,3407 712,3407 724,3407 736,3407 748,3428 760,3407" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3492 261,3492 273,3417 285,3407 297,3407 309,3407 321,3407 333,3407 344,3407 356,3407 368,3407 380,3407 392,3407 404,3407 416,3407 427,3407 439,3407 451,3407 463,3407 475,3407 487,3407 499,3407 511,3407 522,3407 534,3407 546,3407 558,3407 570,3407 582,3407 594,3407 605,3407 617,3407 629,3407 641,3407 653,3407 665,3407 677,3407 688,3407 700,3407 712,3407 724,3407 736,3407 748,3407 760,3407 772,3492" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3494 261,3494 273,3494 285,3494 297,3494 309,3494 321,3494 333,3494 344,3494 356,3494 368,3494 380,3494 392,3494 404,3494 416,3494 427,3494 439,3494 451,3494 463,3494 475,3494 487,3494 499,3494 511,3494 522,3494 534,3494 546,3494 558,3494" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3420 261,3365 273,3414 285,3494 297,3494 309,3494 321,3494 333,3494 344,3494 356,3494 368,3494 380,3494 392,3494 404,3494 416,3494 427,3494 439,3494 451,3494 463,3494 475,3494 487,3494 499,3494 511,3494 522,3494 534,3494 546,3494 558,3494 570,3494 582,3494 594,3494" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3494 261,3494 273,3494 285,3494 297,3494 309,3494 321,3494 333,3494 344,3494 356,3494 368,3494 380,3494 392,3494 404,3494 416,3494 427,3494 439,3494 451,3494 463,3494 475,3494 487,3494 499,3494 511,3494 522,3494 534,3494 546,3494 558,3494" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3459 261,3494 273,3494 285,3494 297,3494 309,3494 321,3494 333,3494 344,3494 356,3494 368,3494 380,3494 392,3494 404,3494 416,3494 427,3494 439,3494 451,3494 463,3494 475,3494 487,3494 499,3494 511,3494 522,3494 534,3494 546,3494 558,3494 570,3494" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3474 261,3474 273,3437 285,3433 297,3430 309,3429 321,3430 333,3434" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3411 261,3425 273,3415 285,3393 297,3397 309,3396 321,3394 333,3394 344,3406" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3491 261,3491 273,3491 285,3491 297,3491 309,3491 321,3491 333,3491 344,3491 356,3491 368,3491 380,3491 392,3491 404,3491 416,3491 427,3491 439,3491 451,3491 463,3491 475,3491 487,3491 499,3491 511,3491 522,3491 534,3491 546,3491 558,3491 570,3491 582,3491 594,3491 605,3491 617,3491 629,3491 641,3491 653,3491 665,3491 677,3491 688,3491 700,3491 712,3491 724,3491 736,3491 748,3491 760,3491 772,3491 783,3491 795,3491 807,3491 819,3491 831,3491 843,3491 855,3491 866,3491 878,3491 890,3491 902,3491 914,3491 926,3491" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3491 261,3491 273,3491 285,3491 297,3491 309,3491 321,3491 333,3491 344,3491 356,3491 368,3491 380,3491 392,3491 404,3491 416,3491 427,3491 439,3491 451,3491 463,3491 475,3491 487,3491 499,3491 511,3491 522,3491 534,3491 546,3491 558,3491 570,3491 582,3491 594,3491 605,3491 617,3491 629,3491 641,3491 653,3491 665,3491 677,3491 688,3491 700,3491 712,3491 724,3491 736,3491 748,3491 760,3491 772,3491 783,3491 795,3491 807,3491 819,3491 831,3491 843,3491 855,3491 866,3491 878,3491 890,3491 902,3491 914,3491 926,3491 938,3491 950,3491" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3492 261,3492 273,3421 285,3407 297,3407 309,3407 321,3407 333,3407 344,3407 356,3407 368,3407 380,3407 392,3407 404,3407 416,3407 427,3407 439,3407 451,3407 463,3407 475,3407 487,3407 499,3407 511,3407 522,3407 534,3407 546,3407 558,3407 570,3407 582,3407 594,3407 605,3407 617,3407 629,3407 641,3407 653,3407 665,3407 677,3407 688,3407 700,3407 712,3407 724,3407 736,3407 748,3407 760,3450" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3492 261,3492 273,3428 285,3407 297,3407 309,3407 321,3407 333,3407 344,3407 356,3407 368,3407 380,3407 392,3407 404,3407 416,3407 427,3407 439,3407 451,3407 463,3407 475,3407 487,3407 499,3407 511,3407 522,3407 534,3407 546,3407 558,3407 570,3407 582,3407 594,3407 605,3407 617,3407 629,3407 641,3407 653,3407 665,3407 677,3407 688,3407 700,3407 712,3407 724,3407 736,3407" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3494 261,3494 273,3494 285,3494 297,3494 309,3494 321,3494 333,3494 344,3494 356,3494 368,3494 380,3494 392,3494 404,3494 416,3494 427,3494 439,3494 451,3494 463,3494 475,3494 487,3494 499,3494 511,3494 522,3494 534,3494 546,3494 558,3494 570,3494" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3421 261,3360 273,3334 285,3494 297,3494 309,3494 321,3494 333,3494 344,3494 356,3494 368,3494 380,3494 392,3494 404,3494 416,3494 427,3494 439,3494 451,3494 463,3494 475,3494 487,3494 499,3494 511,3494 522,3494 534,3494 546,3494 558,3494 570,3494 582,3494 594,3494" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,3494 261,3494 273,3494 285,3494 297,3494 309,3494 321,3494 333,3494 344,3494 356,3494 368,3494 380,3494 392,3494 404,3494 416,3494 427,3494 439,3494 451,3494 463,3494 475,3494 487,3494 499,3494 511,3494 522,3494 534,3494 546,3494 558,3494 570,3494 582,3494" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,3459 261,3494 273,3494 285,3494 297,3494 309,3494 321,3494 333,3494 344,3494 356,3494 368,3494 380,3494 392,3494 404,3494 416,3494 427,3494 439,3494 451,3494 463,3494 475,3494 487,3494 499,3494 511,3494 522,3494 534,3494 546,3494 558,3494 570,3494 582,3494" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="250" y="3530" class="axis" font-weight="600">Line colour = archive format; solid = plain, dashed = encrypted</text>
 </svg>

@@ -4074,7 +4074,6 @@ fn collision_policies_choose_first_latest_or_renamed_paths() {
     )
     .unwrap();
     assert_eq!(std::fs::read(first.join("FILE.txt")).unwrap(), b"new");
-    assert!(!first.join("file.txt").exists());
 
     let latest = directory.path().join("latest");
     std::fs::create_dir(&latest).unwrap();

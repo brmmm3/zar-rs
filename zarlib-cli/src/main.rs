@@ -72,6 +72,21 @@ fn prompt_password(_prompt: &str) -> Result<String, Box<dyn std::error::Error>> 
     Err("password entry without terminal echo is not supported on this platform".into())
 }
 
+fn read_password_stdin() -> Result<String, Box<dyn std::error::Error>> {
+    if io::stdin().is_terminal() {
+        return Err("password from standard input requires redirected input".into());
+    }
+    let mut password = String::new();
+    io::stdin().read_line(&mut password)?;
+    while password.ends_with(['\n', '\r']) {
+        password.pop();
+    }
+    if password.is_empty() {
+        return Err("password must not be empty".into());
+    }
+    Ok(password)
+}
+
 fn prompt_password_set(
     default_prompt: bool,
     commit_ids: &[String],
@@ -1108,6 +1123,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             overwrite,
             no_progress,
             password: encrypt,
+            password_stdin,
             aead,
             encryption_scope,
             block_size,
@@ -1123,9 +1139,13 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                 &filelist,
             )?;
             let progress_callback = CliProgress::new(!no_progress);
-            let password = encrypt
-                .then(|| prompt_password("Archive password: "))
-                .transpose()?;
+            let password = if password_stdin {
+                Some(read_password_stdin()?)
+            } else {
+                encrypt
+                    .then(|| prompt_password("Archive password: "))
+                    .transpose()?
+            };
             let aead = parse_content_aead(&aead)?;
             let encryption_scope = parse_encryption_scope(&encryption_scope)?;
             let report = create_archive_with_password_progress_and_filters_and_encryption(
@@ -1691,6 +1711,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             dry_run,
             metadata,
             password,
+            password_stdin,
             password_for,
             no_progress,
             recheck_block_checksums: checksum_recheck,
@@ -1705,7 +1726,11 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
         } => {
             let collision = parse_cli_collision_policy(&collision)?;
             let existing = parse_cli_existing_policy(&existing)?;
-            let passwords = prompt_password_set(password, &password_for)?;
+            let passwords = if password_stdin {
+                PasswordSet::new(Some(read_password_stdin()?.into_bytes()))
+            } else {
+                prompt_password_set(password, &password_for)?
+            };
             let progress_callback = CliProgress::new(!no_progress);
             let filters = FilterSet::from_patterns(
                 &include_files,

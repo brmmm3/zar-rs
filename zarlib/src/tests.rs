@@ -324,9 +324,9 @@ fn rar_import_rejects_links_and_incomplete_volumes() {
 
         let mut builder = rars::Builder::new(version)
             .store(true)
-            .volume_size(Some(128));
+            .volume_size(Some(4096));
         builder
-            .add_bytes(b"file".to_vec(), vec![42; 256], None, None)
+            .add_bytes(b"file".to_vec(), vec![42; 16384], None, None)
             .unwrap();
         let volumes = builder.build_volumes(None).unwrap();
         assert!(volumes.len() > 1);

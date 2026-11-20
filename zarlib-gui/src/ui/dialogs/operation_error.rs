@@ -49,7 +49,8 @@ impl ZargApp {
                     .show(ui, |ui| {
                         ui.separator();
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("Close").clicked() {
+                            if icon_button(ui, &self.icons, UiIcon::Close, "Close", true).clicked()
+                            {
                                 open = false;
                             }
                         });
@@ -68,13 +69,16 @@ impl ZargApp {
                                     egui::Image::new(&error_icon)
                                         .fit_to_exact_size(egui::vec2(48.0, 48.0)),
                                 );
-                                egui::ScrollArea::vertical()
-                                    .max_height(message_size.y)
-                                    .auto_shrink([false, false])
-                                    .show(ui, |ui| {
-                                        ui.add_space(8.0);
-                                        ui.add(egui::Label::new(report.as_str()).wrap());
-                                    });
+                                ui.add_space(8.0);
+                                ui.vertical(|ui| {
+                                    egui::ScrollArea::vertical()
+                                        .max_height(ui.available_height())
+                                        .auto_shrink([false, false])
+                                        .show(ui, |ui| {
+                                            ui.add_space(16.0);
+                                            ui.add(egui::Label::new(report.as_str()).wrap());
+                                        });
+                                });
                             },
                         );
                     });

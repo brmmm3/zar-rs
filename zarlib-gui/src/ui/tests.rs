@@ -373,17 +373,17 @@ fn window_title_tracks_logical_archive_and_resets() {
     app.read_archive = "/tmp/working.zar".to_owned();
     assert_eq!(
         title_commands(&mut app),
-        ["ZAR Archive Manager - a file.zar"]
+        ["a file.zar - ZAR Archive Manager"]
     );
     app.archive = "/archives/import.zip".to_owned();
     assert_eq!(
         title_commands(&mut app),
-        ["ZAR Archive Manager - import.zip"]
+        ["import.zip - ZAR Archive Manager"]
     );
     app.archive = "/archives/saved.zar".to_owned();
     assert_eq!(
         title_commands(&mut app),
-        ["ZAR Archive Manager - saved.zar"]
+        ["saved.zar - ZAR Archive Manager"]
     );
     app.discard_current_archive();
     assert_eq!(title_commands(&mut app), ["ZAR Archive Manager"]);
@@ -5598,6 +5598,7 @@ fn bundled_icons_are_valid_in_both_themes() {
         UiIcon::Confirm,
         UiIcon::ConfirmApply,
         UiIcon::Cancel,
+        UiIcon::Close,
         UiIcon::AddFilterList,
         UiIcon::Folder,
         UiIcon::Bookmarks,

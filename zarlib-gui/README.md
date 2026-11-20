@@ -7,6 +7,174 @@ format and validation as archives created by the CLI.
 Tools > Cross-commit references opens Archive Information with per-commit
 counts and the referencing commit, source commit, and path for each reference.
 
+## Illustrated guide
+
+The screenshots show the Windows build with the dark theme. Window appearance,
+file pickers, and available options can differ by platform and archive state.
+
+### Main window
+
+![Main zarg window showing a sample archive and its commit selector](../doc/media/zarg-main-window.png)
+
+Open an archive, browse its entries, and select a revision with the commit
+selector. The toolbar provides New, Add, Extract, Remove, and Info actions;
+the filter narrows the visible entries. Use View to change layouts or sorting,
+and the status bar to see aggregate sizes and commit counts. Double-click a
+file to open a temporary extracted copy, or drag entries to another application.
+File and folder drops open the Add dialog.
+
+### New archive
+
+![New archive dialog showing compression settings](../doc/media/zarg-new.png)
+
+Choose **New** to configure a new archive. General sets compression level and
+block size; Advanced controls metadata and input handling; Encryption chooses
+the algorithm, scope, and password; Filters restrict the included paths. The
+new archive starts as an unsaved session; add files and use **Save** or
+**Save as** to write it.
+
+### Add to archive
+
+![Add to archive dialog with its file, compression, advanced, encryption, and filter tabs](../doc/media/zarg-add.png)
+
+Use **Add** or drop files into the main window. Select inputs on the Files tab
+and review compression, metadata, encryption, and filters on the other tabs.
+The Unlock tab is available when existing encrypted commits need passwords.
+Add records a new commit; the archive's existing history remains available.
+
+### Extract
+
+![Extract dialog showing destination, revision, and collision policies](../doc/media/zarg-extract.png)
+
+Choose a destination and revision, and decide how to handle case collisions
+and existing files. General can restrict extraction to the current selection;
+Advanced contains metadata, special-file, dry-run, and validation options.
+Filter narrows the output, and Encryption appears for encrypted commits.
+Selected folders include their contents. The **Ask** policies display a
+question with **Yes**, **No**, **Yes to all**, **No to all**, and **Cancel**
+options. **Cancel** stops the extraction; files already extracted remain in
+place.
+All-or-none choices apply to subsequent conflicts of the same kind during that
+extraction. Review the safety notes below before restoring links or devices or
+skipping validation of unselected frames.
+
+![Confirmation dialog with Yes, No, Yes to all, No to all, and Cancel options](../doc/media/zarg-confirmation.png)
+
+### Archive information
+
+![Archive information dialog showing archive statistics and commits](../doc/media/zarg-information.png)
+
+**Info** shows archive size, compression, metadata, and per-commit details.
+Expand the cross-commit reference section to see which paths refer to data in
+other commits. The displayed information depends on which encrypted commits
+have been unlocked.
+
+### Custom metadata
+
+![Custom metadata dialog for editing archive-level keys and values](../doc/media/zarg-metadata.png)
+
+**Tools > Custom metadata** adds, edits, or removes archive-level key/value
+pairs. Numbers are stored numerically and keys beginning with `zar.` are
+reserved. Applying a change appends a metadata-only commit; these values are
+separate from file ownership, permissions, and timestamps.
+
+### Change commits
+
+![Change commits dialog with encryption algorithm and scope options](../doc/media/zarg-change-commits.png)
+
+**Tools > Change commits** encrypts, decrypts, or changes encryption for an
+inclusive commit range. Select the action and range, provide existing passwords
+when needed, and choose the new encryption method and scope when applicable.
+An optional output path leaves the open archive unchanged.
+
+### Join commits
+
+![Join commits dialog showing a commit range and compression settings](../doc/media/zarg-join-commits.png)
+
+**Tools > Join commits** compacts a contiguous range into one commit. Choose
+the range, compression settings, and optionally a separate output archive.
+The state at the end of the range is retained, but its intermediate history
+is discarded. Keep a separate backup when those states matter.
+
+### Remove commits
+
+![Remove commits dialog showing a selected range and optional output path](../doc/media/zarg-remove-commits.png)
+
+**Tools > Remove commits** removes an inclusive range while leaving at least
+one commit. Later history can change or become invalid when commits are
+removed. Encrypted headers that cannot be read prevent complete validation;
+the GUI reports a warning. A separate output path preserves the open archive.
+
+### Undo
+
+![Undo dialog showing the number of unsaved steps to undo](../doc/media/zarg-undo.png)
+
+**Edit > Undo** reverses the requested number of unsaved session actions in
+order. It does not remove previously saved history, and saving clears the
+session's undo history.
+
+### Unsaved changes
+
+![Unsaved changes dialog offering Save, Discard, and Cancel](../doc/media/zarg-unsaved.png)
+
+When leaving an archive with unsaved changes, choose **Save** to keep them,
+**Discard** to continue without them, or **Cancel** to stay in the archive.
+
+### Open encrypted archive
+
+![Password dialog with a separate field for each encrypted commit](../doc/media/zarg-passwords.png)
+
+Enter passwords for the commits to unlock, or leave individual fields empty
+to keep those commits locked. The first password can be copied to all encrypted
+commits. A locked header can make the displayed archive view incomplete;
+passwords are remembered in memory for the session, not saved to disk.
+
+### Unlock commits
+
+![Unlock commits dialog with password fields for locked commits](../doc/media/zarg-unlock-commits.png)
+
+Use **Tools > Unlock commits** to unlock additional commits after opening the
+archive. Enter passwords for the commits you need; leave the other fields blank
+to keep those commits locked.
+
+### Test archive
+
+![Test archive dialog with recovery and unlock options](../doc/media/zarg-test.png)
+
+**Tools > Test archive** checks an archive and can unlock encrypted commits.
+The recovery option scans past damaged framing; it reports damage rather than
+repairing the archive. Testing can be canceled.
+
+### Benchmark
+
+![Benchmark dialog with block size, compression, and metadata options](../doc/media/zarg-benchmark.png)
+
+**Tools > Benchmark** tests compression settings on the current saved ZAR
+archive. It extracts to temporary storage, then times creation and extraction
+of a new, unencrypted archive; the original is unchanged. Results include size,
+ratio, time, and throughput. Allow space for the temporary files, and repeat
+runs for comparisons. See the [benchmark guide](../doc/benchmarks/README.md#benchmark-an-archive-in-zarg).
+
+### Settings
+
+![Settings dialog with appearance, compression, advanced, encryption, and filter tabs](../doc/media/zarg-settings.png)
+
+**Tools > Settings** controls appearance, UI scale, compression defaults,
+input and extraction behavior, encryption defaults, and filters. These settings
+prefill the operation dialogs; extraction filters are configured separately.
+
+### Errors and about
+
+![Operation error dialog showing an invalid archive error](../doc/media/zarg-error.png)
+
+Errors describe the operation that failed. Review the message and preserve
+the original archive before attempting recovery or another mutation.
+
+![About zarg panel showing version and license information](../doc/media/zarg-about.png)
+
+**Help > About zarg** displays the application version, project link, licenses,
+and icon attribution.
+
 ## Run
 
 From the workspace root:
@@ -126,8 +294,8 @@ desktop entry.
   dialog. Review the options and select Add to include them in the current
   archive. Imported read-only archives cannot be modified. File drops are
   supported on Windows, macOS, X11, and Wayland.
-- Include a `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz` file among Create or Add
-  inputs to import its contents using the paths stored inside the archive.
+- Include a `.zip`, `.7z`, `.rar`, `.iso`, `.tar`, `.tar.gz`, `.tgz`, or
+  standalone `.gz` file among Create or Add inputs to import its contents.
 - Open those formats directly for read-only browsing and extraction; zarg
   creates a temporary ZAR snapshot and leaves the source archive unchanged.
 - Remove selected archive entries or paths.

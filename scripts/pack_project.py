@@ -3,7 +3,8 @@
 
 Uses only the Python standard library. Nested .gitignore files, negation (`!`),
 anchored and directory-only patterns, and `**` are supported. The `.git`
-directory and the output archive itself are always skipped.
+directory, the root testdata directory, the retired GUI icon directory, and the
+output archive itself are always skipped.
 
 Usage: scripts/pack_project.py [-o OUTPUT.zip] [-l LEVEL] [-n] [-v]
 """
@@ -132,7 +133,12 @@ def collect(root: Path, skip: Path | None):
         kept = []
         for name in sorted(dirs):
             path = here / name
-            if name == ".git" or ignorer.is_ignored(path, True):
+            if (
+                name == ".git"
+                or path == root / "testdata"
+                or path == root / "zarlib-gui" / "assets" / "icons"
+                or ignorer.is_ignored(path, True)
+            ):
                 continue
             if path.is_symlink():
                 files.append(name)  # store the link target as a file entry

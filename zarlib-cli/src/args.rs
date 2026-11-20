@@ -190,10 +190,16 @@ pub(crate) enum Command {
         password: bool,
         #[arg(
             long,
+            conflicts_with = "password",
+            help = "Read the encryption password from standard input"
+        )]
+        password_stdin: bool,
+        #[arg(
+            long,
             value_name = "ALGORITHM",
             default_value = "aes-256-gcm",
             value_parser = ["aes-256-gcm", "chacha20-poly1305"],
-            help = "Content encryption algorithm used with --password (default: aes-256-gcm)"
+            help = "Content encryption algorithm used with --password or --password-stdin (default: aes-256-gcm)"
         )]
         aead: String,
         #[arg(
@@ -914,6 +920,8 @@ pub(crate) enum Command {
             help = "Prompt for a default password to unlock every encrypted commit"
         )]
         password: bool,
+        #[arg(long, conflicts_with_all = ["password", "password_for"], help = "Read the default archive password from standard input")]
+        password_stdin: bool,
         #[arg(
             long = "password-for",
             value_name = "COMMIT_ID",

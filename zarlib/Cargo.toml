@@ -25,12 +25,12 @@ zstd = "0.14.3"
 tempfile = "3"
 tar = { version = "0.4", default-features = false }
 sevenz-rust2 = { version = "0.25", default-features = false, features = ["bzip2", "ppmd", "brotli", "deflate", "lz4", "zstd"] }
-rars = { version = "0.12.4", default-features = false }
+rars = { version = "0.13.0", default-features = false }
 libmkiso = { version = "0.1.5", default-features = false }
 zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
-rars = { version = "0.12.4", default-features = false, features = ["write", "encryption"] }
+rars = { version = "0.13.0", default-features = false, features = ["write", "encryption"] }
 sevenz-rust2 = { version = "0.25", default-features = false, features = ["compress"] }
 
 [target.'cfg(not(target_os = "wasi"))'.dependencies]
@@ -39,6 +39,7 @@ rayon.workspace = true
 scandir = "3.0"
 
 [target.'cfg(windows)'.dependencies]
+jwalk-meta = "1.2"
 windows-sys = { version = "0.61", features = [
     "Win32_Storage_FileSystem",
     "Win32_System_WindowsProgramming",

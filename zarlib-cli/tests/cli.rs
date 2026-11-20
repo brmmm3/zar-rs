@@ -1,6 +1,7 @@
 use std::ffi::OsStr;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
@@ -35,6 +36,74 @@ where
         .args(args)
         .output()
         .unwrap()
+}
+
+#[test]
+fn cli_encrypted_round_trip_with_password_stdin() {
+    let temp = TestDirectory::new();
+    let source = temp.path().join("input.txt");
+    let archive = temp.path().join("archive.zar");
+    let destination = temp.path().join("output");
+    std::fs::write(&source, b"encrypted contents").unwrap();
+    for args in [
+        vec![
+            OsStr::new("create"),
+            OsStr::new("--password-stdin"),
+            archive.as_os_str(),
+            source.as_os_str(),
+        ],
+        vec![
+            OsStr::new("extract"),
+            OsStr::new("--password-stdin"),
+            archive.as_os_str(),
+            OsStr::new("--output"),
+            destination.as_os_str(),
+        ],
+    ] {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_zarc"))
+            .arg("--no-config")
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"test password\n")
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success(), "{output:?}");
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("test password"));
+        assert!(!String::from_utf8_lossy(&output.stdout).contains("test password"));
+    }
+    assert_eq!(
+        std::fs::read(destination.join("input.txt")).unwrap(),
+        b"encrypted contents"
+    );
+    for password in ["wrong password\n", "\n"] {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_zarc"))
+            .args(["--no-config", "extract", "--password-stdin"])
+            .arg(&archive)
+            .arg("--output")
+            .arg(temp.path().join("rejected"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(password.as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(!output.status.success(), "{output:?}");
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("wrong password"));
+    }
 }
 
 #[test]
@@ -308,10 +377,17 @@ fn cli_process_reports_help_and_error_exit_codes() {
         OsStr::new("--password"),
         missing.as_os_str(),
     ]);
-    assert_eq!(password_error.status.code(), Some(2));
+    #[cfg(unix)]
+    let (expected_code, expected_message) = (2, "password entry requires an interactive terminal");
+    #[cfg(not(unix))]
+    let (expected_code, expected_message) = (
+        4,
+        "password entry without terminal echo is not supported on this platform",
+    );
+    assert_eq!(password_error.status.code(), Some(expected_code));
     assert!(
         String::from_utf8(password_error.stderr)
             .unwrap()
-            .contains("password entry requires an interactive terminal")
+            .contains(expected_message)
     );
 }

@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use zarlib::operations::{
     self, AddInputOptions, ArchiveEntryDetails, BlockInfo, CheckReport, CollisionPolicy,
     CommitInfoWithBlocks, CreateFilterOptions, CreateInputOptions, EncodingOptions, ExistingPolicy,
-    ExtractionOptions, FilterSet, PasswordSet, Progress,
+    ExtractionOptions, FilterSet, OverwriteDecision, PasswordSet, Progress,
 };
 use zarlib::{ArchivePath, ContentAead, EncryptionScope, Toc, TocEntry};
 mod dialogs;
@@ -338,6 +338,7 @@ pub(crate) enum UiIcon {
     Confirm,
     ConfirmApply,
     Cancel,
+    Close,
     Lock,
     Unlock,
     AddFilterList,
@@ -429,6 +430,7 @@ pub(crate) fn icon_bytes(icon: UiIcon, theme: crate::settings::IconTheme) -> &'s
         UiIcon::Confirm => themed_icon!("actions/dialog-ok.png"),
         UiIcon::ConfirmApply => themed_icon!("actions/dialog-ok-apply.png"),
         UiIcon::Cancel => themed_icon!("actions/dialog-cancel.png"),
+        UiIcon::Close => themed_icon!("actions/dialog-close.png"),
         UiIcon::Lock => themed_icon!("actions/document-encrypt.png"),
         UiIcon::Unlock => themed_icon!("actions/document-decrypt.png"),
         UiIcon::AddFilterList => themed_icon!("actions/list-add.png"),
@@ -1260,7 +1262,7 @@ type OperationBuildResult = Result<OperationJob, Box<dyn std::error::Error>>;
 
 struct UiProgress {
     events: Sender<UiEvent>,
-    answers: Arc<Mutex<Receiver<bool>>>,
+    answers: Arc<Mutex<Receiver<Option<OverwriteDecision>>>>,
     cancellation: Option<Arc<AtomicBool>>,
     limit_status_updates: bool,
     last_status_update: Mutex<Option<Instant>>,
@@ -1305,19 +1307,38 @@ impl Progress for UiProgress {
         let _ = self.events.send(UiEvent::Warning(warning.to_owned()));
     }
 
-    fn confirm(&self, prompt: &str) -> Result<bool, Box<dyn std::error::Error>> {
+    fn is_interactive(&self) -> bool {
+        true
+    }
+
+    fn confirm_overwrite(
+        &self,
+        prompt: &str,
+    ) -> Result<OverwriteDecision, Box<dyn std::error::Error>> {
+        let prompt = prompt
+            .strip_suffix(" [y/N/Always/Never] ")
+            .or_else(|| prompt.strip_suffix(" [y/N] "))
+            .unwrap_or(prompt);
         self.events.send(UiEvent::Confirm(prompt.to_owned()))?;
         self.answers
             .lock()
             .map_err(|_| "confirmation channel poisoned")?
             .recv()
-            .map_err(|_| "confirmation dialog closed".into())
+            .map_err(|_| "confirmation dialog closed")?
+            .ok_or_else(|| "operation cancelled".into())
+    }
+
+    fn confirm(&self, prompt: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        Ok(matches!(
+            self.confirm_overwrite(prompt)?,
+            OverwriteDecision::Yes | OverwriteDecision::Always
+        ))
     }
 }
 
 struct WorkerChannels {
     events: Receiver<UiEvent>,
-    answers: Sender<bool>,
+    answers: Sender<Option<OverwriteDecision>>,
     cancellation: Option<Arc<AtomicBool>>,
 }
 
@@ -2081,7 +2102,7 @@ impl ZargApp {
 
     fn update_window_title(&mut self, context: &egui::Context) {
         let title = match Path::new(&self.archive).file_name() {
-            Some(name) => format!("{} - {}", crate::WINDOW_TITLE, name.to_string_lossy()),
+            Some(name) => format!("{} - {}", name.to_string_lossy(), crate::WINDOW_TITLE),
             None => crate::WINDOW_TITLE.to_owned(),
         };
         if self.displayed_window_title.as_ref() != Some(&title) {
@@ -2093,14 +2114,19 @@ impl ZargApp {
         }
     }
 
-    fn begin_worker(&mut self, events: Receiver<UiEvent>, answers: Sender<bool>, message: &str) {
+    fn begin_worker(
+        &mut self,
+        events: Receiver<UiEvent>,
+        answers: Sender<Option<OverwriteDecision>>,
+        message: &str,
+    ) {
         self.begin_worker_with_cancellation(events, answers, message, None);
     }
 
     fn begin_worker_with_cancellation(
         &mut self,
         events: Receiver<UiEvent>,
-        answers: Sender<bool>,
+        answers: Sender<Option<OverwriteDecision>>,
         message: &str,
         cancellation: Option<Arc<AtomicBool>>,
     ) {
@@ -4428,7 +4454,9 @@ impl ZargApp {
                             if switch_after_save {
                                 self.pending_archive_switch = None;
                             }
-                            if cancellation_requested && error.contains("operation cancelled") {
+                            if error == "operation cancelled"
+                                || (cancellation_requested && error.contains("operation cancelled"))
+                            {
                                 self.status = "Operation cancelled".to_owned();
                                 self.report = None;
                             } else {

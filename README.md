@@ -69,14 +69,14 @@ Highlights:
 - **Speed.** Data is split into blocks compressed in parallel with Zstandard.
   In one [Linux Core i7 benchmark](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7.md)
   of the 525 MiB Linux 4.0.1 source tree, hot-cache unencrypted ZAR creation
-  took 0.86 s and full extraction took 0.88–1.10 s. The same run produced a
-  smaller 7z archive, but 7z creation took 24.91–24.94 s. Results depend on
+  took 0.98–1.03 s and full extraction took 0.89–0.91 s. The same run produced a
+  smaller 7z archive, but 7z creation took 26.86–27.61 s. Results depend on
   hardware, data, settings, and cache state. See
   [how to run benchmarks](./doc/benchmarks/README.md#running-benchmarks) and
   the [benchmark overview](./doc/benchmarks/README.md) for reports and charts.
   The [archive benchmark workflow](./.github/workflows/benchmark-archives.yml)
-  runs on Windows, Linux, and macOS; each run uploads its generated report and
-  chart from the `doc/benchmarks/` folder as workflow artifacts.
+  currently runs on Windows and Linux; each run uploads its generated reports
+  and charts from the `doc/benchmarks/` folder as workflow artifacts.
 - **ZIP, 7z, RAR, ISO, TAR, and gzip extraction/import.** Pass a `.zip`, `.7z`, `.rar`, `.iso`, `.tar`,
   `.tar.gz`, `.tgz`, or standalone `.gz` file to `zarc extract` to write its
   contents directly; regular files are written in parallel. Standalone gzip
@@ -102,6 +102,16 @@ Highlights:
   tombstones. Historical states remain available until commits are removed or
   compacted with `join`. Mutations stage a replacement archive; joining can
   rewrite compressed data.
+- **History inspection and undo.** `zarc info` and `zarc references` show
+  cross-commit references; the GUI has a reference viewer. `remove-commits`
+  removes selected commits while retaining at least one, subject to dependency
+  validation for readable history. The GUI also supports undo for unsaved edits.
+- **Desktop workflows.** `zarg` supports drag-and-drop, selected-file
+  extraction, archive testing and benchmarking, and file-manager context
+  actions for creating, opening, extracting, and testing archives.
+- **Configurable defaults.** `zarc.json` supplies per-command defaults from
+  the current directory or user configuration directory. Command-line options
+  override these settings, and `--no-config` disables them.
 - **Custom archive metadata.** Store arbitrary key/value pairs alongside the
   archive history, independently of per-file permissions and timestamps. Use
   `zarc meta` to list, set, or remove values; each update appends a
@@ -110,7 +120,8 @@ Highlights:
   commit-specific passwords, bounded KDF parameters, strict canonical UTF-8
   archive paths, and extraction that cannot escape the destination.
 - **Integrity.** Every frame is checksummed, `check` verifies the entire
-  archive, and recovery scans past damaged regions.
+  archive, and recovery scans past damaged regions. Extraction can recheck
+  block checksums automatically, always, or never.
 - **One core, many front ends.** CLI, GUI, seven language bindings, and a
   server-side WASI component share the same Rust implementation and behavior.
 - **Network copy.** `zcopy` transfers files missing from the destination or
@@ -192,42 +203,44 @@ for command details and encrypted-archive limitations.
 ## Benchmarks
 
 The [Linux Core i7 benchmark report](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7.md)
-measured the 525.1 MiB Linux 4.0.1 source tree on an Intel Core i7-10700
-with SSD/non-rotational storage. The table shows the report's minimum–maximum
-times for compression, full extraction, and extraction of three selected
-files; hot-cache configurations were measured twice and cold-cache
-configurations once. **Bold** marks the smallest archive or fastest observed
-time (the lower end of each range) for each encryption and cache combination;
-ties at the displayed precision are also marked.
+measured the 525.1 MiB Linux 4.0.1 source tree on 2026-11-20 using an Intel
+Core i7-10700 and SSD storage. These are unencrypted, hot-cache results; each
+time range covers two runs. The full report also includes encrypted and
+cold-cache results.
 
-| Format | Encrypted | Cache | Archive size | Compression | Full extraction | Extract 3 files |
-|---|---|---|---:|---:|---:|---:|
-| ZAR | No | Hot | 115.5 MiB | 0.86–0.86 s | **0.88–1.10 s** | 0.124–0.129 s |
-| ZAR | Yes | Hot | 115.4 MiB | **0.96–1.00 s** | **1.21–1.22 s** | 0.345–0.354 s |
-| ZIP | No | Hot | 151.1 MiB | 11.01–11.05 s | 3.84–3.90 s | **0.007–0.007 s** |
-| ZIP | Yes | Hot | 152.4 MiB | 11.52–11.59 s | 4.96–4.97 s | **0.012–0.012 s** |
-| 7z | No | Hot | **81.1 MiB** | 24.91–24.94 s | 5.68–5.70 s | 3.407–3.434 s |
-| 7z | Yes | Hot | **81.1 MiB** | 24.80–24.93 s | 5.83–5.86 s | 3.553–3.583 s |
-| tar | No | Hot | 562.7 MiB | **0.52–0.53 s** | 0.91–1.00 s | 0.063–0.065 s |
-| tar | Yes | Hot | 562.7 MiB | 2.02–2.69 s | 2.07–2.49 s | 1.360–1.366 s |
-| tar.gz | No | Hot | 122.1 MiB | 12.76–12.79 s | 2.24–2.26 s | 2.170–2.222 s |
-| tar.gz | Yes | Hot | 122.1 MiB | 12.98–13.21 s | 2.49–2.96 s | 2.473–2.483 s |
-| ZAR | No | Cold | 115.4 MiB | **1.03–1.03 s** | 1.13–1.13 s | 0.161–0.161 s |
-| ZAR | Yes | Cold | 115.4 MiB | **1.10–1.10 s** | **1.33–1.33 s** | 0.401–0.401 s |
-| ZIP | No | Cold | 151.1 MiB | 17.47–17.47 s | 4.13–4.13 s | **0.020–0.020 s** |
-| ZIP | Yes | Cold | 152.4 MiB | 17.81–17.81 s | 5.19–5.19 s | **0.021–0.021 s** |
-| 7z | No | Cold | **81.1 MiB** | 26.75–26.75 s | 5.78–5.78 s | 3.519–3.519 s |
-| 7z | Yes | Cold | **81.1 MiB** | 27.00–27.00 s | 5.83–5.83 s | 3.587–3.587 s |
-| tar | No | Cold | 562.7 MiB | 7.05–7.05 s | **1.10–1.10 s** | 0.870–0.870 s |
-| tar | Yes | Cold | 562.7 MiB | 9.19–9.19 s | 3.25–3.25 s | 2.383–2.383 s |
-| tar.gz | No | Cold | 122.1 MiB | 13.63–13.63 s | 2.47–2.47 s | 2.292–2.292 s |
-| tar.gz | Yes | Cold | 122.1 MiB | 14.09–14.09 s | 3.44–3.44 s | 3.187–3.187 s |
+| Format | Archive size | Compression | Full extraction | Extract 3 files |
+|---|---:|---:|---:|---:|
+| ZAR | 115.3 MiB | 0.98–1.03 s | 0.89–0.91 s | 0.108–0.118 s |
+| ZIP | 150.3 MiB | 11.86–11.90 s | 4.23–4.35 s | 0.007–0.008 s |
+| 7z | 81.1 MiB | 26.86–27.61 s | 6.11–6.15 s | 3.794–3.806 s |
+| tar | 562.7 MiB | 0.63–0.65 s | 0.95–0.98 s | 0.069–0.070 s |
+| tar.gz | 122.2 MiB | 12.99–13.14 s | 2.30–2.39 s | 2.251–2.286 s |
 
 Tar is an uncompressed baseline. Encryption methods differ: the ZIP test uses
 legacy ZipCrypto, while tar and tar.gz use an OpenSSL encryption wrapper.
 Results depend on the hardware, data, settings, and cache state; see the
 [full report](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7.md) for
 throughput, verification limitations, tool settings, and methodology.
+
+More recent dataset reports, each with a linked chart, are available for:
+
+| Dataset | Linux, Core i7-10700 | Windows, Core Ultra 7 265HX |
+|---|---|---|
+| Linux 4.0.1 source | [Report](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7.md) | [Report](./doc/benchmarks/benchmark-report-windows-x86_64-core-u7.md) |
+| Linux 6.1.1 | [Report](./doc/benchmarks/benchmark-report-linux-x86_64-linux-6.1.1-core-i7.md) | [Report](./doc/benchmarks/benchmark-report-windows-x86_64-linux-6.1.1-core-u7.md) |
+| Duplicate icon tree | [Report](./doc/benchmarks/benchmark-report-linux-x86_64-duplicates-core-i7.md) | [Report](./doc/benchmarks/benchmark-report-windows-x86_64-duplicates-core-u7.md) |
+| Icons | [Report](./doc/benchmarks/benchmark-report-linux-x86_64-icons-core-i7.md) | [Report](./doc/benchmarks/benchmark-report-windows-x86_64-icons-core-u7.md) |
+| Small archive | [Report](./doc/benchmarks/benchmark-report-linux-x86_64-small_archive-core-i7.md) | [Report](./doc/benchmarks/benchmark-report-windows-x86_64-small_archive-core-u7.md) |
+
+For example, on the duplicate icon tree the Linux report measures a 23.6 MiB
+ZAR versus a 43.1 MiB 7z archive, with unencrypted hot-cache creation taking
+0.15–0.17 s and 5.38–5.48 s respectively. Windows results are affected by
+the system configuration, including antivirus scanning. The comparison runner
+caches completed runs in `.benchmark_cache` for resumption and removes the
+cache after report generation completes. See
+`python scripts/benchmark_archivers.py --help` for current options and the
+[benchmark overview](./doc/benchmarks/README.md) for methodology and safety
+precautions.
 
 ## Limitations
 
@@ -353,7 +366,7 @@ The [packaging](./packaging) directory contains installer definitions for the
   with `Zarg.app` and a `.pkg` that also installs `zarc`.
 
 ```sh
-iscc /DAppVersion=0.11.0 packaging\windows\zar-rs.iss  # Windows
+iscc /DAppVersion=0.15.0 packaging\windows\zar-rs.iss  # Windows
 packaging/linux/build-packages.sh deb                  # Linux
 ```
 
@@ -404,6 +417,12 @@ archive. The Rust API also exposes `read_custom_metadata` and
 [developer guide](./doc/zarlib-developer-guide.md#custom-archive-metadata).
 The language bindings expose the same operations through their APIs; the
 Python CLI `zarc-py` does not yet include a `meta` command.
+
+For repeatable defaults, place `zarc.json` in the current directory or the
+per-user configuration directory. Use `--no-config` to ignore it; see the
+[configuration guide](./zarlib-cli/README.md#configuration-defaults) for
+precedence, examples, and password-handling guidance. Extraction defaults to
+`--recheck-block-checksums auto`; use `always` or `never` to override it.
 
 ## Rust API quick start
 
@@ -533,8 +552,8 @@ use `manylinux_2_28_x86_64`. Operating-system, system-library, and Flatpak
 runtime requirements still apply to all assets.
 
 To rebuild v3 assets for an existing release, run
-`gh workflow run ci-v3.yml -f tag=0.11.0`. To rebuild just its packages,
-run `gh workflow run packaging-v3.yml -f tag=0.11.0` after the v3 binary assets
+`gh workflow run ci-v3.yml -f tag=0.15.0`. To rebuild just its packages,
+run `gh workflow run packaging-v3.yml -f tag=0.15.0` after the v3 binary assets
 have been published.
 
 To explicitly build locally for the baseline:

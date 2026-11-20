@@ -28,7 +28,7 @@ zarlib = { version = "0.15.0", path = "../zarlib" }
 [dev-dependencies]
 flate2 = "1.1"
 tempfile = "3"
-rars = { version = "0.12.4", default-features = false, features = ["write"] }
+rars = { version = "0.13.0", default-features = false, features = ["write"] }
 
 [target.'cfg(windows)'.dependencies]
 mimalloc = { version = "0.1", default-features = false, features = [

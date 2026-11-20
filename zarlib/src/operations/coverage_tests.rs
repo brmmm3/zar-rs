@@ -4376,7 +4376,7 @@ fn extraction_collision_policies_and_strip_top_level() {
     }
     opts.collision_policy = CollisionPolicy::Ask;
     let progress = TestProgress {
-        confirm: true,
+        decision: Mutex::new(Some(OverwriteDecision::Yes)),
         ..Default::default()
     };
     let plan = extract_archive_with_progress(fixture.archive(), &out, opts, None, Some(&progress))
@@ -4393,4 +4393,97 @@ fn extraction_collision_policies_and_strip_top_level() {
         std::fs::read(out.join("nested/b.txt")).unwrap(),
         b"beta content"
     );
+}
+
+#[test]
+fn extraction_ask_choices_apply_to_each_conflict_or_all_conflicts() {
+    struct DecisionProgress {
+        decision: OverwriteDecision,
+        prompts: std::sync::atomic::AtomicUsize,
+    }
+
+    impl Progress for DecisionProgress {
+        fn message(&self, _: &str) {}
+        fn advance(&self, _: u64) {}
+        fn is_interactive(&self) -> bool {
+            true
+        }
+        fn confirm_overwrite(
+            &self,
+            _: &str,
+        ) -> Result<OverwriteDecision, Box<dyn std::error::Error>> {
+            self.prompts.fetch_add(1, Ordering::Relaxed);
+            Ok(self.decision)
+        }
+    }
+
+    let fixture = Fixture::new();
+    let other_input = fixture.dir.path().join("other/input");
+    std::fs::create_dir_all(other_input.join("nested")).unwrap();
+    std::fs::write(other_input.join("A.txt"), b"upper").unwrap();
+    std::fs::write(other_input.join("nested/B.txt"), b"upper nested").unwrap();
+    add_archive(fixture.archive(), &[other_input]).unwrap();
+
+    let mut plans = Vec::new();
+    for (decision, expected_prompts) in [
+        (OverwriteDecision::Yes, 2),
+        (OverwriteDecision::No, 2),
+        (OverwriteDecision::Always, 1),
+        (OverwriteDecision::Never, 1),
+    ] {
+        let progress = DecisionProgress {
+            decision,
+            prompts: std::sync::atomic::AtomicUsize::new(0),
+        };
+        let mut opts = options(CollisionPolicy::Ask, ExistingPolicy::Error);
+        opts.dry_run = true;
+        let destination = fixture.dir.path().join("collisions");
+        let plan = extract_archive_with_progress(
+            fixture.archive(),
+            &destination,
+            opts,
+            None,
+            Some(&progress),
+        )
+        .unwrap();
+        assert_eq!(progress.prompts.load(Ordering::Relaxed), expected_prompts);
+        plans.push(
+            plan.files
+                .into_iter()
+                .map(|(path, _, _)| path)
+                .collect::<Vec<_>>(),
+        );
+    }
+    assert_eq!(plans[0], plans[2]);
+    assert_eq!(plans[1], plans[3]);
+    assert_ne!(plans[0], plans[1]);
+
+    let fixture = Fixture::new();
+    let destination = fixture.dir.path().join("existing");
+    std::fs::create_dir_all(destination.join("input/nested")).unwrap();
+    std::fs::write(destination.join("input/a.txt"), b"old a").unwrap();
+    std::fs::write(destination.join("input/nested/b.txt"), b"old b").unwrap();
+    for (decision, expected_prompts, expected_files) in [
+        (OverwriteDecision::Yes, 2, 2),
+        (OverwriteDecision::No, 2, 0),
+        (OverwriteDecision::Always, 1, 2),
+        (OverwriteDecision::Never, 1, 0),
+    ] {
+        let progress = DecisionProgress {
+            decision,
+            prompts: std::sync::atomic::AtomicUsize::new(0),
+        };
+        let mut opts = options(CollisionPolicy::Error, ExistingPolicy::Ask);
+        opts.dry_run = true;
+        let plan = extract_archive_with_progress(
+            fixture.archive(),
+            &destination,
+            opts,
+            None,
+            Some(&progress),
+        )
+        .unwrap();
+        assert_eq!(progress.prompts.load(Ordering::Relaxed), expected_prompts);
+        assert_eq!(plan.files.len(), expected_files);
+    }
 }

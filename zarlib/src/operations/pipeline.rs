@@ -193,10 +193,20 @@ pub fn scan_tree(
         .sorted(true)
         .return_type(scandir::ReturnType::Ext);
     let results = scandir.collect()?;
+    #[cfg(windows)]
+    let root_identity =
+        jwalk_meta::DirEntry::<((), ())>::from_path(0, source, true, true, false, None)
+            .ok()
+            .and_then(|entry| entry.metadata_ext);
 
     for result in &results.results {
         if let Some(ext) = result.ext() {
+            #[cfg(unix)]
             if is_scanned_root_entry(ext, &metadata) {
+                continue;
+            }
+            #[cfg(windows)]
+            if is_scanned_root_entry(ext, root_identity.as_ref()) {
                 continue;
             }
             let normalized_path = ext.path.trim_matches(['/', '\\']);
@@ -297,16 +307,19 @@ fn is_scanned_root_entry(entry: &scandir::DirEntryExt, root_metadata: &std::fs::
 }
 
 #[cfg(all(not(target_os = "wasi"), windows))]
-fn is_scanned_root_entry(entry: &scandir::DirEntryExt, root_metadata: &std::fs::Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt;
-
+fn is_scanned_root_entry(
+    entry: &scandir::DirEntryExt,
+    root_identity: Option<&jwalk_meta::MetaDataExt>,
+) -> bool {
     entry.is_dir
-        && root_metadata
-            .volume_serial_number()
-            .is_some_and(|device| entry.st_dev == u64::from(device))
-        && root_metadata
-            .file_index()
-            .is_some_and(|inode| entry.st_ino == inode)
+        && root_identity.is_some_and(|identity| {
+            identity
+                .volume_serial_number
+                .is_some_and(|device| entry.st_dev == u64::from(device))
+                && identity
+                    .file_index
+                    .is_some_and(|inode| entry.st_ino == inode)
+        })
 }
 
 #[cfg(target_os = "wasi")]

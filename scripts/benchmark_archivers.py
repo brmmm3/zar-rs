@@ -1292,9 +1292,15 @@ def compress_zarlib(
 ) -> None:
     command = [str(binary), "create"]
     if encrypted:
-        command.extend(["--password", "--aead", "aes-256-gcm"])
+        command.extend(
+            ["--password-stdin" if os.name == "nt" else "--password", "--aead", "aes-256-gcm"]
+        )
     command.extend([str(path), source_dir.name])
-    if encrypted:
+    if encrypted and os.name == "nt":
+        run_command(
+            command, cwd=source_dir.parent, input_data=(ENCRYPTED_PASSWORD + "\n").encode()
+        )
+    elif encrypted:
         run_with_password(command, source_dir.parent, ENCRYPTED_PASSWORD)
     else:
         run_command(command, cwd=source_dir.parent)
@@ -1303,7 +1309,9 @@ def compress_zarlib(
 def compress_zip(
     zip_executable: str, path: Path, encrypted: bool, source_dir: Path
 ) -> None:
-    command = [zip_executable, "-q", "-r", "-6", "-y"]
+    command = [zip_executable, "-q", "-r", "-6"]
+    if os.name == "posix":
+        command.append("-y")
     interactive = encrypted and os.name == "posix"
     if interactive:
         command.append("-e")
@@ -1436,12 +1444,16 @@ def extract_archive(
     if method == "zarlib":
         command = [str(binary), "extract"]
         if encrypted:
-            command.append("--password")
+            command.append("--password-stdin" if os.name == "nt" else "--password")
         command.extend(["--collision", "rename"])
         for name in names:
             command.extend(["--include-file", name])
         command.extend([str(path), "--output", str(EXTRACTION_DIR)])
-        if encrypted:
+        if encrypted and os.name == "nt":
+            run_command(
+                command, cwd=TESTRESULTS, input_data=(ENCRYPTED_PASSWORD + "\n").encode()
+            )
+        elif encrypted:
             run_with_password(command, TESTRESULTS, ENCRYPTED_PASSWORD)
         else:
             run_command(command, cwd=TESTRESULTS)
@@ -1515,10 +1527,21 @@ def svg_chart(
     label_width = 250
     plot_width = 700
     row_height = 30
+    archive_results: dict[tuple[object, object], dict[str, object]] = {}
+    for item in results:
+        identity = (item["method"], item["encrypted"])
+        previous = archive_results.get(identity)
+        rank = (not item.get("failures"), item["cache"] == "hot")
+        if previous is None or rank > (
+            not previous.get("failures"), previous["cache"] == "hot"
+        ):
+            archive_results[identity] = item
+    archive_items = list(archive_results.values())
+    archive_panel_height = 80 + row_height * len(archive_items)
     bar_panel_height = 80 + row_height * len(results)
     top = 120
     ts_panel_height = 250
-    height = top + bar_panel_height * 4 + ts_panel_height * 4 + 40
+    height = top + archive_panel_height + bar_panel_height * 3 + ts_panel_height * 4 + 40
     multiple_caches = len({item["cache"] for item in results}) > 1
     colors = {
         "zarlib": "#2563eb",
@@ -1547,10 +1570,13 @@ def svg_chart(
         divisor: float = 1.0,
         minimum_key: str | None = None,
         maximum_key: str | None = None,
+        items: list[dict[str, object]] | None = None,
+        show_cache: bool = True,
     ) -> str:
+        panel_items = results if items is None else items
         values = [
             float(item[maximum_key or key]) / divisor
-            for item in results
+            for item in panel_items
             if not item.get("failures")
         ]
         maximum = max(values) if values else 1.0
@@ -1560,7 +1586,7 @@ def svg_chart(
         ]
         plot_x = label_width
         grid_top = y + 34
-        grid_height = row_height * len(results)
+        grid_height = row_height * len(panel_items)
         for tick in range(5):
             x = plot_x + int(plot_width * tick / 4)
             parts.append(
@@ -1570,13 +1596,13 @@ def svg_chart(
                 f'<text x="{x}" y="{grid_top - 8}" text-anchor="middle" class="axis">'
                 f"{maximum * tick / 4:.1f}</text>"
             )
-        for index, item in enumerate(results):
+        for index, item in enumerate(panel_items):
             row_y = grid_top + index * row_height
             method = str(item["method"])
             encrypted = bool(item["encrypted"])
             encryption = "encrypted" if encrypted else "plain"
             label = f"{method} - {encryption}"
-            if multiple_caches:
+            if show_cache and multiple_caches:
                 label += f" - {item['cache']}"
             parts.append(
                 f'<text x="{label_width - 12}" y="{row_y + 17}" '
@@ -1709,13 +1735,14 @@ def svg_chart(
         return "\n".join(parts)
 
     archive_panel = chart_panel(
-        "Archive size", "archive_bytes", "MiB", top, 1024 * 1024
+        "Archive size", "archive_bytes", "MiB", top, 1024 * 1024,
+        items=archive_items, show_cache=False,
     )
     compression_panel = chart_panel(
         "Compression time",
         "compression_max_seconds",
         "s",
-        top + bar_panel_height,
+        top + archive_panel_height,
         minimum_key="compression_min_seconds",
         maximum_key="compression_max_seconds",
     )
@@ -1723,7 +1750,7 @@ def svg_chart(
         "Extraction time",
         "extraction_max_seconds",
         "s",
-        top + bar_panel_height * 2,
+        top + archive_panel_height + bar_panel_height,
         minimum_key="extraction_min_seconds",
         maximum_key="extraction_max_seconds",
     )
@@ -1731,11 +1758,11 @@ def svg_chart(
         "Extraction time (3 files)",
         "partial_extraction_max_seconds",
         "s",
-        top + bar_panel_height * 3,
+        top + archive_panel_height + bar_panel_height * 2,
         minimum_key="partial_extraction_min_seconds",
         maximum_key="partial_extraction_max_seconds",
     )
-    resources_y = top + bar_panel_height * 4 + 10
+    resources_y = top + archive_panel_height + bar_panel_height * 3 + 10
     resource_panels = [
         _resource_panel(
             "CPU during compression",
@@ -1998,8 +2025,8 @@ a freshly emptied `testresults/extracted/` directory, then checked against the s
 for matching regular-file paths and sizes. {collision_note} The results
 directory was emptied again after each check. Symlink entries are excluded
 from verification. `zarlib` stores links but does not restore them by default;
-ZIP and tar restore links, and 7z may skip unsafe relative links during
-extraction, as noted above.
+on POSIX, ZIP and tar restore links, and 7z may skip unsafe relative links
+during extraction, as noted above. Windows datasets are extracted without links.
 
 CPU utilisation and RAM consumption were sampled at 1-second intervals during
 each compression and extraction operation using `psutil`. CPU is system-wide;
@@ -2029,7 +2056,7 @@ storage; such cases are identified as unknown or non-rotational/possibly virtual
 {chr(10).join(notes)}
 - `zarlib`: `zarc` release build, default Zstandard compression level 3;
   encrypted runs use AES-256-GCM and the default header-and-data scope.
-- `zip`: Info-ZIP recursive DEFLATE at level 6, storing symlinks as links.
+- `zip`: Info-ZIP recursive DEFLATE at level 6, storing symlinks as links on POSIX.
   Encrypted runs use the implementation's standard ZipCrypto mode
   (legacy/weak encryption).
 - `7z-zstd`: 7z format with the Zstandard codec at level 3 (only run when the
@@ -2375,12 +2402,11 @@ def _run_benchmark_dataset(
             "- The installed 7-Zip does not support the zstd codec (only forks such as "
             "7-Zip-zstd do); the `7z-zstd` benchmark is skipped."
         )
-    # zarc only reads passwords from a POSIX terminal.
-    skipped = {("zarlib", True)} if os.name != "posix" else set()
+    skipped = {("zarlib", True)} if os.name not in ("posix", "nt") else set()
     if skipped:
         notes.append(
             "- `zarlib` encrypted runs are skipped on this platform because `zarc` "
-            "can only prompt for passwords on POSIX terminals."
+            "requires a POSIX terminal or Windows standard input for passwords."
         )
     if os.name != "posix":
         notes.append(
@@ -2393,8 +2419,6 @@ def _run_benchmark_dataset(
             "- `openssl` was not found on PATH; encrypted tar/tar.gz benchmarks "
             "are skipped."
         )
-        # Also skip encrypted zarlib on non-POSIX (already handled above).
-        # Skip encrypted tar/tar.gz too.
         for method in ("tar", "tar.gz"):
             skipped.add((method, True))
     results: list[dict[str, object]] = []

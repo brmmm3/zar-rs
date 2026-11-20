@@ -1,12 +1,13 @@
 # Archive benchmark overview
 
-These reports compare `zarlib` with ZIP, 7z, tar, and tar.gz using the Linux
-4.0.1 source tree (about 525 MiB). On Linux, the script also benchmarks a
-separate compiled Linux 6.6.1 kernel tree. Depending on platform and available tools,
-they cover archive size, compression, full extraction, extracting three
-selected files, hot and cold file-cache runs, and encrypted runs. Each report
-includes its own methodology, tool versions, and detailed results; its chart
-visualizes the measurements available for that run.
+These reports compare `zarlib` with ZIP, 7z, tar, and tar.gz across five
+datasets: a small Linux source tree, icons, duplicate icons, the Linux 4.0.1
+source tree (about 525 MiB), and a precompiled Linux 6.1.1 kernel tree.
+Depending on platform and available tools, they cover archive size,
+compression, full extraction, extracting three selected files, hot and cold
+file-cache runs, and encrypted runs. Each report includes its own methodology,
+tool versions, and detailed results; its chart visualizes the measurements
+available for that run. Older reports may use different datasets and methods.
 
 ## Important note to Windows benchmarks
 
@@ -18,7 +19,7 @@ extraction process! For comparison see Linux benchmarks.
 
 There are two different benchmarks: use the **zarg GUI** to try compression
 settings on an existing archive, or the **comparison script** to compare
-archive formats on the same Linux source tree used by the reports.
+archive formats on the supplied datasets.
 
 ### Benchmark an archive in zarg
 
@@ -58,12 +59,6 @@ tar and tar.gz cases. GNU tar's gzip support also needs `gzip`. With the
 default options the script attempts to install missing external tools using a
 supported system package manager, potentially requesting elevated privileges.
 Install the tools yourself and pass `--no-install` to avoid that behavior.
-On Linux, the additional kernel build requires GNU make, GCC, flex, bison, bc,
-and the OpenSSL and ELF development headers. On Ubuntu, the script also
-installs missing `build-essential`, `flex`, `bison`, `bc`, `libssl-dev`, and
-`libelf-dev` packages unless `--no-install` is used. On other Linux distributions,
-install the kernel build prerequisites yourself. Missing build executables are
-reported before the benchmarks begin.
 
 ```sh
 # Hot-cache comparison; no administrator privileges or automatic installs.
@@ -73,29 +68,17 @@ python scripts/benchmark_archivers.py --mode hot --no-install
 python scripts/benchmark_archivers.py --help
 ```
 
-The script downloads the Linux 4.0.1 tarball if absent, validates and extracts
-it under `testdata/`, and builds the release `zarc` binary before measuring.
-It may refresh an existing `testdata/linux-4.0.1` tree from the tarball.
+The script builds the release `zarc` binary, then validates and extracts the
+five ZAR datasets under `testresults/datasets/`. Missing archives or Git LFS
+pointer files are downloaded into `testdata/`; existing extracted trees are
+reused when their source archive hash matches.
 It measures ZAR, ZIP, 7z/LZMA2, tar, and tar.gz, plus 7z/Zstandard when
 supported; unavailable optional cases are skipped. It runs both unencrypted
 and encrypted configurations where supported. The script does not accept a
-custom input dataset. Encrypted ZAR runs are skipped on Windows; 7-Zip
-receives a temporary random password on its command line.
-
-After all source-tree measurements and their report, Linux runs download and
-validate Linux 6.6.1, run `make defconfig` and `make` (up to eight parallel
-jobs), and repeat every enabled benchmark on the source tree including build
-outputs. This newer kernel is used because 4.0.1 does not support current GCC
-versions. The benchmark input is the build tree at
-`testdata/linux-6.6.1-compiled/linux-6.6.1/`, including `vmlinux`, object
-files, and generated configuration. The runner prints the input path and the
-total regular-file size, and rejects a compiled dataset without a nonempty
-`vmlinux`. A typical build occupies roughly 2.2 GiB on disk, but its size varies
-by platform and configuration; the reported regular-file size can differ from
-disk usage. The compiled run extracts `Makefile`, `COPYING`, and
-`kernel/sched/core.c` for its selected-file measurements. Its separate report
-and chart have `-compiled` appended to their names. Kernel compilation can
-take significant time and disk space; a failed build stops the script.
+custom input dataset. The precompiled Linux 6.1.1 dataset includes build
+outputs and does not require a local kernel build. The runner produces a
+separate report and chart for each dataset. 7-Zip receives a temporary random
+password on its command line.
 
 Console progress includes the current benchmark run and total, compression,
 full and selected-file extraction, verification, and the completed percentage.
@@ -111,15 +94,12 @@ and writing their reports, the script exits nonzero if any configuration failed.
 
 Each verified or failed benchmark run is saved atomically in the repository's
 `.benchmark_cache/` directory, including individual hot-cache repetitions and
-separate `compiled-` entries for the compiled kernel dataset.
+separate entries for each dataset.
 Filenames start with the overall progress number, for example
 `001-zarlib-plain-hot-run-1.json`. Restarting the script reuses completed runs,
 including resource samples, and only measures missing runs. Cached runs are found
 by test name even if their progress number changes. Source preparation and the
-release build still run on restart. A successfully built kernel tree is reused
-on restart, provided its source archive has not changed. To rebuild it, remove
-`testdata/linux-6.6.1-compiled/` and any `compiled-` cache entries.
-After a failed build, a successfully extracted source tree is reused on retry.
+release build still run on restart.
 
 The script hashes source file contents and records paths, metadata, and symlink
 targets before each dataset. It rejects malformed cache files or results with a
@@ -127,16 +107,15 @@ mismatched platform, source fingerprint, or tool versions; remove those files to
 measure the affected tests again. Existing cache entries from older versions of
 the runner must also be removed. Delete all cached files to start an entirely
 fresh benchmark.
-Cache writes are outside timed operations. If a run or report generation fails,
-completed results remain available. Once the final report and chart are written
-successfully (including the compiled report on Linux), all files in
-`.benchmark_cache/` are removed.
+Cache writes are outside timed operations. If execution stops before all reports
+are generated, completed results remain available. Once all reports and charts
+are written, the cache is cleared, including when a report records failed cases.
 
 **Before running:** save anything important elsewhere. The runner empties
-`testresults/` repeatedly, deletes and recreates
+the extraction output in `testresults/` repeatedly, deletes and recreates
 `testdata/benchmark-archives/`, and overwrites the report and chart for the
-detected OS and architecture under `doc/benchmarks/`. The source tarball and
-extracted trees, including the completed kernel build, remain in `testdata/`;
+detected OS, architecture, CPU, and dataset under `doc/benchmarks/`. The source
+archives remain in `testdata/` and extracted datasets in `testresults/datasets/`;
 generated archives and temporary key material are removed at the end. Allow
 enough disk space for both source trees, kernel build outputs, archives,
 extraction output, and temporary files.
@@ -172,17 +151,41 @@ Windows x64; it runs hot-cache comparisons.
 
 ## Reports
 
-| Platform | System | Run date | Report | Charts |
-|---|---|---|---|---|
-| Linux | GitHub-hosted, ARM64 | 2026-11-08 | [Report](./benchmark-report-linux-arm64-gh.md) | [Charts](./benchmark-charts-linux-arm64-gh.svg) |
-| Linux | GitHub-hosted, AMD EPYC 7763 | 2026-11-08 | [Report](./benchmark-report-linux-x86_64-gh.md) | [Charts](./benchmark-charts-linux-x86_64-gh.svg) |
-| Linux | Intel Core i7-10700 | 2026-11-08 | [Report](./benchmark-report-linux-x86_64-core-i7.md) | [Charts](./benchmark-charts-linux-x86_64-core-i7.svg) |
-| Linux | AMD Ryzen 5 2400G | 2026-11-08 | [Report](./benchmark-report-linux-x86_64-ryzen5.md) | [Charts](./benchmark-charts-linux-x86_64-ryzen5.svg) |
-| Windows | GitHub-hosted, AMD EPYC 9V74 | 2026-11-08 | [Report](./benchmark-report-windows-x86_64-gh.md) | [Charts](./benchmark-charts-windows-x86_64-gh.svg) |
-| Windows | Intel Core Ultra 7 265HX | 2026-11-09 | [Report](./benchmark-report-windows-x86_64-core-u7.md) | [Charts](./benchmark-charts-windows-x86_64-core-u7.svg) |
+Report and chart filenames include the operating system and architecture. The
+Linux 4.0.1 baseline has no dataset suffix; other reports add the dataset name,
+then a recognized CPU suffix (`-ryzen5`, `-core-i7`, or `-core-u7` for Core U7
+and Core Ultra 7 CPUs). GitHub Actions runs add `-gh` last. For example, an
+Intel Core i7 GitHub Actions run on the `duplicates` dataset uses
+`benchmark-report-linux-x86_64-duplicates-core-i7-gh.md` and the matching
+`benchmark-charts-linux-x86_64-duplicates-core-i7-gh.svg` chart. Older reports
+may retain earlier naming conventions.
+
+| Dataset | Platform / system (run date) | Report | Chart |
+| --- | --- | --- | --- |
+| Linux 4.0.1 | Linux x86_64, Core i7-10700 (2026-11-20) | [Report](./benchmark-report-linux-x86_64-core-i7.md) | [Chart](./benchmark-charts-linux-x86_64-core-i7.svg) |
+| Linux 4.0.1 | Linux x86_64, Ryzen 5 2400G (2026-11-18) | [Report](./benchmark-report-linux-x86_64-ryzen5.md) | [Chart](./benchmark-charts-linux-x86_64-ryzen5.svg) |
+| Linux 4.0.1 | Linux x86_64, GitHub-hosted, AMD EPYC 7763 (2026-11-08) | [Report](./benchmark-report-linux-x86_64-gh.md) | [Chart](./benchmark-charts-linux-x86_64-gh.svg) |
+| Linux 4.0.1 | Linux ARM64, GitHub-hosted, CPU not reported (2026-11-08) | [Report](./benchmark-report-linux-arm64-gh.md) | [Chart](./benchmark-charts-linux-arm64-gh.svg) |
+| Linux 4.0.1 | Windows x86_64, Core Ultra 7 265HX (2026-11-20) | [Report](./benchmark-report-windows-x86_64-core-u7.md) | [Chart](./benchmark-charts-windows-x86_64-core-u7.svg) |
+| Linux 4.0.1 | Windows x86_64, GitHub-hosted, AMD EPYC 9V74 (2026-11-08) | [Report](./benchmark-report-windows-x86_64-gh.md) | [Chart](./benchmark-charts-windows-x86_64-gh.svg) |
+| Linux 4.0.1 | Windows x86_64, Core Ultra 7 265HX (2026-11-19) | [Report](./benchmark-report-windows-x86_64.md) | [Chart](./benchmark-charts-windows-x86_64.svg) |
+| Linux 4.0.1 | Windows AMD64, GitHub-hosted, CPU model not reported (2026-10-30) | [Report](./benchmark-report-windows-amd64-gh.md) | [Chart](./benchmark-charts-windows-amd64-gh.svg) |
+| Linux 6.1.1 precompiled | Linux x86_64, Ryzen 5 2400G (2026-11-20) | [Report](./benchmark-report-linux-x86_64-linux-6.1.1-ryzen5.md) | [Chart](./benchmark-charts-linux-x86_64-linux-6.1.1-ryzen5.svg) |
+| Linux 6.1.1 precompiled | Linux x86_64, Core i7-10700 (2026-11-20) | [Report](./benchmark-report-linux-x86_64-linux-6.1.1-core-i7.md) | [Chart](./benchmark-charts-linux-x86_64-linux-6.1.1-core-i7.svg) |
+| Linux 6.1.1 precompiled | Windows x86_64, Core Ultra 7 265HX (2026-11-20) | [Report](./benchmark-report-windows-x86_64-linux-6.1.1-core-u7.md) | [Chart](./benchmark-charts-windows-x86_64-linux-6.1.1-core-u7.svg) |
+| Duplicate icons | Linux x86_64, Core i7-10700 (2026-11-20) | [Report](./benchmark-report-linux-x86_64-duplicates-core-i7.md) | [Chart](./benchmark-charts-linux-x86_64-duplicates-core-i7.svg) |
+| Duplicate icons | Linux x86_64, Ryzen 5 2400G (2026-11-20) | [Report](./benchmark-report-linux-x86_64-duplicates-ryzen5.md) | [Chart](./benchmark-charts-linux-x86_64-duplicates-ryzen5.svg) |
+| Duplicate icons | Windows x86_64, Core Ultra 7 265HX (2026-11-20) | [Report](./benchmark-report-windows-x86_64-duplicates-core-u7.md) | [Chart](./benchmark-charts-windows-x86_64-duplicates-core-u7.svg) |
+| Icons | Linux x86_64, Core i7-10700 (2026-11-20) | [Report](./benchmark-report-linux-x86_64-icons-core-i7.md) | [Chart](./benchmark-charts-linux-x86_64-icons-core-i7.svg) |
+| Icons | Linux x86_64, Ryzen 5 2400G (2026-11-20) | [Report](./benchmark-report-linux-x86_64-icons-ryzen5.md) | [Chart](./benchmark-charts-linux-x86_64-icons-ryzen5.svg) |
+| Icons | Windows x86_64, Core Ultra 7 265HX (2026-11-20) | [Report](./benchmark-report-windows-x86_64-icons-core-u7.md) | [Chart](./benchmark-charts-windows-x86_64-icons-core-u7.svg) |
+| Small archive | Linux x86_64, Core i7-10700 (2026-11-20) | [Report](./benchmark-report-linux-x86_64-small_archive-core-i7.md) | [Chart](./benchmark-charts-linux-x86_64-small_archive-core-i7.svg) |
+| Small archive | Linux x86_64, Ryzen 5 2400G (2026-11-20) | [Report](./benchmark-report-linux-x86_64-small_archive-ryzen5.md) | [Chart](./benchmark-charts-linux-x86_64-small_archive-ryzen5.svg) |
+| Small archive | Windows x86_64, Core Ultra 7 265HX (2026-11-20) | [Report](./benchmark-report-windows-x86_64-small_archive-core-u7.md) | [Chart](./benchmark-charts-windows-x86_64-small_archive-core-u7.svg) |
 
 Run dates are shown in each report's local time zone. The Linux ARM64 report
-does not identify the CPU model.
+does not identify the CPU model. For the newer Linux and Windows reports on all
+five datasets, see the [dataset report index](../../README.md#benchmarks).
 
 ## How to read the results
 

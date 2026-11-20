@@ -2,8 +2,8 @@
 
 This directory contains a flat, vector-based alternative to the icons in
 [`../crystal/`](../crystal/). Each icon has the same relative path, PNG filename,
-and dimensions as its counterpart. Editable SVG sources are included alongside
-the PNG files. These are new illustrations of the same actions and file types,
+and dimensions as its counterpart. The generator produces editable SVG sources
+alongside the PNG files. These are new illustrations of the same actions and file types,
 not recolored copies of the original artwork.
 
 Select this theme in the application's Settings dialog.
@@ -13,3 +13,7 @@ package and its Chromium browser installed, run:
 ```sh
 node scripts/generate-flat-icons.cjs
 ```
+
+Pass icon names to regenerate only those icons. Set
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to use an installed Chromium-compatible
+browser instead of Playwright's downloaded browser.

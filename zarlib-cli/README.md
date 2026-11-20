@@ -75,8 +75,8 @@ Command-line options override the corresponding defaults; explicitly supplied
 repeatable options replace, rather than extend, the configured list. Command
 aliases use the defaults of their canonical command. Positional arguments
 (archive names and input paths), help, and configuration control cannot be
-configured. Password flags only enable prompting; do not store passwords in
-this file. Paths in defaults are relative to the current working directory.
+configured. Password flags only select how passwords are read; do not store
+passwords in this file. Paths in defaults are relative to the current working directory.
 
 Pass `--no-config` before or after the command to skip configuration entirely:
 
@@ -142,6 +142,7 @@ Options:
   `auto` selects a size based on available memory.
 - `--compression-level LEVEL`: Zstandard levels `-7` through `22`; default `3`.
 - `--password`: prompt without echo and encrypt headers and data blocks.
+- `--password-stdin`: encrypt using the first line from redirected standard input.
 - `--overwrite`: replace the target archive if it already exists.
 - `--metadata`: record supported platform-specific owner, group, and
   permission metadata.
@@ -366,6 +367,8 @@ reconstructed file sizes.
 - `--devices`: create archived Unix character and block devices; privileges
   may be required.
 - `--password`: prompt for a password to unlock encrypted headers and blocks.
+- `--password-stdin`: read the default password from redirected standard input;
+  cannot be combined with `--password` or `--password-for`.
 - `--include-file`, `--exclude-file`, `--include-folder`, `--exclude-folder`,
   and `--filelist`: select archive-relative paths using the filter rules
   described above.
@@ -394,6 +397,9 @@ warning; `create --strict` fails instead. This preserves portable, unambiguous
 archive paths.
 
 Password-encrypted archives use Argon2id for password-based key wrapping and
-AES-256-GCM for content encryption. Passwords are read without terminal echo.
+AES-256-GCM for content encryption. Interactive password prompts require a Unix
+terminal and disable echo. For automation, `create` and `extract` accept
+`--password-stdin` with redirected input; avoid exposing passwords in shell
+history, command arguments, or unprotected files.
 Do not treat frame checksums as a security feature: checksums detect accidental
 corruption but do not authenticate unencrypted data.

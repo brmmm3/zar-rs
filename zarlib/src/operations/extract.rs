@@ -1167,6 +1167,7 @@ fn extract_archive_impl(
     let mut planned_files: Vec<(PathBuf, ExtractedSource)> = Vec::new();
     let mut planned_directories = Vec::new();
     let mut collision_indices = BTreeMap::<String, usize>::new();
+    let mut replace_all_collisions = None;
     let mut reserved_paths: std::collections::BTreeSet<String> = toc
         .iter()
         .map(|(path, _)| path.as_str().to_lowercase())
@@ -1218,9 +1219,25 @@ fn extract_archive_impl(
                             continue;
                         }
                         CollisionPolicy::Ask => {
-                            if progress.0.unwrap().confirm(&format!(
-                                "Replace colliding extraction entry with `{path}`? [y/N] "
-                            ))? {
+                            let decision = match replace_all_collisions {
+                                Some(decision) => decision,
+                                None => progress.0.unwrap().confirm_overwrite(&format!(
+                                    "Replace colliding extraction entry with `{path}`? [y/N/Always/Never] "
+                                ))?,
+                            };
+                            let replace = match decision {
+                                OverwriteDecision::Yes => true,
+                                OverwriteDecision::No => false,
+                                OverwriteDecision::Always => {
+                                    replace_all_collisions = Some(OverwriteDecision::Yes);
+                                    true
+                                }
+                                OverwriteDecision::Never => {
+                                    replace_all_collisions = Some(OverwriteDecision::No);
+                                    false
+                                }
+                            };
+                            if replace {
                                 planned_files[index] = (target, source.clone());
                             }
                             continue;

@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tarfile
 import threading
+import zipfile
 from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
@@ -269,7 +270,7 @@ def test_missing_remote_dataset_reports_unpublished_lfs_object(tmp_path, monkeyp
 
 
 @pytest.mark.parametrize(
-    "caches, total_runs", [(["hot"], 14), (["cold"], 7), (["hot", "cold"], 21)]
+    "caches, total_runs", [(["hot"], 16), (["cold"], 8), (["hot", "cold"], 24)]
 )
 def test_benchmark_progress_counts_enabled_runs(
     benchmark_runner, capsys, caches, total_runs
@@ -292,7 +293,9 @@ def test_benchmark_progress_counts_enabled_runs(
     assert output.count(": extracting full archive") == total_runs
     assert output.count(": extracting 3 selected files...") == total_runs
     assert output.count(": verifying extracted files...") == total_runs
-    assert "zarlib (encrypted=True" not in output
+    assert "zarlib (encrypted=True" in output
+    results = benchmark_runner["write_report"].call_args.args[0]
+    assert any(item["method"] == "zarlib" and item["encrypted"] for item in results)
 
 
 def test_benchmarks_resume_after_interruption(benchmark_runner, monkeypatch, capsys) -> None:
@@ -329,7 +332,7 @@ def test_benchmarks_resume_after_interruption(benchmark_runner, monkeypatch, cap
     benchmark_runner["extract_archive"].reset_mock(side_effect=True)
     benchmark_archivers.run_benchmarks(tools, "cargo")
 
-    assert benchmark_runner["extract_archive"].call_count == 13 * 2
+    assert benchmark_runner["extract_archive"].call_count == 15 * 2
     first_result = benchmark_runner["write_report"].call_args.args[0][0]
     assert first_result["compression_min_seconds"] == 1.0
     assert first_result["compression_max_seconds"] == 5.0
@@ -378,7 +381,7 @@ def test_benchmarks_reject_system_memory_samples_from_old_cache(benchmark_runner
 def test_program_failure_is_reported_and_other_runs_continue(benchmark_runner, phase, capsys) -> None:
     failure = benchmark_archivers.BenchmarkCommandError("program failed")
     if phase == "compression":
-        benchmark_runner["compress_zarlib"].side_effect = [failure, None]
+        benchmark_runner["compress_zarlib"].side_effect = [failure, None, None, None]
     else:
         benchmark_runner["extract_archive"].side_effect = (
             [failure] if phase == "full extraction" else [None, failure]
@@ -413,7 +416,7 @@ def test_program_failure_cache_survives_interruption(benchmark_runner) -> None:
     benchmark_runner["compress_zarlib"].reset_mock(side_effect=True)
     benchmark_archivers.run_benchmarks(tools, "cargo")
     assert benchmark_runner["write_report"].call_args.args[0][0]["failures"][0]["phase"] == "compression"
-    assert benchmark_runner["compress_zarlib"].call_count == 1
+    assert benchmark_runner["compress_zarlib"].call_count == 3
 
 
 def test_certificate_failure_only_marks_encrypted_tar_cases_failed(benchmark_runner) -> None:
@@ -450,6 +453,29 @@ def test_command_failure_removes_password_from_report_and_cache(benchmark_runner
 def test_run_command_reports_real_nonzero_exit() -> None:
     with pytest.raises(benchmark_archivers.BenchmarkCommandError, match="exit code 7"):
         benchmark_archivers.run_command([sys.executable, "-c", "raise SystemExit(7)"])
+
+
+def test_windows_zarlib_commands_receive_password_on_stdin(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(benchmark_archivers, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(benchmark_archivers, "TESTRESULTS", tmp_path)
+    monkeypatch.setattr(benchmark_archivers, "EXTRACTION_DIR", tmp_path / "extracted")
+    monkeypatch.setattr(benchmark_archivers, "ENCRYPTED_PASSWORD", "test-secret")
+    source = tmp_path / "source"
+    archive = tmp_path / "archive.zar"
+    binary = tmp_path / "zarc.exe"
+    with patch.object(benchmark_archivers, "run_command") as run:
+        benchmark_archivers.compress_zarlib(binary, archive, True, source)
+        benchmark_archivers.extract_archive(
+            "zarlib", True, archive, {}, binary, None, None, tmp_path, "", 0,
+            source, ["file.txt"],
+        )
+
+    assert run.call_count == 2
+    for call in run.call_args_list:
+        assert "--password-stdin" in call.args[0]
+        assert "test-secret" not in call.args[0]
+        assert call.kwargs["input_data"] == b"test-secret\n"
+    assert "source/file.txt" in run.call_args_list[1].args[0]
 
 
 def test_missing_openssl_still_runs_unencrypted_tar(benchmark_runner) -> None:
@@ -513,9 +539,9 @@ def test_report_failure_preserves_cache_and_retry_skips_all_runs(
     results = benchmark_runner["write_report"].call_args.args[0]
     cache = benchmark_archivers.BENCHMARK_CACHE_DIR
     files = sorted(cache.iterdir())
-    assert len(files) == 14
+    assert len(files) == 16
     assert files[0].name == "001-linux-4.0.1-zarlib-plain-hot-run-1.json"
-    assert files[-1].name == "014-linux-4.0.1-tar.gz-encrypted-hot-run-2.json"
+    assert files[-1].name == "016-linux-4.0.1-tar.gz-encrypted-hot-run-2.json"
     files[0].rename(cache / "099-linux-4.0.1-zarlib-plain-hot-run-1.json")
     capsys.readouterr()
     for mock in benchmark_runner.values():
@@ -533,7 +559,7 @@ def test_report_failure_preserves_cache_and_retry_skips_all_runs(
     assert benchmark_archivers.REPORT_PATH.is_file()
     assert benchmark_archivers.CHART_PATH.is_file()
     assert not list(cache.iterdir())
-    assert capsys.readouterr().out.count("using cached results") == 14
+    assert capsys.readouterr().out.count("using cached results") == 16
 
 
 @pytest.mark.parametrize(
@@ -618,6 +644,44 @@ def test_precompiled_dataset_tar_round_trip(tmp_path, monkeypatch) -> None:
         list(benchmark_archivers.KERNEL_PARTIAL_FILES),
     )
     benchmark_archivers.verify_partial_extraction(source, benchmark_archivers.KERNEL_PARTIAL_FILES)
+
+
+@pytest.mark.parametrize("platform", ["posix", "nt"])
+@pytest.mark.parametrize("encrypted", [False, True])
+def test_compress_zip_uses_platform_options(tmp_path, monkeypatch, platform, encrypted) -> None:
+    source = tmp_path / "source"
+    archive = tmp_path / "archive.zip"
+    monkeypatch.setattr(benchmark_archivers, "os", SimpleNamespace(name=platform))
+    with patch.multiple(benchmark_archivers, run_command=DEFAULT, run_with_password=DEFAULT) as mocks:
+        benchmark_archivers.compress_zip("zip", archive, encrypted, source)
+
+    command = ["zip", "-q", "-r", "-6"]
+    if platform == "posix":
+        command.append("-y")
+    if encrypted and platform == "posix":
+        command.append("-e")
+    elif encrypted:
+        command.extend(["-P", benchmark_archivers.ENCRYPTED_PASSWORD])
+    command.extend([str(archive), source.name])
+    if encrypted and platform == "posix":
+        mocks["run_with_password"].assert_called_once_with(
+            command, source.parent, benchmark_archivers.ENCRYPTED_PASSWORD
+        )
+    else:
+        mocks["run_command"].assert_called_once_with(command, cwd=source.parent)
+
+
+@pytest.mark.skipif(os.name != "nt" or not shutil.which("zip"), reason="requires Windows ZIP")
+@pytest.mark.parametrize("encrypted", [False, True])
+def test_windows_zip_round_trip(tmp_path, encrypted) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "file.txt").write_bytes(b"benchmark data")
+    archive = tmp_path / "archive.zip"
+    benchmark_archivers.compress_zip("zip", archive, encrypted, source)
+    with zipfile.ZipFile(archive) as contents:
+        password = benchmark_archivers.ENCRYPTED_PASSWORD.encode() if encrypted else None
+        assert contents.read("source/file.txt", pwd=password) == b"benchmark data"
 
 
 @pytest.mark.skipif(
@@ -776,6 +840,70 @@ def test_benchmark_result_paths_put_github_suffix_last(tmp_path, monkeypatch) ->
 
     assert report_path.name == "report-duplicates-core-i7-gh.md"
     assert chart_path.name == "chart-duplicates-core-i7-gh.svg"
+
+
+def test_archive_size_chart_deduplicates_cache_states() -> None:
+    def result(method, encrypted, cache, size, failed=False):
+        return {
+            "method": method,
+            "encrypted": encrypted,
+            "cache": cache,
+            "archive_bytes": size * 1024 * 1024,
+            "compression_min_seconds": 1,
+            "compression_max_seconds": 2,
+            "extraction_min_seconds": 1,
+            "extraction_max_seconds": 2,
+            "partial_extraction_min_seconds": 1,
+            "partial_extraction_max_seconds": 2,
+            "failures": ["failed"] if failed else [],
+        }
+
+    results = [
+        result("tar", False, "cold", 2),
+        result("tar", True, "hot", 3, failed=True),
+        result("zip", False, "cold", 4),
+        result("tar", False, "hot", 1),
+        result("tar", True, "cold", 5),
+    ]
+    chart = benchmark_archivers.svg_chart(
+        results, 1024 * 1024, benchmark_archivers.BenchmarkHardware("Windows", "CPU", ())
+    )
+    archive_panel, timing_panels = chart.split('class="heading">Compression time', 1)
+    assert archive_panel.count('class="label"') == 3
+    assert "tar - plain</text>" in archive_panel
+    assert "tar - encrypted</text>" in archive_panel
+    assert "zip - plain</text>" in archive_panel
+    assert "1.00 MiB" in archive_panel
+    assert "5.00 MiB" in archive_panel
+    assert "4.00 MiB" in archive_panel
+    assert "FAILED" not in archive_panel
+    assert " - hot" not in archive_panel
+    assert " - cold" not in archive_panel
+    assert "tar - plain - hot" in timing_panels
+    assert "tar - plain - cold" in timing_panels
+
+
+@pytest.mark.parametrize("cache", ["hot", "cold"])
+@pytest.mark.parametrize("failed", [False, True])
+def test_archive_size_chart_with_one_cache(cache, failed) -> None:
+    result = {
+        "method": "tar", "encrypted": False, "cache": cache,
+        "archive_bytes": 1024 * 1024,
+        "compression_min_seconds": 1, "compression_max_seconds": 2,
+        "extraction_min_seconds": 1, "extraction_max_seconds": 2,
+        "partial_extraction_min_seconds": 1, "partial_extraction_max_seconds": 2,
+        "failures": ["failed"] if failed else [],
+    }
+    chart = benchmark_archivers.svg_chart(
+        [result], 1024 * 1024, benchmark_archivers.BenchmarkHardware("Windows", "CPU", ())
+    )
+    archive_panel = chart.split('class="heading">Compression time', 1)[0]
+    assert archive_panel.count('class="label"') == 1
+    assert "tar - plain</text>" in archive_panel
+    assert ("FAILED" in archive_panel) == failed
+    assert ("1.00 MiB" in archive_panel) != failed
+    assert " - hot" not in archive_panel
+    assert " - cold" not in archive_panel
 
 
 def test_write_report_shows_runtime_minimum_and_maximum(tmp_path, monkeypatch) -> None:

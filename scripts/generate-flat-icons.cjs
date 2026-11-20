@@ -48,6 +48,8 @@ const glyphs = {
   'change-commits': `${strokes('M7 4v16M7 8h7l3-3M7 16h7l3 3', blue)}<g fill="${cyan}"><circle cx="7" cy="4" r="2"/><circle cx="7" cy="20" r="2"/><circle cx="17" cy="5" r="2"/><circle cx="17" cy="19" r="2"/></g>`,
   configure: `${circle(pale, '')}${strokes('M5 7h14M5 12h14M5 17h14', ink, 2)}<g fill="${blue}"><circle cx="9" cy="7" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="10" cy="17" r="2"/></g>`,
   'dialog-cancel': circle(red, strokes('M8 8l8 8M16 8l-8 8', white, 2)),
+  'dialog-close': circle(ink, strokes('M8 8l8 8M16 8l-8 8', white, 2)),
+  'dialog-information': circle(blue, text('i', 12, 17.5, 15)),
   'dialog-ok-apply': circle(green, strokes('m7 12 3 3 7-7', white, 2)),
   'dialog-ok': circle(blue, strokes('m7 12 3 3 7-7', white, 2)),
   'dialog-password': lock,
@@ -77,6 +79,7 @@ const glyphs = {
   undo: `${strokes('M8 7 4 11l4 4M5 11h8a6 6 0 0 1 6 6v2', blue, 2.3)}`,
   'view-filter': `<path d="M3 4h18l-7 8v6l-4 2v-8z" fill="${blue}"/>`,
   'view-refresh': `${strokes('M20 10a8 8 0 0 0-14-3L4 9m0-4v4h4M4 14a8 8 0 0 0 14 3l2-2m0 4v-4h-4', blue, 2)}`,
+  view: `${strokes('M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12z', blue, 1.8)}<circle cx="12" cy="12" r="3" fill="${blue}"/>`,
   'drive-harddisk': `<rect x="3" y="4" width="18" height="16" rx="3" fill="#64748b"/><rect x="5" y="6" width="14" height="8" rx="1" fill="${pale}"/><circle cx="17" cy="17" r="1.3" fill="${green}"/>`,
   'application-octet-stream': documentLabel('BIN', '#64748b'),
   'application-pdf': documentLabel('PDF', red),
@@ -104,7 +107,11 @@ const glyphs = {
 };
 
 async function main() {
-  const browser = await chromium.launch({ headless: true });
+  const selected = new Set(process.argv.slice(2));
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
+  });
   try {
     const page = await browser.newPage({ deviceScaleFactor: 1 });
     const categories = ['actions', 'devices', 'mimetypes', 'places', 'status'];
@@ -115,6 +122,7 @@ async function main() {
       await fs.mkdir(destination, { recursive: true });
       for (const filename of (await fs.readdir(directory)).filter((name) => name.endsWith('.png')).sort()) {
         const name = filename.slice(0, -4);
+        if (selected.size > 0 && !selected.has(name)) continue;
         const artwork = glyphs[name];
         if (!artwork) throw new Error(`Missing flat icon design: ${category}/${filename}`);
         const png = await fs.readFile(path.join(directory, filename));

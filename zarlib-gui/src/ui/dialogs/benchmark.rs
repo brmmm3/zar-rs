@@ -248,7 +248,7 @@ impl ZargApp {
                             if icon_button(
                                 ui,
                                 &self.icons,
-                                UiIcon::Cancel,
+                                UiIcon::Close,
                                 "Close",
                                 !running,
                             )
