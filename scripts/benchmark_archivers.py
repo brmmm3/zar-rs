@@ -1873,8 +1873,7 @@ def benchmark_result_postfix(cpu_model: str, github_actions: bool | None = None)
 
 
 def benchmark_result_paths(dataset_name: str, cpu_model: str) -> tuple[Path, Path]:
-    dataset_postfix = f"-{dataset_name}"
-    postfix = dataset_postfix + benchmark_result_postfix(cpu_model)
+    postfix = f"{benchmark_result_postfix(cpu_model)}-{dataset_name}"
     report_path = REPORT_PATH.with_name(
         f"{REPORT_PATH.stem}{postfix}{REPORT_PATH.suffix}"
     )

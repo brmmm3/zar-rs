@@ -1,0 +1,261 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="2440" viewBox="0 0 1120 2440" role="img" aria-labelledby="title description">
+<title id="title">windows x86_64 archive benchmark charts</title>
+<desc id="description">Archive size, compression time, full and three-file extraction time, CPU utilisation, and RAM usage for archive formats with and without encryption, with hot and cold file caches where available. Source size: 29.5 MiB. Operating system: Windows-2025Server-10.0.26100-SP0. CPU: AMD EPYC 9V74 80-Core Processor (AMD64, 4 logical cores). Storage (Source and archives): Unknown (Windows reported no media type); model: Msft Virtual Disk; device: disk 1 (SAS); Storage (Extraction output): Unknown (Windows reported no media type); model: Msft Virtual Disk; device: disk 1 (SAS)</desc>
+<style>
+  text { font-family: system-ui, sans-serif; fill: #172033; }
+  .heading { font-size: 19px; font-weight: 700; }
+  .label { font-size: 13px; }
+  .metadata { font-size: 12px; fill: #475569; }
+  .axis { font-size: 11px; fill: #64748b; }
+  .value { font-size: 12px; font-weight: 600; }
+  .grid { stroke: #dbe3ee; stroke-width: 1; }
+</style>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="24" y="24" class="heading">Benchmark system</text>
+<text x="24" y="46" class="metadata">Operating system: Windows-2025Server-10.0.26100-SP0</text>
+<text x="24" y="64" class="metadata">CPU: AMD EPYC 9V74 80-Core Processor (AMD64, 4 logical cores)</text>
+<text x="24" y="82" class="metadata">Storage (Source and archives): Unknown (Windows reported no media type); model: Msft Virtual Disk; device: disk 1 (SAS)</text>
+<text x="24" y="100" class="metadata">Storage (Extraction output): Unknown (Windows reported no media type); model: Msft Virtual Disk; device: disk 1 (SAS)</text>
+<text x="24" y="120" class="heading">Archive size</text>
+<line x1="250" y1="154" x2="250" y2="394" class="grid"/>
+<text x="250" y="146" text-anchor="middle" class="axis">0.0</text>
+<line x1="425" y1="154" x2="425" y2="394" class="grid"/>
+<text x="425" y="146" text-anchor="middle" class="axis">8.8</text>
+<line x1="600" y1="154" x2="600" y2="394" class="grid"/>
+<text x="600" y="146" text-anchor="middle" class="axis">17.7</text>
+<line x1="775" y1="154" x2="775" y2="394" class="grid"/>
+<text x="775" y="146" text-anchor="middle" class="axis">26.5</text>
+<line x1="950" y1="154" x2="950" y2="394" class="grid"/>
+<text x="950" y="146" text-anchor="middle" class="axis">35.4</text>
+<text x="238" y="171" text-anchor="end" class="label">zarlib - plain</text>
+<rect x="250" y="157" width="464" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="722" y="171" class="value">23.48 MiB</text>
+<text x="238" y="201" text-anchor="end" class="label">zarlib - encrypted</text>
+<rect x="250" y="187" width="464" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
+<text x="722" y="201" class="value">23.49 MiB</text>
+<text x="238" y="231" text-anchor="end" class="label">7z - plain</text>
+<rect x="250" y="217" width="434" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="692" y="231" class="value">21.93 MiB</text>
+<text x="238" y="261" text-anchor="end" class="label">7z - encrypted</text>
+<rect x="250" y="247" width="434" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="692" y="261" class="value">21.93 MiB</text>
+<text x="238" y="291" text-anchor="end" class="label">tar - plain</text>
+<rect x="250" y="277" width="699" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="957" y="291" class="value">35.36 MiB</text>
+<text x="238" y="321" text-anchor="end" class="label">tar - encrypted</text>
+<rect x="250" y="307" width="700" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="958" y="321" class="value">35.36 MiB</text>
+<text x="238" y="351" text-anchor="end" class="label">tar.gz - plain</text>
+<rect x="250" y="337" width="520" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="778" y="351" class="value">26.31 MiB</text>
+<text x="238" y="381" text-anchor="end" class="label">tar.gz - encrypted</text>
+<rect x="250" y="367" width="520" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="778" y="381" class="value">26.31 MiB</text>
+<text x="24" y="440" class="heading">Compression time</text>
+<line x1="250" y1="474" x2="250" y2="714" class="grid"/>
+<text x="250" y="466" text-anchor="middle" class="axis">0.0</text>
+<line x1="425" y1="474" x2="425" y2="714" class="grid"/>
+<text x="425" y="466" text-anchor="middle" class="axis">0.6</text>
+<line x1="600" y1="474" x2="600" y2="714" class="grid"/>
+<text x="600" y="466" text-anchor="middle" class="axis">1.2</text>
+<line x1="775" y1="474" x2="775" y2="714" class="grid"/>
+<text x="775" y="466" text-anchor="middle" class="axis">1.8</text>
+<line x1="950" y1="474" x2="950" y2="714" class="grid"/>
+<text x="950" y="466" text-anchor="middle" class="axis">2.4</text>
+<text x="238" y="491" text-anchor="end" class="label">zarlib - plain</text>
+<rect x="459" y="477" width="13" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="480" y="491" class="value">0.72-0.77 s</text>
+<text x="238" y="521" text-anchor="end" class="label">zarlib - encrypted</text>
+<rect x="492" y="507" width="3" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
+<text x="503" y="521" class="value">0.84-0.85 s</text>
+<text x="238" y="551" text-anchor="end" class="label">7z - plain</text>
+<rect x="906" y="537" width="43" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="957" y="551" class="value">2.27-2.42 s</text>
+<text x="238" y="581" text-anchor="end" class="label">7z - encrypted</text>
+<rect x="911" y="567" width="1" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="920" y="581" class="value">2.29-2.29 s</text>
+<text x="238" y="611" text-anchor="end" class="label">tar - plain</text>
+<rect x="355" y="597" width="9" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="372" y="611" class="value">0.37-0.40 s</text>
+<text x="238" y="641" text-anchor="end" class="label">tar - encrypted</text>
+<rect x="407" y="627" width="29" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="444" y="641" class="value">0.55-0.65 s</text>
+<text x="238" y="671" text-anchor="end" class="label">tar.gz - plain</text>
+<rect x="637" y="657" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="646" y="671" class="value">1.34-1.34 s</text>
+<text x="238" y="701" text-anchor="end" class="label">tar.gz - encrypted</text>
+<rect x="687" y="687" width="2" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="697" y="701" class="value">1.51-1.52 s</text>
+<text x="24" y="760" class="heading">Extraction time</text>
+<line x1="250" y1="794" x2="250" y2="1034" class="grid"/>
+<text x="250" y="786" text-anchor="middle" class="axis">0.0</text>
+<line x1="425" y1="794" x2="425" y2="1034" class="grid"/>
+<text x="425" y="786" text-anchor="middle" class="axis">0.8</text>
+<line x1="600" y1="794" x2="600" y2="1034" class="grid"/>
+<text x="600" y="786" text-anchor="middle" class="axis">1.6</text>
+<line x1="775" y1="794" x2="775" y2="1034" class="grid"/>
+<text x="775" y="786" text-anchor="middle" class="axis">2.3</text>
+<line x1="950" y1="794" x2="950" y2="1034" class="grid"/>
+<text x="950" y="786" text-anchor="middle" class="axis">3.1</text>
+<text x="238" y="811" text-anchor="end" class="label">zarlib - plain</text>
+<rect x="485" y="797" width="56" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="549" y="811" class="value">1.05-1.30 s</text>
+<text x="238" y="841" text-anchor="end" class="label">zarlib - encrypted</text>
+<rect x="517" y="827" width="7" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
+<text x="532" y="841" class="value">1.18-1.22 s</text>
+<text x="238" y="871" text-anchor="end" class="label">7z - plain</text>
+<rect x="917" y="857" width="28" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="953" y="871" class="value">2.96-3.09 s</text>
+<text x="238" y="901" text-anchor="end" class="label">7z - encrypted</text>
+<rect x="948" y="887" width="1" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="957" y="901" class="value">3.10-3.11 s</text>
+<text x="238" y="931" text-anchor="end" class="label">tar - plain</text>
+<rect x="603" y="917" width="20" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="631" y="931" class="value">1.57-1.66 s</text>
+<text x="238" y="961" text-anchor="end" class="label">tar - encrypted</text>
+<rect x="650" y="947" width="38" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="696" y="961" class="value">1.78-1.95 s</text>
+<text x="238" y="991" text-anchor="end" class="label">tar.gz - plain</text>
+<rect x="615" y="977" width="27" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="650" y="991" class="value">1.62-1.74 s</text>
+<text x="238" y="1021" text-anchor="end" class="label">tar.gz - encrypted</text>
+<rect x="721" y="1007" width="12" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="741" y="1021" class="value">2.09-2.14 s</text>
+<text x="24" y="1080" class="heading">Extraction time (3 files)</text>
+<line x1="250" y1="1114" x2="250" y2="1354" class="grid"/>
+<text x="250" y="1106" text-anchor="middle" class="axis">0.0</text>
+<line x1="425" y1="1114" x2="425" y2="1354" class="grid"/>
+<text x="425" y="1106" text-anchor="middle" class="axis">0.2</text>
+<line x1="600" y1="1114" x2="600" y2="1354" class="grid"/>
+<text x="600" y="1106" text-anchor="middle" class="axis">0.5</text>
+<line x1="775" y1="1114" x2="775" y2="1354" class="grid"/>
+<text x="775" y="1106" text-anchor="middle" class="axis">0.8</text>
+<line x1="950" y1="1114" x2="950" y2="1354" class="grid"/>
+<text x="950" y="1106" text-anchor="middle" class="axis">1.0</text>
+<text x="238" y="1131" text-anchor="end" class="label">zarlib - plain</text>
+<rect x="285" y="1117" width="52" height="18" rx="4" fill="#2563eb" opacity="1.0"/>
+<text x="345" y="1131" class="value">0.05-0.13 s</text>
+<text x="238" y="1161" text-anchor="end" class="label">zarlib - encrypted</text>
+<rect x="365" y="1147" width="7" height="18" rx="4" fill="#2563eb" opacity="0.60"/>
+<text x="380" y="1161" class="value">0.16-0.18 s</text>
+<text x="238" y="1191" text-anchor="end" class="label">7z - plain</text>
+<rect x="449" y="1177" width="1" height="18" rx="4" fill="#9333ea" opacity="1.0"/>
+<text x="458" y="1191" class="value">0.29-0.29 s</text>
+<text x="238" y="1221" text-anchor="end" class="label">7z - encrypted</text>
+<rect x="477" y="1207" width="121" height="18" rx="4" fill="#9333ea" opacity="0.60"/>
+<text x="606" y="1221" class="value">0.32-0.50 s</text>
+<text x="238" y="1251" text-anchor="end" class="label">tar - plain</text>
+<rect x="276" y="1237" width="1" height="18" rx="4" fill="#0891b2" opacity="1.0"/>
+<text x="285" y="1251" class="value">0.04-0.04 s</text>
+<text x="238" y="1281" text-anchor="end" class="label">tar - encrypted</text>
+<rect x="425" y="1267" width="54" height="18" rx="4" fill="#0891b2" opacity="0.60"/>
+<text x="487" y="1281" class="value">0.25-0.33 s</text>
+<text x="238" y="1311" text-anchor="end" class="label">tar.gz - plain</text>
+<rect x="340" y="1297" width="1" height="18" rx="4" fill="#ea580c" opacity="1.0"/>
+<text x="349" y="1311" class="value">0.13-0.13 s</text>
+<text x="238" y="1341" text-anchor="end" class="label">tar.gz - encrypted</text>
+<rect x="477" y="1327" width="40" height="18" rx="4" fill="#ea580c" opacity="0.60"/>
+<text x="525" y="1341" class="value">0.32-0.38 s</text>
+<text x="24" y="1410" class="heading">CPU during compression</text>
+<line x1="250" y1="1604" x2="950" y2="1604" class="grid"/>
+<text x="242" y="1608" text-anchor="end" class="axis">0</text>
+<line x1="250" y1="1564" x2="950" y2="1564" class="grid"/>
+<text x="242" y="1568" text-anchor="end" class="axis">15</text>
+<line x1="250" y1="1524" x2="950" y2="1524" class="grid"/>
+<text x="242" y="1528" text-anchor="end" class="axis">30</text>
+<line x1="250" y1="1484" x2="950" y2="1484" class="grid"/>
+<text x="242" y="1488" text-anchor="end" class="axis">46</text>
+<line x1="250" y1="1444" x2="950" y2="1444" class="grid"/>
+<text x="242" y="1448" text-anchor="end" class="axis">61</text>
+<text x="242" y="1430" text-anchor="end" class="axis">CPU (%)</text>
+<text x="250" y="1620" text-anchor="middle" class="axis">0.0s</text>
+<text x="425" y="1620" text-anchor="middle" class="axis">0.5s</text>
+<text x="600" y="1620" text-anchor="middle" class="axis">1.0s</text>
+<text x="775" y="1620" text-anchor="middle" class="axis">1.5s</text>
+<text x="950" y="1620" text-anchor="middle" class="axis">2.0s</text>
+<polyline points="250,1604" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,1604" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,1604 600,1447 950,1466" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,1604 600,1444 950,1465" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,1604" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,1604 600,1531" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,1604 600,1481" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="250" y="1640" class="axis" font-weight="600">Line colour = archive format; solid = plain, dashed = encrypted</text>
+<text x="24" y="1660" class="heading">RAM during compression</text>
+<line x1="250" y1="1854" x2="950" y2="1854" class="grid"/>
+<text x="242" y="1858" text-anchor="end" class="axis">0.00</text>
+<line x1="250" y1="1814" x2="950" y2="1814" class="grid"/>
+<text x="242" y="1818" text-anchor="end" class="axis">0.07</text>
+<line x1="250" y1="1774" x2="950" y2="1774" class="grid"/>
+<text x="242" y="1778" text-anchor="end" class="axis">0.14</text>
+<line x1="250" y1="1734" x2="950" y2="1734" class="grid"/>
+<text x="242" y="1738" text-anchor="end" class="axis">0.21</text>
+<line x1="250" y1="1694" x2="950" y2="1694" class="grid"/>
+<text x="242" y="1698" text-anchor="end" class="axis">0.27</text>
+<text x="242" y="1680" text-anchor="end" class="axis">RAM (GiB)</text>
+<text x="250" y="1870" text-anchor="middle" class="axis">0.0s</text>
+<text x="425" y="1870" text-anchor="middle" class="axis">0.5s</text>
+<text x="600" y="1870" text-anchor="middle" class="axis">1.0s</text>
+<text x="775" y="1870" text-anchor="middle" class="axis">1.5s</text>
+<text x="950" y="1870" text-anchor="middle" class="axis">2.0s</text>
+<polyline points="250,1840" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,1809" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,1764 600,1698 950,1838" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,1763 600,1694 950,1837" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,1836" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,1851 600,1851" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,1851 600,1851" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="250" y="1890" class="axis" font-weight="600">Line colour = archive format; solid = plain, dashed = encrypted</text>
+<text x="24" y="1910" class="heading">CPU during extraction</text>
+<line x1="250" y1="2104" x2="950" y2="2104" class="grid"/>
+<text x="242" y="2108" text-anchor="end" class="axis">0</text>
+<line x1="250" y1="2064" x2="950" y2="2064" class="grid"/>
+<text x="242" y="2068" text-anchor="end" class="axis">18</text>
+<line x1="250" y1="2024" x2="950" y2="2024" class="grid"/>
+<text x="242" y="2028" text-anchor="end" class="axis">36</text>
+<line x1="250" y1="1984" x2="950" y2="1984" class="grid"/>
+<text x="242" y="1988" text-anchor="end" class="axis">54</text>
+<line x1="250" y1="1944" x2="950" y2="1944" class="grid"/>
+<text x="242" y="1948" text-anchor="end" class="axis">72</text>
+<text x="242" y="1930" text-anchor="end" class="axis">CPU (%)</text>
+<text x="250" y="2120" text-anchor="middle" class="axis">0.0s</text>
+<text x="425" y="2120" text-anchor="middle" class="axis">0.8s</text>
+<text x="600" y="2120" text-anchor="middle" class="axis">1.5s</text>
+<text x="775" y="2120" text-anchor="middle" class="axis">2.2s</text>
+<text x="950" y="2120" text-anchor="middle" class="axis">3.0s</text>
+<polyline points="250,1993 483,1946" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2104 483,1944" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2104 483,2041 716,2039 950,2046" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2104 483,2041 716,2033 950,2039" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2104 483,2031" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2104 483,2035" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2104 483,2033" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2104 483,2009 716,2003" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="250" y="2140" class="axis" font-weight="600">Line colour = archive format; solid = plain, dashed = encrypted</text>
+<text x="24" y="2160" class="heading">RAM during extraction</text>
+<line x1="250" y1="2354" x2="950" y2="2354" class="grid"/>
+<text x="242" y="2358" text-anchor="end" class="axis">0.00</text>
+<line x1="250" y1="2314" x2="950" y2="2314" class="grid"/>
+<text x="242" y="2318" text-anchor="end" class="axis">0.03</text>
+<line x1="250" y1="2274" x2="950" y2="2274" class="grid"/>
+<text x="242" y="2278" text-anchor="end" class="axis">0.06</text>
+<line x1="250" y1="2234" x2="950" y2="2234" class="grid"/>
+<text x="242" y="2238" text-anchor="end" class="axis">0.09</text>
+<line x1="250" y1="2194" x2="950" y2="2194" class="grid"/>
+<text x="242" y="2198" text-anchor="end" class="axis">0.12</text>
+<text x="242" y="2180" text-anchor="end" class="axis">RAM (GiB)</text>
+<text x="250" y="2370" text-anchor="middle" class="axis">0.0s</text>
+<text x="425" y="2370" text-anchor="middle" class="axis">0.8s</text>
+<text x="600" y="2370" text-anchor="middle" class="axis">1.5s</text>
+<text x="775" y="2370" text-anchor="middle" class="axis">2.2s</text>
+<text x="950" y="2370" text-anchor="middle" class="axis">3.0s</text>
+<polyline points="250,2236 483,2258" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2199 483,2194" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2270 483,2259 716,2259 950,2259" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2271 483,2258 716,2258 950,2258" fill="none" stroke="#9333ea" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2348 483,2348" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2348 483,2348" fill="none" stroke="#0891b2" stroke-width="1.5" stroke-dasharray="6,3"/>
+<polyline points="250,2348 483,2348" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray=""/>
+<polyline points="250,2348 483,2348 716,2348" fill="none" stroke="#ea580c" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="250" y="2390" class="axis" font-weight="600">Line colour = archive format; solid = plain, dashed = encrypted</text>
+</svg>

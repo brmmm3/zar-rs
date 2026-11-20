@@ -132,6 +132,6 @@ jobs:
         with:
           name: archive-benchmark-${{ matrix.platform.name }}-${{ matrix.dataset }}
           path: |
-            doc/benchmarks/benchmark-report-${{ matrix.platform.os }}-${{ matrix.platform.arch }}-${{ matrix.dataset }}*-gh.md
-            doc/benchmarks/benchmark-charts-${{ matrix.platform.os }}-${{ matrix.platform.arch }}-${{ matrix.dataset }}*-gh.svg
+            doc/benchmarks/benchmark-report-${{ matrix.platform.os }}-${{ matrix.platform.arch }}*-gh-${{ matrix.dataset }}.md
+            doc/benchmarks/benchmark-charts-${{ matrix.platform.os }}-${{ matrix.platform.arch }}*-gh-${{ matrix.dataset }}.svg
           if-no-files-found: warn

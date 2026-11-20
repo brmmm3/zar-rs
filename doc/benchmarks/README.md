@@ -167,40 +167,49 @@ runners.
 
 ## Reports
 
-Report and chart filenames include the operating system, architecture, and
-dataset, followed by a recognized CPU suffix (`-ryzen5`, `-core-i7`, or
-`-core-u7` for Core U7 and Core Ultra 7 CPUs). GitHub Actions runs add `-gh`
-last. For example, Linux 4.0.1 results on an Intel Core i7 are named
-`benchmark-report-linux-x86_64-linux-4.0.1-core-i7.md` and
-`benchmark-charts-linux-x86_64-linux-4.0.1-core-i7.svg`. Historical reports
-may retain earlier naming conventions.
+Report and chart filenames include the operating system and architecture,
+followed by a recognized CPU suffix (`-ryzen5`, `-core-i7`, or `-core-u7` for
+Core U7 and Core Ultra 7 CPUs), the optional `-gh` marker, and the dataset.
+For example, Linux 4.0.1 results on an Intel Core i7 are named
+`benchmark-report-linux-x86_64-core-i7-linux-4.0.1.md` and
+`benchmark-charts-linux-x86_64-core-i7-linux-4.0.1.svg`.
 
 | Dataset | Platform / system (run date) | Report | Chart |
 | --- | --- | --- | --- |
-| Linux 4.0.1 | Linux x86_64, Core i7-10700 (2026-11-20) | [Report](./benchmark-report-linux-x86_64-core-i7.md) | [Chart](./benchmark-charts-linux-x86_64-core-i7.svg) |
-| Linux 4.0.1 | Linux x86_64, Ryzen 5 2400G (2026-11-18) | [Report](./benchmark-report-linux-x86_64-ryzen5.md) | [Chart](./benchmark-charts-linux-x86_64-ryzen5.svg) |
-| Linux 4.0.1 | Linux x86_64, GitHub-hosted, AMD EPYC 7763 (2026-11-08) | [Report](./benchmark-report-linux-x86_64-gh.md) | [Chart](./benchmark-charts-linux-x86_64-gh.svg) |
-| Linux 4.0.1 | Linux ARM64, GitHub-hosted, CPU not reported (2026-11-08) | [Report](./benchmark-report-linux-arm64-gh.md) | [Chart](./benchmark-charts-linux-arm64-gh.svg) |
-| Linux 4.0.1 | Windows x86_64, Core Ultra 7 265HX (2026-11-20) | [Report](./benchmark-report-windows-x86_64-core-u7.md) | [Chart](./benchmark-charts-windows-x86_64-core-u7.svg) |
-| Linux 4.0.1 | Windows x86_64, GitHub-hosted, AMD EPYC 9V74 (2026-11-08) | [Report](./benchmark-report-windows-x86_64-gh.md) | [Chart](./benchmark-charts-windows-x86_64-gh.svg) |
-| Linux 4.0.1 | Windows x86_64, Core Ultra 7 265HX (2026-11-19) | [Report](./benchmark-report-windows-x86_64.md) | [Chart](./benchmark-charts-windows-x86_64.svg) |
-| Linux 4.0.1 | Windows AMD64, GitHub-hosted, CPU model not reported (2026-10-30) | [Report](./benchmark-report-windows-amd64-gh.md) | [Chart](./benchmark-charts-windows-amd64-gh.svg) |
-| Linux 6.1.1 precompiled | Linux x86_64, Ryzen 5 2400G (2026-11-20) | [Report](./benchmark-report-linux-x86_64-linux-6.1.1-ryzen5.md) | [Chart](./benchmark-charts-linux-x86_64-linux-6.1.1-ryzen5.svg) |
-| Linux 6.1.1 precompiled | Linux x86_64, Core i7-10700 (2026-11-20) | [Report](./benchmark-report-linux-x86_64-linux-6.1.1-core-i7.md) | [Chart](./benchmark-charts-linux-x86_64-linux-6.1.1-core-i7.svg) |
-| Linux 6.1.1 precompiled | Windows x86_64, Core Ultra 7 265HX (2026-11-20) | [Report](./benchmark-report-windows-x86_64-linux-6.1.1-core-u7.md) | [Chart](./benchmark-charts-windows-x86_64-linux-6.1.1-core-u7.svg) |
-| Duplicate icons | Linux x86_64, Core i7-10700 (2026-11-20) | [Report](./benchmark-report-linux-x86_64-duplicates-core-i7.md) | [Chart](./benchmark-charts-linux-x86_64-duplicates-core-i7.svg) |
-| Duplicate icons | Linux x86_64, Ryzen 5 2400G (2026-11-20) | [Report](./benchmark-report-linux-x86_64-duplicates-ryzen5.md) | [Chart](./benchmark-charts-linux-x86_64-duplicates-ryzen5.svg) |
-| Duplicate icons | Windows x86_64, Core Ultra 7 265HX (2026-11-20) | [Report](./benchmark-report-windows-x86_64-duplicates-core-u7.md) | [Chart](./benchmark-charts-windows-x86_64-duplicates-core-u7.svg) |
-| Icons | Linux x86_64, Core i7-10700 (2026-11-20) | [Report](./benchmark-report-linux-x86_64-icons-core-i7.md) | [Chart](./benchmark-charts-linux-x86_64-icons-core-i7.svg) |
-| Icons | Linux x86_64, Ryzen 5 2400G (2026-11-20) | [Report](./benchmark-report-linux-x86_64-icons-ryzen5.md) | [Chart](./benchmark-charts-linux-x86_64-icons-ryzen5.svg) |
-| Icons | Windows x86_64, Core Ultra 7 265HX (2026-11-20) | [Report](./benchmark-report-windows-x86_64-icons-core-u7.md) | [Chart](./benchmark-charts-windows-x86_64-icons-core-u7.svg) |
-| Small archive | Linux x86_64, Core i7-10700 (2026-11-20) | [Report](./benchmark-report-linux-x86_64-small_archive-core-i7.md) | [Chart](./benchmark-charts-linux-x86_64-small_archive-core-i7.svg) |
-| Small archive | Linux x86_64, Ryzen 5 2400G (2026-11-20) | [Report](./benchmark-report-linux-x86_64-small_archive-ryzen5.md) | [Chart](./benchmark-charts-linux-x86_64-small_archive-ryzen5.svg) |
-| Small archive | Windows x86_64, Core Ultra 7 265HX (2026-11-20) | [Report](./benchmark-report-windows-x86_64-small_archive-core-u7.md) | [Chart](./benchmark-charts-windows-x86_64-small_archive-core-u7.svg) |
+| Linux 4.0.1 | Linux ARM64, GitHub-hosted, CPU not reported (2026-11-20) | [Report](./benchmark-report-linux-arm64-gh-linux-4.0.1.md) | [Chart](./benchmark-charts-linux-arm64-gh-linux-4.0.1.svg) |
+| Linux 4.0.1 | Linux x86_64, Core i7-10700 (2026-11-20) | [Report](./benchmark-report-linux-x86_64-core-i7-linux-4.0.1.md) | [Chart](./benchmark-charts-linux-x86_64-core-i7-linux-4.0.1.svg) |
+| Linux 4.0.1 | Linux x86_64, GitHub-hosted, AMD EPYC 9V45 (2026-11-20) | [Report](./benchmark-report-linux-x86_64-gh-linux-4.0.1.md) | [Chart](./benchmark-charts-linux-x86_64-gh-linux-4.0.1.svg) |
+| Linux 4.0.1 | Linux x86_64, Ryzen 5 2400G (2026-11-18) | [Report](./benchmark-report-linux-x86_64-ryzen5-linux-4.0.1.md) | [Chart](./benchmark-charts-linux-x86_64-ryzen5-linux-4.0.1.svg) |
+| Linux 4.0.1 | Windows x86_64, Core Ultra 7 265HX (2026-11-20) | [Report](./benchmark-report-windows-x86_64-core-u7-linux-4.0.1.md) | [Chart](./benchmark-charts-windows-x86_64-core-u7-linux-4.0.1.svg) |
+| Linux 4.0.1 | Windows x86_64, GitHub-hosted, AMD EPYC 9V45 (2026-11-20) | [Report](./benchmark-report-windows-x86_64-gh-linux-4.0.1.md) | [Chart](./benchmark-charts-windows-x86_64-gh-linux-4.0.1.svg) |
+| Linux 6.1.1 precompiled | Linux ARM64, GitHub-hosted, CPU not reported (2026-11-20) | [Report](./benchmark-report-linux-arm64-gh-linux-6.1.1.md) | [Chart](./benchmark-charts-linux-arm64-gh-linux-6.1.1.svg) |
+| Linux 6.1.1 precompiled | Linux x86_64, Core i7-10700 (2026-11-20) | [Report](./benchmark-report-linux-x86_64-core-i7-linux-6.1.1.md) | [Chart](./benchmark-charts-linux-x86_64-core-i7-linux-6.1.1.svg) |
+| Linux 6.1.1 precompiled | Linux x86_64, GitHub-hosted, Intel Xeon Platinum 8573C (2026-11-20) | [Report](./benchmark-report-linux-x86_64-gh-linux-6.1.1.md) | [Chart](./benchmark-charts-linux-x86_64-gh-linux-6.1.1.svg) |
+| Linux 6.1.1 precompiled | Linux x86_64, Ryzen 5 2400G (2026-11-20) | [Report](./benchmark-report-linux-x86_64-ryzen5-linux-6.1.1.md) | [Chart](./benchmark-charts-linux-x86_64-ryzen5-linux-6.1.1.svg) |
+| Linux 6.1.1 precompiled | Windows x86_64, Core Ultra 7 265HX (2026-11-20) | [Report](./benchmark-report-windows-x86_64-core-u7-linux-6.1.1.md) | [Chart](./benchmark-charts-windows-x86_64-core-u7-linux-6.1.1.svg) |
+| Linux 6.1.1 precompiled | Windows x86_64, GitHub-hosted, AMD EPYC 9V45 (2026-11-20) | [Report](./benchmark-report-windows-x86_64-gh-linux-6.1.1.md) | [Chart](./benchmark-charts-windows-x86_64-gh-linux-6.1.1.svg) |
+| Linux 6.6.1 compiled kernel | Linux x86_64, Core i7-10700 (2026-11-19) | [Report](./benchmark-report-linux-x86_64-core-i7-compiled.md) | [Chart](./benchmark-charts-linux-x86_64-core-i7-compiled.svg) |
+| Duplicate icons | Linux ARM64, GitHub-hosted, CPU not reported (2026-11-20) | [Report](./benchmark-report-linux-arm64-gh-duplicates.md) | [Chart](./benchmark-charts-linux-arm64-gh-duplicates.svg) |
+| Duplicate icons | Linux x86_64, Core i7-10700 (2026-11-20) | [Report](./benchmark-report-linux-x86_64-core-i7-duplicates.md) | [Chart](./benchmark-charts-linux-x86_64-core-i7-duplicates.svg) |
+| Duplicate icons | Linux x86_64, GitHub-hosted, AMD EPYC 9V74 (2026-11-20) | [Report](./benchmark-report-linux-x86_64-gh-duplicates.md) | [Chart](./benchmark-charts-linux-x86_64-gh-duplicates.svg) |
+| Duplicate icons | Linux x86_64, Ryzen 5 2400G (2026-11-20) | [Report](./benchmark-report-linux-x86_64-ryzen5-duplicates.md) | [Chart](./benchmark-charts-linux-x86_64-ryzen5-duplicates.svg) |
+| Duplicate icons | Windows x86_64, Core Ultra 7 265HX (2026-11-20) | [Report](./benchmark-report-windows-x86_64-core-u7-duplicates.md) | [Chart](./benchmark-charts-windows-x86_64-core-u7-duplicates.svg) |
+| Icons | Linux ARM64, GitHub-hosted, CPU not reported (2026-11-20) | [Report](./benchmark-report-linux-arm64-gh-icons.md) | [Chart](./benchmark-charts-linux-arm64-gh-icons.svg) |
+| Icons | Linux x86_64, Core i7-10700 (2026-11-20) | [Report](./benchmark-report-linux-x86_64-core-i7-icons.md) | [Chart](./benchmark-charts-linux-x86_64-core-i7-icons.svg) |
+| Icons | Linux x86_64, GitHub-hosted, AMD EPYC 7763 (2026-11-20) | [Report](./benchmark-report-linux-x86_64-gh-icons.md) | [Chart](./benchmark-charts-linux-x86_64-gh-icons.svg) |
+| Icons | Linux x86_64, Ryzen 5 2400G (2026-11-20) | [Report](./benchmark-report-linux-x86_64-ryzen5-icons.md) | [Chart](./benchmark-charts-linux-x86_64-ryzen5-icons.svg) |
+| Icons | Windows x86_64, Core Ultra 7 265HX (2026-11-20) | [Report](./benchmark-report-windows-x86_64-core-u7-icons.md) | [Chart](./benchmark-charts-windows-x86_64-core-u7-icons.svg) |
+| Icons | Windows x86_64, GitHub-hosted, AMD EPYC 9V74 (2026-11-20) | [Report](./benchmark-report-windows-x86_64-gh-icons.md) | [Chart](./benchmark-charts-windows-x86_64-gh-icons.svg) |
+| Small archive | Linux ARM64, GitHub-hosted, CPU not reported (2026-11-20) | [Report](./benchmark-report-linux-arm64-gh-small_archive.md) | [Chart](./benchmark-charts-linux-arm64-gh-small_archive.svg) |
+| Small archive | Linux x86_64, Core i7-10700 (2026-11-20) | [Report](./benchmark-report-linux-x86_64-core-i7-small_archive.md) | [Chart](./benchmark-charts-linux-x86_64-core-i7-small_archive.svg) |
+| Small archive | Linux x86_64, GitHub-hosted, Intel Xeon Platinum 8573C (2026-11-20) | [Report](./benchmark-report-linux-x86_64-gh-small_archive.md) | [Chart](./benchmark-charts-linux-x86_64-gh-small_archive.svg) |
+| Small archive | Linux x86_64, Ryzen 5 2400G (2026-11-20) | [Report](./benchmark-report-linux-x86_64-ryzen5-small_archive.md) | [Chart](./benchmark-charts-linux-x86_64-ryzen5-small_archive.svg) |
+| Small archive | Windows x86_64, Core Ultra 7 265HX (2026-11-20) | [Report](./benchmark-report-windows-x86_64-core-u7-small_archive.md) | [Chart](./benchmark-charts-windows-x86_64-core-u7-small_archive.svg) |
+| Small archive | Windows x86_64, GitHub-hosted, AMD EPYC 9V74 (2026-11-20) | [Report](./benchmark-report-windows-x86_64-gh-small_archive.md) | [Chart](./benchmark-charts-windows-x86_64-gh-small_archive.svg) |
 
-Run dates are shown in each report's local time zone. The Linux ARM64 report
-does not identify the CPU model. For the newer Linux and Windows reports on all
-five datasets, see the [dataset report index](../../README.md#benchmarks).
+Run dates are shown in each report's local time zone. Linux ARM64 reports do not
+identify the CPU model. For the cross-platform dataset overview, see the
+[dataset report index](../../README.md#benchmarks).
 
 ## How to read the results
 

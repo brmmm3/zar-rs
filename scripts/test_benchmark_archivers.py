@@ -932,7 +932,7 @@ def test_benchmark_result_postfix(cpu_model, github_actions, expected) -> None:
     ) == expected
 
 
-def test_benchmark_result_paths_put_github_suffix_last(tmp_path, monkeypatch) -> None:
+def test_benchmark_result_paths_put_dataset_after_postfix(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(benchmark_archivers, "REPORT_PATH", tmp_path / "report.md")
     monkeypatch.setattr(benchmark_archivers, "CHART_PATH", tmp_path / "chart.svg")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
@@ -941,8 +941,8 @@ def test_benchmark_result_paths_put_github_suffix_last(tmp_path, monkeypatch) ->
         "duplicates", "Intel(R) Core(TM) i7-10700"
     )
 
-    assert report_path.name == "report-duplicates-core-i7-gh.md"
-    assert chart_path.name == "chart-duplicates-core-i7-gh.svg"
+    assert report_path.name == "report-core-i7-gh-duplicates.md"
+    assert chart_path.name == "chart-core-i7-gh-duplicates.svg"
 
 
 def test_benchmark_result_paths_include_linux_4_0_1_dataset(
@@ -964,8 +964,8 @@ def test_benchmark_result_paths_include_linux_4_0_1_dataset(
         benchmark_archivers.SOURCE_NAME, "Intel(R) Core(TM) i7-10700"
     )
 
-    assert report_path.name == "benchmark-report-linux-x86_64-linux-4.0.1-core-i7.md"
-    assert chart_path.name == "benchmark-charts-linux-x86_64-linux-4.0.1-core-i7.svg"
+    assert report_path.name == "benchmark-report-linux-x86_64-core-i7-linux-4.0.1.md"
+    assert chart_path.name == "benchmark-charts-linux-x86_64-core-i7-linux-4.0.1.svg"
 
 
 def test_archive_size_chart_deduplicates_cache_states() -> None:

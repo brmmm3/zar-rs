@@ -67,7 +67,7 @@ The release build of `zarg` can browse the same archive and select a commit:
 Highlights:
 
 - **Speed.** Data is split into blocks compressed in parallel with Zstandard.
-  In one [Linux Core i7 benchmark](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7.md)
+  In one [Linux Core i7 benchmark](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7-linux-4.0.1.md)
   of the 525 MiB Linux 4.0.1 source tree, hot-cache unencrypted ZAR creation
   took 0.98–1.03 s and full extraction took 0.89–0.91 s. The same run produced a
   smaller 7z archive, but 7z creation took 26.86–27.61 s. Results depend on
@@ -202,7 +202,7 @@ for command details and encrypted-archive limitations.
 
 ## Benchmarks
 
-The [Linux Core i7 benchmark report](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7.md)
+The [Linux Core i7 benchmark report](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7-linux-4.0.1.md)
 measured the 525.1 MiB Linux 4.0.1 source tree on 2026-11-20 using an Intel
 Core i7-10700 and SSD storage. These are unencrypted, hot-cache results; each
 time range covers two runs. The full report also includes encrypted and
@@ -219,18 +219,18 @@ cold-cache results.
 Tar is an uncompressed baseline. Encryption methods differ: the ZIP test uses
 legacy ZipCrypto, while tar and tar.gz use an OpenSSL encryption wrapper.
 Results depend on the hardware, data, settings, and cache state; see the
-[full report](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7.md) for
+[full report](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7-linux-4.0.1.md) for
 throughput, verification limitations, tool settings, and methodology.
 
 More recent dataset reports, each with a linked chart, are available for:
 
 | Dataset | Linux, Core i7-10700 | Windows, Core Ultra 7 265HX |
 |---|---|---|
-| Linux 4.0.1 source | [Report](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7.md) | [Report](./doc/benchmarks/benchmark-report-windows-x86_64-core-u7.md) |
-| Linux 6.1.1 | [Report](./doc/benchmarks/benchmark-report-linux-x86_64-linux-6.1.1-core-i7.md) | [Report](./doc/benchmarks/benchmark-report-windows-x86_64-linux-6.1.1-core-u7.md) |
-| Duplicate icon tree | [Report](./doc/benchmarks/benchmark-report-linux-x86_64-duplicates-core-i7.md) | [Report](./doc/benchmarks/benchmark-report-windows-x86_64-duplicates-core-u7.md) |
-| Icons | [Report](./doc/benchmarks/benchmark-report-linux-x86_64-icons-core-i7.md) | [Report](./doc/benchmarks/benchmark-report-windows-x86_64-icons-core-u7.md) |
-| Small archive | [Report](./doc/benchmarks/benchmark-report-linux-x86_64-small_archive-core-i7.md) | [Report](./doc/benchmarks/benchmark-report-windows-x86_64-small_archive-core-u7.md) |
+| Linux 4.0.1 source | [Report](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7-linux-4.0.1.md) | [Report](./doc/benchmarks/benchmark-report-windows-x86_64-core-u7-linux-4.0.1.md) |
+| Linux 6.1.1 | [Report](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7-linux-6.1.1.md) | [Report](./doc/benchmarks/benchmark-report-windows-x86_64-core-u7-linux-6.1.1.md) |
+| Duplicate icon tree | [Report](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7-duplicates.md) | [Report](./doc/benchmarks/benchmark-report-windows-x86_64-core-u7-duplicates.md) |
+| Icons | [Report](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7-icons.md) | [Report](./doc/benchmarks/benchmark-report-windows-x86_64-core-u7-icons.md) |
+| Small archive | [Report](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7-small_archive.md) | [Report](./doc/benchmarks/benchmark-report-windows-x86_64-core-u7-small_archive.md) |
 
 For example, on the duplicate icon tree the Linux report measures a 23.6 MiB
 ZAR versus a 43.1 MiB 7z archive, with unencrypted hot-cache creation taking
