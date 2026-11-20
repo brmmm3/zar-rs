@@ -28,9 +28,12 @@ until a version is released.
 ### Changed
 
 - Run each archive benchmark dataset as a separate GitHub Actions job for every
-  enabled platform, with a unique artifact per platform and dataset.
+  enabled platform, with optional dataset and OS selectors that default to all
+  and a unique artifact per platform and dataset.
 - Allow one missing extracted file on Windows benchmark runs while continuing to
   reject extra files, multiple missing files, and size mismatches.
+- Include the Linux 4.0.1 dataset name in generated benchmark report and chart
+  filenames, like the other datasets.
 - Scale saved window dimensions and position by the configured UI scale when
   restoring the startup geometry.
 - Reuse validated archive headers and the table of contents throughout extraction
@@ -41,6 +44,8 @@ until a version is released.
 
 - Fix archive creation when an input directory contains a child with the same
   name as the input root.
+- Accept 7-Zip's errors for a subset of source-tree symlinks while still failing
+  other extraction errors.
 
 ## 0.14.0 - 2026-11-18
 

@@ -161,16 +161,18 @@ can also be launched through GitHub Actions. Its matrix runs each of the five
 datasets separately on every enabled runner (Linux x64, Linux ARM64, and
 Windows x64), with platform/dataset jobs running in parallel. Each job runs
 hot-cache comparisons and uploads a uniquely named report-and-chart artifact.
+Use the **Dataset** and **Operating system** workflow inputs to limit the run;
+both default to **all** when left unselected. Choosing Linux selects both Linux
+runners.
 
 ## Reports
 
-Report and chart filenames include the operating system and architecture. The
-Linux 4.0.1 baseline has no dataset suffix; other reports add the dataset name,
-then a recognized CPU suffix (`-ryzen5`, `-core-i7`, or `-core-u7` for Core U7
-and Core Ultra 7 CPUs). GitHub Actions runs add `-gh` last. For example, an
-Intel Core i7 GitHub Actions run on the `duplicates` dataset uses
-`benchmark-report-linux-x86_64-duplicates-core-i7-gh.md` and the matching
-`benchmark-charts-linux-x86_64-duplicates-core-i7-gh.svg` chart. Older reports
+Report and chart filenames include the operating system, architecture, and
+dataset, followed by a recognized CPU suffix (`-ryzen5`, `-core-i7`, or
+`-core-u7` for Core U7 and Core Ultra 7 CPUs). GitHub Actions runs add `-gh`
+last. For example, Linux 4.0.1 results on an Intel Core i7 are named
+`benchmark-report-linux-x86_64-linux-4.0.1-core-i7.md` and
+`benchmark-charts-linux-x86_64-linux-4.0.1-core-i7.svg`. Historical reports
 may retain earlier naming conventions.
 
 | Dataset | Platform / system (run date) | Report | Chart |
@@ -213,3 +215,6 @@ five datasets, see the [dataset report index](../../README.md#benchmarks).
   the required tool or interaction mode is unavailable.
 - Extraction checks compare regular-file paths and sizes. Symlink behavior and
   other verification details are documented in each report.
+- 7-Zip may reject source symlinks whose relative targets contain parent
+  components. The runner accepts only these link errors, up to the number of
+  source symlinks; all regular files are still checked after extraction.

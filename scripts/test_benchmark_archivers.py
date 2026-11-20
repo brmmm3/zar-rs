@@ -867,6 +867,17 @@ def test_run_7z_extract_accepts_expected_dangerous_link_warnings(link_type) -> N
         benchmark_archivers.run_7z_extract(["7z"], benchmark_archivers.ROOT, 12)
 
 
+def test_run_7z_extract_accepts_subset_of_source_symlink_warnings(capsys) -> None:
+    warning = "ERROR: Dangerous link path was ignored : source : target"
+    output = "\n".join([warning] * 47 + ["Sub items Errors: 47"])
+    result = subprocess.CompletedProcess([], 2, output.encode())
+
+    with patch.object(benchmark_archivers.subprocess, "run", return_value=result):
+        benchmark_archivers.run_7z_extract(["7z"], benchmark_archivers.ROOT, 56)
+
+    assert "7z ignored 47 of 56 expected symlink(s)." in capsys.readouterr().out
+
+
 def test_run_7z_extract_rejects_unexpected_errors() -> None:
     warnings = ["ERROR: Dangerous symbolic link path was ignored : source : target"] * 11
     output = "\n".join(warnings + ["ERROR: Unexpected error", "Sub items Errors: 12"])
@@ -877,6 +888,18 @@ def test_run_7z_extract_rejects_unexpected_errors() -> None:
         pytest.raises(RuntimeError, match="7z extraction failed"),
     ):
         benchmark_archivers.run_7z_extract(["7z"], benchmark_archivers.ROOT, 12)
+
+
+def test_run_7z_extract_rejects_more_warnings_than_source_symlinks() -> None:
+    warning = "ERROR: Dangerous link path was ignored : source : target"
+    output = "\n".join([warning] * 2 + ["Sub items Errors: 2"])
+    result = subprocess.CompletedProcess([], 2, output.encode())
+
+    with (
+        patch.object(benchmark_archivers.subprocess, "run", return_value=result),
+        pytest.raises(RuntimeError, match="7z extraction failed"),
+    ):
+        benchmark_archivers.run_7z_extract(["7z"], benchmark_archivers.ROOT, 1)
 
 
 def test_wait_between_benchmark_runs_sleeps_only_after_a_completed_run(
@@ -920,6 +943,29 @@ def test_benchmark_result_paths_put_github_suffix_last(tmp_path, monkeypatch) ->
 
     assert report_path.name == "report-duplicates-core-i7-gh.md"
     assert chart_path.name == "chart-duplicates-core-i7-gh.svg"
+
+
+def test_benchmark_result_paths_include_linux_4_0_1_dataset(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        benchmark_archivers,
+        "REPORT_PATH",
+        tmp_path / "benchmark-report-linux-x86_64.md",
+    )
+    monkeypatch.setattr(
+        benchmark_archivers,
+        "CHART_PATH",
+        tmp_path / "benchmark-charts-linux-x86_64.svg",
+    )
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+
+    report_path, chart_path = benchmark_archivers.benchmark_result_paths(
+        benchmark_archivers.SOURCE_NAME, "Intel(R) Core(TM) i7-10700"
+    )
+
+    assert report_path.name == "benchmark-report-linux-x86_64-linux-4.0.1-core-i7.md"
+    assert chart_path.name == "benchmark-charts-linux-x86_64-linux-4.0.1-core-i7.svg"
 
 
 def test_archive_size_chart_deduplicates_cache_states() -> None:

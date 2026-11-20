@@ -892,10 +892,15 @@ def run_7z_extract(command: list[str], cwd: Path, expected_link_warnings: int) -
     if (
         result.returncode == 2
         and expected_link_warnings > 0
-        and len(link_errors) == expected_link_warnings
-        and len(all_errors) == expected_link_warnings
-        and f"Sub items Errors: {expected_link_warnings}" in output
+        and 0 < len(link_errors) <= expected_link_warnings
+        and len(all_errors) == len(link_errors)
+        and f"Sub items Errors: {len(link_errors)}" in output
     ):
+        print(
+            f"7z ignored {len(link_errors)} of {expected_link_warnings} "
+            "expected symlink(s).",
+            flush=True,
+        )
         return
     raise BenchmarkCommandError(
         f"7z extraction failed with exit code {result.returncode}:\n{output[-6000:]}"
@@ -1868,7 +1873,7 @@ def benchmark_result_postfix(cpu_model: str, github_actions: bool | None = None)
 
 
 def benchmark_result_paths(dataset_name: str, cpu_model: str) -> tuple[Path, Path]:
-    dataset_postfix = "" if dataset_name == SOURCE_NAME else f"-{dataset_name}"
+    dataset_postfix = f"-{dataset_name}"
     postfix = dataset_postfix + benchmark_result_postfix(cpu_model)
     report_path = REPORT_PATH.with_name(
         f"{REPORT_PATH.stem}{postfix}{REPORT_PATH.suffix}"

@@ -2,6 +2,28 @@ name: Archive benchmarks
 
 on:
   workflow_dispatch:
+    inputs:
+      dataset:
+        description: Dataset to benchmark
+        type: choice
+        required: false
+        default: all
+        options:
+          - all
+          - linux-4.0.1
+          - linux-6.1.1
+          - duplicates
+          - icons
+          - small_archive
+      os:
+        description: Operating system to benchmark (Linux selects both Linux runners)
+        type: choice
+        required: false
+        default: all
+        options:
+          - all
+          - linux
+          - windows
 
 permissions:
   contents: read
@@ -11,37 +33,67 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  prepare_matrix:
+    name: Select benchmark jobs
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - id: select
+        env:
+          SELECTED_DATASET: ${{ inputs.dataset }}
+          SELECTED_OS: ${{ inputs.os }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+
+          platforms = [
+              {
+                  "name": "linux-x64",
+                  "os": "linux",
+                  "arch": "x86_64",
+                  "runner": "ubuntu-latest",
+              },
+              {
+                  "name": "linux-arm64",
+                  "os": "linux",
+                  "arch": "arm64",
+                  "runner": "ubuntu-24.04-arm",
+              },
+              {
+                  "name": "windows-x64",
+                  "os": "windows",
+                  "arch": "x86_64",
+                  "runner": "windows-latest",
+              },
+          ]
+          datasets = [
+              "linux-4.0.1",
+              "linux-6.1.1",
+              "duplicates",
+              "icons",
+              "small_archive",
+          ]
+          selected_dataset = os.environ.get("SELECTED_DATASET") or "all"
+          selected_os = os.environ.get("SELECTED_OS") or "all"
+          include = [
+              {"platform": platform, "dataset": dataset}
+              for platform in platforms
+              if selected_os == "all" or platform["os"] == selected_os
+              for dataset in datasets
+              if selected_dataset == "all" or dataset == selected_dataset
+          ]
+          print(f"matrix={json.dumps({'include': include}, separators=(',', ':'))}")
+          PY
+
   benchmark:
     name: Benchmark (${{ matrix.platform.name }}, ${{ matrix.dataset }})
+    needs: prepare_matrix
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       fail-fast: false
-      matrix:
-        platform:
-          - name: linux-x64
-            os: linux
-            arch: x86_64
-            runner: ubuntu-latest
-          - name: linux-arm64
-            os: linux
-            arch: arm64
-            runner: ubuntu-24.04-arm
-          - name: windows-x64
-            os: windows
-            arch: x86_64
-            runner: windows-latest
-          #- name: windows-arm64
-          #  os: windows
-          #  runner: windows-11-vs2026-arm
-          #- name: macos
-          #  os: macos
-          #  runner: macos-latest
-        dataset:
-          - linux-4.0.1
-          - linux-6.1.1
-          - duplicates
-          - icons
-          - small_archive
+      matrix: ${{ fromJSON(needs.prepare_matrix.outputs.matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
