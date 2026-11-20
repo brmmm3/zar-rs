@@ -1,5 +1,11 @@
 # ZAR
 
+[![crates.io](https://img.shields.io/crates/v/zarlib?style=flat-square&logo=rust)](https://crates.io/crates/zarlib)
+[![docs.rs](https://img.shields.io/badge/docs.rs-zarlib-4c8bfd?logo=docs.rs&style=flat-square)](https://docs.rs/zarlib)
+[![PyPI](https://img.shields.io/pypi/v/pyzarlib?style=flat-square&logo=pypi&logoColor=white)](https://pypi.org/project/pyzarlib/)
+[![CI](https://github.com/brmmm3/zar-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/brmmm3/zar-rs/actions/workflows/ci.yml)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue?style=flat-square)](LICENSE-MIT)
+
 ZAR is an archive format and toolkit with compression, deduplication, and
 commit-based history. It is written in Rust and includes a command-line tool,
 a desktop GUI, a reusable library, language bindings, and a network copy tool.
@@ -52,7 +58,7 @@ The release build of `zarg` can browse the same archive and select a commit:
 ## What makes ZAR different
 
 | Feature | ZAR | zip | tar.gz | 7z |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | Fast parallel compression (zstd, block based) | ✅ | ❌ (deflate) | ❌ (single-threaded gzip) | ❌ (slow LZMA) |
 | Random access to a single file | ✅ | ✅ | ❌ (stream must be read) | ⚠️ solid blocks |
 | Commit-based updates and compaction | ✅ | ⚠️ append only | ❌ | ❌ |
@@ -178,7 +184,7 @@ zarc extract history.zar --to 00000001 -o before # draft and old.txt
 ```
 
 | After | Current contents | What history retains |
-|---|---|---|
+| --- | --- | --- |
 | `create` | `notes.txt` = `draft`, plus `old.txt` | The initial state in commit 1 |
 | `add` | `notes.txt` = `final`, plus `old.txt` | The draft in commit 1 and the update in commit 2 |
 | `remove` | `notes.txt` = `final` | Both earlier states, including `old.txt`; removal records a deletion rather than erasing its earlier data |
@@ -209,7 +215,7 @@ time range covers two runs. The full report also includes encrypted and
 cold-cache results.
 
 | Format | Archive size | Compression | Full extraction | Extract 3 files |
-|---|---:|---:|---:|---:|
+| --- | ---: | ---: | ---: | ---: |
 | ZAR | 115.3 MiB | 0.98–1.03 s | 0.89–0.91 s | 0.108–0.118 s |
 | ZIP | 150.3 MiB | 11.86–11.90 s | 4.23–4.35 s | 0.007–0.008 s |
 | 7z | 81.1 MiB | 26.86–27.61 s | 6.11–6.15 s | 3.794–3.806 s |
@@ -225,7 +231,7 @@ throughput, verification limitations, tool settings, and methodology.
 More recent dataset reports, each with a linked chart, are available for:
 
 | Dataset | Linux, Core i7-10700 | Windows, Core Ultra 7 265HX |
-|---|---|---|
+| --- | --- | --- |
 | Linux 4.0.1 source | [Report](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7-linux-4.0.1.md) | [Report](./doc/benchmarks/benchmark-report-windows-x86_64-core-u7-linux-4.0.1.md) |
 | Linux 6.1.1 | [Report](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7-linux-6.1.1.md) | [Report](./doc/benchmarks/benchmark-report-windows-x86_64-core-u7-linux-6.1.1.md) |
 | Duplicate icon tree | [Report](./doc/benchmarks/benchmark-report-linux-x86_64-core-i7-duplicates.md) | [Report](./doc/benchmarks/benchmark-report-windows-x86_64-core-u7-duplicates.md) |
@@ -277,7 +283,7 @@ expose archive operations through their respective language or runtime
 interfaces; see each package's documentation for its API and limitations.
 
 | Package | Language/runtime | Mechanism |
-|---------|----------|-----------|
+| --------- | ---------- | ----------- |
 | **[`pyzarlib`](./pyzarlib/README.md)** | Python | PyO3 extension module |
 | **[`czarlib`](./czarlib/README.md)** | C | JSON C ABI (shared/static library and header) |
 | **[`cxxzarlib`](./cxxzarlib/README.md)** | C++ | CXX bridge |
