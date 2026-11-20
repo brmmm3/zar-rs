@@ -1,0 +1,159 @@
+name: Publish Chocolatey packages
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Published release tag to package
+        required: true
+        type: string
+    secrets:
+      CHOCOLATEY_API_KEY:
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published release tag to package
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-chocolatey-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish zar-rs Chocolatey packages
+    runs-on: windows-latest
+    steps:
+      - name: Check out release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+
+      - name: Validate release and package metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        shell: pwsh
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
+            throw "Expected a stable version tag, got '$env:RELEASE_TAG'"
+          }
+
+          $packages = @(
+            @{
+              Id = 'zar-rs'
+              Nuspec = 'packaging/windows/chocolatey/zar-rs/zarg.nuspec'
+              Installer = 'packaging/windows/chocolatey/zar-rs/tools/chocolateyInstall.ps1'
+            },
+            @{
+              Id = 'zar-rs-v3'
+              Nuspec = 'packaging/windows/chocolatey/zar-rs-v3/zarc.nuspec'
+              Installer = 'packaging/windows/chocolatey/zar-rs-v3/tools/chocolateyInstall.ps1'
+            }
+          )
+
+          foreach ($package in $packages) {
+            [xml] $nuspec = Get-Content $package.Nuspec -Raw
+            if ($nuspec.package.metadata.id -ne $package.Id -or
+                $nuspec.package.metadata.version -ne $env:RELEASE_TAG) {
+              throw "$($package.Id) nuspec id or version does not match release $env:RELEASE_TAG"
+            }
+
+            $releasePath = "/releases/download/$env:RELEASE_TAG/"
+            if (-not (Select-String -Path $package.Installer -SimpleMatch $releasePath -Quiet)) {
+              throw "$($package.Id) installer does not download assets for release $env:RELEASE_TAG"
+            }
+          }
+
+          $assetDirectory = Join-Path $env:RUNNER_TEMP 'chocolatey-release-assets'
+          New-Item -ItemType Directory -Path $assetDirectory -Force | Out-Null
+          & gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY `
+            --pattern 'zar-rs-windows-x86_64.zip' `
+            --pattern 'zar-rs-windows-aarch64.zip' `
+            --pattern 'zar-rs-windows-x86_64-v3.zip' `
+            --dir $assetDirectory
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $assetChecks = @(
+            @{
+              Name = 'zar-rs-windows-x86_64.zip'
+              Installer = 'packaging/windows/chocolatey/zar-rs/tools/chocolateyInstall.ps1'
+              Architecture = 'AMD64'
+            },
+            @{
+              Name = 'zar-rs-windows-aarch64.zip'
+              Installer = 'packaging/windows/chocolatey/zar-rs/tools/chocolateyInstall.ps1'
+              Architecture = 'ARM64'
+            },
+            @{
+              Name = 'zar-rs-windows-x86_64-v3.zip'
+              Installer = 'packaging/windows/chocolatey/zar-rs-v3/tools/chocolateyInstall.ps1'
+              Architecture = 'AMD64'
+            }
+          )
+          foreach ($check in $assetChecks) {
+            $installerText = Get-Content $check.Installer -Raw
+            $pattern = "(?s)'" + [regex]::Escape($check.Architecture) + "'\s*\{.*?" +
+              [regex]::Escape('$checksum') + "\s*=\s*'([0-9a-f]{64})'"
+            $declaredHash = [regex]::Match($installerText, $pattern)
+            if (-not $declaredHash.Success) {
+              throw "Could not read the $($check.Architecture) checksum from $($check.Installer)"
+            }
+
+            $assetPath = Join-Path $assetDirectory $check.Name
+            $actualHash = (Get-FileHash $assetPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($declaredHash.Groups[1].Value -ne $actualHash) {
+              throw "Checksum mismatch for release asset $($check.Name)"
+            }
+          }
+
+      - name: Pack Chocolatey packages
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outputDirectory = Join-Path $env:RUNNER_TEMP 'chocolatey-packages'
+          New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
+
+          $nuspecs = @(
+            'packaging/windows/chocolatey/zar-rs/zarg.nuspec',
+            'packaging/windows/chocolatey/zar-rs-v3/zarc.nuspec'
+          )
+          foreach ($nuspec in $nuspecs) {
+            & choco pack $nuspec --outputdirectory $outputDirectory
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+          $packages = @(
+            (Join-Path $outputDirectory "zar-rs.$env:RELEASE_TAG.nupkg"),
+            (Join-Path $outputDirectory "zar-rs-v3.$env:RELEASE_TAG.nupkg")
+          )
+          foreach ($package in $packages) {
+            if (-not (Test-Path $package)) {
+              throw "Chocolatey package was not created: $package"
+            }
+          }
+
+      - name: Push packages to Chocolatey
+        env:
+          CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:CHOCOLATEY_API_KEY)) {
+            throw 'Add the CHOCOLATEY_API_KEY repository secret before publishing'
+          }
+
+          $outputDirectory = Join-Path $env:RUNNER_TEMP 'chocolatey-packages'
+          foreach ($packageName in @("zar-rs.$env:RELEASE_TAG.nupkg", "zar-rs-v3.$env:RELEASE_TAG.nupkg")) {
+            $package = Join-Path $outputDirectory $packageName
+            & choco push $package --source 'https://push.chocolatey.org/' -k $env:CHOCOLATEY_API_KEY
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }

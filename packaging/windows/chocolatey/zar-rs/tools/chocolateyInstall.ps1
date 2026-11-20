@@ -5,11 +5,11 @@ if (-not $architecture) { $architecture = $env:PROCESSOR_ARCHITECTURE }
 switch ($architecture) {
     'AMD64' {
         $arch = 'x86_64'
-        $checksum = 'daa47bd18f10155ef58fea23d93305de3ba1c3617dae7e386b25b24aac288522'
+        $checksum = '4fa47b33a20f6df1c7beb5d3656b4649651355430ac16f17f3184cc77f3b7133'
     }
     'ARM64' {
         $arch = 'aarch64'
-        $checksum = '79db86710fc0a91601e88cccb294dcbf7cc10d638c07a2930630d87ea7d80998'
+        $checksum = 'febfce54b0b464b3e25c13153c919569783fb59f4363cf25d1bcf64e338385eb'
     }
     default { throw "Unsupported Windows architecture: $architecture" }
 }

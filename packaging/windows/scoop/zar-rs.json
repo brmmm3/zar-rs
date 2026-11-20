@@ -6,12 +6,12 @@
     "architecture": {
         "64bit": {
             "url": "https://github.com/brmmm3/zar-rs/releases/download/0.15.0/zar-rs-windows-x86_64.zip",
-            "hash": "daa47bd18f10155ef58fea23d93305de3ba1c3617dae7e386b25b24aac288522",
+            "hash": "4fa47b33a20f6df1c7beb5d3656b4649651355430ac16f17f3184cc77f3b7133",
             "extract_dir": "zar-rs-windows-x86_64"
         },
         "arm64": {
             "url": "https://github.com/brmmm3/zar-rs/releases/download/0.15.0/zar-rs-windows-aarch64.zip",
-            "hash": "79db86710fc0a91601e88cccb294dcbf7cc10d638c07a2930630d87ea7d80998",
+            "hash": "febfce54b0b464b3e25c13153c919569783fb59f4363cf25d1bcf64e338385eb",
             "extract_dir": "zar-rs-windows-aarch64"
         }
     },

@@ -1,3 +1,6 @@
+#!/bin/sh
+set -eu
+
 cargo build --release -p czarlib
 mvn -f jzarlib-ffm/pom.xml deploy
 

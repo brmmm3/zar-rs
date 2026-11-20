@@ -6,7 +6,7 @@
     "architecture": {
         "64bit": {
             "url": "https://github.com/brmmm3/zar-rs/releases/download/0.15.0/zar-rs-windows-x86_64-v3.zip",
-            "hash": "92766931c66d7a202309517a62b03da8a0a0db179b0484298f3364d1bb504ab4",
+            "hash": "ed151220e1a39aba1c35396c479d2de6b0a9c7d97baed1cd97675b7a2cb8e569",
             "extract_dir": "zar-rs-windows-x86_64-v3"
         }
     },
