@@ -125,6 +125,26 @@ def test_main_exits_nonzero_after_failed_benchmarks(monkeypatch) -> None:
         assert benchmark_archivers.main() == 1
 
 
+def test_main_passes_selected_dataset(monkeypatch) -> None:
+    monkeypatch.setattr(
+        benchmark_archivers.sys,
+        "argv",
+        ["benchmark_archivers.py", "--no-install", "--dataset", "icons"],
+    )
+    with patch.multiple(
+        benchmark_archivers,
+        require_tools=DEFAULT,
+        run_benchmarks=DEFAULT,
+    ) as mocks:
+        mocks["require_tools"].return_value = {"tar": "tar"}
+
+        assert benchmark_archivers.main() == 0
+
+    mocks["run_benchmarks"].assert_called_once_with(
+        {"tar": "tar"}, "cargo", "both", False, "icons"
+    )
+
+
 @pytest.fixture
 def benchmark_runner(tmp_path, monkeypatch):
     monkeypatch.setattr(benchmark_archivers, "TESTDATA", tmp_path)
@@ -509,13 +529,46 @@ def test_run_benchmarks_prepares_all_datasets_even_if_first_fails(
     assert [call.kwargs["partial_files"] for call in run.call_args_list] == [
         partial_files for _, partial_files in datasets
     ]
-    assert expected_names == [
+    assert set(expected_names) == {
         benchmark_archivers.SOURCE_NAME,
         benchmark_archivers.KERNEL_NAME,
         "duplicates",
         "icons",
         "small_archive",
-    ]
+    }
+
+
+def test_run_benchmarks_only_prepares_selected_dataset_and_preserves_other_cache(
+    benchmark_runner, monkeypatch
+) -> None:
+    datasets = tuple(benchmark_archivers.DATASET_PARTIAL_FILES.items())
+    monkeypatch.setattr(benchmark_archivers, "DATASETS", datasets)
+    cache_dir = benchmark_archivers.BENCHMARK_CACHE_DIR
+    cache_dir.mkdir()
+    selected_cache = cache_dir / "001-icons-zarlib-plain-hot-run-1.json"
+    other_cache = cache_dir / "002-linux-4.0.1-zarlib-plain-hot-run-1.json"
+    selected_cache.write_text("selected", encoding="utf-8")
+    other_cache.write_text("other", encoding="utf-8")
+
+    with patch.object(
+        benchmark_archivers, "_run_benchmark_dataset", return_value=True
+    ) as run_dataset:
+        assert benchmark_archivers.run_benchmarks(
+            {"tar": "tar", "7z": "7z", "openssl": "openssl"},
+            "cargo",
+            dataset_name="icons",
+        ) is True
+
+    assert [
+        call.args[1]
+        for call in benchmark_runner["ensure_dataset_source"].call_args_list
+    ] == ["icons"]
+    assert [call.args[5].name for call in run_dataset.call_args_list] == ["icons"]
+    assert run_dataset.call_args.kwargs["partial_files"] == (
+        benchmark_archivers.ICONS_PARTIAL_FILES
+    )
+    assert not selected_cache.exists()
+    assert other_cache.read_text(encoding="utf-8") == "other"
 
 
 def test_verification_failure_still_stops_benchmarks(benchmark_runner) -> None:
@@ -726,6 +779,33 @@ def test_verify_extraction_rejects_mismatches(tmp_path, monkeypatch, problem) ->
 
     with pytest.raises(RuntimeError, match="Extracted files do not match"):
         benchmark_archivers.verify_extraction([("file", 3)], [], False, source)
+
+
+@pytest.mark.parametrize("missing_count", [1, 2])
+def test_windows_verify_extraction_allows_at_most_one_missing_file(
+    tmp_path, monkeypatch, capsys, missing_count
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    output = tmp_path / "output"
+    (output / source.name).mkdir(parents=True)
+    monkeypatch.setattr(benchmark_archivers, "TESTRESULTS", output)
+    monkeypatch.setattr(benchmark_archivers, "EXTRACTION_DIR", output)
+    monkeypatch.setattr(
+        benchmark_archivers,
+        "os",
+        SimpleNamespace(name="nt", walk=os.walk),
+    )
+    expected = [(f"file-{index}", 3) for index in range(missing_count)]
+
+    if missing_count == 1:
+        assert benchmark_archivers.verify_extraction(
+            expected, [], False, source
+        ) == 0
+        assert "allowing one missing file on Windows: file-0" in capsys.readouterr().out
+    else:
+        with pytest.raises(RuntimeError, match="2 missing"):
+            benchmark_archivers.verify_extraction(expected, [], False, source)
 
 
 def test_verify_extraction_accepts_collision_renames(tmp_path, monkeypatch) -> None:

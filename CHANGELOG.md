@@ -13,6 +13,8 @@ until a version is released.
   progress-numbered filenames, and cache cleanup after successful report generation.
 - Added benchmark coverage for the Linux 4.0.1 and precompiled Linux 6.1.1
   trees, plus the `duplicates`, `icons`, and `small_archive` datasets.
+- Added `--dataset` to run a benchmark for one packaged dataset while preserving
+  cached results for the other datasets.
 - Added CPU-model and GitHub Actions postfixes to benchmark report and chart names.
 - Added benchmark run counters, completion percentages, and periodic elapsed-time
   progress for long-running archive benchmark steps.
@@ -25,6 +27,10 @@ until a version is released.
 
 ### Changed
 
+- Run each archive benchmark dataset as a separate GitHub Actions job for every
+  enabled platform, with a unique artifact per platform and dataset.
+- Allow one missing extracted file on Windows benchmark runs while continuing to
+  reject extra files, multiple missing files, and size mismatches.
 - Scale saved window dimensions and position by the configured UI scale when
   restoring the startup geometry.
 - Reuse validated archive headers and the table of contents throughout extraction

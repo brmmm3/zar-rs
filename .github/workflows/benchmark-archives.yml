@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   benchmark:
-    name: Benchmark (${{ matrix.platform.name }})
+    name: Benchmark (${{ matrix.platform.name }}, ${{ matrix.dataset }})
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       fail-fast: false
@@ -20,12 +20,15 @@ jobs:
         platform:
           - name: linux-x64
             os: linux
+            arch: x86_64
             runner: ubuntu-latest
           - name: linux-arm64
             os: linux
+            arch: arm64
             runner: ubuntu-24.04-arm
           - name: windows-x64
             os: windows
+            arch: x86_64
             runner: windows-latest
           #- name: windows-arm64
           #  os: windows
@@ -33,6 +36,12 @@ jobs:
           #- name: macos
           #  os: macos
           #  runner: macos-latest
+        dataset:
+          - linux-4.0.1
+          - linux-6.1.1
+          - duplicates
+          - icons
+          - small_archive
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -65,13 +74,12 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install psutil scandir-rs
       - name: Run archive benchmark
-        run: python scripts/benchmark_archivers.py --mode hot
-      - name: Upload benchmark reports and charts
-        if: always()
+        run: python scripts/benchmark_archivers.py --mode hot --dataset "${{ matrix.dataset }}"
+      - name: Upload dataset benchmark report and chart
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1
         with:
-          name: archive-benchmark-${{ matrix.platform.name }}
+          name: archive-benchmark-${{ matrix.platform.name }}-${{ matrix.dataset }}
           path: |
-            doc/benchmarks/benchmark-report-${{ matrix.platform.os }}-*.md
-            doc/benchmarks/benchmark-charts-${{ matrix.platform.os }}-*.svg
+            doc/benchmarks/benchmark-report-${{ matrix.platform.os }}-${{ matrix.platform.arch }}-${{ matrix.dataset }}*-gh.md
+            doc/benchmarks/benchmark-charts-${{ matrix.platform.os }}-${{ matrix.platform.arch }}-${{ matrix.dataset }}*-gh.svg
           if-no-files-found: warn
