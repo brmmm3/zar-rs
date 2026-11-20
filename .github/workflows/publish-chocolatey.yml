@@ -41,6 +41,8 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+
           if ($env:RELEASE_TAG -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
             throw "Expected a stable version tag, got '$env:RELEASE_TAG'"
           }
@@ -99,17 +101,26 @@ jobs:
           )
           foreach ($check in $assetChecks) {
             $installerText = Get-Content $check.Installer -Raw
-            $pattern = "(?s)'" + [regex]::Escape($check.Architecture) + "'\s*\{.*?" +
-              [regex]::Escape('$checksum') + "\s*=\s*'([0-9a-f]{64})'"
-            $declaredHash = [regex]::Match($installerText, $pattern)
+            $branchPattern = "(?s)'" + [regex]::Escape($check.Architecture) +
+              "'\s*\{(?<branch>.*?)\}"
+            $branch = [regex]::Match($installerText, $branchPattern)
+            if (-not $branch.Success) {
+              throw "Could not read the $($check.Architecture) branch from $($check.Installer)"
+            }
+
+            $checksumPattern = [regex]::Escape('$checksum') + "\s*=\s*'([0-9a-f]{64})'"
+            $declaredHash = [regex]::Match($branch.Groups['branch'].Value, $checksumPattern)
             if (-not $declaredHash.Success) {
               throw "Could not read the $($check.Architecture) checksum from $($check.Installer)"
             }
 
             $assetPath = Join-Path $assetDirectory $check.Name
+            if (-not (Test-Path -LiteralPath $assetPath -PathType Leaf)) {
+              throw "Release asset was not downloaded: $($check.Name)"
+            }
             $actualHash = (Get-FileHash $assetPath -Algorithm SHA256).Hash.ToLowerInvariant()
             if ($declaredHash.Groups[1].Value -ne $actualHash) {
-              throw "Checksum mismatch for release asset $($check.Name)"
+              throw "Checksum mismatch for release asset $($check.Name): declared $($declaredHash.Groups[1].Value), actual $actualHash"
             }
           }
 
