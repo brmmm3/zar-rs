@@ -405,7 +405,8 @@ The [packaging](./packaging) directory contains installer definitions for the
   `PATH`. Local winget, Chocolatey, and Scoop package definitions are also
   provided; see the packaging guide for their installation behavior.
 - **Linux:** `packaging/linux/build-packages.sh [deb|rpm|appimage|flatpak|all]`
-  builds `.deb`, `.rpm`, AppImage and Flatpak packages into `dist/`.
+  builds `.deb`, `.rpm`, AppImage and Flatpak packages into `dist/`. An
+  [Arch Linux PKGBUILD](./packaging/linux/arch/PKGBUILD) is also provided.
 - **macOS:** `packaging/macos/build-packages.sh [dmg|pkg|all]` builds a `.dmg`
   with `Zarg.app` and a `.pkg` that also installs `zarc`.
 

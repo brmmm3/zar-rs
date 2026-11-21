@@ -1,0 +1,73 @@
+pkgname=zar-rs
+pkgver=0.16.0
+pkgrel=1
+pkgdesc="ZAR archive tools, graphical manager, MCP server and FUSE filesystem"
+arch=('x86_64' 'aarch64')
+url="https://github.com/brmmm3/zar-rs"
+license=('MIT OR Apache-2.0')
+depends=('gcc-libs' 'glibc' 'hicolor-icon-theme' 'libglvnd' 'libx11' 'libxcb'
+         'libxkbcommon' 'shared-mime-info' 'wayland' 'fuse3')
+makedepends=('cargo' 'pkgconf')
+optdepends=(
+  'xdg-desktop-portal: native file dialogs'
+  'python: install Thunar actions'
+)
+_commit=1152a5c6967c438f05d0adba289cae3af063e7f7
+source=("$pkgname-$_commit.tar.gz::$url/archive/$_commit.tar.gz")
+sha256sums=('6ffe816972f21088807c9e19fda5eccdb8b7d663f4d2da7f84b5e2388211868a')
+
+prepare() {
+  cd "$srcdir/$pkgname-$_commit"
+  export CARGO_HOME="$srcdir/cargo"
+  cargo fetch --locked --target "$CARCH-unknown-linux-gnu"
+}
+
+build() {
+  cd "$srcdir/$pkgname-$_commit"
+  export CARGO_HOME="$srcdir/cargo"
+  cargo build --frozen --release -p zarlib-cli -p zarlib-gui -p zarlib-zcopy -p zarmcp -p zarmount
+}
+
+check() {
+  cd "$srcdir/$pkgname-$_commit"
+  target/release/zarc --version
+  target/release/zcopy --version
+  target/release/zarmcp --help >/dev/null
+  target/release/zarmount --version
+}
+
+package() {
+  cd "$srcdir/$pkgname-$_commit"
+  install -Dm755 target/release/zarc "$pkgdir/usr/bin/zarc"
+  install -Dm755 target/release/zarg "$pkgdir/usr/bin/zarg"
+  install -Dm755 target/release/zcopy "$pkgdir/usr/bin/zcopy"
+  install -Dm755 target/release/zarmcp "$pkgdir/usr/bin/zarmcp"
+  install -Dm755 target/release/zarmount "$pkgdir/usr/bin/zarmount"
+  install -Dm644 zarlib-gui/data/zarg.desktop "$pkgdir/usr/share/applications/zarg.desktop"
+  install -Dm644 zarlib-gui/data/zarg-error.desktop "$pkgdir/usr/share/applications/zarg-error.desktop"
+  install -Dm644 zarlib-gui/assets/zarg-icon.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/zarg.png"
+  install -Dm644 zarlib-gui/assets/zarg-error.png "$pkgdir/usr/share/icons/hicolor/64x64/apps/zarg-error.png"
+  install -Dm644 zarlib-gui/assets/application-x-zar.png "$pkgdir/usr/share/icons/hicolor/64x64/mimetypes/application-x-zar.png"
+  install -Dm644 packaging/linux/zarg-mime.xml "$pkgdir/usr/share/mime/packages/zar-rs.xml"
+  install -Dm644 packaging/linux/dolphin-files.desktop "$pkgdir/usr/share/kio/servicemenus/zarg-files.desktop"
+  install -Dm644 packaging/linux/dolphin-archives.desktop "$pkgdir/usr/share/kio/servicemenus/zarg-archives.desktop"
+  install -Dm755 packaging/linux/nautilus-script.sh "$pkgdir/usr/libexec/zar-rs/nautilus-script"
+  install -Dm644 packaging/linux/thunar-uca.xml "$pkgdir/usr/share/zar-rs/thunar-uca.xml"
+  install -Dm755 packaging/linux/install-thunar-actions.py "$pkgdir/usr/bin/zarg-install-thunar-actions"
+  install -Dm644 LICENSE-MIT "$pkgdir/usr/share/licenses/$pkgname/LICENSE-MIT"
+  install -Dm644 LICENSE-APACHE "$pkgdir/usr/share/licenses/$pkgname/LICENSE-APACHE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  mkdir -p "$pkgdir/usr/share/nautilus/scripts"
+  local script_name
+  for script_name in \
+    "ZAR - Create Archive..." \
+    "ZAR - Add to Archive..." \
+    "ZAR - Create Archive (named)" \
+    "ZAR - Open Archive" \
+    "ZAR - Extract here" \
+    "ZAR - Extract to..." \
+    "ZAR - Extract to archive folder" \
+    "ZAR - Test Archive"; do
+    ln -s /usr/libexec/zar-rs/nautilus-script "$pkgdir/usr/share/nautilus/scripts/$script_name"
+  done
+}

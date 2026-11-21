@@ -59,7 +59,8 @@ python3 scripts/update_checksums.py 0.15.0
 
 The checksum updater fetches SHA-256 digests from GitHub and defaults to the Scoop
 manifest version when no version is provided. Both scripts prepare and validate
-all manifest edits before writing files.
+all manifest edits before writing files. Update the Arch PKGBUILD's source
+revision, version, and checksum separately.
 
 ## Windows (Inno Setup)
 
@@ -146,6 +147,26 @@ have not been published to their community repositories. Update versions,
 URLs, and checksums for each release.
 
 ## Linux
+
+### Arch Linux
+
+The local PKGBUILD builds `zarc`, `zarg`, `zcopy`, `zarmcp`, and `zarmount`
+from a pinned 0.16.0 development commit. It also installs the same desktop and
+file-manager integration as the deb and RPM packages. On Arch Linux or Arch
+Linux ARM, install `base-devel` and run:
+
+```sh
+cd packaging/linux/arch
+makepkg -si
+```
+
+The package is not published to the AUR. `makepkg` downloads Rust dependencies
+during `prepare()`; subsequent build steps use Cargo's frozen lockfile. For
+new releases, update `pkgver` and `_commit` to the corresponding source
+revision and run `updpkgsums`.
+Thunar users should run `zarg-install-thunar-actions` once after installation.
+
+### Other Linux packages
 
 ```sh
 packaging/linux/build-packages.sh [deb|rpm|appimage|flatpak|all]

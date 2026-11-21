@@ -11,6 +11,8 @@ until a version is released.
 
 ### Added
 
+- Added an Arch Linux PKGBUILD for `zarc`, `zarg`, `zcopy`, `zarmcp`, and
+  `zarmount`.
 - Added cargo-binstall metadata for `zarc`, `zarg`, `zcopy`, `zarmcp`, and
   Linux `zarmount`; release archives now include `zarmcp`.
 - Added `zarmount`, a read-only Linux FUSE filesystem for ZAR archives.
