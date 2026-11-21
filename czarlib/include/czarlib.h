@@ -1,6 +1,9 @@
 #ifndef CZARLIB_H
 #define CZARLIB_H
 
+#include <stddef.h>
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -33,7 +36,52 @@ int czarlib_execute_json(
     char **error_message
 );
 
-/* Free a string returned by czarlib_execute_json(). NULL is accepted. */
+typedef int (*czarlib_read_callback)(void *context, unsigned char *buffer,
+                                     size_t capacity, size_t *count);
+typedef int (*czarlib_write_callback)(void *context, const unsigned char *buffer,
+                                      size_t length, size_t *count);
+typedef int (*czarlib_seek_callback)(void *context, int32_t origin,
+                                     int64_t offset, uint64_t *position);
+
+typedef struct {
+    void *context;
+    czarlib_read_callback read;
+    czarlib_write_callback write;
+    czarlib_seek_callback seek;
+} czarlib_stream;
+
+typedef struct {
+    const char *path;
+    czarlib_stream stream;
+} czarlib_stream_input;
+
+/*
+ * Synchronous streaming operations. Pointers and callbacks are never retained.
+ * The archive must initially be empty for creation and support write+seek; each
+ * input requires read. Extraction requires archive read+seek and output write.
+ * Paths and options_json are UTF-8; options_json must be a JSON object.
+ * inputs may be NULL only if input_count is zero. written is initialized to zero.
+ *
+ * Callbacks return zero for success, nonzero for failure; read/write set count
+ * to at most the supplied capacity/length. Short transfers are allowed; zero
+ * read means EOF, while a zero write makes no progress and fails the operation.
+ * Seek origins 0, 1, 2 mean start, current, end; position is the resulting
+ * absolute offset, at most INT64_MAX. Callbacks must not unwind across the ABI.
+ *
+ * Returns 0 on success, 1 for request/operation/callback errors, 2 for invalid
+ * pointers or callbacks or error allocation failure, and 3 for a caught Rust
+ * panic. error_message is a required writable slot, initialized to NULL and
+ * freed with czarlib_string_free. On failure destinations may contain partial
+ * data; callers own and must flush/close their streams.
+ */
+int czarlib_create_archive_from_readers(const czarlib_stream *archive,
+    const czarlib_stream_input *inputs, size_t input_count,
+    const char *options_json, char **error_message);
+int czarlib_extract_single_file_to_writer(const czarlib_stream *archive,
+    const char *path, const czarlib_stream *output, const char *options_json,
+    uint64_t *written, char **error_message);
+
+/* Free a returned error or JSON response. NULL is accepted. */
 void czarlib_string_free(char *value);
 
 #ifdef __cplusplus

@@ -4,9 +4,8 @@
 packaged as a workspace member in `czarlib/` and builds shared, static, and Rust
 libraries. The public header is [`include/czarlib.h`](./include/czarlib.h).
 
-The interface uses one operation dispatcher with JSON requests and responses.
-This keeps the exported ABI small and stable while providing the same archive
-operations and result fields as `pyzarlib`.
+The interface provides a JSON operation dispatcher and callback-based streaming
+functions.
 
 ## Build
 
@@ -38,6 +37,36 @@ cc -std=c11 -Wall -Wextra -Werror -I czarlib/include \
   -Wl,-rpath,"$PWD/target/debug" -o /tmp/zarc-c
 /tmp/zarc-c --help
 ```
+
+## Streaming
+
+`czarlib_create_archive_from_readers` consumes named callback readers and writes
+to an empty, seekable archive. `czarlib_extract_single_file_to_writer` reads a
+seekable archive and writes one regular file to a callback writer. Callbacks are
+synchronous and are not retained; short reads and writes are supported. See the
+[header](./include/czarlib.h) for callback signatures, seek origins, status
+codes, and pointer ownership. Callers must flush and close their streams; a
+failure may leave partial output. Do not modify the archive during extraction.
+
+The options argument is a UTF-8 JSON object. Creation accepts `block_size`
+and `compression_level` either at the top level or in `encoding_options`, plus
+`password`, `aead`, and `encryption_scope`. Block size must be 64 KiB to
+32 MiB; automatic sizing (`0`) is not supported. Extraction accepts `password`,
+per-commit `passwords`, and `to`. Creation does not deduplicate or preserve
+filesystem metadata. See the [Rust streaming guide](../doc/zarlib-developer-guide.md#streaming-regular-files)
+for format and integrity limitations.
+
+Build and run the [file-backed example](./examples/stream.c):
+
+```sh
+cc -std=c11 -Wall -Wextra -Werror -I czarlib/include \
+  czarlib/examples/stream.c -L target/debug -lczarlib \
+  -Wl,-rpath,"$PWD/target/debug" -o /tmp/czarlib-stream
+/tmp/czarlib-stream input.bin archive.zar data.bin restored.bin
+```
+
+The example overwrites the archive and output files. Its `fseek` adapter
+rejects offsets outside the platform's `long` range.
 
 ## C ABI and error handling
 

@@ -1,14 +1,53 @@
 package zar:wasizarlib@0.5.0;
 
+/// Synchronous, bounded host I/O. Handles are scoped to one operation.
+interface streams {
+    variant seek-position {
+        start(u64),
+        current(s64),
+        end(s64),
+    }
+
+    read: func(handle: u32, max-bytes: u32) -> result<list<u8>, string>;
+    write: func(handle: u32, bytes: list<u8>) -> result<u32, string>;
+    seek: func(handle: u32, position: seek-position) -> result<u64, string>;
+}
+
 interface operations {
+    record stream-input {
+        path: string,
+        handle: u32,
+    }
+    enum aead { aes-256-gcm, chacha20-poly1305 }
+    enum encryption-scope { data, header, header-and-data }
+    record encryption {
+        password: string,
+        algorithm: aead,
+        scope: encryption-scope,
+    }
+    record create-options {
+        block-size: u32,
+        compression-level: s32,
+        encryption: option<encryption>,
+    }
+    record commit-password {
+        commit: string,
+        password: string,
+    }
     /// Execute any operation supported by the czarlib JSON API.
     ///
     /// The request is a JSON object and the response is a JSON value.
     /// Archive paths are resolved against the WASI runtime's preopened
     /// directories.
     execute: func(operation: string, request-json: string) -> result<string, string>;
+
+    /// Archive handle must be seekable, writable, and initially empty.
+    create-from-streams: func(archive: u32, inputs: list<stream-input>, options: create-options) -> result<_, string>;
+    /// Archive handle must be seekable and readable; output is writable.
+    extract-to-stream: func(archive: u32, path: string, output: u32, password: option<string>, passwords: list<commit-password>, to: option<string>) -> result<u64, string>;
 }
 
 world wasizarlib {
+    import streams;
     export operations;
 }

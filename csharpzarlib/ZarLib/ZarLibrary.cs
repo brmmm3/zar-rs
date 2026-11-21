@@ -10,7 +10,7 @@ namespace Zar;
 /// czarlib JSON C ABI. Requests may be JSON strings or any object serializable
 /// to a JSON object (for example a dictionary or an anonymous type).
 /// </summary>
-public static class ZarLibrary
+public static partial class ZarLibrary
 {
     private const string NativeName = "czarlib";
 

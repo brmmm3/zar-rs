@@ -9,6 +9,8 @@ use zarlib::operations::{
 };
 use zarlib::{ContentAead, EncryptionScope, MetadataType};
 
+mod stream;
+
 #[cfg(feature = "mimalloc")]
 #[global_allocator]
 static GLOBAL_ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;

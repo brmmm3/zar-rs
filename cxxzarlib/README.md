@@ -137,3 +137,77 @@ Malformed requests, unsupported operations, and archive-operation failures are
 reported as `rust::Error` exceptions. The bridge does not retain either input
 string. Password-bearing JSON requests contain plaintext credentials: obtain
 passwords securely and do not log those request strings.
+
+## C++ streams
+
+The native wrapper in `include/cxxzarlib/stream.hpp` provides
+`create_archive_from_readers` and
+`extract_single_file_to_writer` using standard C++ streams. It uses the C
+streaming ABI in `czarlib`, is built into `libcxxzarlib.a`, and does not
+change the existing CXX bridge.
+
+```cpp
+#include "cxxzarlib/stream.hpp"
+#include <sstream>
+
+std::istringstream input("hello");
+std::stringstream archive(std::ios::in | std::ios::out | std::ios::binary);
+cxxzarlib::create_archive_from_readers(archive, {{"hello.txt", input}});
+std::ostringstream output;
+auto bytes = cxxzarlib::extract_single_file_to_writer(archive, "hello.txt", output);
+```
+
+Both calls are synchronous and retain no references. Input paths are UTF-8
+archive paths; the readers and archive/output streams must remain alive during
+the call. The archive must start at offset zero and be seekable: creation
+requires an initially empty writable archive (not append mode), and extraction
+requires a readable archive. Use binary mode with file streams. Inputs and
+extraction output need not be seekable. Creation handles regular files, not
+filesystem metadata or deduplication. Transfers are bounded to 64 KiB per C++
+callback; the Rust implementation buffers compression blocks, not entire files.
+
+An optional JSON object uses the C streaming options: creation accepts
+`encoding_options` (including `block_size` and `compression_level`), `password`,
+`aead`, and `encryption_scope`; extraction accepts `password`, `passwords`,
+and `to`. For example:
+
+```cpp
+auto options = R"({"encoding_options":{"block_size":65536},"password":"secret","aead":"aes-256-gcm","encryption_scope":"header-and-data"})";
+```
+
+Streaming creation requires a nonzero block size from 64 KiB through 32 MiB;
+see the [`czarlib` guide](../czarlib/README.md) for all option values and
+password semantics. Calls return normally on success; extraction returns the
+number of bytes written. Invalid arguments throw `std::invalid_argument` and
+operation, stream, and seek failures throw `std::runtime_error`. C++ exceptions
+never cross the C callback boundary. An error can leave partial output: discard
+it or stage it before publishing. The caller owns, flushes, and closes all
+streams; flush errors are the caller's responsibility. Paths and JSON cannot
+contain embedded NUL bytes.
+
+Build and run the complete streaming example and focused native test from the
+repository root:
+
+```sh
+cargo build -p cxxzarlib
+c++ -std=c++14 -Wall -Wextra -Werror \
+  -I cxxzarlib/include cxxzarlib/examples/stream.cpp \
+  target/debug/libcxxzarlib.a -ldl -lpthread -lm -o cxxzarlib/stream-example
+./cxxzarlib/stream-example
+c++ -std=c++14 -Wall -Wextra -Werror \
+  -I cxxzarlib/include cxxzarlib/tests/test_stream.cpp \
+  target/debug/libcxxzarlib.a -ldl -lpthread -lm -o cxxzarlib/stream-test
+./cxxzarlib/stream-test
+BRIDGE_INCLUDE=$(find target/debug/build/cxxzarlib-* \
+  -path '*/out/cxxbridge/include' -type d -print -quit)
+CXX_INCLUDE=$(find "$HOME/.cargo/registry/src" \
+  -path '*/cxx-*/include' -type d -print -quit)
+c++ -std=c++14 -Wall -Wextra -Werror \
+  -I cxxzarlib/include -I "$BRIDGE_INCLUDE" -I "$CXX_INCLUDE" \
+  cxxzarlib/tests/test_stream_bridge.cpp target/debug/libcxxzarlib.a \
+  -ldl -lpthread -lm -o cxxzarlib/stream-bridge-test
+./cxxzarlib/stream-bridge-test
+```
+
+`examples/stream.cpp` is a runnable version of the snippet. The existing
+`execute_json` API and its build instructions remain unchanged.

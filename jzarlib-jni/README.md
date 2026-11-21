@@ -97,6 +97,42 @@ In-memory extraction returns JSON arrays of byte values. Passwords in request
 JSON are plaintext credentials: obtain them securely and do not log password-
 bearing requests.
 
+### Streaming
+
+`createArchiveFromReaders` consumes `StreamInput` records (archive-relative
+path and `InputStream`) into an **empty**, readable, writable and seekable
+`SeekableByteChannel`. `extractSingleFileToWriter` reads a seekable archive
+channel and writes one file to an `OutputStream`, returning the byte count.
+Neither operation buffers whole files, closes or flushes caller-owned streams
+or channels. They run synchronously. An exception leaves possibly partial
+output; discard it on failure. Java callback exceptions are propagated
+unchanged. Channels must make progress on reads and writes, support arbitrary
+seeks, and not be opened in append mode. The archive begins at offset zero
+and must not change during the call.
+
+```java
+try (var archive = Files.newByteChannel(Path.of("new.zar"),
+        StandardOpenOption.CREATE_NEW, StandardOpenOption.READ, StandardOpenOption.WRITE);
+     var source = Files.newInputStream(Path.of("photo.jpg"))) {
+    ZarLibrary.createArchiveFromReaders(archive,
+        List.of(new ZarLibrary.StreamInput("photos/photo.jpg", source)),
+        "{\"encoding_options\":{\"block_size\":65536}}");
+    try (var destination = Files.newOutputStream(Path.of("restored.jpg"))) {
+        long bytes = ZarLibrary.extractSingleFileToWriter(
+            archive, "photos/photo.jpg", destination, "{}");
+    }
+}
+```
+
+The final argument is a JSON object. Creation supports `encoding_options`
+(including `block_size` and `compression_level`), `password`, `aead`, and
+`encryption_scope`; extraction supports `password`, per-commit `passwords`,
+and `to`. Streaming creation handles regular files, not filesystem metadata,
+and does not perform cross-file deduplication. Use a fixed block size (64 KiB
+to 32 MiB), not automatic sizing. Failures in the native operation throw
+`ZarException`; I/O callbacks can throw `IOException` or their original
+unchecked exception. Keep password-bearing options private.
+
 ## Examples
 
 ```sh
@@ -105,6 +141,8 @@ java --enable-native-access=ALL-UNNAMED -Djava.library.path=target/native -cp ta
   org.zar.jarlib.jni.examples.BasicExample backup.zar README.md
 java --enable-native-access=ALL-UNNAMED -Djava.library.path=target/native -cp target/classes \
   org.zar.jarlib.jni.examples.ZarcExample create backup.zar src/
+java --enable-native-access=ALL-UNNAMED -cp target/classes \
+  org.zar.jarlib.jni.examples.StreamingExample README.md new.zar restored.md
 ```
 
 The CLI example supports `create|c`, `add|a`, `remove|r`, `join|j`, `check|k`,

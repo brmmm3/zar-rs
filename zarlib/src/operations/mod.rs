@@ -17,6 +17,7 @@ pub mod meta;
 pub mod pipeline;
 pub mod remove;
 pub mod remove_commits;
+mod stream;
 pub mod transform;
 pub mod undo;
 
@@ -38,5 +39,6 @@ pub use meta::*;
 pub use pipeline::*;
 pub use remove::*;
 pub use remove_commits::*;
+pub use stream::*;
 pub use transform::*;
 pub use undo::*;

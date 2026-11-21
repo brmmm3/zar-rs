@@ -56,6 +56,48 @@ The normal `mvn deploy` still targets GitHub Packages.
 The JAR does not include `czarlib`; consumers must provide the native library
 for their platform and set `-Dzar.library` as described above.
 
+## Streaming
+
+The streaming methods require a `czarlib` built with the streaming C ABI.
+They process data incrementally: entry contents come from `InputStream`s and
+one extracted entry is written to an `OutputStream`. The archive itself uses
+a `SeekableByteChannel` because ZAR needs random access. Creation requires an
+empty channel positioned at zero, opened for reading and writing; extraction
+requires a readable, seekable channel.
+
+```java
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.List;
+import org.zar.jarlib.ffm.ZarLibrary;
+
+try (var archive = Files.newByteChannel(Path.of("backup.zar"),
+        StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING,
+        StandardOpenOption.READ, StandardOpenOption.WRITE);
+     var input = Files.newInputStream(Path.of("source.bin"));
+     var output = Files.newOutputStream(Path.of("restored.bin"))) {
+    ZarLibrary.createArchiveFromReaders(archive,
+        List.of(new ZarLibrary.StreamInput("source.bin", input)),
+        "{\"encoding_options\":{\"block_size\":65536}}");
+    long bytes = ZarLibrary.extractSingleFileToWriter(
+        archive, "source.bin", output, null);
+}
+```
+
+Both operations are synchronous and leave channels and streams open; callers
+must close and, if appropriate, flush them. On callback failure, `ZarException`
+retains the original Java exception as its cause. Do not concurrently use or
+close the supplied objects during a call. A failed operation may leave a
+partial archive or output.
+Streaming creation writes regular-file entries without filesystem metadata or
+deduplication; entry paths are archive-relative.
+
+The optional JSON object for creation accepts `encoding_options` (including
+`block_size` and `compression_level`), `password`, `aead`, and
+`encryption_scope`; extraction accepts `password`, `passwords`, and `to`.
+Pass `null` for defaults. Passwords are plaintext and should not be logged.
+
 ## API
 
 Each operation is available as a static Java method accepting a UTF-8 JSON
@@ -96,6 +138,8 @@ java --enable-native-access=ALL-UNNAMED \
   -cp target/classes org.zar.jarlib.ffm.examples.BasicExample backup.zar README.md
 java --enable-native-access=ALL-UNNAMED \
   -cp target/classes org.zar.jarlib.ffm.examples.ZarcExample create backup.zar src/
+java --enable-native-access=ALL-UNNAMED \
+  -cp target/classes org.zar.jarlib.ffm.examples.StreamingExample backup.zar README.md restored.md
 ```
 
 `ZarcExample` supports `create|c`, `add|a`, `remove|r`, `join|j`, `check|k`,

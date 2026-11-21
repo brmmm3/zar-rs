@@ -115,6 +115,35 @@ Password fields in request values are plaintext credentials. Obtain them
 securely, do not log password-bearing requests, and clear mutable credential
 buffers when practical.
 
+## Streaming
+
+`CreateArchiveFromReaders` creates an archive directly from `io.Reader` values.
+The destination must be an empty `io.WriteSeeker`, opened for writing and
+seeking (not append mode). `ExtractSingleFileToWriter` reads from an
+`io.ReadSeeker` and writes one member to any `io.Writer`:
+
+```go
+err := gozarlib.CreateArchiveFromReaders(archive, []gozarlib.StreamInput{
+    {Path: "hello.txt", Reader: strings.NewReader("hello")},
+}, map[string]any{
+    "encoding_options": map[string]any{"block_size": 65536, "compression_level": 3},
+})
+if err != nil {
+    return err
+}
+n, err := gozarlib.ExtractSingleFileToWriter(archive, "hello.txt", destination, nil)
+```
+
+For creation, options can include `encoding_options`, `password`, `aead`, and
+`encryption_scope`; extraction accepts `password`, `passwords`, and `to`.
+Pass `nil` for defaults. Paths are archive-relative regular-file paths. See
+the [`czarlib` guide](../czarlib/README.md) for encryption and commit options.
+Inputs are consumed synchronously, and callers own and must close or flush
+their streams. Errors may leave partial output: the extraction count reports
+bytes accepted by the writer even on failure. Callback errors remain available
+via `errors.Is`; callback panics become errors. Separate calls can run
+concurrently when their streams are safe to use independently.
+
 ## Examples
 
 The direct API example creates an archive, lists and checks it, extracts
@@ -122,6 +151,12 @@ contents to memory, and displays archive information:
 
 ```sh
 go run ./examples/basic backup.zar ./README.md
+```
+
+The streaming example creates a seekable archive and extracts one member:
+
+```sh
+go run ./examples/stream
 ```
 
 The `zarc`-style example supports the C example's commands and aliases, plus

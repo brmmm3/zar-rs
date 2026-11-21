@@ -4,7 +4,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>io.github.brmmm3</groupId>
   <artifactId>jzarlib-jni</artifactId>
-  <version>0.15.0</version>
+  <version>0.16.0</version>
   <name>jzarlib-jni</name>
   <description>Java Native Interface bindings for the ZAR archive library.</description>
   <url>https://github.com/brmmm3/zar-rs</url>

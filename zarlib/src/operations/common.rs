@@ -707,12 +707,26 @@ pub fn skip_exact(file: &mut File, mut remaining: u64) -> io::Result<()> {
 }
 
 pub fn read_first_header_offset(file: &mut File) -> Result<u64, Box<dyn std::error::Error>> {
+    read_first_header_offset_from_reader(file)
+}
+
+pub(crate) fn read_first_header_offset_from_reader(
+    file: &mut impl Read,
+) -> Result<u64, Box<dyn std::error::Error>> {
     let container = ContainerHeader::read_from(file)?;
     Ok(container.first_header_offset)
 }
 
 pub fn read_commit_at_offset(
     file: &mut File,
+    header_offset: u64,
+    limits: CommitValidationLimits,
+) -> Result<(CommitHeader, u64, u64), Box<dyn std::error::Error>> {
+    read_commit_at_offset_from_reader(file, header_offset, limits)
+}
+
+pub(crate) fn read_commit_at_offset_from_reader(
+    file: &mut (impl Read + Seek),
     header_offset: u64,
     limits: CommitValidationLimits,
 ) -> Result<(CommitHeader, u64, u64), Box<dyn std::error::Error>> {
@@ -886,6 +900,14 @@ pub fn read_header_with_password(
 
 pub fn read_header_with_passwords(
     file: &mut File,
+    limits: CommitValidationLimits,
+    passwords: &PasswordSet,
+) -> Result<UnlockedHeader, Box<dyn std::error::Error>> {
+    read_header_with_passwords_from_reader(file, limits, passwords)
+}
+
+pub(crate) fn read_header_with_passwords_from_reader(
+    file: &mut impl Read,
     limits: CommitValidationLimits,
     passwords: &PasswordSet,
 ) -> Result<UnlockedHeader, Box<dyn std::error::Error>> {

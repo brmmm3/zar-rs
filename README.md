@@ -285,7 +285,7 @@ interfaces; see each package's documentation for its API and limitations.
 | Package | Language/runtime | Mechanism |
 | --------- | ---------- | ----------- |
 | **[`pyzarlib`](./pyzarlib/README.md)** | Python | PyO3 extension module |
-| **[`czarlib`](./czarlib/README.md)** | C | JSON C ABI (shared/static library and header) |
+| **[`czarlib`](./czarlib/README.md)** | C | JSON and streaming C ABI (shared/static library and header) |
 | **[`cxxzarlib`](./cxxzarlib/README.md)** | C++ | CXX bridge |
 | **[`gozarlib`](./gozarlib/README.md)** | Go | cgo over `czarlib` |
 | **[`jzarlib-ffm`](./jzarlib-ffm/README.md)** | Java 25+ | Foreign Function & Memory API over `czarlib` |
@@ -295,6 +295,10 @@ interfaces; see each package's documentation for its API and limitations.
 
 The Go, Java, and C# wrappers load the `czarlib` shared library, which is built
 with `cargo build -p czarlib`.
+
+For streaming regular-file data, consult each binding's streaming
+documentation. Archive input or output must still be seekable; a failed
+operation can leave a partial archive or extracted output.
 
 The WASI component is built for `wasm32-wasip2`; its filesystem access is
 limited to directories preopened by the server-side WASI runtime. Node.js
@@ -458,6 +462,8 @@ The input must exist and `backup.zar` must not already exist. See the
 [developer guide](./doc/zarlib-developer-guide.md#high-level-api) for listing,
 extraction, and [more examples](./doc/zarlib-developer-guide.md#examples-matching-the-zarc-commands),
 or use the [language bindings](#language-bindings-and-runtime-packages).
+For block-by-block regular-file input and output with seekable archives, see
+the [streaming API](./doc/zarlib-developer-guide.md#streaming-regular-files).
 For Rust API documentation, run `cargo doc -p zarlib --no-deps --open` from the
 workspace root.
 

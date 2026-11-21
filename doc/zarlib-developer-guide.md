@@ -60,6 +60,77 @@ bytes returned per file after the specified offset. Directories and special
 entries are omitted. The filtered variant accepts the same `FilterSet` used by
 file extraction.
 
+## Streaming regular files
+
+`create_archive_from_readers` consumes named `Read` inputs in blocks and writes
+a standard single-commit ZAR archive to an empty `Write + Seek` destination
+that permits writes at seeked positions (not append mode).
+It handles regular files only: it does not deduplicate inputs, collect file
+metadata, or use the parallel filesystem creation pipeline. Pass
+`StreamEncryption` to enable password-based encryption. Block size must be
+between 64 KiB and 32 MiB; unlike the path-based API, automatic sizing is not
+supported. An error can leave a partial archive, so callers should stage the
+destination if they need atomic publication and flush it when needed.
+
+`extract_single_file_to_writer` accepts a `Read + Seek` archive and streams a
+selected regular file to a `Write` destination. Archive bytes must start at
+offset zero. It accepts a commit limit and per-commit passwords, rejects
+locked headers in the selected history, and validates selected data and the
+file checksum. Unselected data blocks are not necessarily checked; use
+`check_archive_with_recovery` to verify the whole archive. The writer may
+contain partial data after an error; flush it in the caller when needed. The
+archive must not change during extraction.
+
+```rust,no_run
+use std::io::Cursor;
+use zarlib::operations::{
+    create_archive_from_readers, extract_single_file_to_writer, EncodingOptions,
+    PasswordSet, StreamInput,
+};
+
+let mut source = Cursor::new(b"hello from a stream");
+let mut archive = Cursor::new(Vec::new());
+create_archive_from_readers(
+    &mut archive,
+    &mut [StreamInput { path: "hello.txt", reader: &mut source }],
+    EncodingOptions::default(),
+    None,
+)?;
+let mut output = Vec::new();
+extract_single_file_to_writer(
+    &mut archive, "hello.txt", &mut output, &PasswordSet::default(), None,
+)?;
+assert_eq!(output, b"hello from a stream");
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+These APIs buffer compressed and decoded blocks, as well as archive metadata;
+they do not require buffering an entire file. They do not provide non-seekable
+archive input or output. Existing path-based APIs retain their existing
+parallel processing and filesystem behavior.
+
+### TCP streaming example
+
+The [server](../zarlib/examples/streaming_server.rs) sends one regular file,
+and the [client](../zarlib/examples/streaming_client.rs) reads it directly from
+the socket into a new seekable archive, then extracts it to stdout. From the
+workspace root, run the server and client in separate terminals:
+
+```sh
+cargo run -p zarlib --example streaming_server -- 127.0.0.1:7878 README.md
+```
+
+```sh
+cargo run -p zarlib --example streaming_client -- 127.0.0.1:7878 received.zar README.md > received.txt
+```
+
+The server accepts one connection and the input file must not change during
+transfer. The client refuses to overwrite an existing archive. The protocol
+uses an eight-byte big-endian length and rejects incomplete transfers. On error
+the archive or redirected output may be partial; discard it. This is a
+minimal local demonstration, without authentication, TLS, or transfer size
+limits, and is not suitable for untrusted networks.
+
 ## Custom archive metadata
 
 The Rust API can read and update arbitrary archive-level key/value metadata

@@ -1,0 +1,10 @@
+package zar:wasizarlib@0.5.0;
+
+interface operations {
+    /// Execute an operation with JSON input and output.
+    execute: func(operation: string, request-json: string) -> result<string, string>;
+}
+
+world wasizarlib {
+    export operations;
+}

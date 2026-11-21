@@ -134,6 +134,18 @@ jobs:
             czarlib/tests/test_c_api.c -L target/debug -lczarlib \
             -Wl,-rpath,"$PWD/target/debug" -pthread -o /tmp/czarlib-test
           /tmp/czarlib-test
+      - name: Exercise C and C++ streaming
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -I czarlib/include \
+            czarlib/examples/stream.c -L target/debug -lczarlib \
+            -Wl,-rpath,"$PWD/target/debug" -o /tmp/czarlib-stream
+          /tmp/czarlib-stream README.md /tmp/czarlib-stream.zar README.md /tmp/czarlib-stream-output
+          cmp README.md /tmp/czarlib-stream-output
+          cargo build --locked -p cxxzarlib
+          c++ -std=c++14 -Wall -Wextra -Werror -I cxxzarlib/include \
+            cxxzarlib/tests/test_stream.cpp target/debug/libcxxzarlib.a \
+            -ldl -lpthread -lm -o /tmp/cxxzarlib-stream-test
+          /tmp/cxxzarlib-stream-test
       - name: Build and exercise C zarc example
         run: |
           cc -std=c11 -Wall -Wextra -Werror -I czarlib/include \
@@ -180,7 +192,10 @@ jobs:
       - name: Build component
         env:
           CFLAGS_wasm32_wasip2: -isystem /usr/include/wasm32-wasi
-        run: cargo build --release --locked -p wasizarlib --target wasm32-wasip2
+        run: |
+          cargo build --release --locked -p wasizarlib --target wasm32-wasip2
+          cp target/wasm32-wasip2/release/wasizarlib.wasm target/wasm32-wasip2/release/wasizarlib-legacy.wasm
+          cargo build --release --locked -p wasizarlib --features streaming --target wasm32-wasip2
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # zizmor: ignore[cache-poisoning]
         with:
@@ -191,6 +206,9 @@ jobs:
       - name: Transpile component and run Node.js tests
         working-directory: wasizarlib/nodejs
         run: |
+          ./node_modules/.bin/jco transpile ../../target/wasm32-wasip2/release/wasizarlib-legacy.wasm --instantiation async --out-dir dist/legacy
+          node legacy-smoke.mjs
+          rm -rf dist/legacy
           npm run build:js
           npm test
       - name: Package Node.js module
@@ -202,9 +220,12 @@ jobs:
         run: |
           mkdir -p dist/wasizarlib
           mkdir -p dist/wasizarlib/wit
-          cp target/wasm32-wasip2/release/wasizarlib.wasm dist/wasizarlib/
+          cp target/wasm32-wasip2/release/wasizarlib-legacy.wasm dist/wasizarlib/wasizarlib.wasm
+          cp target/wasm32-wasip2/release/wasizarlib.wasm dist/wasizarlib/wasizarlib-streaming.wasm
           cp wasizarlib/README.md dist/wasizarlib/
           cp wasizarlib/wit/world.wit dist/wasizarlib/wit/
+          mkdir -p dist/wasizarlib/wit/legacy
+          cp wasizarlib/wit/legacy/world.wit dist/wasizarlib/wit/legacy/
           cp target/wasizarlib-node/*.tgz dist/wasizarlib/
           tar -C dist -czf dist/wasizarlib-wasip2.tar.gz wasizarlib
       - name: Upload component

@@ -522,11 +522,32 @@ fn extract_single_file_from_state(
     }
     let mut archive_file = File::open(archive)?;
     let mut writer = io::BufWriter::new(File::create(output)?);
+    let written = write_single_file_from_state(
+        &mut archive_file,
+        path,
+        &mut writer,
+        file_entry,
+        source,
+        validate_blocks,
+        true,
+    )?;
+    Ok(written)
+}
+
+fn write_single_file_from_state(
+    archive_file: &mut (impl Read + Seek),
+    path: &str,
+    writer: &mut (impl Write + ?Sized),
+    file_entry: &FileEntry,
+    source: &ExtractedSource,
+    validate_blocks: bool,
+    flush_output: bool,
+) -> Result<u64, Box<dyn std::error::Error>> {
     let mut checksum = Xxh64::new(0);
     let mut written = 0_u64;
     for block in &source.blocks {
         let contents =
-            decode_extraction_block_with_validation(&mut archive_file, block, validate_blocks)
+            decode_extraction_block_with_validation(archive_file, block, validate_blocks)
                 .map_err(ExtractionFailure::from_send_sync)?;
         if contents.len() != block.uncompressed_size {
             return Err("archive block changed after extraction validation".into());
@@ -537,7 +558,9 @@ fn extract_single_file_from_state(
         writer.write_all(file_contents)?;
         written += file_contents.len() as u64;
     }
-    writer.flush()?;
+    if flush_output {
+        writer.flush()?;
+    }
     if written != file_entry.size {
         return Err(format!("decoded size mismatch for {path}").into());
     }
@@ -549,6 +572,52 @@ fn extract_single_file_from_state(
         return Err(format!("file checksum mismatch for {path}").into());
     }
     Ok(written)
+}
+
+/// Extracts one file from a seekable ZAR archive into a writer.
+///
+/// The reader must contain the archive starting at offset zero. Locked headers
+/// through the selected commit are rejected rather than returning a partial
+/// archive view. The destination may contain partial data if an I/O or
+/// integrity error occurs. Callers must flush the writer themselves and must
+/// not modify the archive during the call.
+pub fn extract_single_file_to_writer(
+    archive: &mut (impl Read + Seek),
+    path: &str,
+    output: &mut (impl Write + ?Sized),
+    passwords: &PasswordSet,
+    to: Option<&str>,
+) -> Result<u64, Box<dyn std::error::Error>> {
+    let archive_path = ArchivePath::new(path)?;
+    let wanted = FilterSet::from_patterns(&[escape_glob(path)], &[], &[], &[], &[] as &[PathBuf])?;
+    archive.seek(SeekFrom::Start(0))?;
+    let headers = load_extraction_headers(archive, to, passwords, None)?;
+    if headers
+        .commits
+        .iter()
+        .any(|commit| commit.validated.logical_header.is_none())
+    {
+        return Err("cannot stream a file with locked commit headers".into());
+    }
+    let (toc, sources, _) = load_extraction_state_from_reader(
+        archive,
+        to,
+        passwords,
+        None,
+        Some(&wanted),
+        Some(headers),
+        true,
+    )?;
+    let Some(TocEntry::File(entry)) = toc.get(&archive_path) else {
+        return Err(format!("{path} is not a file in the archive").into());
+    };
+    let source = sources
+        .get(&archive_path)
+        .ok_or_else(|| format!("missing extraction source for {path}"))?;
+    if !matches!(source.kind, ExtractedKind::File) || source.entry != *entry {
+        return Err(format!("extraction source mismatch for {path}").into());
+    }
+    write_single_file_from_state(archive, path, output, entry, source, true, false)
 }
 
 fn escape_glob(path: &str) -> String {
@@ -1753,7 +1822,7 @@ fn decode_extraction_block(
 }
 
 fn decode_extraction_block_with_validation(
-    archive_file: &mut File,
+    archive_file: &mut (impl Read + Seek),
     block: &ExtractedBlock,
     validate_blocks: bool,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
@@ -2003,7 +2072,7 @@ struct ExtractionHeaders {
 }
 
 fn load_extraction_headers(
-    file: &mut File,
+    file: &mut (impl Read + Seek),
     to: Option<&str>,
     passwords: &PasswordSet,
     progress: Option<&ProgressReporter<'_>>,
@@ -2012,7 +2081,7 @@ fn load_extraction_headers(
     let mut toc = Toc::default();
     let mut commits = Vec::new();
     let limits = CommitValidationLimits::default();
-    let mut offset = read_first_header_offset(file)?;
+    let mut offset = read_first_header_offset_from_reader(file)?;
     let mut offsets = HashSet::new();
     let mut matched_to = false;
     let mut stopped_at_to = false;
@@ -2024,7 +2093,7 @@ fn load_extraction_headers(
             progress.check_cancelled()?;
         }
         if stopped_at_to {
-            let (commit, _, next) = read_commit_at_offset(file, offset, limits)?;
+            let (commit, _, next) = read_commit_at_offset_from_reader(file, offset, limits)?;
             if requested_id == Some(commit.commit_id) {
                 return Err("--to commit ID is ambiguous".into());
             }
@@ -2032,7 +2101,7 @@ fn load_extraction_headers(
             continue;
         }
         file.seek(SeekFrom::Start(offset))?;
-        let (validated, dek) = read_header_with_passwords(file, limits, passwords)?;
+        let (validated, dek) = read_header_with_passwords_from_reader(file, limits, passwords)?;
         let header_size = file.stream_position()?.saturating_sub(offset);
         let commit = &validated.commit_header;
         let _commit_end = offset
@@ -2113,11 +2182,31 @@ fn load_extraction_state_impl(
     skip_unselected_frame_validation: bool,
 ) -> Result<LoadedExtractionState, Box<dyn std::error::Error>> {
     let mut file = File::open(archive)?;
+    load_extraction_state_from_reader(
+        &mut file,
+        to,
+        passwords,
+        progress,
+        filters,
+        headers,
+        skip_unselected_frame_validation,
+    )
+}
+
+fn load_extraction_state_from_reader(
+    file: &mut (impl Read + Seek),
+    to: Option<&str>,
+    passwords: &PasswordSet,
+    progress: Option<&ProgressReporter<'_>>,
+    filters: Option<&FilterSet>,
+    headers: Option<ExtractionHeaders>,
+    skip_unselected_frame_validation: bool,
+) -> Result<LoadedExtractionState, Box<dyn std::error::Error>> {
     let use_block_index =
         filters.is_some() && (headers.is_none() || skip_unselected_frame_validation);
     let ExtractionHeaders { toc, commits } = match headers {
         Some(headers) => headers,
-        None => load_extraction_headers(&mut file, to, passwords, progress)?,
+        None => load_extraction_headers(file, to, passwords, progress)?,
     };
     let references = referenced_blocks(&commits, filters);
     let mut historical_blocks = HashMap::<[u8; 4], HashMap<u32, ExtractedBlock>>::new();
@@ -2269,7 +2358,7 @@ fn load_extraction_state_impl(
                 return Err(crate::FramingError::InvalidSize.into());
             }
         } else {
-            let mut data = RelativeSeekReader::new(&mut file)?;
+            let mut data = RelativeSeekReader::new(&mut *file)?;
             while remaining > 0 {
                 if let Some(progress) = progress {
                     progress.check_cancelled()?;

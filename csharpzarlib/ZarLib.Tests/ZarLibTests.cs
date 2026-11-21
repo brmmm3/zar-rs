@@ -6,7 +6,7 @@ using Zar;
 namespace Zar.Tests;
 
 // All tests live in one class: they change the process working directory, so they must run serially.
-public sealed class ZarLibTests : IDisposable
+public sealed partial class ZarLibTests : IDisposable
 {
     private readonly string _oldDirectory = Directory.GetCurrentDirectory();
     private readonly string _temp = Directory.CreateTempSubdirectory("zar-cs-").FullName;

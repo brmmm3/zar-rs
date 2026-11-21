@@ -75,6 +75,20 @@ Missing prerequisites fail the affected job and are listed in the summary; jobs
 blocked by failed dependencies are skipped. Any failed job gives the script a
 nonzero exit status.
 
+## Updating the project version
+
+Use Python 3.11 or newer to preview and update the package versions:
+
+```bash
+python3 scripts/update_version.py --dry-run 0.15.1
+python3 scripts/update_version.py 0.15.1
+```
+
+Replace `0.15.1` with the desired stable `MAJOR.MINOR.PATCH` version. Release
+history and download checksums are not changed. After publishing the new
+release assets, update the Scoop and Chocolatey checksums with
+`python3 scripts/update_checksums.py 0.15.1` before publishing those packages.
+
 ## Pull requests
 
 1. Open an issue first for larger changes so the design can be discussed.

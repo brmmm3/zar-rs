@@ -11,6 +11,8 @@ use zarlib::operations::{
 };
 use zarlib::{ContentAead, DeviceKind, EncryptionScope, MetadataType, Toc, TocEntry};
 
+mod stream;
+
 #[cfg(all(
     feature = "mimalloc",
     not(all(target_os = "linux", target_arch = "aarch64"))
@@ -922,6 +924,11 @@ fn toc_dicts(py: Python<'_>, toc: Toc) -> PyResult<Bound<'_, PyList>> {
 #[pymodule(gil_used = false)]
 fn _pyzarlib(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(create_archive, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        stream::create_archive_from_streams,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(stream::extract_file_to_stream, module)?)?;
     module.add_function(wrap_pyfunction!(add_archive, module)?)?;
     module.add_function(wrap_pyfunction!(remove_archive, module)?)?;
     module.add_function(wrap_pyfunction!(undo_archive, module)?)?;

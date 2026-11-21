@@ -68,6 +68,38 @@ The library is located via `ZAR_LIBRARY` (full path), the application directory,
 or `target/{debug,release}` in any parent directory of the working or
 application directory.
 
+## Streaming
+
+The streaming methods use .NET streams directly, without buffering entire files
+or archives in the wrapper. They require a `czarlib` build with the streaming ABI.
+
+```csharp
+using Zar;
+
+using var source = File.OpenRead("photo.bin");
+using var archive = new MemoryStream();
+ZarLibrary.CreateArchiveFromReaders(archive, [new ZarStreamInput("photos/é.bin", source)],
+    new { encoding_options = new { block_size = 65536 }, password = "secret" });
+
+archive.Position = 0;
+using var output = File.Create("restored.bin");
+ulong written = ZarLibrary.ExtractSingleFileToWriter(archive, "photos/é.bin", output,
+    new { password = "secret" });
+```
+
+Creation reads each source from its current position; the archive destination
+must be empty, writable, seekable, and support writes at seeked positions (not
+append-only). Extraction requires a readable, seekable archive and a writable
+destination; the destination need not be seekable. Paths are UTF-8 archive paths.
+Streams remain open; callers own flushing and disposal. Errors can leave partial
+output. Exceptions from streams are rethrown, while native errors are `ZarException`.
+
+The optional options argument accepts a JSON string or serializable object.
+Creation supports `encoding_options` (including `block_size` and
+`compression_level`), `password`, `aead`, and `encryption_scope`; extraction
+supports `password`, per-commit `passwords`, and `to`. See the C wrapper's
+documentation for their values.
+
 ## API
 
 ```csharp
@@ -101,6 +133,7 @@ Dictionary<string, byte[]> files = ZarLibrary.ExtractArchiveToMemory(new { archi
 ```sh
 cd ZarLib.Tests && dotnet test     # encrypted tests take about a minute in debug builds
 cd examples/Basic && dotnet run
+cd examples/Streaming && dotnet run
 cd examples/Zarc && dotnet run -- c demo.zar somedir
 cd examples/Zarc && dotnet run -- l demo.zar
 ```

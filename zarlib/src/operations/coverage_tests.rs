@@ -11,6 +11,266 @@ struct Fixture {
 }
 
 #[test]
+fn streaming_readers_roundtrip_with_existing_operations() {
+    use std::io::{Cursor, Read};
+
+    struct ShortReads<R>(R);
+    impl<R: Read> Read for ShortReads<R> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let len = buf.len().min(7);
+            self.0.read(&mut buf[..len])
+        }
+    }
+
+    let data = (0..150_000).map(|i| (i % 251) as u8).collect::<Vec<_>>();
+    for encryption in [
+        None,
+        Some(StreamEncryption {
+            password: b"secret",
+            algorithm: crate::ContentAead::ChaCha20Poly1305,
+            scope: crate::EncryptionScope::HeaderAndData,
+        }),
+        Some(StreamEncryption {
+            password: b"secret",
+            algorithm: crate::ContentAead::Aes256Gcm,
+            scope: crate::EncryptionScope::Data,
+        }),
+        Some(StreamEncryption {
+            password: b"secret",
+            algorithm: crate::ContentAead::Aes256Gcm,
+            scope: crate::EncryptionScope::Header,
+        }),
+    ] {
+        let mut archive = Cursor::new(Vec::new());
+        let mut bytes = ShortReads(Cursor::new(&data));
+        let mut empty = std::io::empty();
+        let mut inputs = [
+            StreamInput {
+                path: "dir/data",
+                reader: &mut bytes,
+            },
+            StreamInput {
+                path: "empty",
+                reader: &mut empty,
+            },
+        ];
+        create_archive_from_readers(
+            &mut archive,
+            &mut inputs,
+            EncodingOptions {
+                block_size: 64 * 1024,
+                compression_level: 3,
+            },
+            encryption,
+        )
+        .unwrap();
+        let passwords = PasswordSet::new(encryption.map(|_| b"secret".to_vec()));
+        let mut output = Vec::new();
+        assert_eq!(
+            extract_single_file_to_writer(&mut archive, "dir/data", &mut output, &passwords, None)
+                .unwrap(),
+            data.len() as u64
+        );
+        assert_eq!(output, data);
+        output.clear();
+        assert_eq!(
+            extract_single_file_to_writer(&mut archive, "empty", &mut output, &passwords, None)
+                .unwrap(),
+            0
+        );
+
+        let directory = tempfile::tempdir().unwrap();
+        let archive_path = directory.path().join("stream.zar");
+        std::fs::write(&archive_path, archive.get_ref()).unwrap();
+        let files = extract_archive_to_memory_with_passwords(
+            archive_path.to_str().unwrap(),
+            None,
+            &passwords,
+            None,
+            0,
+        )
+        .unwrap();
+        assert_eq!(files["dir/data"], data);
+        assert!(files["empty"].is_empty());
+        check_archive_with_recovery(
+            archive_path.to_str().unwrap(),
+            false,
+            encryption.map(|_| b"secret".as_slice()),
+        )
+        .unwrap();
+        if encryption.is_some() {
+            let wrong = PasswordSet::new(Some(b"wrong".to_vec()));
+            assert!(
+                extract_single_file_to_writer(
+                    &mut archive,
+                    "dir/data",
+                    &mut Vec::new(),
+                    &wrong,
+                    None
+                )
+                .is_err()
+            );
+            assert!(
+                extract_single_file_to_writer(
+                    &mut archive,
+                    "dir/data",
+                    &mut Vec::new(),
+                    &PasswordSet::default(),
+                    None
+                )
+                .is_err()
+            );
+        } else {
+            let mut damaged = archive.get_ref().clone();
+            damaged[40] ^= 1;
+            assert!(
+                extract_single_file_to_writer(
+                    &mut Cursor::new(damaged),
+                    "dir/data",
+                    &mut Vec::new(),
+                    &passwords,
+                    None,
+                )
+                .is_err()
+            );
+        }
+    }
+}
+
+#[test]
+fn streaming_extraction_reads_existing_history_and_propagates_errors() {
+    use std::io::{self, Cursor, Write};
+
+    struct BrokenWriter;
+    impl Write for BrokenWriter {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::Error::other("writer failed"))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let fixture = Fixture::new();
+    let archive_path = fixture.archive();
+    let original = std::fs::read(fixture.input.join("a.txt")).unwrap();
+    std::fs::write(fixture.input.join("a.txt"), b"new contents").unwrap();
+    add_archive(archive_path, std::slice::from_ref(&fixture.input)).unwrap();
+    let mut archive = Cursor::new(std::fs::read(archive_path).unwrap());
+    let mut output = Vec::new();
+    extract_single_file_to_writer(
+        &mut archive,
+        "input/a.txt",
+        &mut output,
+        &PasswordSet::default(),
+        Some("00000001"),
+    )
+    .unwrap();
+    assert_eq!(output, original);
+    output.clear();
+    extract_single_file_to_writer(
+        &mut archive,
+        "input/a.txt",
+        &mut output,
+        &PasswordSet::default(),
+        None,
+    )
+    .unwrap();
+    assert_eq!(output, b"new contents");
+    let error = extract_single_file_to_writer(
+        &mut archive,
+        "input/a.txt",
+        &mut BrokenWriter,
+        &PasswordSet::default(),
+        None,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("writer failed"));
+    assert!(
+        extract_single_file_to_writer(
+            &mut archive,
+            "../invalid",
+            &mut Vec::new(),
+            &PasswordSet::default(),
+            None,
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn streaming_creation_rejects_bad_inputs_and_reader_failures() {
+    use std::io::{self, Cursor, Read};
+    struct BrokenReader;
+    impl Read for BrokenReader {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::other("reader failed"))
+        }
+    }
+    let mut archive = Cursor::new(Vec::new());
+    let mut first = io::empty();
+    let mut second = io::empty();
+    let mut inputs = [
+        StreamInput {
+            path: "same",
+            reader: &mut first,
+        },
+        StreamInput {
+            path: "same",
+            reader: &mut second,
+        },
+    ];
+    assert!(
+        create_archive_from_readers(&mut archive, &mut inputs, EncodingOptions::default(), None)
+            .is_err()
+    );
+    assert!(archive.get_ref().is_empty());
+
+    let mut first = io::empty();
+    let mut second = io::empty();
+    let mut inputs = [
+        StreamInput {
+            path: "parent",
+            reader: &mut first,
+        },
+        StreamInput {
+            path: "parent/child",
+            reader: &mut second,
+        },
+    ];
+    assert!(
+        create_archive_from_readers(&mut archive, &mut inputs, EncodingOptions::default(), None)
+            .is_err()
+    );
+    assert!(archive.get_ref().is_empty());
+
+    let mut reader = BrokenReader;
+    let mut inputs = [StreamInput {
+        path: "file",
+        reader: &mut reader,
+    }];
+    let error =
+        create_archive_from_readers(&mut archive, &mut inputs, EncodingOptions::default(), None)
+            .unwrap_err();
+    assert!(error.to_string().contains("reader failed"));
+    assert!(!archive.get_ref().is_empty());
+    assert!(
+        create_archive_from_readers(&mut archive, &mut [], EncodingOptions::default(), None)
+            .is_err()
+    );
+
+    let directory = tempfile::tempdir().unwrap();
+    let mut append = std::fs::OpenOptions::new()
+        .append(true)
+        .create_new(true)
+        .open(directory.path().join("append.zar"))
+        .unwrap();
+    let error = create_archive_from_readers(&mut append, &mut [], EncodingOptions::default(), None)
+        .unwrap_err();
+    assert!(error.to_string().contains("requested position"));
+}
+
+#[test]
 fn interruptible_copy_propagates_disk_full_after_partial_write() {
     use std::io::{self, Write};
 
@@ -1022,6 +1282,20 @@ fn cross_commit_encrypted_references_require_passwords() {
     assert!(cross_commit_references(archive).is_err());
     let references = cross_commit_references_with_passwords(archive, &passwords).unwrap();
     assert_eq!(references.len(), 1);
+    let mut reader = std::io::Cursor::new(std::fs::read(archive).unwrap());
+    let mut streamed = Vec::new();
+    extract_single_file_to_writer(
+        &mut reader,
+        "encrypted-copy.txt",
+        &mut streamed,
+        &passwords,
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        streamed,
+        std::fs::read(fixture.input.join("a.txt")).unwrap()
+    );
     assert!(
         info_archive(archive, false).unwrap()[1]
             .cross_commit_references

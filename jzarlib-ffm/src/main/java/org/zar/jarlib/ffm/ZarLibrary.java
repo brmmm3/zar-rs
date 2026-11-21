@@ -8,7 +8,11 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.SymbolLookup;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandle;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Objects;
 
 /** Java 25+ FFM binding to the czarlib JSON operation API. */
@@ -35,11 +39,42 @@ public final class ZarLibrary {
         return SymbolLookup.libraryLookup(library, LIBRARY_ARENA);
     }
 
-    private static MethodHandle downcall(String symbol, FunctionDescriptor descriptor) {
+    static MethodHandle downcall(String symbol, FunctionDescriptor descriptor) {
         MemorySegment address = SYMBOLS.find(symbol)
                 .orElseThrow(() -> new ExceptionInInitializerError(
                         "missing czarlib symbol: " + symbol));
         return LINKER.downcallHandle(address, descriptor);
+    }
+
+    static void freeString(MemorySegment string) throws Throwable {
+        FREE.invokeExact(string);
+    }
+
+    /** A named archive entry read incrementally from a caller-owned stream. */
+    public record StreamInput(String path, InputStream stream) {
+        public StreamInput {
+            Objects.requireNonNull(path, "path");
+            Objects.requireNonNull(stream, "stream");
+        }
+    }
+
+    /**
+     * Creates an archive in a seekable read/write channel from incremental inputs.
+     * The channel must be empty and positioned at zero. Resources remain caller-owned.
+     * Options may be null or a JSON object accepted by czarlib.
+     */
+    public static void createArchiveFromReaders(SeekableByteChannel archive,
+            List<StreamInput> inputs, String optionsJson) throws ZarException {
+        StreamSupport.create(archive, inputs, optionsJson);
+    }
+
+    /**
+     * Extracts one entry into a caller-owned output stream and returns its byte count.
+     * The archive channel must be readable and seekable. No resource is closed or flushed.
+     */
+    public static long extractSingleFileToWriter(SeekableByteChannel archive, String path,
+            OutputStream output, String optionsJson) throws ZarException {
+        return StreamSupport.extract(archive, path, output, optionsJson);
     }
 
     /**

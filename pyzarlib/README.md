@@ -111,6 +111,53 @@ The Python API tests exercise archive operations through `pyzarlib`; the
 pytest suite also runs the complete native `zarlib` unit-test suite so
 Rust-only framing, crypto, and data-model tests are included.
 
+## Streaming binary files
+
+`create_archive_from_streams(archive, inputs, *, block_size=8388608,
+compression_level=3, password=None, aead="aes-256-gcm",
+encryption_scope="header-and-data")` writes a new single-commit archive to an
+**empty**, seekable binary writer. `inputs` is a sequence of `(archive_path,
+binary_reader)` pairs. Each reader is consumed from its current position to EOF.
+Regular files only are supported; there is no deduplication or filesystem
+metadata. `block_size` is 64 KiB–32 MiB (automatic size `0` is not supported)
+and `compression_level` is -7–22. A bytes password enables encryption;
+`aead` is `"aes-256-gcm"` or `"chacha20-poly1305"`, and `encryption_scope`
+is `"header"`, `"data"`, or `"header-and-data"`.
+
+`extract_file_to_stream(archive, path, output, *, to=None, password=None,
+passwords=None)` reads one regular file from a seekable binary archive and
+writes it to a binary output at its current position, returning the number of
+bytes written. `to` selects a commit as with `extract_archive`; `password`
+is the default bytes password and `passwords` maps eight-digit commit IDs to
+bytes passwords. The archive must begin at offset zero and not change during
+extraction. Locked headers through the selected commit are an error.
+
+Streams must implement `read(size) -> bytes`, `write(bytes) -> int`, and/or
+`seek(offset, whence) -> int` as appropriate. Short reads and writes are
+handled; invalid results and exceptions are propagated. The archive writer
+must honor seeks (not append mode). File data is processed in bounded blocks,
+not buffered in its entirety, although archive metadata grows with its entries.
+The functions do not close or flush caller streams. Flush them explicitly if
+needed. Failures can leave a partial archive or extracted output; discard it or
+stage it separately if atomic publication is required. Concurrent calls may
+use independent streams, but callers must synchronize access to shared streams.
+
+```python
+import io
+import pyzarlib
+
+archive = io.BytesIO()
+pyzarlib.create_archive_from_streams(
+    archive, [("hello.txt", io.BytesIO(b"hello")), ("empty", io.BytesIO())]
+)
+output = io.BytesIO()
+pyzarlib.extract_file_to_stream(archive, "hello.txt", output)
+assert output.getvalue() == b"hello"
+```
+
+Run the complete example with `python examples/streaming.py`. `BytesIO` is
+used here for convenience; disk files and other compatible streams work too.
+
 ## Example
 
 ```python

@@ -7,6 +7,15 @@ until a version is released.
 
 ### Added
 
+- Added seekable-archive streaming APIs and a TCP server/client example for
+  creating archives from readers and extracting individual files to writers.
+- Added streaming APIs, examples, and tests for the C, C++, C#, Go, Java,
+  Python, and WASI/Node.js bindings.
+
+## 0.15.0 - 2026-11-20
+
+### Added
+
 - Added `zarg --context` actions for creating, adding, opening, extracting, and
   testing archives from file-manager context menus.
 - Added resumable archive benchmarks with per-run results in `.benchmark_cache`,
