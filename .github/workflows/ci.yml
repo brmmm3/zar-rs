@@ -668,7 +668,7 @@ jobs:
         with:
           toolchain: stable
           targets: ${{ matrix.platform.target }}
-      - name: Build zarc, zarg and zcopy
+      - name: Build workspace binaries
         if: steps.reuse.outcome != 'success'
         env:
           RUSTFLAGS: ${{ startsWith(matrix.platform.target, 'x86_64-') && (matrix.platform.static && '-C target-cpu=x86-64 -C target-feature=+crt-static' || '-C target-cpu=x86-64') || (matrix.platform.static && '-C target-feature=+crt-static' || '') }}
@@ -686,6 +686,9 @@ jobs:
         run: |
           mkdir -p dist/zar-rs-$PLATFORM
           cp target/$TARGET/release/zarc target/$TARGET/release/zarg target/$TARGET/release/zcopy dist/zar-rs-$PLATFORM/
+          if [[ "$TARGET" == *-linux-* ]]; then
+            cp target/$TARGET/release/zarmount dist/zar-rs-$PLATFORM/
+          fi
           tar -C dist -czf dist/zar-rs-$PLATFORM.tar.gz zar-rs-$PLATFORM
       - name: Package binaries (Windows)
         if: runner.os == 'Windows' && steps.reuse.outcome != 'success'

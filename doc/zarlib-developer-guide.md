@@ -60,6 +60,14 @@ bytes returned per file after the specified offset. Directories and special
 entries are omitted. The filtered variant accepts the same `FilterSet` used by
 file extraction.
 
+For repeated random reads from an unchanged archive,
+`PreparedExtraction::new_complete` validates the selected history and rejects
+locked headers. `read_file_range` reads one regular file by offset and length
+without rebuilding that state. It validates decoded blocks, caches one decoded
+block, and verifies the file checksum only when reading the whole file.
+If the archive changes or is replaced, subsequent reads fail. The
+[`zarmount` FUSE filesystem](../zarmount/README.md) uses this API.
+
 ## Streaming regular files
 
 `create_archive_from_readers` consumes named `Read` inputs in blocks and writes

@@ -623,6 +623,7 @@ class RunnerTests(unittest.TestCase):
             (release / "zarc").write_bytes(b"cli")
             (release / "zarg").write_bytes(b"gui")
             (release / "zcopy").write_bytes(b"copy")
+            (release / "zarmount").write_bytes(b"mount")
             (release / "unrelated").write_bytes(b"not packaged")
             with (
                 mock.patch.object(run_ci, "ROOT", root),
@@ -651,6 +652,7 @@ class RunnerTests(unittest.TestCase):
                         "zar-rs-linux-x86_64/zarc",
                         "zar-rs-linux-x86_64/zarg",
                         "zar-rs-linux-x86_64/zcopy",
+                        "zar-rs-linux-x86_64/zarmount",
                     },
                 )
                 self.assertEqual(
@@ -658,6 +660,9 @@ class RunnerTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     archive.extractfile("zar-rs-linux-x86_64/zcopy").read(), b"copy"
+                )
+                self.assertEqual(
+                    archive.extractfile("zar-rs-linux-x86_64/zarmount").read(), b"mount"
                 )
 
     def test_static_binary_preserves_x86_cpu_target(self):

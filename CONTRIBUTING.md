@@ -112,6 +112,7 @@ release assets, update the Scoop and Chocolatey checksums with
 | [`jzarlib-jni/README.md`](jzarlib-jni/README.md), [`jzarlib-ffm/README.md`](jzarlib-ffm/README.md), [`csharpzarlib/README.md`](csharpzarlib/README.md) | Java and C# bindings |
 | [`wasizarlib/README.md`](wasizarlib/README.md), [`wasizarlib/nodejs/README.md`](wasizarlib/nodejs/README.md) | WASI component and Node.js package |
 | [`zcopy/README.md`](zcopy/README.md) | Network copy tool |
+| [`zarmount/README.md`](zarmount/README.md) | Linux read-only FUSE mount |
 | [`packaging/README.md`](packaging/README.md) | Platform packaging |
 
 ## Reporting bugs

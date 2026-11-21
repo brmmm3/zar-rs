@@ -23,6 +23,8 @@ request guidance.
   missing or newer files on the destination or save a complete packed archive.
 - **[`zarmcp`](./zarmcp/README.md)** provides local MCP tools for AI clients to
   inspect, read, and manage archives, with read-only and tool-allowlist modes.
+- **[`zarmount`](./zarmount/README.md)** mounts ZAR archives as read-only
+  FUSE filesystems on Linux.
 
 The Rust package names for `zarc` and `zarg` are `zarlib-cli` and
 `zarlib-gui`, respectively; the executable names remain unchanged.

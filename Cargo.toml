@@ -9,6 +9,7 @@ members = [
     "zcopy",
     "wasizarlib",
     "zarmcp",
+    "zarmount",
 ]
 resolver = "3"
 

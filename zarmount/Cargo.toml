@@ -1,0 +1,19 @@
+[package]
+name = "zarmount"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Read-only FUSE filesystem for ZAR archives"
+
+[dependencies]
+clap.workspace = true
+zarlib = { path = "../zarlib" }
+zeroize.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+fuser = "0.19"
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"

@@ -967,7 +967,10 @@ def binaries(
     windows = windows or cross_windows
     with tempfile.TemporaryDirectory(prefix="zar-ci-binaries-") as temp:
         stage = Path(temp) / f"zar-rs-{name}"
-        for binary in ("zarc", "zarg", "zcopy"):
+        binary_names = ("zarc", "zarg", "zcopy")
+        if "-linux-" in target:
+            binary_names += ("zarmount",)
+        for binary in binary_names:
             copy_required(
                 ROOT
                 / "target"

@@ -96,14 +96,18 @@ impl ExtractedSource {
 pub type ExtractionSources = BTreeMap<ArchivePath, ExtractedSource>;
 pub type ArchivedEntryMetadata = BTreeMap<ArchivePath, EntryMetadata>;
 pub type LoadedExtractionState = (Toc, ExtractionSources, ArchivedEntryMetadata);
+type DecodedBlockCache = Option<(u64, Zeroizing<Vec<u8>>)>;
 
 /// Validated extraction state for an archive that has not changed.
 pub struct PreparedExtraction {
     archive: PathBuf,
     size: u64,
     modified: std::time::SystemTime,
+    #[cfg(unix)]
+    identity: (u64, u64, i64, i64),
     to: Option<String>,
     state: LoadedExtractionState,
+    range_cache: std::sync::Mutex<DecodedBlockCache>,
 }
 
 impl std::fmt::Debug for PreparedExtraction {
@@ -132,19 +136,71 @@ impl PreparedExtraction {
         passwords: &PasswordSet,
         progress: Option<&dyn Progress>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::prepare(archive, to, passwords, progress, false)
+    }
+
+    /// Validates an archive and rejects any commit whose header is locked.
+    pub fn new_complete(
+        archive: &str,
+        to: Option<&str>,
+        passwords: &PasswordSet,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::prepare(archive, to, passwords, None, true)
+    }
+
+    fn prepare(
+        archive: &str,
+        to: Option<&str>,
+        passwords: &PasswordSet,
+        progress: Option<&dyn Progress>,
+        require_complete: bool,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let progress = ProgressReporter::new(progress);
         progress.check_cancelled()?;
         let metadata = std::fs::metadata(archive)?;
         let size = metadata.len();
         let modified = metadata.modified()?;
-        let state =
-            load_extraction_state_with_passwords_progress(archive, to, passwords, Some(&progress))?;
+        #[cfg(unix)]
+        let identity = {
+            use std::os::unix::fs::MetadataExt;
+            (
+                metadata.dev(),
+                metadata.ino(),
+                metadata.ctime(),
+                metadata.ctime_nsec(),
+            )
+        };
+        let state = if require_complete {
+            let headers =
+                load_extraction_headers(&mut File::open(archive)?, to, passwords, Some(&progress))?;
+            if headers
+                .commits
+                .iter()
+                .any(|commit| commit.validated.logical_header.is_none())
+            {
+                return Err("cannot prepare an archive with locked commit headers".into());
+            }
+            load_extraction_state_impl(
+                archive,
+                to,
+                passwords,
+                Some(&progress),
+                None,
+                Some(headers),
+                false,
+            )?
+        } else {
+            load_extraction_state_with_passwords_progress(archive, to, passwords, Some(&progress))?
+        };
         let prepared = Self {
             archive: PathBuf::from(archive),
             size,
             modified,
+            #[cfg(unix)]
+            identity,
             to: to.map(str::to_owned),
             state,
+            range_cache: std::sync::Mutex::new(None),
         };
         prepared.check_unchanged()?;
         Ok(prepared)
@@ -152,8 +208,28 @@ impl PreparedExtraction {
 
     fn check_unchanged(&self) -> Result<(), Box<dyn std::error::Error>> {
         let metadata = std::fs::metadata(&self.archive)?;
+        self.check_metadata(&metadata)
+    }
+
+    fn check_metadata(
+        &self,
+        metadata: &std::fs::Metadata,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if metadata.len() != self.size || metadata.modified()? != self.modified {
             return Err("archive changed since validation".into());
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if (
+                metadata.dev(),
+                metadata.ino(),
+                metadata.ctime(),
+                metadata.ctime_nsec(),
+            ) != self.identity
+            {
+                return Err("archive changed since validation".into());
+            }
         }
         Ok(())
     }
@@ -166,6 +242,49 @@ impl PreparedExtraction {
     /// Returns the commit limit used when preparing the archive.
     pub fn to(&self) -> Option<&str> {
         self.to.as_deref()
+    }
+
+    /// Reads a bounded range of one regular file, validating each decoded block.
+    ///
+    /// The archive must not change after preparation. A partial read validates
+    /// its blocks, but cannot verify the checksum of the complete file.
+    pub fn read_file_range(
+        &self,
+        path: &str,
+        offset: u64,
+        size_limit: u64,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        self.check_unchanged()?;
+        let archive_path = ArchivePath::new(path)?;
+        let Some(TocEntry::File(entry)) = self.state.0.get(&archive_path) else {
+            return Err(format!("{path} is not a file in the archive").into());
+        };
+        let source = self
+            .state
+            .1
+            .get(&archive_path)
+            .ok_or_else(|| format!("missing extraction source for {path}"))?;
+        if !matches!(source.kind, ExtractedKind::File) || source.entry != *entry {
+            return Err(format!("extraction source mismatch for {path}").into());
+        }
+        let mut file = File::open(&self.archive)?;
+        self.check_metadata(&file.metadata()?)?;
+        let mut cache = self
+            .range_cache
+            .lock()
+            .map_err(|_| "range cache is poisoned")?;
+        let result = read_file_range_from_state(
+            &mut file,
+            path,
+            entry,
+            source,
+            offset,
+            Some(size_limit),
+            Some(&mut cache),
+        )?;
+        self.check_metadata(&file.metadata()?)?;
+        self.check_unchanged()?;
+        Ok(result)
     }
 
     /// Extracts entries without rebuilding the validated state.
@@ -403,63 +522,102 @@ pub fn extract_archive_to_memory_with_passwords_and_filters(
             return Err(format!("extraction source mismatch for {path}").into());
         }
 
-        let requested_size = file_entry.size.saturating_sub(offset);
-        let selected_size = size_limit.map_or(requested_size, |limit| requested_size.min(limit));
-        let selected_capacity = usize::try_from(selected_size)
-            .map_err(|_| format!("selected file contents are too large for {path}"))?;
-        let mut contents = Vec::new();
-        contents.try_reserve_exact(selected_capacity)?;
-
-        let selected_end = offset
-            .checked_add(selected_size)
-            .ok_or("selected file range overflow")?;
-        let read_full_file = offset == 0 && selected_end == file_entry.size;
-        let mut file_offset = 0_u64;
-        let mut checksum = Xxh64::new(0);
-
-        for block in &source.blocks {
-            let block_range =
-                entry_block_range(&source.entry, block.block_index, block.uncompressed_size)?;
-            let block_file_size = u64::try_from(block_range.len())?;
-            let block_end = file_offset
-                .checked_add(block_file_size)
-                .ok_or("decoded file size overflow")?;
-            if file_offset < selected_end && block_end > offset {
-                let block_contents = decode_extraction_block(&mut archive_file, block)
-                    .map_err(ExtractionFailure::from_send_sync)?;
-                if block_contents.len() != block.uncompressed_size {
-                    return Err("archive block changed after extraction validation".into());
-                }
-                let file_contents = &block_contents[block_range.clone()];
-                if read_full_file {
-                    checksum.update(file_contents);
-                }
-                let start = block_range.start
-                    + usize::try_from(offset.saturating_sub(file_offset))
-                        .map_err(|_| "selected block offset is too large")?;
-                let end = block_range.start
-                    + usize::try_from(selected_end.min(block_end) - file_offset)
-                        .map_err(|_| "selected block end is too large")?;
-                contents.extend_from_slice(&block_contents[start..end]);
-            }
-            file_offset = block_end;
-        }
-
-        if file_offset != file_entry.size || contents.len() != selected_capacity {
-            return Err(format!("decoded size mismatch for {path}").into());
-        }
-        if read_full_file
-            && file_entry.size != 0
-            && file_entry
-                .checksum
-                .is_some_and(|expected| expected != checksum.digest())
-        {
-            return Err(format!("file checksum mismatch for {path}").into());
-        }
+        let contents = read_file_range_from_state(
+            &mut archive_file,
+            path.as_str(),
+            file_entry,
+            source,
+            offset,
+            size_limit,
+            None,
+        )?;
         files.insert(path.as_str().to_owned(), contents);
     }
 
     Ok(files)
+}
+
+fn read_file_range_from_state(
+    archive_file: &mut File,
+    path: &str,
+    file_entry: &FileEntry,
+    source: &ExtractedSource,
+    offset: u64,
+    size_limit: Option<u64>,
+    mut cache: Option<&mut DecodedBlockCache>,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let requested_size = file_entry.size.saturating_sub(offset);
+    let selected_size = size_limit.map_or(requested_size, |limit| requested_size.min(limit));
+    let selected_capacity = usize::try_from(selected_size)
+        .map_err(|_| format!("selected file contents are too large for {path}"))?;
+    let mut contents = Vec::new();
+    contents.try_reserve_exact(selected_capacity)?;
+
+    let selected_end = offset
+        .checked_add(selected_size)
+        .ok_or("selected file range overflow")?;
+    let read_full_file = offset == 0 && selected_end == file_entry.size;
+    let mut file_offset = 0_u64;
+    let mut checksum = Xxh64::new(0);
+
+    for block in &source.blocks {
+        let block_range =
+            entry_block_range(&source.entry, block.block_index, block.uncompressed_size)?;
+        let block_file_size = u64::try_from(block_range.len())?;
+        let block_end = file_offset
+            .checked_add(block_file_size)
+            .ok_or("decoded file size overflow")?;
+        if file_offset < selected_end && block_end > offset {
+            let uncached;
+            let block_contents = if let Some(cache) = cache.as_deref_mut() {
+                if cache
+                    .as_ref()
+                    .is_none_or(|(offset, _)| *offset != block.offset)
+                {
+                    *cache = Some((
+                        block.offset,
+                        Zeroizing::new(
+                            decode_extraction_block(archive_file, block)
+                                .map_err(ExtractionFailure::from_send_sync)?,
+                        ),
+                    ));
+                }
+                &**cache.as_ref().expect("decoded block is cached").1
+            } else {
+                uncached = decode_extraction_block(archive_file, block)
+                    .map_err(ExtractionFailure::from_send_sync)?;
+                &uncached
+            };
+            if block_contents.len() != block.uncompressed_size {
+                return Err("archive block changed after extraction validation".into());
+            }
+            let file_contents = &block_contents[block_range.clone()];
+            if read_full_file {
+                checksum.update(file_contents);
+            }
+            let start = block_range.start
+                + usize::try_from(offset.saturating_sub(file_offset))
+                    .map_err(|_| "selected block offset is too large")?;
+            let end = block_range.start
+                + usize::try_from(selected_end.min(block_end) - file_offset)
+                    .map_err(|_| "selected block end is too large")?;
+            contents.extend_from_slice(&block_contents[start..end]);
+        }
+        file_offset = block_end;
+    }
+
+    if file_offset != file_entry.size || contents.len() != selected_capacity {
+        return Err(format!("decoded size mismatch for {path}").into());
+    }
+    if read_full_file
+        && file_entry.size != 0
+        && file_entry
+            .checksum
+            .is_some_and(|expected| expected != checksum.digest())
+    {
+        return Err(format!("file checksum mismatch for {path}").into());
+    }
+    Ok(contents)
 }
 
 /// Extracts exactly one file into `output` in a single pass over the archive.
