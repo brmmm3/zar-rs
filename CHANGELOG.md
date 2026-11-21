@@ -5,6 +5,10 @@ until a version is released.
 
 ## Unreleased
 
+### Fixed
+
+- Unmount `zarmount` cleanly on Ctrl-C, SIGTERM, and SIGHUP.
+
 ### Added
 
 - Added cargo-binstall metadata for `zarc`, `zarg`, `zcopy`, `zarmcp`, and

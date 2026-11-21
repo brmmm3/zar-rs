@@ -5,7 +5,8 @@ mod mount;
 fn main() -> std::process::ExitCode {
     use clap::Parser;
     match mount::run(mount::Options::parse()) {
-        Ok(()) => std::process::ExitCode::SUCCESS,
+        Ok(Some(signal)) => std::process::ExitCode::from(128 + signal as u8),
+        Ok(None) => std::process::ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("zarmount: {error}");
             std::process::ExitCode::FAILURE

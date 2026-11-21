@@ -3,6 +3,7 @@
 use std::{
     fs,
     io::{Read, Seek, SeekFrom},
+    os::unix::process::ExitStatusExt,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     thread,
@@ -102,4 +103,61 @@ fn cli_mounts_encrypted_archive_and_rejects_writes() {
             .success()
     );
     assert!(guard.child.wait().unwrap().success());
+}
+
+#[test]
+#[ignore = "requires a usable /dev/fuse and fusermount3"]
+fn cli_unmounts_on_termination_signals() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("input");
+    fs::create_dir(&input).unwrap();
+    fs::write(input.join("file"), b"content").unwrap();
+    let archive = dir.path().join("archive.zar");
+    create_archive_with_password(
+        archive.to_str().unwrap(),
+        &[input],
+        false,
+        EncodingOptions {
+            block_size: 65536,
+            compression_level: 3,
+        },
+        None,
+    )
+    .unwrap();
+
+    for signal in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
+        let mountpoint = dir.path().join(format!("mount-{signal}"));
+        fs::create_dir(&mountpoint).unwrap();
+        let child = Command::new(env!("CARGO_BIN_EXE_zarmount"))
+            .arg(&archive)
+            .arg(&mountpoint)
+            .spawn()
+            .unwrap();
+        let mut guard = MountGuard {
+            child,
+            mountpoint: mountpoint.clone(),
+        };
+        wait_for_mount(&mut guard, &mountpoint.join("input/file"));
+        let open_file = fs::File::open(mountpoint.join("input/file")).unwrap();
+        assert_eq!(
+            unsafe { libc::kill(guard.child.id() as libc::pid_t, signal) },
+            0
+        );
+
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let status = loop {
+            if let Some(status) = guard.child.try_wait().unwrap() {
+                break status;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "zarmount did not exit on signal {signal}"
+            );
+            thread::sleep(Duration::from_millis(25));
+        };
+        assert_eq!(status.signal(), None);
+        assert_eq!(status.code(), Some(128 + signal));
+        fs::write(mountpoint.join("after-unmount"), b"accessible").unwrap();
+        drop(open_file);
+    }
 }

@@ -16,13 +16,17 @@ mkdir -p /tmp/zar-mount
 target/release/zarmount archive.zar /tmp/zar-mount
 ```
 
-The mount runs in the foreground. In another terminal, browse or read files,
-then unmount it:
+The mount runs in the foreground. Press Ctrl-C to unmount and exit, or in
+another terminal browse or read files and unmount it:
 
 ```sh
 ls -la /tmp/zar-mount
 fusermount3 -u /tmp/zar-mount
 ```
+
+SIGTERM and SIGHUP also trigger a graceful unmount. If the process is killed
+forcibly or crashes, recover a disconnected mountpoint with
+`fusermount3 -u /tmp/zar-mount`.
 
 Linux binary release archives also contain `zarmount`. The mountpoint must be
 an existing empty directory, and the archive must not be inside it. The

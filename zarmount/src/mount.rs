@@ -4,11 +4,16 @@ use fuser::{
     LockOwner, MountOption, OpenFlags, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry, ReplyOpen,
     Request,
 };
+use signal_hook::{
+    consts::signal::{SIGHUP, SIGINT, SIGTERM},
+    iterator::{Handle, Signals},
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     ffi::OsStr,
     fs,
     path::{Path, PathBuf},
+    thread,
     time::{Duration, UNIX_EPOCH},
 };
 use zarlib::{
@@ -20,6 +25,14 @@ use zeroize::Zeroizing;
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const TTL: Duration = Duration::from_secs(1);
 const ROOT: u64 = 1;
+
+struct CloseSignalsOnDrop(Handle);
+
+impl Drop for CloseSignalsOnDrop {
+    fn drop(&mut self) {
+        self.0.close();
+    }
+}
 
 #[cfg(test)]
 #[path = "tests.rs"]
@@ -84,7 +97,7 @@ fn passwords(options: &Options) -> Result<PasswordSet> {
     Ok(passwords)
 }
 
-pub fn run(options: Options) -> Result<()> {
+pub fn run(options: Options) -> Result<Option<i32>> {
     let archive = fs::canonicalize(&options.archive)?;
     let mountpoint = fs::canonicalize(&options.mountpoint)?;
     if !mountpoint.is_dir() {
@@ -108,8 +121,26 @@ pub fn run(options: Options) -> Result<()> {
         MountOption::FSName("zarmount".into()),
         MountOption::Subtype("zarmount".into()),
     ];
-    fuser::mount(filesystem, mountpoint, &config)?;
-    Ok(())
+    let mut signals = Signals::new([SIGINT, SIGTERM, SIGHUP])?;
+    let mut session = fuser::Session::new(filesystem, mountpoint, &config)?;
+    let mut unmounter = session.unmount_callable();
+    let signal_handle = signals.handle();
+    let worker = thread::Builder::new()
+        .name("zarmount-session".into())
+        .spawn(move || {
+            let _signal_guard = CloseSignalsOnDrop(signal_handle);
+            session.run()
+        })?;
+    let signal = signals.forever().next();
+    if signal.is_some() {
+        unmounter.unmount()?;
+        // A lazy unmount may keep the session alive while files remain open.
+        return Ok(signal);
+    }
+    worker
+        .join()
+        .map_err(|_| "FUSE session thread panicked")??;
+    Ok(signal)
 }
 
 #[derive(Debug)]
