@@ -139,6 +139,74 @@ the archive or redirected output may be partial; discard it. This is a
 minimal local demonstration, without authentication, TLS, or transfer size
 limits, and is not suitable for untrusted networks.
 
+The server logs client requests to stderr by default. Pass `-q` or `--quiet`
+to suppress request logs; its listening message and errors remain visible.
+
+To serve selected files from ZAR archives in a directory, start the server with
+the directory instead of a file:
+
+```sh
+cargo run -p zarlib --example streaming_server -- 127.0.0.1:7878 /path/to/archives
+cargo run -p zarlib --example streaming_client -- 127.0.0.1:7878 --list
+cargo run -p zarlib --example streaming_client -- 127.0.0.1:7878 \
+  --zar example.zar --output output --select 'docs/*.md' --select '*.txt'
+```
+
+The directory server handles requests sequentially until stopped. `-l` or
+`--list` lists regular `.zar` files directly inside the configured directory.
+For a transfer, `-z` or `--zar` names one archive and repeated `-s` or
+`--select` options provide quoted fnmatch patterns. Archive names and patterns
+are case-sensitive. Without patterns, all regular files are selected. Patterns
+match archive-relative paths using zarlib's filters (`*` can match `/`);
+matching files retain their paths under
+`-o` or `--output` (the current directory by default). Symlinks and other
+special entries are not transferred. A missing archive, invalid pattern, or no
+matching files is an error. Encrypted archives requiring passwords are not
+supported. The server prepares and sends one file at a time, keeping files up
+to 8 MiB in memory and staging larger files under unique temporary names.
+Case-distinct archive paths are sent unchanged. On a case-insensitive client filesystem, distinct paths
+may still collide: the client refuses existing files by default, but `-f` or
+`--force` can overwrite an earlier received file. An interactive progress bar with the same byte,
+throughput, and ETA display as `zarc` is shown on stderr by default;
+`--no-progress` disables it. A failed transfer may leave partial output.
+
+Directory mode uses a separate request/response protocol from the one-file
+example: a `ZARREQ03` magic value, length-prefixed UTF-8 archive name and
+patterns, followed by either an error or the file count, total uncompressed
+bytes, and a per-file status followed by length-framed paths and file contents.
+An empty archive name and zero patterns request the archive list. The server
+also accepts older `ZARREQ01` and `ZARREQ02` requests, which stage all selected
+files before responding; `ZARREQ01` responses omit the total byte count. The
+current client requires a server that supports `ZARREQ03`. Requests are limited
+to 64 patterns and 64 KiB per text field;
+there is no file-size or total-transfer limit. Like the original example, this
+mode has no authentication or TLS. Run it only on a trusted network, with a
+trusted archive directory and output directory that other users cannot modify
+during a transfer.
+
+On Linux, `python scripts/test_streaming_bandwidth.py` builds the release
+examples and sends `testdata/linux-4.0.1.zar` over loopback limited to
+10 Mbit/s twice. The first client writes the received ZAR; the second stages
+the ZAR and uses zarlib's existing tree extraction to restore the files. The script verifies
+the archive hash and compares file contents, directories, and symlink targets
+against a reference extraction. It samples server and client CPU and resident
+memory every 0.5 seconds. The summary reports effective throughput for both
+compressed archive bytes and uncompressed regular-file contents; elapsed time
+includes client output and extraction, not just network transfer. CPU is
+expressed as 100% per core, and RSS peaks are sampled estimates.
+
+The test needs `cargo`, `unshare`, `ip`, and `tc`, and permission to create
+unprivileged user and network namespaces. The limiter is confined to the
+temporary namespace, not the host loopback. Several GiB of temporary disk
+space and several minutes may be needed. Use `--archive PATH` to select
+another ZAR archive, or `--timeout SECONDS` to change the one-hour timeout
+per test.
+
+Because ZAR headers follow the data, tree extraction starts after the client
+has staged the complete archive. Both the reference and the client use the
+existing `rename` collision policy: names that collide when case-folded may
+be renamed, even on a case-sensitive filesystem.
+
 ## Custom archive metadata
 
 The Rust API can read and update arbitrary archive-level key/value metadata

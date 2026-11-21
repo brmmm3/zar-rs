@@ -17,9 +17,32 @@ extraction process! For comparison see Linux benchmarks.
 
 ## Running benchmarks
 
-There are two different benchmarks: use the **zarg GUI** to try compression
-settings on an existing archive, or the **comparison script** to compare
-archive formats on the supplied datasets.
+Use the **zarg GUI** to try compression settings on an existing archive, the
+**comparison script** to compare archive formats, or the **streaming test** to
+measure transfers over a rate-limited Linux loopback.
+
+### Test streaming bandwidth on Linux
+
+From the repository root, run:
+
+```sh
+python scripts/test_streaming_bandwidth.py
+```
+
+The test builds the release examples and transfers `testdata/linux-4.0.1.zar`
+twice: once to a ZAR file and once to an extracted file tree. It verifies the
+archive hash and compares the extracted tree with a reference, samples server
+and client CPU and RSS every 0.5 seconds, and reports elapsed time and
+effective compressed and uncompressed throughput. Tree extraction stages the
+complete archive and uses the existing rename collision policy.
+
+The test requires Linux, `cargo`, `unshare`, `ip`, `tc`, permission to create
+unprivileged user and network namespaces, and several GiB of temporary disk
+space. The 10 Mbit/s limit applies only to loopback in the temporary namespace.
+Use `--archive PATH` for another existing ZAR dataset and `--timeout SECONDS`
+to change the default one-hour timeout per transfer. See the
+[streaming guide](../zarlib-developer-guide.md#tcp-streaming-example) for
+details and limitations.
 
 ### Benchmark an archive in zarg
 

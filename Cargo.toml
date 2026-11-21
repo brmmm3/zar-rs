@@ -33,6 +33,10 @@ zeroize = "1.9"
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 
+# Keep password-derivation integration tests practical without weakening their parameters.
+[profile.test.package.argon2]
+opt-level = 3
+
 [profile.release]
 opt-level = 3
 lto = "fat"

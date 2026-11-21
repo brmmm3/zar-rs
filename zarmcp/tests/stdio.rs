@@ -7,7 +7,7 @@ use std::{
 
 struct Client {
     child: Child,
-    input: ChildStdin,
+    input: Option<ChildStdin>,
     output: BufReader<ChildStdout>,
     next_id: u64,
 }
@@ -28,7 +28,7 @@ impl Client {
         let output = BufReader::new(child.stdout.take().unwrap());
         let mut client = Self {
             child,
-            input,
+            input: Some(input),
             output,
             next_id: 0,
         };
@@ -140,8 +140,9 @@ fn invalid_policy_fails_before_initialization() {
 
 impl Client {
     fn send(&mut self, message: Value) {
-        writeln!(self.input, "{message}").unwrap();
-        self.input.flush().unwrap();
+        let input = self.input.as_mut().unwrap();
+        writeln!(input, "{message}").unwrap();
+        input.flush().unwrap();
     }
 
     fn request(&mut self, method: &str, params: Value) -> Value {
@@ -183,7 +184,7 @@ impl Client {
 
 impl Drop for Client {
     fn drop(&mut self) {
-        let _ = self.child.kill();
+        drop(self.input.take());
         let _ = self.child.wait();
     }
 }

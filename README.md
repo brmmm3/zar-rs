@@ -502,6 +502,30 @@ the [streaming API](./doc/zarlib-developer-guide.md#streaming-regular-files).
 For Rust API documentation, run `cargo doc -p zarlib --no-deps --open` from the
 workspace root.
 
+### TCP streaming examples
+
+The `zarlib` examples can serve a directory of ZAR archives and send selected
+regular files to a client. From the workspace root, run these in separate
+terminals:
+
+```sh
+cargo run -p zarlib --example streaming_server -- 127.0.0.1:7878 /path/to/archives
+cargo run -p zarlib --example streaming_client -- 127.0.0.1:7878 --list
+cargo run -p zarlib --example streaming_client -- 127.0.0.1:7878 \
+  --zar example.zar --output output --select 'docs/*.md' --select '*.txt'
+```
+
+Archive names and patterns are case-sensitive; matching files are written under
+`output`. Case-distinct paths can still collide on a case-insensitive client
+filesystem. By default all regular files are selected, the current directory is
+the output, and an interactive progress bar is shown; use `--force` to
+overwrite files or `--no-progress` to suppress progress. The server logs
+requests unless started with `-q` or `--quiet`. The example sends uncompressed file
+contents and does not support password-protected archives. It has no
+authentication or TLS and is suitable only for trusted networks and
+directories. See the [streaming guide](./doc/zarlib-developer-guide.md#tcp-streaming-example)
+for limitations, the original single-file mode, and a Linux bandwidth test.
+
 ## Format implementer path
 
 The [file architecture](./doc/zar-file-format.md) describes the

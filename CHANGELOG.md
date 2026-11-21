@@ -5,9 +5,12 @@ until a version is released.
 
 ## Unreleased
 
+## 0.16.0 - 2026-11-21
+
 ### Fixed
 
 - Unmount `zarmount` cleanly on Ctrl-C, SIGTERM, and SIGHUP.
+- Fix GitHub Pages repository links to use the default branch.
 
 ### Added
 
@@ -17,10 +20,17 @@ until a version is released.
   Linux `zarmount`; release archives now include `zarmcp`.
 - Added `zarmount`, a read-only Linux FUSE filesystem for ZAR archives.
 - Added Lua 5.4 bindings with archive operations, streaming, examples, and tests.
-- Added seekable-archive streaming APIs and a TCP server/client example for
-  creating archives from readers and extracting individual files to writers.
+- Added seekable-archive streaming APIs for creating archives from readers and
+  extracting individual files to writers.
 - Added streaming APIs, examples, and tests for the C, C++, C#, Go, Java,
   Python, and WASI/Node.js bindings.
+- Added TCP streaming examples for individual files and case-sensitive
+  selections from a directory of ZAR archives. The client supports archive
+  listing, repeated fnmatch patterns, overwrite control, and a zarc-style
+  progress bar. The server sends files as they are prepared and logs requests
+  unless quiet mode is enabled.
+- Added a Linux streaming bandwidth test for archive and extracted-tree
+  transfers over isolated, rate-limited loopback, with CPU and RAM sampling.
 
 ## 0.15.0 - 2026-11-20
 

@@ -938,4 +938,109 @@ mod tests {
         dialog.open_for_selection(Some(&selected_directory));
         assert_eq!(dialog.current_dir, selected_directory);
     }
+
+    #[test]
+    fn filtering_and_sorting_real_directory_entries() {
+        let directory = tempfile::tempdir().unwrap();
+        let folder = directory.path().join("Folder");
+        std::fs::create_dir(&folder).unwrap();
+        let small = directory.path().join("alpha.TXT");
+        let large = directory.path().join("Beta.zip");
+        std::fs::write(&small, b"a").unwrap();
+        std::fs::write(&large, b"longer").unwrap();
+        for (path, seconds) in [(&small, 100), (&large, 200)] {
+            std::fs::File::open(path)
+                .unwrap()
+                .set_times(
+                    std::fs::FileTimes::new().set_modified(
+                        SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(seconds),
+                    ),
+                )
+                .unwrap();
+        }
+
+        let mut dialog = FileDialog::new();
+        dialog.open_for_selection(Some(directory.path()));
+        let names = |dialog: &FileDialog| {
+            dialog
+                .visible_indices
+                .iter()
+                .map(|&index| dialog.entries[index].name.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(&dialog), ["Folder", "alpha.TXT", "Beta.zip"]);
+
+        dialog.filter = "tXt".into();
+        dialog.apply_filter_and_sort();
+        assert_eq!(names(&dialog), ["alpha.TXT"]);
+        dialog.filter.clear();
+
+        dialog.sort_by = FileSortBy::Size;
+        dialog.apply_filter_and_sort();
+        assert_eq!(names(&dialog), ["Folder", "alpha.TXT", "Beta.zip"]);
+        dialog.sort_reversed = true;
+        dialog.apply_filter_and_sort();
+        assert_eq!(names(&dialog), ["Beta.zip", "alpha.TXT", "Folder"]);
+        dialog.sort_reversed = false;
+        dialog.sort_by = FileSortBy::Date;
+        dialog.apply_filter_and_sort();
+        assert_eq!(names(&dialog), ["Folder", "Beta.zip", "alpha.TXT"]);
+        dialog.sort_by = FileSortBy::Type;
+        dialog.apply_filter_and_sort();
+        assert_eq!(names(&dialog), ["Folder", "alpha.TXT", "Beta.zip"]);
+    }
+
+    #[test]
+    fn refreshing_missing_directory_clears_stale_selection_and_reports_error() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("file.txt"), b"content").unwrap();
+        let mut dialog = FileDialog::new();
+        dialog.open_for_selection(Some(directory.path()));
+        dialog.selected.insert(0);
+        dialog.selection_anchor = Some(0);
+        assert_eq!(dialog.selected_paths(), [directory.path().join("file.txt")]);
+
+        dialog.current_dir = directory.path().join("missing");
+        dialog.refresh_entries();
+        assert!(dialog.selected_paths().is_empty());
+        assert!(dialog.selection_anchor.is_none());
+        assert!(
+            dialog
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("Cannot open directory")
+        );
+        assert!(dialog.visible_indices.is_empty());
+    }
+
+    #[test]
+    fn file_dialog_renders_directory_and_selected_files() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir(directory.path().join("subfolder")).unwrap();
+        std::fs::write(directory.path().join("image.png"), b"image").unwrap();
+        let mut dialog = FileDialog::new();
+        dialog.open_for_selection(Some(directory.path()));
+        dialog.set_bookmarks(&[directory.path().to_path_buf()]);
+        dialog.selected.insert(1);
+        let context = egui::Context::default();
+        let icons = IconCache::default();
+        let output = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000.0, 600.0),
+                )),
+                ..Default::default()
+            },
+            |ui| assert!(!dialog.ui(ui, &icons)),
+        );
+        assert!(!output.shapes.is_empty());
+        assert!(dialog.open);
+        assert_eq!(
+            dialog.selected_paths(),
+            [directory.path().join("image.png")]
+        );
+        output.drop_without_applying_deltas();
+    }
 }
