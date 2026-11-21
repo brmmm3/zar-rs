@@ -356,6 +356,37 @@ cargo install --path zarlib-cli
 
 ## Installers and packages
 
+### Install prebuilt binaries with cargo-binstall
+
+Starting with the first release containing cargo-binstall metadata and assets,
+install the packages using their Cargo package names:
+
+```sh
+cargo binstall zarlib-cli    # zarc
+cargo binstall zarlib-gui    # zarg
+cargo binstall zarlib-zcopy  # zcopy
+cargo binstall zarmcp
+cargo binstall zarmount      # Linux only
+```
+
+These commands require the corresponding package version to be published on
+crates.io and its binary archive to be present in the matching GitHub release.
+`zarmcp` and `zarmount` are not currently published to crates.io. Until they
+are, use a checkout of a matching released version:
+
+```sh
+cargo binstall --manifest-path ./zarmcp zarmcp
+cargo binstall --manifest-path ./zarmount zarmount
+```
+
+For crates.io publication, publish the matching `zarlib` version first, then
+`czarlib` before `zarmcp`; `zarmount` also depends on `zarlib`.
+
+The prebuilt archives target baseline x86-64 or ARM64 on Linux, macOS and
+Windows; `zarmount` is available only on Linux and requires FUSE 3. Linux musl
+targets use the static archives. See the [zarmount guide](./zarmount/README.md)
+for mount requirements.
+
 Each versioned release provides two x86-64 variants:
 
 - **v3** is intended for newer CPUs with x86-64-v3 features,

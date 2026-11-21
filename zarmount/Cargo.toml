@@ -5,10 +5,32 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 description = "Read-only FUSE filesystem for ZAR archives"
+repository = "https://github.com/brmmm3/zar-rs"
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/{ version }/zar-rs-{ target }.tar.gz"
+bin-dir = "zar-rs-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-unknown-linux-gnu]
+pkg-url = "{ repo }/releases/download/{ version }/zar-rs-linux-x86_64.tar.gz"
+bin-dir = "zar-rs-linux-x86_64/{ bin }"
+
+[package.metadata.binstall.overrides.aarch64-unknown-linux-gnu]
+pkg-url = "{ repo }/releases/download/{ version }/zar-rs-linux-aarch64.tar.gz"
+bin-dir = "zar-rs-linux-aarch64/{ bin }"
+
+[package.metadata.binstall.overrides.x86_64-unknown-linux-musl]
+pkg-url = "{ repo }/releases/download/{ version }/zar-rs-linux-x86_64-static.tar.gz"
+bin-dir = "zar-rs-linux-x86_64-static/{ bin }"
+
+[package.metadata.binstall.overrides.aarch64-unknown-linux-musl]
+pkg-url = "{ repo }/releases/download/{ version }/zar-rs-linux-aarch64-static.tar.gz"
+bin-dir = "zar-rs-linux-aarch64-static/{ bin }"
 
 [dependencies]
 clap.workspace = true
-zarlib = { path = "../zarlib" }
+zarlib = { version = "0.16.0", path = "../zarlib" }
 zeroize.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]

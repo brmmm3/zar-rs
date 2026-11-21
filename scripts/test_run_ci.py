@@ -3,6 +3,7 @@ import io
 import subprocess
 import tarfile
 import tempfile
+import tomllib
 import unittest
 import zipfile
 from pathlib import Path
@@ -12,6 +13,49 @@ import run_ci
 
 
 class RunnerTests(unittest.TestCase):
+    def test_binstall_metadata_matches_release_archive_layout(self):
+        packages = {
+            "zarlib-cli": "zarc",
+            "zarlib-gui": "zarg",
+            "zcopy": "zcopy",
+            "zarmcp": "zarmcp",
+            "zarmount": "zarmount",
+        }
+        targets = {
+            "x86_64-unknown-linux-gnu": "linux-x86_64",
+            "aarch64-unknown-linux-gnu": "linux-aarch64",
+            "x86_64-unknown-linux-musl": "linux-x86_64-static",
+            "aarch64-unknown-linux-musl": "linux-aarch64-static",
+            "x86_64-apple-darwin": "macos-x86_64",
+            "aarch64-apple-darwin": "macos-aarch64",
+            "x86_64-pc-windows-msvc": "windows-x86_64",
+            "aarch64-pc-windows-msvc": "windows-aarch64",
+        }
+        for directory, binary in packages.items():
+            manifest = tomllib.loads(
+                (run_ci.ROOT / directory / "Cargo.toml").read_text(encoding="utf-8")
+            )
+            metadata = manifest["package"]["metadata"]["binstall"]
+            for target, platform in targets.items():
+                if directory == "zarmount" and not platform.startswith("linux-"):
+                    continue
+                with self.subTest(package=directory, target=target):
+                    options = metadata | metadata["overrides"][target]
+                    extension = ".exe" if platform.startswith("windows-") else ""
+                    archive_extension = ".zip" if extension else ".tar.gz"
+                    url = options["pkg-url"].replace("{ repo }", "https://example.com").replace(
+                        "{ version }", "1.2.3"
+                    )
+                    path = options["bin-dir"].replace("{ bin }", binary).replace(
+                        "{ binary-ext }", extension
+                    )
+                    self.assertEqual(
+                        url,
+                        f"https://example.com/releases/download/1.2.3/zar-rs-{platform}{archive_extension}",
+                    )
+                    self.assertEqual(path, f"zar-rs-{platform}/{binary}{extension}")
+                    self.assertEqual(options["pkg-fmt"], "zip" if extension else "tgz")
+
     def test_cargo_checks_do_not_fix_when_passing(self):
         for action, check in (
             (run_ci.cargo_fmt, ["cargo", "fmt", "--all", "--check"]),
@@ -623,6 +667,7 @@ class RunnerTests(unittest.TestCase):
             (release / "zarc").write_bytes(b"cli")
             (release / "zarg").write_bytes(b"gui")
             (release / "zcopy").write_bytes(b"copy")
+            (release / "zarmcp").write_bytes(b"mcp")
             (release / "zarmount").write_bytes(b"mount")
             (release / "unrelated").write_bytes(b"not packaged")
             with (
@@ -652,6 +697,7 @@ class RunnerTests(unittest.TestCase):
                         "zar-rs-linux-x86_64/zarc",
                         "zar-rs-linux-x86_64/zarg",
                         "zar-rs-linux-x86_64/zcopy",
+                        "zar-rs-linux-x86_64/zarmcp",
                         "zar-rs-linux-x86_64/zarmount",
                     },
                 )
@@ -660,6 +706,9 @@ class RunnerTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     archive.extractfile("zar-rs-linux-x86_64/zcopy").read(), b"copy"
+                )
+                self.assertEqual(
+                    archive.extractfile("zar-rs-linux-x86_64/zarmcp").read(), b"mcp"
                 )
                 self.assertEqual(
                     archive.extractfile("zar-rs-linux-x86_64/zarmount").read(), b"mount"
@@ -738,6 +787,7 @@ class RunnerTests(unittest.TestCase):
             (release / "zarc.exe").write_bytes(b"cli")
             (release / "zarg.exe").write_bytes(b"gui")
             (release / "zcopy.exe").write_bytes(b"copy")
+            (release / "zarmcp.exe").write_bytes(b"mcp")
             with (
                 mock.patch.object(run_ci, "ROOT", root),
                 mock.patch.object(run_ci, "DIST", root / "dist"),
@@ -764,6 +814,7 @@ class RunnerTests(unittest.TestCase):
                         "zar-rs-windows-x86_64/zarc.exe",
                         "zar-rs-windows-x86_64/zarg.exe",
                         "zar-rs-windows-x86_64/zcopy.exe",
+                        "zar-rs-windows-x86_64/zarmcp.exe",
                     },
                 )
 

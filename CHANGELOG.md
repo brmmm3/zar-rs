@@ -7,6 +7,8 @@ until a version is released.
 
 ### Added
 
+- Added cargo-binstall metadata for `zarc`, `zarg`, `zcopy`, `zarmcp`, and
+  Linux `zarmount`; release archives now include `zarmcp`.
 - Added `zarmount`, a read-only Linux FUSE filesystem for ZAR archives.
 - Added Lua 5.4 bindings with archive operations, streaming, examples, and tests.
 - Added seekable-archive streaming APIs and a TCP server/client example for

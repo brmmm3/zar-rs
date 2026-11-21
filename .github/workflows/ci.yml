@@ -685,7 +685,7 @@ jobs:
           TARGET: ${{ matrix.platform.target }}
         run: |
           mkdir -p dist/zar-rs-$PLATFORM
-          cp target/$TARGET/release/zarc target/$TARGET/release/zarg target/$TARGET/release/zcopy dist/zar-rs-$PLATFORM/
+          cp target/$TARGET/release/zarc target/$TARGET/release/zarg target/$TARGET/release/zcopy target/$TARGET/release/zarmcp dist/zar-rs-$PLATFORM/
           if [[ "$TARGET" == *-linux-* ]]; then
             cp target/$TARGET/release/zarmount dist/zar-rs-$PLATFORM/
           fi
@@ -698,7 +698,7 @@ jobs:
           TARGET: ${{ matrix.platform.target }}
         run: |
           New-Item -ItemType Directory -Force -Path "dist/zar-rs-$env:PLATFORM" | Out-Null
-          Copy-Item "target/$env:TARGET/release/zarc.exe", "target/$env:TARGET/release/zarg.exe", "target/$env:TARGET/release/zcopy.exe" "dist/zar-rs-$env:PLATFORM/"
+          Copy-Item "target/$env:TARGET/release/zarc.exe", "target/$env:TARGET/release/zarg.exe", "target/$env:TARGET/release/zcopy.exe", "target/$env:TARGET/release/zarmcp.exe" "dist/zar-rs-$env:PLATFORM/"
           Compress-Archive -Path "dist/zar-rs-$env:PLATFORM" -DestinationPath "dist/zar-rs-$env:PLATFORM.zip"
       - name: Upload binary archive
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # 7.0.1

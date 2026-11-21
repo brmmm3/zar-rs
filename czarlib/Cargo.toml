@@ -13,7 +13,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 serde_json.workspace = true
-zarlib = { path = "../zarlib" }
+zarlib = { version = "0.16.0", path = "../zarlib" }
 
 [target.'cfg(windows)'.dependencies]
 mimalloc = { version = "0.1", default-features = false, features = [
