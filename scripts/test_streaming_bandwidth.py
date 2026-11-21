@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test ZAR archive and tree streaming over a 10 Mbit/s Linux loopback."""
+"""Test ZAR archive and tree streaming over a 100 Mbit/s Linux loopback."""
 
 from __future__ import annotations
 
@@ -297,14 +297,14 @@ def main() -> int:
                 "root",
                 "tbf",
                 "rate",
-                "10mbit",
+                "100mbit",
                 "burst",
                 "256kb",
                 "latency",
                 "400ms",
             ]
         )
-        print("Network: isolated loopback, 10 Mbit/s TBF", flush=True)
+        print("Network: isolated loopback, 100 Mbit/s TBF", flush=True)
         reference, content_bytes = tree_inventory(args.reference)
         server = args.target_dir / "release/examples/streaming_server"
         client = args.target_dir / "release/examples/streaming_tree_client"

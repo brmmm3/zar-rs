@@ -186,7 +186,7 @@ during a transfer.
 
 On Linux, `python scripts/test_streaming_bandwidth.py` builds the release
 examples and sends `testdata/linux-4.0.1.zar` over loopback limited to
-10 Mbit/s twice. The first client writes the received ZAR; the second stages
+100 Mbit/s twice. The first client writes the received ZAR; the second stages
 the ZAR and uses zarlib's existing tree extraction to restore the files. The script verifies
 the archive hash and compares file contents, directories, and symlink targets
 against a reference extraction. It samples server and client CPU and resident
@@ -201,6 +201,9 @@ temporary namespace, not the host loopback. Several GiB of temporary disk
 space and several minutes may be needed. Use `--archive PATH` to select
 another ZAR archive, or `--timeout SECONDS` to change the one-hour timeout
 per test.
+
+See the [streaming guide](./streaming.md) for a detailed interpretation of a
+supplied run and its rate-label discrepancy.
 
 Because ZAR headers follow the data, tree extraction starts after the client
 has staged the complete archive. Both the reference and the client use the
@@ -420,7 +423,7 @@ physical commit order.
 The operation modules and their commonly used public entry points are:
 
 | Module | Main APIs | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | `operations::create` | `create_archive`, `create_archive_with_options`, `create_archive_with_encoding`, `create_archive_with_password_progress_and_filters`, `create_archive_with_password_progress_and_filters_and_aead` | Create a new archive; optional strict scanning, encoding options, password encryption, AEAD selection, and path filters. |
 | `operations::add` | `add_archive`, `add_archive_with_encoding`, `add_archive_with_encoding_progress_and_options_and_filters` | Append a commit that adds or replaces paths, optionally filtered. |
 | `operations::remove` | `remove_archive` | Append tombstones for existing archive-relative paths. |

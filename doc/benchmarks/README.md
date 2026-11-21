@@ -38,11 +38,11 @@ complete archive and uses the existing rename collision policy.
 
 The test requires Linux, `cargo`, `unshare`, `ip`, `tc`, permission to create
 unprivileged user and network namespaces, and several GiB of temporary disk
-space. The 10 Mbit/s limit applies only to loopback in the temporary namespace.
+space. The 100 Mbit/s limit applies only to loopback in the temporary namespace.
 Use `--archive PATH` for another existing ZAR dataset and `--timeout SECONDS`
 to change the default one-hour timeout per transfer. See the
-[streaming guide](../zarlib-developer-guide.md#tcp-streaming-example) for
-details and limitations.
+[streaming guide](../streaming.md) for details, limitations, and an example
+run.
 
 ### Benchmark an archive in zarg
 
