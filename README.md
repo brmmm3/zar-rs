@@ -68,7 +68,7 @@ The release build of `zarg` can browse the same archive and select a commit:
 | Encrypt data only, header only, or both; per-commit passwords | ✅ | ❌ | ❌ | ⚠️ |
 | Per-block checksums and damage recovery (`check --recover`) | ✅ | ⚠️ CRC | ❌ | ⚠️ |
 | Safe extraction (no path traversal, no-follow on Unix) | ✅ | varies | varies | varies |
-| Library integrations: Python, C, C++, Go, Java, C#, WASI | ✅ | varies | ❌ | varies |
+| Library integrations: Python, C, C++, Go, Java, C#, Lua, WASI | ✅ | varies | ❌ | varies |
 
 Highlights:
 
@@ -128,7 +128,7 @@ Highlights:
 - **Integrity.** Every frame is checksummed, `check` verifies the entire
   archive, and recovery scans past damaged regions. Extraction can recheck
   block checksums automatically, always, or never.
-- **One core, many front ends.** CLI, GUI, seven language bindings, and a
+- **One core, many front ends.** CLI, GUI, language bindings, and a
   server-side WASI component share the same Rust implementation and behavior.
 - **Network copy.** `zcopy` transfers files missing from the destination or
   newer by modification time, or sends a complete packed archive. Encryption
@@ -288,12 +288,13 @@ interfaces; see each package's documentation for its API and limitations.
 | **[`czarlib`](./czarlib/README.md)** | C | JSON and streaming C ABI (shared/static library and header) |
 | **[`cxxzarlib`](./cxxzarlib/README.md)** | C++ | CXX bridge |
 | **[`gozarlib`](./gozarlib/README.md)** | Go | cgo over `czarlib` |
+| **[`luazarlib`](./luazarlib/README.md)** | Lua 5.4 | Lua C module over `czarlib` |
 | **[`jzarlib-ffm`](./jzarlib-ffm/README.md)** | Java 25+ | Foreign Function & Memory API over `czarlib` |
 | **[`jzarlib-jni`](./jzarlib-jni/README.md)** | Java | JNI shim over `czarlib` |
 | **[`csharpzarlib`](./csharpzarlib/README.md)** | C# (.NET 10) | P/Invoke over `czarlib` |
 | **[`wasizarlib`](./wasizarlib/README.md)** | WebAssembly / Node.js | WASI Preview 2 component with a WIT interface; Node support via Jco and the Preview 2 shim |
 
-The Go, Java, and C# wrappers load the `czarlib` shared library, which is built
+The Go, Java, C#, and Lua wrappers load the `czarlib` shared library, which is built
 with `cargo build -p czarlib`.
 
 For streaming regular-file data, consult each binding's streaming

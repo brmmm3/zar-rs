@@ -48,6 +48,8 @@ the matching Linux musl build. Other matrix entries are explicitly reported as
 skipped; run the script on each CI host to cover the full matrix.
 The Go tests build the C library in `target/debug`, matching the wrapper's
 configured cgo linker and runtime search paths.
+The local runner does not yet include the Lua job; run `make -C luazarlib test`
+separately after installing its [dependencies](luazarlib/README.md#requirements-and-build).
 GitHub checkout, artifact reuse, uploads, and publication are not performed.
 Linux wheels are built on the host rather than in the CI manylinux container,
 so their portability may differ. Cross-host job dependencies cannot be enforced
@@ -106,7 +108,7 @@ release assets, update the Scoop and Chocolatey checksums with
 | [`doc/`](doc/) | Archive format, library developer guide, and benchmark reports |
 | [`zarlib-cli/README.md`](zarlib-cli/README.md), [`zarlib-gui/README.md`](zarlib-gui/README.md) | CLI and desktop application |
 | [`zarlib/`](zarlib/) | Core archive library |
-| [`pyzarlib/README.md`](pyzarlib/README.md), [`czarlib/README.md`](czarlib/README.md), [`cxxzarlib/README.md`](cxxzarlib/README.md), [`gozarlib/README.md`](gozarlib/README.md) | Python, C, C++, and Go bindings |
+| [`pyzarlib/README.md`](pyzarlib/README.md), [`czarlib/README.md`](czarlib/README.md), [`cxxzarlib/README.md`](cxxzarlib/README.md), [`gozarlib/README.md`](gozarlib/README.md), [`luazarlib/README.md`](luazarlib/README.md) | Python, C, C++, Go, and Lua bindings |
 | [`jzarlib-jni/README.md`](jzarlib-jni/README.md), [`jzarlib-ffm/README.md`](jzarlib-ffm/README.md), [`csharpzarlib/README.md`](csharpzarlib/README.md) | Java and C# bindings |
 | [`wasizarlib/README.md`](wasizarlib/README.md), [`wasizarlib/nodejs/README.md`](wasizarlib/nodejs/README.md) | WASI component and Node.js package |
 | [`zcopy/README.md`](zcopy/README.md) | Network copy tool |

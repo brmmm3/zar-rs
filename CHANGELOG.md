@@ -7,6 +7,7 @@ until a version is released.
 
 ### Added
 
+- Added Lua 5.4 bindings with archive operations, streaming, examples, and tests.
 - Added seekable-archive streaming APIs and a TCP server/client example for
   creating archives from readers and extracting individual files to writers.
 - Added streaming APIs, examples, and tests for the C, C++, C#, Go, Java,

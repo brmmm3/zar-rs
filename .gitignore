@@ -27,6 +27,9 @@ obj/
 
 dist/
 node_modules/
+luazarlib/build/
+
+create-jzarlib-deploy.sh
 
 # Test data is tracked with Git LFS.
 !testdata/
