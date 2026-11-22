@@ -58,6 +58,145 @@ Use trusted networks and directories. Directory mode requires matching
 and `ZARREQ02` requests. See the
 [protocol and limitations](./zarlib-developer-guide.md#tcp-streaming-example).
 
+## Language-binding TCP examples
+
+These examples demonstrate extracting one regular file from a fixed,
+seekable ZAR archive and sending its uncompressed bytes over TCP. A client
+requests an exact, case-sensitive entry path. The Python, C, C++, Go, C#,
+Java JNI, Java FFM, Lua, and Node.js/WASI examples can interoperate with
+each other. They use a **different protocol** from the Rust TCP examples
+above; do not mix the two. They do not support passwords, archive listing,
+patterns, progress bars, or selecting the archive remotely.
+
+The request is a big-endian 32-bit byte length followed by a UTF-8 entry
+path. Responses consist of big-endian 32-bit lengths and data chunks, with
+a zero length marking successful completion. Paths and chunks are limited
+to 65,536 bytes. A disconnect without the completion marker is a failure;
+the server logs the underlying error. Except for the Lua stdout client,
+clients create a new output file exclusively and remove partial output on
+failure. The Node server stages the extracted entry in a temporary file
+because WASI stream callbacks are synchronous and Node sockets are
+asynchronous. The other servers stream directly to the socket.
+
+These examples have no authentication, encryption, or request timeout.
+Run them only on trusted networks and use trusted archives. The server
+exposes every regular file in its configured archive; bind to loopback
+unless wider access is explicitly intended. The archive must not change
+during extraction.
+
+All commands below are run from the repository root. Start a server in one
+terminal and run a client in another; any binding client can talk to any
+binding server. Substitute an existing archive and entry path as needed.
+Follow each binding's README for its build and runtime prerequisites.
+
+### Python
+
+After building/installing `pyzarlib` as described in its
+[README](../pyzarlib/README.md):
+
+```sh
+python pyzarlib/examples/tcp_streaming.py server 127.0.0.1 7878 testdata/small_archive.zar
+python pyzarlib/examples/tcp_streaming.py client 127.0.0.1 7878 small_archive/MAINTAINERS output.txt
+```
+
+### C and C++
+
+These network examples use POSIX sockets and the Linux `MSG_NOSIGNAL` flag.
+Build and run them on Linux:
+
+```sh
+cargo build -p czarlib -p cxxzarlib
+cc -std=c11 -I czarlib/include czarlib/examples/tcp_streaming.c \
+  -L target/debug -lczarlib -Wl,-rpath,"$PWD/target/debug" -o target/zar-tcp-c
+c++ -std=c++17 -I cxxzarlib/include cxxzarlib/examples/tcp_streaming.cpp \
+  target/debug/libcxxzarlib.a -ldl -lpthread -lm -o target/zar-tcp-cxx
+target/zar-tcp-c server 127.0.0.1 7878 testdata/small_archive.zar
+target/zar-tcp-cxx client 127.0.0.1 7878 small_archive/MAINTAINERS output.txt
+```
+
+Either executable can run as `server` or `client`.
+
+### Go
+
+Build `czarlib` first, then from the Go module directory:
+
+```sh
+cargo build -p czarlib
+cd gozarlib
+go run ./examples/tcp_streaming server 127.0.0.1:7878 ../testdata/small_archive.zar
+go run ./examples/tcp_streaming client 127.0.0.1:7878 small_archive/MAINTAINERS output.txt
+```
+
+### C\#
+
+Build `czarlib` and ensure it is on the native library search path. On Linux:
+
+```sh
+cargo build -p czarlib
+export LD_LIBRARY_PATH="$PWD/target/debug${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+dotnet run --project csharpzarlib/examples/TcpStreaming -- server 127.0.0.1 7878 testdata/small_archive.zar
+dotnet run --project csharpzarlib/examples/TcpStreaming -- client 127.0.0.1 7878 small_archive/MAINTAINERS output.txt
+```
+
+### Java
+
+Both bindings use the shared [TCP framing helper](../examples/tcp-streaming/TcpStreaming.java).
+The following Linux commands use JDK 25+, Maven, and the respective native
+libraries. Run the server and client commands in separate terminals.
+
+```sh
+./jzarlib-jni/build-native.sh
+mvn -f jzarlib-jni/pom.xml compile
+mkdir -p jzarlib-jni/target/tcp-example
+javac -cp jzarlib-jni/target/classes -d jzarlib-jni/target/tcp-example \
+  examples/tcp-streaming/TcpStreaming.java jzarlib-jni/examples/TcpStreamingJni.java
+java -Dzar.jni.library="$PWD/jzarlib-jni/target/native/libzarlib_jni.so" \
+  -cp jzarlib-jni/target/classes:jzarlib-jni/target/tcp-example TcpStreamingJni \
+  server 127.0.0.1 7878 testdata/small_archive.zar
+java -cp jzarlib-jni/target/classes:jzarlib-jni/target/tcp-example TcpStreamingJni \
+  client 127.0.0.1 7878 small_archive/MAINTAINERS output.txt
+```
+
+For FFM:
+
+```sh
+cargo build --release -p czarlib
+mvn -f jzarlib-ffm/pom.xml compile
+mkdir -p jzarlib-ffm/target/tcp-example
+javac -cp jzarlib-ffm/target/classes -d jzarlib-ffm/target/tcp-example \
+  examples/tcp-streaming/TcpStreaming.java jzarlib-ffm/examples/TcpStreamingFfm.java
+java --enable-native-access=ALL-UNNAMED -Dzar.library="$PWD/target/release/libczarlib.so" \
+  -cp jzarlib-ffm/target/classes:jzarlib-ffm/target/tcp-example TcpStreamingFfm \
+  server 127.0.0.1 7878 testdata/small_archive.zar
+java -cp jzarlib-ffm/target/classes:jzarlib-ffm/target/tcp-example TcpStreamingFfm \
+  client 127.0.0.1 7878 small_archive/MAINTAINERS output.txt
+```
+
+### Lua
+
+In addition to the [Lua binding prerequisites](../luazarlib/README.md),
+install LuaSocket for Lua 5.4. Set `LUA_PATH`, `LUA_CPATH`, and
+`LD_LIBRARY_PATH` as shown in that README, then run:
+
+```sh
+lua5.4 luazarlib/examples/tcp_streaming.lua server 127.0.0.1 7878 testdata/small_archive.zar
+lua5.4 luazarlib/examples/tcp_streaming.lua client 127.0.0.1 7878 small_archive/MAINTAINERS > output.txt
+```
+
+The Lua client writes to stdout. Shell redirection can overwrite a file and
+leaves partial output on failure; check the command's exit status.
+
+### Node.js/WASI
+
+Build the [Node adapter](../wasizarlib/nodejs/README.md) first:
+
+```sh
+node wasizarlib/nodejs/examples/tcp-streaming.mjs server 127.0.0.1 7878 testdata/small_archive.zar
+node wasizarlib/nodejs/examples/tcp-streaming.mjs client 127.0.0.1 7878 small_archive/MAINTAINERS output.txt
+```
+
+Networking is supplied by the Node host, not by the WASI component.
+
 ## Bandwidth test
 
 On Linux, run the [test script](../scripts/test_streaming_bandwidth.py) from the

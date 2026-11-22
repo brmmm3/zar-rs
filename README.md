@@ -525,6 +525,8 @@ contents and does not support password-protected archives. It has no
 authentication or TLS and is suitable only for trusted networks and
 directories. See the [streaming guide](./doc/zarlib-developer-guide.md#tcp-streaming-example)
 for limitations, the original single-file mode, and a Linux bandwidth test.
+The [language-binding TCP examples](./doc/streaming.md#language-binding-tcp-examples)
+use a simpler, separate protocol to transfer one selected entry.
 
 ## Format implementer path
 
