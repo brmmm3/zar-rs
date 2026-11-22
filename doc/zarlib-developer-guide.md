@@ -469,6 +469,15 @@ The supported creation block size is 64 KiB through 32 MiB. The default is
 8 MiB; the default compression level is 3, and valid Zstandard levels are -7
 through 22.
 
+`ZARLIB_MAX_CPU_COUNT` controls the requested worker count for parallel
+compression and extraction. If unset or `0`, zarlib uses the available cores.
+A positive integer requests that many workers; a negative integer reserves
+that many available cores, retaining at least one worker. For example, `-2`
+uses the available core count minus two, or one if fewer than three are
+available. Invalid or out-of-range values produce a warning and use the default.
+Memory limits can reduce the actual worker count further. This is a per-operation
+worker setting, not a process-wide limit on threads or CPU usage.
+
 For path-based create and add operations, `ZARLIB_SKIP_COMPRESS_EXTENSIONS`
 replaces the default list of extensions whose data is stored without
 compression when new blocks are written. Set it to a

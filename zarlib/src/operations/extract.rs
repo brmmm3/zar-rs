@@ -2423,9 +2423,7 @@ fn load_extraction_state_from_reader(
         let mut block_offset = data_start;
         let mut blocks = HashMap::new();
         let mut pending_blocks = Vec::new();
-        let workers = std::thread::available_parallelism()
-            .map_or(1, usize::from)
-            .max(1);
+        let workers = available_compression_workers();
         let wanted_blocks: Option<HashSet<u32>> = filters.map(|filters| {
             let mut wanted: HashSet<u32> = header
                 .changes

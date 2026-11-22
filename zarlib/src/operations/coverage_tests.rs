@@ -4496,6 +4496,10 @@ fn compression_helpers_validate_boundaries_and_budget() {
     let low = select_automatic_encoding(0, 4);
     assert_eq!(low.workers, 1);
     assert!(low.warning);
+    assert_eq!(
+        select_automatic_encoding(1024 * 1024 * 1024, usize::MAX),
+        select_automatic_encoding(1024 * 1024 * 1024, 1024)
+    );
     let mut opts = EncodingOptions {
         block_size: 0,
         ..Default::default()

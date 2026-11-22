@@ -321,7 +321,8 @@ pub fn select_automatic_encoding(
 ) -> EncodingBudget {
     let budget_bytes = available_memory.saturating_mul(DEFAULT_MEMORY_BUDGET_PERCENT) / 100;
     let requested_workers = requested_workers.max(1);
-    let mut workers = requested_workers;
+    let mut workers =
+        requested_workers.min((budget_bytes / estimate_worker_memory(AUTO_MIN_BLOCK_SIZE)).max(1));
 
     loop {
         let per_worker_budget = budget_bytes / workers;
@@ -365,8 +366,29 @@ pub fn available_memory_bytes() -> usize {
     })
 }
 
+/// Returns the requested worker count, accounting for `ZARLIB_MAX_CPU_COUNT`.
+///
+/// Unset or zero uses the available parallelism, positive values specify the
+/// count, and negative values reserve that many available cores (at least one
+/// worker is retained). Invalid values produce a warning and use the default.
 pub fn available_compression_workers() -> usize {
-    std::thread::available_parallelism().map_or(1, usize::from)
+    let available = std::thread::available_parallelism().map_or(1, usize::from);
+    match std::env::var("ZARLIB_MAX_CPU_COUNT") {
+        Err(std::env::VarError::NotPresent) => available,
+        Ok(value) => match value.parse::<isize>() {
+            Ok(0) => available,
+            Ok(count) if count > 0 => count as usize,
+            Ok(count) => available.saturating_sub(count.unsigned_abs()).max(1),
+            Err(_) => {
+                eprintln!("warning: invalid ZARLIB_MAX_CPU_COUNT {value:?}; using available cores");
+                available
+            }
+        },
+        Err(std::env::VarError::NotUnicode(value)) => {
+            eprintln!("warning: invalid ZARLIB_MAX_CPU_COUNT {value:?}; using available cores");
+            available
+        }
+    }
 }
 
 pub fn compression_worker_count(block_size: usize) -> usize {

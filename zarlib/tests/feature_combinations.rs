@@ -22,6 +22,78 @@ const PASSWORD_D: &[u8] = b"password D";
 const PASSWORD_E: &[u8] = b"password E";
 
 #[test]
+fn max_cpu_count_environment_controls_workers() {
+    use std::process::Command;
+    use zarlib::operations::{available_compression_workers, compression_worker_count};
+
+    const ENV: &str = "ZARLIB_MAX_CPU_COUNT";
+    const CASE: &str = "ZARLIB_TEST_MAX_CPU_COUNT_CASE";
+    if let Some(case) = std::env::var_os(CASE) {
+        let available = std::thread::available_parallelism().map_or(1, usize::from);
+        let expected = match case.to_str().unwrap() {
+            "unset" | "zero" | "invalid" | "overflow" | "nonunicode" => available,
+            "positive" => available + 1,
+            "negative" => available.saturating_sub(1).max(1),
+            "minimum" => 1,
+            _ => panic!("unknown test case"),
+        };
+        assert_eq!(available_compression_workers(), expected);
+        assert!(compression_worker_count(1024) <= expected);
+        return;
+    }
+
+    let exe = std::env::current_exe().unwrap();
+    let available = std::thread::available_parallelism().map_or(1, usize::from);
+    let positive = (available + 1).to_string();
+    let minimum = isize::MIN.to_string();
+    let run = |case: &str, value: Option<&std::ffi::OsStr>, warning: bool| {
+        let mut command = Command::new(&exe);
+        command.args([
+            "--exact",
+            "max_cpu_count_environment_controls_workers",
+            "--nocapture",
+        ]);
+        command.env(CASE, case).env_remove(ENV);
+        if let Some(value) = value {
+            command.env(ENV, value);
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{case}: stdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr).contains("invalid ZARLIB_MAX_CPU_COUNT"),
+            warning,
+            "{case}"
+        );
+    };
+    run("unset", None, false);
+    run("zero", Some("0".as_ref()), false);
+    run("positive", Some(positive.as_ref()), false);
+    run("negative", Some("-1".as_ref()), false);
+    run("minimum", Some(minimum.as_ref()), false);
+    run("invalid", Some("abc".as_ref()), true);
+    run(
+        "overflow",
+        Some("999999999999999999999999999999".as_ref()),
+        true,
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        run(
+            "nonunicode",
+            Some(std::ffi::OsStr::from_bytes(b"\xff")),
+            true,
+        );
+    }
+}
+
+#[test]
 fn skip_compression_environment_overrides_default_extensions() {
     use std::process::Command;
     use zarlib::operations::{
