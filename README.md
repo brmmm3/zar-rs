@@ -6,9 +6,9 @@
 [![CI](https://github.com/brmmm3/zar-rs/actions/workflows/ci.yml/badge.svg?branch=0.16.0)](https://github.com/brmmm3/zar-rs/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue?style=flat-square)](LICENSE-MIT)
 
-ZAR is an archive format and toolkit with compression, deduplication, and
-commit-based history. It is written in Rust and includes a command-line tool,
-a desktop GUI, a reusable library, language bindings, and a network copy tool.
+**ZAR is a modern replacement for tar/zip/7z with fast parallel zstd compression, instant random access, commit-based history, deduplication, FUSE mounting (`zarmount`) and streaming support.**
+
+It is written in Rust and includes a command-line tool (`zarc`), a desktop GUI (`zarg`), a reusable library (`zarlib`), language bindings, a network copy tool (`zcopy`), FUSE mounting (`zarmount`), and an MCP server (`zarmcp`).
 
 See the [changelog](./CHANGELOG.md) for recent project updates. See
 [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, checks, and pull

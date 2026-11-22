@@ -5,15 +5,18 @@ It shows the latest commit by default, or an earlier state selected with
 `--to`. Directories, regular files, empty files, and symbolic links are
 available without extracting the archive to disk.
 
-## Build and mount
+## Install and mount
 
 Install FUSE 3 and its `fusermount3` helper, and ensure the current user can
 access `/dev/fuse`. Build with the Rust toolchain:
 
 ```sh
-cargo build --release -p zarmount
+cargo binstall zarmount
 mkdir -p /tmp/zar-mount
-target/release/zarmount archive.zar /tmp/zar-mount
+# Mount without extracting (instant readonly-access)
+zarmount archive.zar /tmp/zar-mount
+# In another terminal or after Ctrl+C:
+fusermount3 -u /mnt/archive
 ```
 
 The mount runs in the foreground. Press Ctrl-C to unmount and exit, or in
@@ -36,7 +39,7 @@ there is no `allow_other` option.
 To select an earlier archive state, pass an eight-digit commit ID:
 
 ```sh
-target/release/zarmount --to 00000001 archive.zar /tmp/zar-mount
+zarmount --to 00000001 archive.zar /tmp/zar-mount
 ```
 
 ## Encrypted archives
@@ -44,7 +47,7 @@ target/release/zarmount --to 00000001 archive.zar /tmp/zar-mount
 Supply a default password file and, if necessary, per-commit password files:
 
 ```sh
-target/release/zarmount --password-file /secure/default-password \
+zarmount --password-file /secure/default-password \
   --password-for 00000002=/secure/commit-2-password archive.zar /tmp/zar-mount
 ```
 
