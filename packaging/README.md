@@ -188,9 +188,10 @@ makepkg -si
 ```
 
 The package is not published to the AUR. `makepkg` downloads Rust dependencies
-during `prepare()`; subsequent build steps use Cargo's frozen lockfile. For
-new releases, update `pkgver` and `_commit` to the corresponding source
-revision and run `updpkgsums`.
+during `prepare()`; subsequent build steps use Cargo's frozen lockfile. The
+source archive is downloaded in full, but its root `testdata` directory is
+excluded when unpacking the build sources. For new releases, update `pkgver`
+and `_commit` to the corresponding source revision and run `updpkgsums`.
 Thunar users should run `zarg-install-thunar-actions` once after installation.
 
 ### Other Linux packages
