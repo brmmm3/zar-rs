@@ -3489,6 +3489,97 @@ mod tests {
     use std::cell::Cell;
     use std::fs::OpenOptions;
 
+    #[cfg(unix)]
+    #[test]
+    fn foreign_metadata_is_skipped_with_warnings() {
+        use std::os::unix::fs::PermissionsExt;
+
+        #[derive(Default)]
+        struct WarningProgress(std::sync::Mutex<Vec<String>>);
+        impl Progress for WarningProgress {
+            fn message(&self, _: &str) {}
+            fn advance(&self, _: u64) {}
+            fn warning(&self, message: &str) {
+                self.0.lock().unwrap().push(message.to_owned());
+            }
+        }
+
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("file");
+        std::fs::write(&target, b"content").unwrap();
+        let original_mode = std::fs::metadata(&target).unwrap().permissions().mode();
+        let file = File::open(&target).unwrap();
+        let metadata = EntryMetadata {
+            path: ArchivePath::new("file").unwrap(),
+            platform: "foreign-platform".to_owned(),
+            owner: None,
+            group: None,
+            permissions: Some(0),
+            modified_unix_millis: None,
+            created_unix_millis: None,
+            accessed_unix_millis: None,
+        };
+        let progress = WarningProgress::default();
+        apply_metadata(&file, Some(&metadata), &target, Some(&progress)).unwrap();
+        apply_special_metadata(&target, Some(&metadata), true, Some(&progress)).unwrap();
+        let warnings = progress.0.lock().unwrap();
+        assert_eq!(warnings.len(), 2);
+        assert!(
+            warnings
+                .iter()
+                .all(|warning| warning.contains("foreign-platform"))
+        );
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode(),
+            original_mode
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), b"content");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn special_entry_creation_handles_existing_directories_and_rejects_escape() {
+        use std::os::unix::fs::FileTypeExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path();
+        let target = destination.join("existing");
+        std::fs::create_dir(&target).unwrap();
+        let error = create_special_entry(
+            destination,
+            &target,
+            &ExtractedKind::NamedPipe,
+            ExistingPolicy::Error,
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<io::Error>().unwrap().kind(),
+            io::ErrorKind::AlreadyExists
+        );
+        create_special_entry(
+            destination,
+            &target,
+            &ExtractedKind::NamedPipe,
+            ExistingPolicy::Overwrite,
+        )
+        .unwrap();
+        assert!(
+            std::fs::symlink_metadata(&target)
+                .unwrap()
+                .file_type()
+                .is_fifo()
+        );
+        let error = create_special_entry(
+            destination,
+            &destination.join("escape"),
+            &ExtractedKind::Symlink("../outside".into()),
+            ExistingPolicy::Error,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("outside") || error.to_string().contains("escape"));
+        assert!(!destination.join("escape").exists());
+    }
+
     #[test]
     fn cached_headers_preserve_references_and_still_validate_selected_data() {
         for to in [None, Some("00000001")] {

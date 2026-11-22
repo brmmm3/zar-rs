@@ -22,6 +22,131 @@ const PASSWORD_D: &[u8] = b"password D";
 const PASSWORD_E: &[u8] = b"password E";
 
 #[test]
+fn skip_compression_environment_overrides_default_extensions() {
+    use std::process::Command;
+    use zarlib::operations::{
+        add_archive_with_encoding, create_archive_with_encoding, read_commit_at_offset,
+        read_first_header_offset, should_skip_compression,
+    };
+    use zarlib::{BLOCK_FLAG_UNCOMPRESSED, BlockFrame, CommitValidationLimits};
+
+    const ENV: &str = "ZARLIB_SKIP_COMPRESS_EXTENSIONS";
+    const CASE: &str = "ZARLIB_TEST_SKIP_COMPRESSION_CASE";
+    if let Some(case) = std::env::var_os(CASE) {
+        let (jpg, txt) = match case.to_str().unwrap() {
+            "default" => (true, false),
+            "custom" | "nonunicode" => (false, true),
+            "empty" => (false, false),
+            _ => panic!("unknown test case"),
+        };
+        assert_eq!(should_skip_compression(Path::new("photo.JPG")), jpg);
+        assert_eq!(should_skip_compression(Path::new("document.TxT")), txt);
+        assert_eq!(
+            should_skip_compression(Path::new("picture.png")),
+            case == "default" || case == "custom"
+        );
+        assert!(!should_skip_compression(Path::new("extensionless")));
+
+        let directory = tempfile::tempdir().unwrap();
+        let jpg_file = directory.path().join("photo.JPG");
+        let txt_file = directory.path().join("document.TxT");
+        std::fs::write(&jpg_file, vec![b'a'; 4096]).unwrap();
+        std::fs::write(&txt_file, vec![b'b'; 4096]).unwrap();
+        let archive = directory.path().join("result.zar");
+        let name = archive.to_str().unwrap();
+        let encoding = EncodingOptions {
+            block_size: 1024,
+            compression_level: 3,
+        };
+        create_archive_with_encoding(name, &[jpg_file], false, encoding).unwrap();
+        add_archive_with_encoding(name, &[txt_file], encoding).unwrap();
+
+        let mut file = std::fs::File::open(&archive).unwrap();
+        let mut header_offset = read_first_header_offset(&mut file).unwrap();
+        for expected in [jpg, txt] {
+            let (header, data_start, next) =
+                read_commit_at_offset(&mut file, header_offset, CommitValidationLimits::default())
+                    .unwrap();
+            file.seek(SeekFrom::Start(data_start)).unwrap();
+            let end = data_start + header.data_section_size;
+            let mut blocks = 0;
+            while file.stream_position().unwrap() < end {
+                let block = BlockFrame::read_from(&mut file, 64 * 1024).unwrap();
+                assert_eq!(block.flags & BLOCK_FLAG_UNCOMPRESSED != 0, expected);
+                blocks += 1;
+            }
+            assert!(blocks > 0);
+            header_offset = next;
+        }
+        assert_eq!(header_offset, 0);
+        let extracted =
+            zarlib::operations::extract_archive_to_memory(name, None, None, None, 0).unwrap();
+        assert_eq!(extracted["photo.JPG"], vec![b'a'; 4096]);
+        assert_eq!(extracted["document.TxT"], vec![b'b'; 4096]);
+
+        let small_jpg = directory.path().join("small.JPG");
+        let small_txt = directory.path().join("small.TxT");
+        std::fs::write(&small_jpg, vec![b'c'; 128]).unwrap();
+        std::fs::write(&small_txt, vec![b'd'; 128]).unwrap();
+        let small_archive = directory.path().join("small.zar");
+        let small_name = small_archive.to_str().unwrap();
+        create_archive_with_encoding(small_name, &[small_jpg, small_txt], false, encoding).unwrap();
+        let toc = zarlib::operations::load_toc_through(small_name, None, None).unwrap();
+        let mut file = std::fs::File::open(&small_archive).unwrap();
+        let offset = read_first_header_offset(&mut file).unwrap();
+        let (header, data_start, _) =
+            read_commit_at_offset(&mut file, offset, CommitValidationLimits::default()).unwrap();
+        file.seek(SeekFrom::Start(data_start)).unwrap();
+        let mut flags = std::collections::HashMap::new();
+        while file.stream_position().unwrap() < data_start + header.data_section_size {
+            let block = BlockFrame::read_from(&mut file, 64 * 1024).unwrap();
+            flags.insert(block.block_index, block.flags);
+        }
+        for (path, expected) in [("small.JPG", jpg), ("small.TxT", txt)] {
+            let Some(TocEntry::File(entry)) = toc.get(&ArchivePath::new(path).unwrap()) else {
+                panic!("expected {path} in archive");
+            };
+            assert_eq!(entry.block_indices.len(), 1);
+            assert_eq!(
+                flags[&entry.block_indices[0]] & BLOCK_FLAG_UNCOMPRESSED != 0,
+                expected
+            );
+        }
+        return;
+    }
+
+    let exe = std::env::current_exe().unwrap();
+    let run = |case: &str, value: Option<&std::ffi::OsStr>| {
+        let mut command = Command::new(&exe);
+        command.args([
+            "--exact",
+            "skip_compression_environment_overrides_default_extensions",
+            "--nocapture",
+        ]);
+        command.env(CASE, case).env_remove(ENV);
+        if let Some(value) = value {
+            command.env(ENV, value);
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{case}: stdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+    };
+    run("default", None);
+    run("custom", Some(std::ffi::OsStr::new(" .txt , .PNG,,")));
+    run("empty", Some(std::ffi::OsStr::new("")));
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        run("nonunicode", Some(std::ffi::OsStr::from_bytes(b"txt,\xff")));
+    }
+}
+
+#[test]
 fn skipping_unselected_frame_validation_still_checks_selected_frames() {
     let directory = tempfile::tempdir().unwrap();
     let selected = directory.path().join("selected.bin");

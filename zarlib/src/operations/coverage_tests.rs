@@ -639,6 +639,57 @@ fn removing_directory_clears_descendant_sources_and_metadata() {
 }
 
 #[test]
+fn joining_later_commits_preserves_removal_of_a_previous_directory() {
+    let fixture = Fixture::new();
+    remove_archive(fixture.archive(), &[PathBuf::from("input/nested")]).unwrap();
+    let added = fixture.dir.path().join("later.txt");
+    std::fs::write(&added, b"later").unwrap();
+    add_archive(fixture.archive(), &[added]).unwrap();
+    join_archive_with_encoding(
+        fixture.archive(),
+        "00000002",
+        "00000003",
+        EncodingOptions::default(),
+    )
+    .unwrap();
+    let files = extract_archive_to_memory(fixture.archive(), None, None, None, 0).unwrap();
+    assert_eq!(files["input/a.txt"], b"alpha content");
+    assert_eq!(files["later.txt"], b"later");
+    assert!(!files.contains_key("input/nested/b.txt"));
+    let old =
+        extract_archive_to_memory(fixture.archive(), Some("00000001"), None, None, 0).unwrap();
+    assert_eq!(old["input/nested/b.txt"], b"beta content");
+}
+
+#[test]
+fn prepared_extraction_rejects_changed_archive_and_mismatched_history() {
+    let fixture = Fixture::new();
+    let prepared =
+        PreparedExtraction::new(fixture.archive(), Some("00000001"), &PasswordSet::default())
+            .unwrap();
+    let destination = fixture.dir.path().join("prepared-output");
+    let mut settings = options(CollisionPolicy::Error, ExistingPolicy::Error);
+    let error = prepared
+        .extract(&destination, settings, None, &FilterSet::default())
+        .err()
+        .unwrap();
+    assert!(error.to_string().contains("does not match"));
+    settings.to = Some("00000001");
+    prepared
+        .extract(&destination, settings, None, &FilterSet::default())
+        .unwrap();
+    assert_eq!(
+        std::fs::read(destination.join("input/a.txt")).unwrap(),
+        b"alpha content"
+    );
+    let mut bytes = std::fs::read(&fixture.archive).unwrap();
+    bytes.push(0);
+    std::fs::write(&fixture.archive, bytes).unwrap();
+    let error = prepared.read_file_range("input/a.txt", 0, 5).unwrap_err();
+    assert!(error.to_string().contains("archive changed"));
+}
+
+#[test]
 fn extraction_rejects_files_occupying_destination_directories() {
     let fixture = Fixture::new();
     let tar_path = fixture.dir.path().join("input.tar");
@@ -814,6 +865,53 @@ fn cross_commit_overlay_save_preserves_base_reference() {
     )
     .unwrap();
     assert_eq!(std::fs::read(output).unwrap(), b"alpha content");
+}
+
+#[test]
+fn overlay_add_into_existing_folder_preserves_base_and_contents() {
+    let fixture = Fixture::new();
+    let overlay = fixture.dir.path().join("folder-overlay.zar");
+    let input = fixture.dir.path().join("added.txt");
+    std::fs::write(&input, b"added to folder").unwrap();
+    create_overlay_archive(&fixture.archive, &overlay).unwrap();
+    let before = std::fs::read(&fixture.archive).unwrap();
+    add_overlay_in_folder_with_encoding_progress_and_filters_and_encryption(
+        fixture.archive(),
+        overlay.to_str().unwrap(),
+        &[input],
+        &ArchivePath::new("input/nested").unwrap(),
+        EncodingOptions::default(),
+        None,
+        AddInputOptions::default(),
+        &FilterSet::default(),
+        None,
+        &PasswordSet::default(),
+    )
+    .unwrap();
+    let (toc, _) = list_archive_with_overlay_and_passwords(
+        fixture.archive(),
+        overlay.to_str().unwrap(),
+        &PasswordSet::default(),
+    )
+    .unwrap();
+    assert!(matches!(
+        toc.get(&ArchivePath::new("input/nested/added.txt").unwrap()),
+        Some(TocEntry::File(entry)) if entry.size == 15
+    ));
+    let saved = fixture.dir.path().join("saved-folder.zar");
+    save_overlay_archive(
+        &fixture.archive,
+        &overlay,
+        &saved,
+        EncodingOptions::default(),
+        &PasswordSet::default(),
+        None,
+    )
+    .unwrap();
+    assert_eq!(std::fs::read(&fixture.archive).unwrap(), before);
+    let files = extract_archive_to_memory(saved.to_str().unwrap(), None, None, None, 0).unwrap();
+    assert_eq!(files["input/nested/added.txt"], b"added to folder");
+    assert_eq!(files["input/nested/b.txt"], b"beta content");
 }
 
 #[test]
@@ -1486,6 +1584,56 @@ fn cross_commit_rewrites_protect_references() {
     )
     .unwrap();
     assert_eq!(info_archive(fixture.archive(), false).unwrap().len(), 1);
+}
+
+#[test]
+fn encryption_of_selected_commit_preserves_independent_history() {
+    let fixture = Fixture::new();
+    let input = fixture.dir.path().join("independent.txt");
+    std::fs::write(&input, b"independent content").unwrap();
+    add_archive(fixture.archive(), &[input]).unwrap();
+    let output = fixture.dir.path().join("partial-encrypted.zar");
+    let passwords = PasswordSet::default();
+    encrypt_archive_commits(
+        fixture.archive(),
+        CommitRangeOptions {
+            from_id: "00000002",
+            to_id: "00000002",
+            output: Some(output.to_str().unwrap()),
+            passwords: &passwords,
+            strict: true,
+        },
+        b"new password",
+        crate::ContentAead::Aes256Gcm,
+        crate::EncryptionScope::HeaderAndData,
+    )
+    .unwrap();
+    let prepared =
+        PreparedExtraction::new_complete(output.to_str().unwrap(), Some("00000001"), &passwords)
+            .unwrap();
+    assert_eq!(prepared.to(), Some("00000001"));
+    assert_eq!(
+        prepared.read_file_range("input/a.txt", 0, 5).unwrap(),
+        b"alpha"
+    );
+    assert!(prepared.read_file_range("input", 0, 1).is_err());
+    assert!(
+        PreparedExtraction::new_complete(output.to_str().unwrap(), None, &passwords)
+            .unwrap_err()
+            .to_string()
+            .contains("locked commit headers")
+    );
+    let passwords = PasswordSet::new(Some(b"new password".to_vec()));
+    let files = extract_archive_to_memory_with_passwords(
+        output.to_str().unwrap(),
+        None,
+        &passwords,
+        None,
+        0,
+    )
+    .unwrap();
+    assert_eq!(files["input/a.txt"], b"alpha content");
+    assert_eq!(files["independent.txt"], b"independent content");
 }
 
 #[test]
@@ -2622,6 +2770,13 @@ fn single_file_extracts_legacy_unindexed_commit() {
     header_frame.write_to(&mut archive).unwrap();
     archive.write_all(&header_offset.to_le_bytes()).unwrap();
     drop(archive);
+
+    let info = info_archive(archive_path.to_str().unwrap(), true).unwrap();
+    let with_blocks = info_archive_with_blocks(archive_path.to_str().unwrap(), true).unwrap();
+    assert_eq!(info[0].details, with_blocks[0].commit.details);
+    assert_eq!(with_blocks[0].blocks.len(), 1);
+    assert_eq!(with_blocks[0].blocks[0].index, 0);
+    assert_eq!(info[0].uncompressed_size, Some(14));
 
     let output = directory.path().join("output");
     extract_single_file(
@@ -3915,6 +4070,50 @@ fn extraction_restores_safe_symlinks_and_pipes_and_rejects_escaping_links() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn special_entries_can_be_renamed_and_removed_from_archive_history() {
+    use std::os::unix::ffi::OsStrExt;
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("input");
+    std::fs::create_dir(&input).unwrap();
+    std::os::unix::fs::symlink("target", input.join("link")).unwrap();
+    let pipe = std::ffi::CString::new(input.join("pipe").as_os_str().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(pipe.as_ptr(), 0o600) }, 0);
+    let archive = dir.path().join("special.zar");
+    create_archive_with_password_progress_and_special_files(
+        archive.to_str().unwrap(),
+        &[input],
+        false,
+        EncodingOptions::default(),
+        None,
+        None,
+        CreateInputOptions {
+            include_special_files: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let path = archive.to_str().unwrap();
+    let original = ArchivePath::new("input/link").unwrap();
+    let renamed = ArchivePath::new("input/renamed").unwrap();
+    rename_archive_entry(path, &original, &renamed).unwrap();
+    let pipe = ArchivePath::new("input/pipe").unwrap();
+    remove_archive_entries_with_progress(path, &[pipe.clone()], None).unwrap();
+    let toc = list_archive(path, None, None).unwrap();
+    assert_eq!(
+        toc.get(&renamed),
+        Some(&TocEntry::Symlink {
+            target: "target".into()
+        })
+    );
+    assert!(toc.get(&original).is_none());
+    assert!(toc.get(&pipe).is_none());
+    let historical = list_archive(path, Some("00000001"), None).unwrap();
+    assert_eq!(historical.get(&pipe), Some(&TocEntry::NamedPipe));
+    assert!(historical.get(&original).is_some());
+}
+
 #[test]
 fn special_entry_extraction_plans_respect_restore_and_existing_policies() {
     use std::io::Write;
@@ -4303,8 +4502,6 @@ fn compression_helpers_validate_boundaries_and_budget() {
     };
     resolve_encoding_options(&mut opts);
     assert!(opts.block_size >= AUTO_MIN_BLOCK_SIZE);
-    assert!(should_skip_compression(Path::new("photo.JPG")));
-    assert!(!should_skip_compression(Path::new("text.txt")));
     assert_eq!(format_unix_millis(0), "1970-01-01 00:00 UTC");
     assert_eq!(format_unix_millis(-1), "1969-12-31 23:59 UTC");
     assert_eq!(parse_commit_id("000000ff").unwrap(), 255u32.to_le_bytes());
@@ -4518,6 +4715,118 @@ fn extraction_handles_existing_policies_and_dry_run() {
     *progress.decision.lock().unwrap() = Some(OverwriteDecision::Always);
     extract_archive_with_progress(fixture.archive(), &dest, opts, None, Some(&progress)).unwrap();
     assert_eq!(std::fs::read(&target).unwrap(), b"alpha content");
+}
+
+#[test]
+fn default_confirmation_callback_controls_existing_file_extraction() {
+    struct Confirm(bool);
+    impl Progress for Confirm {
+        fn message(&self, _: &str) {}
+        fn advance(&self, _: u64) {}
+        fn is_interactive(&self) -> bool {
+            true
+        }
+        fn confirm(&self, _: &str) -> Result<bool, Box<dyn std::error::Error>> {
+            Ok(self.0)
+        }
+    }
+
+    let fixture = Fixture::new();
+    let dest = fixture.dir.path().join("confirm-output");
+    let mut opts = options(CollisionPolicy::Error, ExistingPolicy::Error);
+    extract_archive_with_progress(fixture.archive(), &dest, opts, None, None).unwrap();
+    let target = dest.join("input/a.txt");
+    opts.existing_policy = ExistingPolicy::Ask;
+    for (answer, expected) in [
+        (false, b"keep".as_slice()),
+        (true, b"alpha content".as_slice()),
+    ] {
+        std::fs::write(&target, b"keep").unwrap();
+        extract_archive_with_progress(fixture.archive(), &dest, opts, None, Some(&Confirm(answer)))
+            .unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), expected);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn external_tar_symlinks_are_restored_only_when_requested() {
+    let dir = tempfile::tempdir().unwrap();
+    let archive = dir.path().join("links.tar");
+    let mut builder = tar::Builder::new(std::fs::File::create(&archive).unwrap());
+    let mut file_header = tar::Header::new_gnu();
+    file_header.set_size(7);
+    file_header.set_mode(0o644);
+    file_header.set_cksum();
+    builder
+        .append_data(&mut file_header, "root/file", &b"content"[..])
+        .unwrap();
+    let mut link_header = tar::Header::new_gnu();
+    link_header.set_entry_type(tar::EntryType::Symlink);
+    link_header.set_size(0);
+    link_header.set_mode(0o777);
+    link_header.set_cksum();
+    builder
+        .append_link(&mut link_header, "root/link", "file")
+        .unwrap();
+    builder.finish().unwrap();
+    drop(builder);
+
+    for restore in [false, true] {
+        let destination = dir
+            .path()
+            .join(if restore { "with-link" } else { "without-link" });
+        let mut opts = options(CollisionPolicy::Error, ExistingPolicy::Error);
+        opts.restore_symlinks = restore;
+        extract_archive_with_progress(archive.to_str().unwrap(), &destination, opts, None, None)
+            .unwrap();
+        assert_eq!(
+            std::fs::read(destination.join("root/file")).unwrap(),
+            b"content"
+        );
+        let link = destination.join("root/link");
+        if restore {
+            assert_eq!(std::fs::read_link(link).unwrap(), Path::new("file"));
+        } else {
+            assert!(!link.exists());
+        }
+    }
+}
+
+#[test]
+fn compressed_tar_input_is_imported_and_extracted() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("input.tar.gz");
+    let gzip = flate2::write::GzEncoder::new(
+        std::fs::File::create(&input).unwrap(),
+        flate2::Compression::default(),
+    );
+    let mut tar = tar::Builder::new(gzip);
+    let mut header = tar::Header::new_gnu();
+    header.set_size(7);
+    header.set_mode(0o644);
+    header.set_cksum();
+    tar.append_data(&mut header, "nested/file.txt", &b"content"[..])
+        .unwrap();
+    tar.into_inner().unwrap().finish().unwrap();
+
+    let archive = dir.path().join("imported.zar");
+    create_archive(archive.to_str().unwrap(), std::slice::from_ref(&input)).unwrap();
+    let files = extract_archive_to_memory(archive.to_str().unwrap(), None, None, None, 0).unwrap();
+    assert_eq!(files["nested/file.txt"], b"content");
+    let destination = dir.path().join("direct");
+    extract_archive_with_progress(
+        input.to_str().unwrap(),
+        &destination,
+        options(CollisionPolicy::Error, ExistingPolicy::Error),
+        None,
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read(destination.join("nested/file.txt")).unwrap(),
+        b"content"
+    );
 }
 
 #[test]

@@ -469,6 +469,18 @@ The supported creation block size is 64 KiB through 32 MiB. The default is
 8 MiB; the default compression level is 3, and valid Zstandard levels are -7
 through 22.
 
+For path-based create and add operations, `ZARLIB_SKIP_COMPRESS_EXTENSIONS`
+replaces the default list of extensions whose data is stored without
+compression when new blocks are written. Set it to a
+comma-separated list, for example `ZARLIB_SKIP_COMPRESS_EXTENSIONS=jpg,png,zip`.
+Matching is ASCII case-insensitive; surrounding ASCII whitespace and an
+optional leading `.` are ignored. An empty value disables the extension-based
+skip list. Unsetting the variable restores `SKIP_COMPRESS_EXTENSIONS`. The
+setting is process-wide and is consulted as files are processed; it does not
+apply to `create_archive_from_readers`. Blocks that do not compress effectively
+may still be stored uncompressed regardless of their extensions; deduplicated
+files can reuse existing blocks regardless of the extension policy.
+
 ## Python bindings
 
 The workspace also includes [pyzarlib](../pyzarlib/README.md), a PyO3 package

@@ -1,6 +1,75 @@
 use super::*;
 use dialogs::benchmark::{BenchmarkSettings, run_benchmark};
 
+fn collect_text(shape: &egui::Shape, texts: &mut Vec<String>) {
+    match shape {
+        egui::Shape::Text(text) => texts.push(text.galley.job.text.clone()),
+        egui::Shape::Vec(shapes) => {
+            for shape in shapes {
+                collect_text(shape, texts);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
+fn about_dialog_renders_product_and_version() {
+    let context = egui::Context::default();
+    let mut app = ZargApp {
+        show_about: true,
+        ..Default::default()
+    };
+    let input = || egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1000.0, 800.0),
+        )),
+        ..Default::default()
+    };
+    context
+        .run_ui(input(), |ui| app.render_about_dialog(ui.ctx()))
+        .drop_without_applying_deltas();
+    let output = context.run_ui(input(), |ui| app.render_about_dialog(ui.ctx()));
+    let mut texts = Vec::new();
+    for shape in &output.shapes {
+        collect_text(&shape.shape, &mut texts);
+    }
+    assert!(texts.iter().any(|text| text == "ZAR Archive Manager"));
+    assert!(
+        texts
+            .iter()
+            .any(|text| text == &format!("Version {}", env!("CARGO_PKG_VERSION")))
+    );
+    assert!(app.show_about);
+}
+
+#[test]
+fn closing_operation_error_dialog_clears_report() {
+    let context = egui::Context::default();
+    let mut app = ZargApp {
+        report: Some("Archive could not be opened".to_owned()),
+        ..Default::default()
+    };
+    let mut input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1000.0, 800.0),
+        )),
+        ..Default::default()
+    };
+    input
+        .viewports
+        .get_mut(&egui::ViewportId::ROOT)
+        .unwrap()
+        .events
+        .push(egui::ViewportEvent::Close);
+    context
+        .run_ui(input, |ui| app.render_operation_error_dialog(ui.ctx()))
+        .drop_without_applying_deltas();
+    assert!(app.report.is_none());
+}
+
 #[test]
 fn delayed_default_password_is_applied_when_ready() {
     let mut app = ZargApp::default();
@@ -4764,18 +4833,6 @@ fn details_time_columns_and_values_follow_type() {
 
 #[test]
 fn structured_view_renders_only_available_time_columns_and_values() {
-    fn collect_text(shape: &egui::Shape, texts: &mut Vec<String>) {
-        match shape {
-            egui::Shape::Text(text) => texts.push(text.galley.job.text.clone()),
-            egui::Shape::Vec(shapes) => {
-                for shape in shapes {
-                    collect_text(shape, texts);
-                }
-            }
-            _ => {}
-        }
-    }
-
     for mask in 0..8 {
         let detail = ArchiveEntryDetails {
             modified_unix_millis: (mask & 1 != 0).then_some(0),

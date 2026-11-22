@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use sysinfo::System;
 use zeroize::Zeroizing;
 
+/// Default extensions whose new data blocks are stored without compression.
 pub const SKIP_COMPRESS_EXTENSIONS: [&str; 21] = [
     "gz", "tgz", "bz2", "tbz2", "lzo", "lz4", "lzma", "z", "snappy", "zip", "7z", "rar", "jpg",
     "jpeg", "png", "gif", "mpg", "mpeg", "avi", "mp3", "zar",
@@ -68,13 +69,30 @@ pub fn format_unix_millis(millis: i64) -> String {
     format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02} UTC")
 }
 
+/// Checks the extension against `ZARLIB_SKIP_COMPRESS_EXTENSIONS`, if set, or
+/// against [`SKIP_COMPRESS_EXTENSIONS`] otherwise.
+///
+/// The override is a comma-separated list with optional leading dots and ASCII
+/// whitespace. Matching is ASCII case-insensitive; an empty override matches
+/// no extensions.
 pub fn should_skip_compression(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| {
-            SKIP_COMPRESS_EXTENSIONS
-                .iter()
-                .any(|known| extension.eq_ignore_ascii_case(known))
+            if let Some(extensions) = std::env::var_os("ZARLIB_SKIP_COMPRESS_EXTENSIONS") {
+                extensions
+                    .as_encoded_bytes()
+                    .split(|byte| *byte == b',')
+                    .map(|entry| entry.trim_ascii())
+                    .map(|entry| entry.strip_prefix(b".").unwrap_or(entry))
+                    .any(|entry| {
+                        !entry.is_empty() && extension.as_bytes().eq_ignore_ascii_case(entry)
+                    })
+            } else {
+                SKIP_COMPRESS_EXTENSIONS
+                    .iter()
+                    .any(|known| extension.eq_ignore_ascii_case(known))
+            }
         })
 }
 

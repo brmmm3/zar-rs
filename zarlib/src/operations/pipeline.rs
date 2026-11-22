@@ -2033,6 +2033,61 @@ mod tests {
     use std::path::Path;
     use std::sync::Mutex;
 
+    #[cfg(unix)]
+    #[test]
+    fn scan_individual_symlinks_and_special_files() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::net::UnixListener;
+
+        let directory = tempfile::tempdir().unwrap();
+        let link = directory.path().join("link");
+        std::os::unix::fs::symlink("target", &link).unwrap();
+        let entries = scan_tree(&link, "").unwrap();
+        assert_eq!(entries[0].archive_path, "link");
+        assert!(
+            matches!(&entries[0].kind, TreeEntryKind::Symlink { target } if target == "target")
+        );
+
+        let invalid = directory.path().join("invalid");
+        std::os::unix::fs::symlink(std::ffi::OsStr::from_bytes(b"\xff"), &invalid).unwrap();
+        assert!(
+            scan_tree(&invalid, "")
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("UTF-8")
+        );
+
+        let socket = directory.path().join("socket");
+        let _listener = UnixListener::bind(&socket).unwrap();
+        assert!(matches!(
+            scan_tree(&socket, "").unwrap()[0].kind,
+            TreeEntryKind::Unsupported
+        ));
+
+        let pipe = directory.path().join("pipe");
+        let name = std::ffi::CString::new(pipe.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        assert!(matches!(
+            scan_tree(&pipe, "").unwrap()[0].kind,
+            TreeEntryKind::NamedPipe
+        ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn scan_character_device_reports_major_and_minor() {
+        let entries = scan_tree(Path::new("/dev/null"), "null").unwrap();
+        assert!(matches!(
+            entries[0].kind,
+            TreeEntryKind::Device {
+                kind: DeviceKind::Character,
+                major: 1,
+                minor: 3
+            }
+        ));
+    }
+
     #[test]
     fn scan_tree_preserves_child_named_like_input_root() {
         let temporary = tempfile::tempdir().unwrap();

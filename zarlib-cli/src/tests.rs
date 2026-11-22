@@ -9,6 +9,25 @@ use zarlib::{
     UNENCRYPTED_DESCRIPTOR, unwrap_dek_with_password, write_container_magic,
 };
 
+fn run_with_default_skip_extensions(test: &str) -> bool {
+    if std::env::var_os("ZARLIB_SKIP_COMPRESS_EXTENSIONS").is_none() {
+        return false;
+    }
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", test, "--nocapture"])
+        .env_remove("ZARLIB_SKIP_COMPRESS_EXTENSIONS")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+    true
+}
+
 #[test]
 fn extraction_checksum_modes_parse_and_default_to_auto() {
     use args::ChecksumRecheck;
@@ -285,6 +304,54 @@ fn list_verbose_reports_replaced_files_and_commits_missing_passwords() {
     assert!(rendered.contains("shared.txt"));
     assert!(rendered.contains("Ignored commits (password not provided):"));
     assert!(rendered.contains(&format_commit_id(&commits[2].id)));
+}
+
+#[test]
+fn list_diagnostics_respects_history_and_removed_directories() {
+    let directory = TestDirectory::new();
+    let archive = directory.path().join("history.zar");
+    let input = directory.path().join("input");
+    std::fs::create_dir(&input).unwrap();
+    let file = input.join("file.txt");
+    std::fs::write(&file, b"old").unwrap();
+    let archive = archive.to_str().unwrap();
+    create_archive(archive, std::slice::from_ref(&input)).unwrap();
+    remove_archive(archive, &[PathBuf::from("input")]).unwrap();
+    std::fs::write(&file, b"new").unwrap();
+    add_archive(archive, std::slice::from_ref(&input)).unwrap();
+
+    let passwords = PasswordSet::default();
+    for to in [None, Some("00000001"), Some("00000002"), Some("00000003")] {
+        let diagnostics = list_diagnostics(archive, to, &passwords).unwrap();
+        assert!(diagnostics.replaced_files.is_empty());
+        assert!(diagnostics.skipped_commits.is_empty());
+    }
+    let error = list_diagnostics(archive, Some("ffffffff"), &passwords)
+        .err()
+        .unwrap();
+    assert!(error.to_string().contains("commit ID was not found"));
+}
+
+#[test]
+fn info_json_roundtrips_user_names_with_control_characters() {
+    let user = "quote\" slash\\ backspace\u{08} formfeed\u{0c}\n\r\t\u{01} unicode \u{00e9}";
+    let json = render_info_json(&[InfoJsonCommit {
+        id: "00000001".into(),
+        size: 100,
+        header_size: 20,
+        data_size: 80,
+        header_encrypted: true,
+        data_encrypted: true,
+        encryption_algorithm: Some("aes-256-gcm"),
+        header_changes: None,
+        cross_commit_reference_count: Some(0),
+        created_unix_millis: Some(0),
+        user: Some(user.to_owned()),
+    }]);
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["commits"][0]["user"], user);
+    assert_eq!(parsed["commits"][0]["encryption_algorithm"], "aes-256-gcm");
+    assert_eq!(parsed["cross_commit_reference_count"], 0);
 }
 
 #[test]
@@ -2377,6 +2444,11 @@ fn create_deduplicates_equal_files_but_never_compares_different_sizes() {
 
 #[test]
 fn create_and_add_skip_compression_for_known_extensions_case_insensitively() {
+    if run_with_default_skip_extensions(
+        "tests::create_and_add_skip_compression_for_known_extensions_case_insensitively",
+    ) {
+        return;
+    }
     let directory = TestDirectory::new();
     let compressed = directory.path().join("archive.JPG");
     let ordinary = directory.path().join("archive.txt");
@@ -2493,6 +2565,11 @@ fn create_and_add_skip_compression_for_known_extensions_case_insensitively() {
 
 #[test]
 fn create_stores_incompressible_blocks_uncompressed_and_compressible_blocks_compressed() {
+    if run_with_default_skip_extensions(
+        "tests::create_stores_incompressible_blocks_uncompressed_and_compressible_blocks_compressed",
+    ) {
+        return;
+    }
     let directory = TestDirectory::new();
     let incompressible = directory.path().join("raw.bin");
     let compressible = directory.path().join("repeat.bin");

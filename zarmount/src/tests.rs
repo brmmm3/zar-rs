@@ -214,10 +214,99 @@ fn password_files_and_invalid_specs() {
     );
     options.password_for = vec!["bad".into()];
     assert!(passwords(&options).is_err());
+    options.password_for = vec!["00000001=".into()];
+    assert!(
+        passwords(&options)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("requires a password file path")
+    );
     options.password_for = vec![format!("00000001={}", password.display()); 2];
     assert!(passwords(&options).is_err());
     fs::write(&password, b"\n").unwrap();
     assert!(password_file(&password).is_err());
+}
+
+#[test]
+fn rejects_mountpoints_that_are_not_directories_or_contain_the_archive() {
+    let (dir, archive, _) = fixture();
+    let options = |mountpoint| Options {
+        archive: archive.clone(),
+        mountpoint,
+        to: None,
+        password_file: None,
+        password_for: vec![],
+    };
+    let file = dir.path().join("not-a-directory");
+    fs::write(&file, b"file").unwrap();
+    assert!(
+        run(options(file))
+            .unwrap_err()
+            .to_string()
+            .contains("mountpoint must be a directory")
+    );
+    assert!(
+        run(options(dir.path().to_owned()))
+            .unwrap_err()
+            .to_string()
+            .contains("archive must not be inside the mountpoint")
+    );
+}
+
+#[test]
+fn rejects_archive_paths_that_are_not_utf8() {
+    use std::os::unix::ffi::OsStrExt;
+    let (dir, archive, _) = fixture();
+    let invalid = dir.path().join(OsStr::from_bytes(b"archive-\xff.zar"));
+    fs::copy(archive, &invalid).unwrap();
+    let mountpoint = dir.path().join("mount");
+    fs::create_dir(&mountpoint).unwrap();
+    let error = run(Options {
+        archive: invalid,
+        mountpoint,
+        to: None,
+        password_file: None,
+        password_for: vec![],
+    })
+    .unwrap_err();
+    assert!(error.to_string().contains("archive path must be UTF-8"));
+}
+
+#[test]
+fn rejects_unsupported_special_files_before_mounting() {
+    use std::os::unix::ffi::OsStrExt;
+    use zarlib::operations::{
+        CreateInputOptions, create_archive_with_password_progress_and_special_files,
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("input");
+    fs::create_dir(&input).unwrap();
+    let pipe = std::ffi::CString::new(input.join("pipe").as_os_str().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(pipe.as_ptr(), 0o600) }, 0);
+    let archive = dir.path().join("pipe.zar");
+    create_archive_with_password_progress_and_special_files(
+        archive.to_str().unwrap(),
+        &[input],
+        false,
+        EncodingOptions::default(),
+        None,
+        None,
+        CreateInputOptions {
+            include_special_files: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let result = ArchiveFs::new(prepared(&archive, None));
+    assert!(
+        result
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("unsupported special file in archive: input/pipe")
+    );
 }
 
 #[test]
@@ -254,5 +343,24 @@ fn kernel_mount_is_read_only_and_serves_random_reads() {
     file.seek(SeekFrom::Start(0)).unwrap();
     assert!(file.read(&mut bytes).is_err());
     drop(file);
+    drop(session);
+}
+
+#[test]
+#[ignore = "requires a usable /dev/fuse and fusermount3"]
+fn filesystem_rejects_writes_even_when_kernel_mount_is_writable() {
+    let (dir, archive, _) = fixture();
+    let mountpoint = dir.path().join("writable-mount");
+    fs::create_dir(&mountpoint).unwrap();
+    let filesystem = ArchiveFs::new(prepared(&archive, None)).unwrap();
+    let session = fuser::spawn_mount(filesystem, &mountpoint, &Config::default()).unwrap();
+    let input = mountpoint.join("input");
+    let error = fs::metadata(input.join("missing")).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    let error = fs::OpenOptions::new()
+        .write(true)
+        .open(input.join("small.txt"))
+        .unwrap_err();
+    assert_eq!(error.raw_os_error(), Some(libc::EROFS));
     drop(session);
 }

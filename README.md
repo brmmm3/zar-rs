@@ -3,7 +3,7 @@
 [![crates.io](https://img.shields.io/crates/v/zarlib?style=flat-square&logo=rust)](https://crates.io/crates/zarlib)
 [![docs.rs](https://img.shields.io/badge/docs.rs-zarlib-4c8bfd?logo=docs.rs&style=flat-square)](https://docs.rs/zarlib)
 [![PyPI](https://img.shields.io/pypi/v/pyzarlib?style=flat-square&logo=pypi&logoColor=white&cacheSeconds=60)](https://pypi.org/project/pyzarlib/)
-[![CI](https://github.com/brmmm3/zar-rs/actions/workflows/ci.yml/badge.svg?branch=0.15.0)](https://github.com/brmmm3/zar-rs/actions/workflows/ci.yml)
+[![CI](https://github.com/brmmm3/zar-rs/actions/workflows/ci.yml/badge.svg?branch=0.16.0)](https://github.com/brmmm3/zar-rs/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue?style=flat-square)](LICENSE-MIT)
 
 ZAR is an archive format and toolkit with compression, deduplication, and
@@ -369,16 +369,6 @@ cargo binstall zarmcp
 cargo binstall zarmount      # Linux only
 ```
 
-These commands require the corresponding package version to be published on
-crates.io and its binary archive to be present in the matching GitHub release.
-`zarmcp` and `zarmount` are not currently published to crates.io. Until they
-are, use a checkout of a matching released version:
-
-```sh
-cargo binstall --manifest-path ./zarmcp zarmcp
-cargo binstall --manifest-path ./zarmount zarmount
-```
-
 For crates.io publication, publish the matching `zarlib` version first, then
 `czarlib` before `zarmcp`; `zarmount` also depends on `zarlib`.
 
@@ -411,8 +401,15 @@ The [packaging](./packaging) directory contains installer definitions for the
   with `Zarg.app` and a `.pkg` that also installs `zarc`.
 
 ```sh
-iscc /DAppVersion=0.15.0 packaging\windows\zar-rs.iss  # Windows
+iscc /DAppVersion=0.16.0 packaging\windows\zar-rs.iss  # Windows
 packaging/linux/build-packages.sh deb                  # Linux
+```
+
+```sh
+# Chocolatey package contains all binaries
+choco install zar-rs
+
+pip install pyzarlib
 ```
 
 See [packaging/README.md](./packaging/README.md) for prerequisites and options.
@@ -447,6 +444,10 @@ zarc extract backup.zar --to 00000001 --output ./restored-initial/
 zarc meta backup.zar --set project=example --set revision=3
 zarc meta backup.zar
 zarc meta backup.zar --remove revision
+
+# Mount without extracting (instant readonly-access)
+zarmount backup.zar /mnt/archive
+ls -la /mnt/archive
 ```
 
 `add` updates the paths supplied to it; it does not automatically remove paths
@@ -625,8 +626,8 @@ use `manylinux_2_28_x86_64`. Operating-system, system-library, and Flatpak
 runtime requirements still apply to all assets.
 
 To rebuild v3 assets for an existing release, run
-`gh workflow run ci-v3.yml -f tag=0.15.0`. To rebuild just its packages,
-run `gh workflow run packaging-v3.yml -f tag=0.15.0` after the v3 binary assets
+`gh workflow run ci-v3.yml -f tag=0.16.0`. To rebuild just its packages,
+run `gh workflow run packaging-v3.yml -f tag=0.16.0` after the v3 binary assets
 have been published.
 
 To explicitly build locally for the baseline:

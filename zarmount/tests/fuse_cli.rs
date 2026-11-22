@@ -46,6 +46,22 @@ fn wait_for_mount(guard: &mut MountGuard, path: &Path) {
 }
 
 #[test]
+fn cli_reports_invalid_mountpoint() {
+    let dir = tempfile::tempdir().unwrap();
+    let archive = dir.path().join("archive.zar");
+    let mountpoint = dir.path().join("not-a-directory");
+    fs::write(&archive, b"not needed").unwrap();
+    fs::write(&mountpoint, b"file").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_zarmount"))
+        .arg(&archive)
+        .arg(&mountpoint)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("mountpoint must be a directory"));
+}
+
+#[test]
 #[ignore = "requires a usable /dev/fuse and fusermount3"]
 fn cli_mounts_encrypted_archive_and_rejects_writes() {
     let dir = tempfile::tempdir().unwrap();
@@ -53,7 +69,7 @@ fn cli_mounts_encrypted_archive_and_rejects_writes() {
     let mountpoint = dir.path().join("mount");
     fs::create_dir(&input).unwrap();
     fs::create_dir(&mountpoint).unwrap();
-    for i in 0..300 {
+    for i in 0..1200 {
         fs::write(input.join(format!("file-{i:03}.txt")), b"").unwrap();
     }
     let content: Vec<u8> = (0..150_000).map(|i| (i % 251) as u8).collect();
@@ -85,7 +101,8 @@ fn cli_mounts_encrypted_archive_and_rejects_writes() {
     };
     let mounted_input = mountpoint.join("input");
     wait_for_mount(&mut guard, &mounted_input);
-    assert_eq!(fs::read_dir(&mounted_input).unwrap().count(), 301);
+    assert_eq!(fs::read_dir(&mounted_input).unwrap().count(), 1201);
+    assert!(!mounted_input.join("missing").exists());
     let mut file = fs::File::open(mounted_input.join("data.bin")).unwrap();
     file.seek(SeekFrom::Start(65530)).unwrap();
     let mut bytes = [0; 30];

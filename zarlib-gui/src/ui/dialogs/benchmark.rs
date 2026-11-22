@@ -194,6 +194,7 @@ impl ZargApp {
                 self.benchmark.receiver = None;
                 self.benchmark.result = Some(result);
             }
+
             Err(mpsc::TryRecvError::Empty) => {
                 context.request_repaint_after(std::time::Duration::from_millis(100));
             }
@@ -419,6 +420,104 @@ impl ZargApp {
             std::thread::spawn(move || {
                 let _ = sender.send(run_benchmark(&archive, password, &settings, &cancel_flag));
             });
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn input(close: bool) -> egui::RawInput {
+        let mut input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1000.0, 800.0),
+            )),
+            ..Default::default()
+        };
+        if close {
+            input
+                .viewports
+                .get_mut(&egui::ViewportId::ROOT)
+                .unwrap()
+                .events
+                .push(egui::ViewportEvent::Close);
+        }
+        input
+    }
+
+    #[test]
+    fn benchmark_dialog_keeps_running_job_open_and_closes_when_finished() {
+        let context = egui::Context::default();
+        let mut app = ZargApp::default();
+        app.benchmark.open = true;
+        let (sender, receiver) = mpsc::channel();
+        app.benchmark.receiver = Some(receiver);
+        context
+            .run_ui(input(true), |ui| app.render_benchmark(ui.ctx()))
+            .drop_without_applying_deltas();
+        assert!(app.benchmark.open);
+        sender
+            .send(Ok(BenchmarkResult {
+                files: 2,
+                uncompressed: 1024,
+                archive_size: 512,
+                create_seconds: 1.0,
+                extract_seconds: 2.0,
+            }))
+            .unwrap();
+        app.poll_benchmark(&context);
+        assert!(app.benchmark.receiver.is_none());
+        assert_eq!(
+            app.benchmark
+                .result
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .files,
+            2
+        );
+        context
+            .run_ui(input(false), |ui| app.render_benchmark(ui.ctx()))
+            .drop_without_applying_deltas();
+        context
+            .run_ui(input(true), |ui| app.render_benchmark(ui.ctx()))
+            .drop_without_applying_deltas();
+        assert!(!app.benchmark.open);
+    }
+
+    #[test]
+    fn benchmark_reports_worker_failure_and_disconnect() {
+        let context = egui::Context::default();
+        for worker_error in [true, false] {
+            let mut app = ZargApp::default();
+            app.benchmark.open = true;
+            let (sender, receiver) = mpsc::channel();
+            app.benchmark.receiver = Some(receiver);
+            if worker_error {
+                sender.send(Err("benchmark failed".into())).unwrap();
+            }
+            drop(sender);
+            app.poll_benchmark(&context);
+            let error = app
+                .benchmark
+                .result
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .err()
+                .unwrap();
+            assert!(error.contains(if worker_error {
+                "benchmark failed"
+            } else {
+                "worker stopped unexpectedly"
+            }));
+            context
+                .run_ui(input(false), |ui| app.render_benchmark(ui.ctx()))
+                .drop_without_applying_deltas();
+            assert!(app.benchmark.open);
         }
     }
 }
