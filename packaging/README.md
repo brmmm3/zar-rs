@@ -148,6 +148,33 @@ URLs, and checksums for each release.
 
 ## Linux
 
+### NixOS
+
+The local Nix expression builds `zarc`, `zarg`, `zcopy`, `zarmcp`, and
+`zarmount` from this checkout using its Cargo lockfile. It also installs
+the `zarg` desktop entries, icons, and MIME definition. Use a recent Nixpkgs
+with a Rust compiler capable of building the workspace. From the repository
+root, build and inspect the package:
+
+```sh
+nix-build -E 'with import <nixpkgs> {}; callPackage ./packaging/linux/zar-rs.nix {}'
+./result/bin/zarc --version
+```
+
+In a NixOS configuration, import the expression from a local checkout:
+
+```nix
+environment.systemPackages = [
+  (pkgs.callPackage /path/to/zar-rs/packaging/linux/zar-rs.nix {})
+];
+```
+
+The GUI needs a working X11 or Wayland desktop and an XDG desktop portal for
+native file dialogs. `zarmount` needs access to `/dev/fuse` and the system
+`fusermount3` helper; see the [mount guide](../zarmount/README.md). File-manager
+context menus are not installed by this expression. The package is not
+published to Nixpkgs.
+
 ### Arch Linux
 
 The local PKGBUILD builds `zarc`, `zarg`, `zcopy`, `zarmcp`, and `zarmount`

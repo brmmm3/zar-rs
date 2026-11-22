@@ -7,6 +7,7 @@ until a version is released.
 
 ### Added
 
+- Added a NixOS package expression for all five binaries and GUI desktop assets.
 - Added interoperable single-entry TCP streaming server and client examples
   for the language bindings and the Node.js WASI adapter.
 
