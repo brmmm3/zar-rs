@@ -116,7 +116,7 @@
             <version>0.12.0</version>
             <extensions>true</extensions>
             <configuration>
-              <skipUpload>true</skipUpload>
+              <skipUpload>false</skipUpload>
             </configuration>
           </plugin>
         </plugins>

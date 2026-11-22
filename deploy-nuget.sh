@@ -1,5 +1,5 @@
 dotnet pack csharpzarlib/ZarLib/ZarLib.csproj -c Release \
-  -p:PackageVersion=0.5.0 \
+  -p:PackageVersion=0.16.0 \
   -o artifacts
 
 dotnet nuget push artifacts/*.nupkg \
