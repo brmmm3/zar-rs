@@ -1168,10 +1168,11 @@ fn extract_external_archive(
         .map_err(extraction_worker_error)?;
     #[cfg(not(target_os = "wasi"))]
     {
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(compression_worker_count(CREATE_BLOCK_SIZE))
-            .thread_name(|index| format!("zarc-extract-{index}"))
-            .build()?;
+        let pool = super::worker_priority::worker_pool(
+            compression_worker_count(CREATE_BLOCK_SIZE),
+            "zarc-extract",
+            super::worker_priority::worker_priority(),
+        )?;
         pool.install(|| {
             regular_files
                 .par_iter()
@@ -1696,10 +1697,11 @@ fn extract_archive_impl(
     #[cfg(not(target_os = "wasi"))]
     {
         let workers = compression_worker_count(CREATE_BLOCK_SIZE);
-        let parallel_files = rayon::ThreadPoolBuilder::new()
-            .num_threads(workers)
-            .thread_name(|index| format!("zarc-extract-{index}"))
-            .build()?;
+        let parallel_files = super::worker_priority::worker_pool(
+            workers,
+            "zarc-extract",
+            super::worker_priority::worker_priority(),
+        )?;
         parallel_files
             .install(|| {
                 groups.into_par_iter().try_for_each_init(
@@ -2028,6 +2030,7 @@ fn validate_extraction_block_batch(
     algorithm: Option<ContentAead>,
     dek: Option<&Zeroizing<[u8; DEK_SIZE]>>,
     limits: CommitValidationLimits,
+    #[cfg(not(target_os = "wasi"))] pool: Option<&rayon::ThreadPool>,
 ) -> Result<HashMap<u32, ExtractedBlock>, Box<dyn std::error::Error>> {
     #[cfg(target_os = "wasi")]
     let validated = batch.into_iter().map(|(offset, metadata, bytes)| {
@@ -2042,17 +2045,29 @@ fn validate_extraction_block_batch(
         )
     });
     #[cfg(not(target_os = "wasi"))]
-    let validated = batch.into_par_iter().map(|(offset, metadata, bytes)| {
-        validate_encoded_extraction_frame(
-            offset,
-            metadata,
-            bytes,
-            commit_header,
-            algorithm,
-            dek,
-            limits,
-        )
-    });
+    let validated = || {
+        batch
+            .into_par_iter()
+            .map(|(offset, metadata, bytes)| {
+                validate_encoded_extraction_frame(
+                    offset,
+                    metadata,
+                    bytes,
+                    commit_header,
+                    algorithm,
+                    dek,
+                    limits,
+                )
+            })
+            .collect::<Result<HashMap<_, _>, ExtractionFailure>>()
+    };
+    #[cfg(not(target_os = "wasi"))]
+    return match pool {
+        Some(pool) => pool.install(validated),
+        None => validated(),
+    }
+    .map_err(|error| Box::new(error) as Box<dyn std::error::Error>);
+    #[cfg(target_os = "wasi")]
     validated
         .collect::<Result<HashMap<_, _>, ExtractionFailure>>()
         .map_err(|error| Box::new(error) as Box<dyn std::error::Error>)
@@ -2375,6 +2390,17 @@ fn load_extraction_state_from_reader(
     let mut progressed_header_bytes = 0_u64;
     let mut total_blocks = 0_u64;
     let limits = CommitValidationLimits::default();
+    #[cfg(not(target_os = "wasi"))]
+    let priority_pool = match super::worker_priority::worker_priority() {
+        Some(priority) => Some(super::worker_priority::worker_pool(
+            compression_worker_count(CREATE_BLOCK_SIZE),
+            "zarc-validate",
+            Some(priority),
+        )?),
+        None => None,
+    };
+    #[cfg(target_os = "wasi")]
+    let _ = super::worker_priority::worker_priority();
 
     for ExtractionCommit {
         validated,
@@ -2506,6 +2532,8 @@ fn load_extraction_state_from_reader(
                             algorithm,
                             dek.as_ref(),
                             limits,
+                            #[cfg(not(target_os = "wasi"))]
+                            priority_pool.as_ref(),
                         )?);
                     }
                 }
@@ -2559,6 +2587,8 @@ fn load_extraction_state_from_reader(
                             algorithm,
                             dek.as_ref(),
                             limits,
+                            #[cfg(not(target_os = "wasi"))]
+                            priority_pool.as_ref(),
                         )?);
                     }
                 }
@@ -2574,6 +2604,8 @@ fn load_extraction_state_from_reader(
                 algorithm,
                 dek.as_ref(),
                 limits,
+                #[cfg(not(target_os = "wasi"))]
+                priority_pool.as_ref(),
             )?);
         }
         if let Some(progress) = progress {

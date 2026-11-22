@@ -20,6 +20,7 @@ pub mod remove_commits;
 mod stream;
 pub mod transform;
 pub mod undo;
+mod worker_priority;
 
 #[cfg(test)]
 mod coverage_tests;

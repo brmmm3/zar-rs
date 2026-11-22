@@ -21,6 +21,136 @@ const PASSWORD_C: &[u8] = b"password C";
 const PASSWORD_D: &[u8] = b"password D";
 const PASSWORD_E: &[u8] = b"password E";
 
+#[cfg(target_os = "linux")]
+#[test]
+fn cpu_priority_applies_to_archive_workers_only() {
+    use std::process::Command;
+    use std::sync::Mutex;
+    use zarlib::operations::Progress;
+
+    const ENV: &str = "ZARLIB_CPU_PRIORITY";
+    const CASE: &str = "ZARLIB_TEST_CPU_PRIORITY_CASE";
+    if let Some(case) = std::env::var_os(CASE) {
+        struct WorkerProgress {
+            caller: std::thread::ThreadId,
+            priorities: Mutex<Vec<i32>>,
+        }
+        impl WorkerProgress {
+            fn record(&self) {
+                if std::thread::current().id() != self.caller {
+                    self.priorities
+                        .lock()
+                        .unwrap()
+                        .push(unsafe { libc::getpriority(libc::PRIO_PROCESS, 0) });
+                }
+            }
+        }
+        impl Progress for WorkerProgress {
+            fn message(&self, _: &str) {
+                self.record();
+            }
+            fn advance(&self, _: u64) {
+                self.record();
+            }
+        }
+
+        let baseline = unsafe { libc::getpriority(libc::PRIO_PROCESS, 0) };
+        let expected = if case == "reduced" {
+            (baseline + 5).min(19)
+        } else {
+            baseline
+        };
+        let progress = WorkerProgress {
+            caller: std::thread::current().id(),
+            priorities: Mutex::new(Vec::new()),
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("input.bin");
+        std::fs::write(&input, vec![42; 256 * 1024]).unwrap();
+        let archive = dir.path().join("result.zar");
+        let name = archive.to_str().unwrap();
+        create_archive_with_password_progress_and_special_files(
+            name,
+            &[input],
+            false,
+            EncodingOptions::default(),
+            None,
+            Some(&progress),
+            CreateInputOptions::default(),
+        )
+        .unwrap();
+        let observed = std::mem::take(&mut *progress.priorities.lock().unwrap());
+        assert!(!observed.is_empty(), "no create worker callbacks");
+        assert!(
+            observed.iter().all(|&priority| priority == expected),
+            "{observed:?}"
+        );
+
+        extract_archive_with_passwords_progress_and_filters(
+            name,
+            &dir.path().join("output"),
+            ExtractionOptions {
+                dry_run: false,
+                to: None,
+                collision_policy: CollisionPolicy::Rename,
+                existing_policy: ExistingPolicy::Error,
+                restore_metadata: false,
+                restore_symlinks: false,
+                restore_devices: false,
+                strip_top_level: false,
+            },
+            &PasswordSet::default(),
+            Some(&progress),
+            &FilterSet::default(),
+        )
+        .unwrap();
+        let observed = progress.priorities.lock().unwrap();
+        assert!(!observed.is_empty(), "no extract worker callbacks");
+        assert!(
+            observed.iter().all(|&priority| priority == expected),
+            "{observed:?}"
+        );
+        assert_eq!(
+            unsafe { libc::getpriority(libc::PRIO_PROCESS, 0) },
+            baseline
+        );
+        return;
+    }
+
+    for (case, value, warning) in [
+        ("unset", None, false),
+        ("zero", Some("0"), false),
+        ("reduced", Some("5"), false),
+        ("invalid", Some("-1"), true),
+        ("invalid", Some("invalid"), true),
+    ] {
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command.args([
+            "--exact",
+            "cpu_priority_applies_to_archive_workers_only",
+            "--nocapture",
+        ]);
+        command
+            .env(CASE, case)
+            .env("ZARLIB_MAX_CPU_COUNT", "2")
+            .env_remove(ENV);
+        if let Some(value) = value {
+            command.env(ENV, value);
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{case}: stdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr).contains("invalid ZARLIB_CPU_PRIORITY"),
+            warning
+        );
+    }
+}
+
 #[test]
 fn max_cpu_count_environment_controls_workers() {
     use std::process::Command;

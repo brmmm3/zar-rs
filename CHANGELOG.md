@@ -7,6 +7,8 @@ until a version is released.
 
 ### Added
 
+- Added `ZARLIB_CPU_PRIORITY` to lower the scheduling priority of zarlib worker
+  threads on Linux, macOS, and Windows.
 - Added `ZARLIB_MAX_CPU_COUNT` to configure parallel compression and extraction
   workers, with negative values reserving cores.
 - Added a NixOS package expression for all five binaries and GUI desktop assets.

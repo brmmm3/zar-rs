@@ -392,6 +392,8 @@ pub fn available_compression_workers() -> usize {
 }
 
 pub fn compression_worker_count(block_size: usize) -> usize {
+    #[cfg(target_os = "wasi")]
+    let _ = super::worker_priority::worker_priority();
     select_compression_workers(
         block_size,
         available_memory_bytes(),

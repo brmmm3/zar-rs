@@ -478,6 +478,17 @@ available. Invalid or out-of-range values produce a warning and use the default.
 Memory limits can reduce the actual worker count further. This is a per-operation
 worker setting, not a process-wide limit on threads or CPU usage.
 
+`ZARLIB_CPU_PRIORITY` optionally reduces the priority of zarlib-owned
+compression, file-reading, and parallel extraction worker threads. Unset or
+`0` leaves priority unchanged. Positive values increase each worker's inherited
+Linux nice value by that amount, up to 19. Windows lowers the worker's thread
+priority by that many levels, down to `THREAD_PRIORITY_LOWEST`; on macOS any
+positive value places the worker in background scheduling mode. Other
+platforms, including WASI, do not support the setting. Invalid values,
+unsupported platforms, and failures to change priority produce warnings.
+The calling thread and unrelated application threads are not adjusted; work
+performed directly on the caller, including serial operations, is unaffected.
+
 For path-based create and add operations, `ZARLIB_SKIP_COMPRESS_EXTENSIONS`
 replaces the default list of extensions whose data is stored without
 compression when new blocks are written. Set it to a

@@ -44,5 +44,6 @@ scandir = "3.0"
 jwalk-meta = "1.2"
 windows-sys = { version = "0.61", features = [
     "Win32_Storage_FileSystem",
+    "Win32_System_Threading",
     "Win32_System_WindowsProgramming",
 ] }

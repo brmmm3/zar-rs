@@ -1196,6 +1196,7 @@ pub fn process_file_entries_parallel(
     let encryption = context.encryption.as_ref();
     let initial_expected_index = *context.next_block_index;
     let strict = context.policy.strict;
+    let priority = super::worker_priority::worker_priority();
 
     std::thread::scope(|scope| -> Result<(), Box<dyn std::error::Error>> {
         let small_workers = if num_workers > 1 {
@@ -1214,6 +1215,9 @@ pub fn process_file_entries_parallel(
             let b_rx = big_rx.clone();
             let w_tx = writer_tx.clone();
             worker_handles.push(scope.spawn(move || {
+                if let Some(priority) = priority {
+                    super::worker_priority::apply_worker_priority(priority);
+                }
                 worker_loop(
                     WorkerPreference::SmallTinyFirst,
                     &s_rx,
@@ -1230,6 +1234,9 @@ pub fn process_file_entries_parallel(
             let b_rx = big_rx.clone();
             let w_tx = writer_tx.clone();
             worker_handles.push(scope.spawn(move || {
+                if let Some(priority) = priority {
+                    super::worker_priority::apply_worker_priority(priority);
+                }
                 worker_loop(
                     WorkerPreference::BigFileFirst,
                     &s_rx,
@@ -1258,6 +1265,9 @@ pub fn process_file_entries_parallel(
             let save_metadata = context.save_metadata;
 
             reader_handles.push(scope.spawn(move || {
+                if let Some(priority) = priority {
+                    super::worker_priority::apply_worker_priority(priority);
+                }
                 loop {
                     if progress.is_cancelled() {
                         let _ = w_tx.send(Err("operation cancelled".to_owned()));
