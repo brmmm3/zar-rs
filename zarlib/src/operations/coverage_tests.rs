@@ -4099,7 +4099,7 @@ fn special_entries_can_be_renamed_and_removed_from_archive_history() {
     let renamed = ArchivePath::new("input/renamed").unwrap();
     rename_archive_entry(path, &original, &renamed).unwrap();
     let pipe = ArchivePath::new("input/pipe").unwrap();
-    remove_archive_entries_with_progress(path, &[pipe.clone()], None).unwrap();
+    remove_archive_entries_with_progress(path, std::slice::from_ref(&pipe), None).unwrap();
     let toc = list_archive(path, None, None).unwrap();
     assert_eq!(
         toc.get(&renamed),

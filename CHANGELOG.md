@@ -15,6 +15,10 @@ until a version is released.
 - Added interoperable single-entry TCP streaming server and client examples
   for the language bindings and the Node.js WASI adapter.
 
+### Changed
+
+- Updated the `scandir` dependency to 4.0 in zarlib and zcopy.
+
 ## 0.16.0 - 2026-11-21
 
 ### Fixed

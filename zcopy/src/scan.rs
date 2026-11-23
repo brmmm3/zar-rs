@@ -48,7 +48,7 @@ pub fn scan_tree(root: &Path, skip: &[&str]) -> Res<Tree> {
     let root_name = root
         .canonicalize()?
         .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
+        .map(|name| name.to_owned())
         .unwrap_or_default();
     let mut tree = Tree::new();
     for (index, result) in results.results.iter().enumerate() {
@@ -56,9 +56,16 @@ pub fn scan_tree(root: &Path, skip: &[&str]) -> Res<Tree> {
         if entry.is_symlink || !(entry.is_dir || entry.is_file) {
             continue;
         }
-        let path = entry.path.replace('\\', "/");
+        if index == 0 && entry.is_dir && entry.path.as_os_str() == root_name {
+            continue;
+        }
+        let path = entry
+            .path
+            .to_str()
+            .ok_or_else(|| format!("scanned path is not valid UTF-8: {:?}", entry.path))?
+            .replace('\\', "/");
         let relative = path.trim_matches('/');
-        if relative.is_empty() || (index == 0 && entry.is_dir && relative == root_name) {
+        if relative.is_empty() {
             continue;
         }
         if skip
@@ -204,5 +211,45 @@ mod tests {
         for path in ["", "/a", "../a", "a/../b", "a\\b", "a//b", "C:/x"] {
             assert!(!is_safe_relative(path), "{path}");
         }
+    }
+
+    #[test]
+    fn scans_relative_paths_and_skips_selected_subtrees() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("root");
+        std::fs::create_dir_all(root.join("root")).unwrap();
+        std::fs::create_dir_all(root.join("skip")).unwrap();
+        std::fs::write(root.join("root/file.txt"), b"content").unwrap();
+        std::fs::write(root.join("skip/ignored.txt"), b"ignored").unwrap();
+
+        let tree = scan_tree(&root, &["skip"]).unwrap();
+        assert_eq!(
+            tree.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["root", "root/file.txt"]
+        );
+        assert_eq!(tree["root/file.txt"].size, 7);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn handles_non_utf8_roots_and_rejects_non_utf8_entries() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary
+            .path()
+            .join(std::ffi::OsStr::from_bytes(b"root\xff"));
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("valid.txt"), b"content").unwrap();
+        assert!(scan_tree(&root, &[]).unwrap().contains_key("valid.txt"));
+
+        std::fs::write(root.join(std::ffi::OsStr::from_bytes(b"bad\xff")), b"x").unwrap();
+        assert!(
+            scan_tree(&root, &[])
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("UTF-8")
+        );
     }
 }

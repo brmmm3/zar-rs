@@ -209,9 +209,8 @@ pub fn scan_tree(
             if is_scanned_root_entry(ext, root_identity.as_ref()) {
                 continue;
             }
-            let normalized_path = ext.path.trim_matches(['/', '\\']);
-            let scanned_path = Path::new(normalized_path);
-            let relative_components = scanned_path
+            let relative_components = ext
+                .path
                 .components()
                 .filter_map(|component| match component {
                     std::path::Component::Normal(name) => {
@@ -2125,6 +2124,34 @@ mod tests {
             .find(|entry| entry.archive_path == "duplicates/duplicates/128x128/file.png")
             .unwrap();
         assert_eq!(entry.source_path, nested);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_tree_handles_non_utf8_roots_and_rejects_non_utf8_entries() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let temporary = tempfile::tempdir().unwrap();
+        let source = temporary
+            .path()
+            .join(std::ffi::OsStr::from_bytes(b"root\xff"));
+        std::fs::create_dir(&source).unwrap();
+        std::fs::write(source.join("valid.txt"), b"content").unwrap();
+        let entries = scan_tree(&source, "input").unwrap();
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.archive_path == "input/valid.txt")
+        );
+
+        std::fs::write(source.join(std::ffi::OsStr::from_bytes(b"bad\xff")), b"x").unwrap();
+        assert!(
+            scan_tree(&source, "input")
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("UTF-8")
+        );
     }
 
     #[test]
