@@ -2,6 +2,9 @@
 use std::io;
 
 pub(super) fn worker_priority() -> Option<u32> {
+    if let Some(value) = super::common::worker_overrides().cpu_priority {
+        return supported_priority(value);
+    }
     let value = match std::env::var("ZARLIB_CPU_PRIORITY") {
         Ok(value) => value,
         Err(std::env::VarError::NotPresent) => return None,
@@ -11,21 +14,24 @@ pub(super) fn worker_priority() -> Option<u32> {
         }
     };
     match value.parse::<u32>() {
-        Ok(0) => None,
-        Ok(value) => {
-            if cfg!(any(target_os = "linux", target_os = "macos", windows)) {
-                Some(value)
-            } else {
-                eprintln!("warning: ZARLIB_CPU_PRIORITY is not supported on this platform");
-                None
-            }
-        }
+        Ok(value) => supported_priority(value),
         Err(_) => {
             eprintln!(
                 "warning: invalid ZARLIB_CPU_PRIORITY {value:?}; expected a nonnegative integer"
             );
             None
         }
+    }
+}
+
+fn supported_priority(value: u32) -> Option<u32> {
+    if value == 0 {
+        None
+    } else if cfg!(any(target_os = "linux", target_os = "macos", windows)) {
+        Some(value)
+    } else {
+        eprintln!("warning: ZARLIB_CPU_PRIORITY is not supported on this platform");
+        None
     }
 }
 

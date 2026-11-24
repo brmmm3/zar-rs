@@ -52,7 +52,13 @@ impl ZargApp {
                         });
                         ui.add_space(ui.available_height().max(0.0));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if icon_button(ui, icons, UiIcon::Close, "Close", true).clicked() {
+                            let close = icon_button(ui, icons, UiIcon::Close, "Close", true);
+                            if !ui
+                                .memory(|memory| memory.areas().visible_last_frame(&ui.layer_id()))
+                            {
+                                close.request_focus();
+                            }
+                            if close_or_cancel(close, true) {
                                 close_about = true;
                             }
                         });

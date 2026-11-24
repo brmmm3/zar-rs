@@ -867,6 +867,12 @@ mod tests {
                 ]
             }])
         );
+        let mut fancy = request.clone();
+        fancy["pattern"] = serde_json::json!("(?<=mat)ch");
+        let result: serde_json::Value =
+            serde_json::from_str(&execute_json("grep_archive", &fancy.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(result[0]["lines"][1]["is_match"], true);
         let mut bad = request;
         bad["before"] = serde_json::json!(-1);
         assert!(

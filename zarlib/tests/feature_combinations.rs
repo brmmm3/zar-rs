@@ -26,7 +26,10 @@ const PASSWORD_E: &[u8] = b"password E";
 fn cpu_priority_applies_to_archive_workers_only() {
     use std::process::Command;
     use std::sync::Mutex;
-    use zarlib::operations::Progress;
+    use zarlib::operations::{
+        Progress, WorkerOverrides, add_archive_with_encoding_progress,
+        available_compression_workers, set_worker_overrides,
+    };
 
     const ENV: &str = "ZARLIB_CPU_PRIORITY";
     const CASE: &str = "ZARLIB_TEST_CPU_PRIORITY_CASE";
@@ -55,7 +58,14 @@ fn cpu_priority_applies_to_archive_workers_only() {
         }
 
         let baseline = unsafe { libc::getpriority(libc::PRIO_PROCESS, 0) };
-        let expected = if case == "reduced" {
+        if case == "override" || case == "override_zero" {
+            set_worker_overrides(WorkerOverrides {
+                cpu_priority: Some(if case == "override" { 5 } else { 0 }),
+                max_cpu_count: Some(2),
+            });
+            assert_eq!(available_compression_workers(), 2);
+        }
+        let expected = if case == "reduced" || case == "override" {
             (baseline + 5).min(19)
         } else {
             baseline
@@ -81,6 +91,23 @@ fn cpu_priority_applies_to_archive_workers_only() {
         .unwrap();
         let observed = std::mem::take(&mut *progress.priorities.lock().unwrap());
         assert!(!observed.is_empty(), "no create worker callbacks");
+        assert!(
+            observed.iter().all(|&priority| priority == expected),
+            "{observed:?}"
+        );
+
+        let additional = dir.path().join("additional.bin");
+        std::fs::write(&additional, vec![43; 256 * 1024]).unwrap();
+        add_archive_with_encoding_progress(
+            name,
+            &[additional],
+            EncodingOptions::default(),
+            Some(&progress),
+            false,
+        )
+        .unwrap();
+        let observed = std::mem::take(&mut *progress.priorities.lock().unwrap());
+        assert!(!observed.is_empty(), "no add worker callbacks");
         assert!(
             observed.iter().all(|&priority| priority == expected),
             "{observed:?}"
@@ -114,6 +141,24 @@ fn cpu_priority_applies_to_archive_workers_only() {
             unsafe { libc::getpriority(libc::PRIO_PROCESS, 0) },
             baseline
         );
+        if case == "override" || case == "override_zero" {
+            set_worker_overrides(WorkerOverrides::default());
+            assert_eq!(available_compression_workers(), 1);
+            let available = std::thread::available_parallelism().map_or(1, usize::from);
+            for (count, expected) in [
+                (0, available),
+                (-1, available.saturating_sub(1).max(1)),
+                (isize::MIN, 1),
+                (1, 1),
+            ] {
+                set_worker_overrides(WorkerOverrides {
+                    cpu_priority: None,
+                    max_cpu_count: Some(count),
+                });
+                assert_eq!(available_compression_workers(), expected);
+            }
+            set_worker_overrides(WorkerOverrides::default());
+        }
         return;
     }
 
@@ -121,6 +166,8 @@ fn cpu_priority_applies_to_archive_workers_only() {
         ("unset", None, false),
         ("zero", Some("0"), false),
         ("reduced", Some("5"), false),
+        ("override", Some("0"), false),
+        ("override_zero", Some("5"), false),
         ("invalid", Some("-1"), true),
         ("invalid", Some("invalid"), true),
     ] {
@@ -132,7 +179,14 @@ fn cpu_priority_applies_to_archive_workers_only() {
         ]);
         command
             .env(CASE, case)
-            .env("ZARLIB_MAX_CPU_COUNT", "2")
+            .env(
+                "ZARLIB_MAX_CPU_COUNT",
+                if case == "override" || case == "override_zero" {
+                    "1"
+                } else {
+                    "2"
+                },
+            )
             .env_remove(ENV);
         if let Some(value) = value {
             command.env(ENV, value);

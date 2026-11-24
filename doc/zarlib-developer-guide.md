@@ -72,8 +72,8 @@ If the archive changes or is replaced, subsequent reads fail. The
 
 `grep_archive` searches regular files in parallel on native targets (sequentially
 on WASI). Its file filter is a case-sensitive archive-relative glob using the
-same rules as `FilterSet`, and its pattern is a `regex` byte regex matched
-against each line. For example:
+same rules as `FilterSet`, and its pattern is a `fancy_regex` byte regex matched
+against each line, with support for lookaround and backreferences. For example:
 
 ```rust,no_run
 use zarlib::operations::{grep_archive, GrepOptions};
@@ -94,10 +94,15 @@ for file in files {
 Results contain only files with matches, ordered by archive path and line
 number, with overlapping context returned once and each line marked as a
 match or context. Line bytes exclude LF or CRLF terminators; non-UTF-8 bytes
-are preserved. Regex Unicode mode is enabled by default; use `(?-u:...)` for
-arbitrary bytes. `GrepOptions` also supports a commit limit and per-commit
+are preserved. Matching is Unicode-aware even on non-UTF-8 input; invalid
+bytes cannot be matched individually. Unlike the previous regex engine,
+`fancy_regex` does not support inline Unicode mode changes such as `(?-u:...)`.
+`GrepOptions` also supports a commit limit and per-commit
 passwords. The archive must remain unchanged while searching. Selected files
-are fully validated, even when they have no matches. Memory use includes
+are fully validated, even when they have no matches. Regex matching errors,
+including exceeded backtracking limits, fail the search. No temporary files
+are created: file contents are searched in memory as blocks are decoded, and
+lines spanning blocks are reassembled before matching. Memory use includes
 returned lines, before-context, the longest line and decoded blocks.
 
 ## Streaming regular files
@@ -520,6 +525,12 @@ platforms, including WASI, do not support the setting. Invalid values,
 unsupported platforms, and failures to change priority produce warnings.
 The calling thread and unrelated application threads are not adjusted; work
 performed directly on the caller, including serial operations, is unaffected.
+
+Applications can set `WorkerOverrides` with `set_worker_overrides` to override
+either environment setting safely at runtime. `None` uses the corresponding
+environment variable; `Some(0)` explicitly selects its zero behavior. New
+worker pools use the updated values, while existing pools are unchanged. The
+overrides are process-wide and do not modify environment variables.
 
 For path-based create and add operations, `ZARLIB_SKIP_COMPRESS_EXTENSIONS`
 replaces the default list of extensions whose data is stored without

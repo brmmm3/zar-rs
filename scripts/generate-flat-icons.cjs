@@ -63,6 +63,7 @@ const glyphs = {
   'document-properties': doc + badge(stroke('<path d="M18 17.4v2.3M18 15.7h0"/>', white, 1.5)),
   'document-save': `<path d="M4 3h14l3 3v15H3V3z" fill="${blue}"/><path d="M7 3h9v6H7zM7 14h10v7H7z" fill="${pale}"/><path d="M13 4h2v4h-2z" fill="${ink}"/>`,
   'edit-clear': `<path d="m5 15 8-9 6 5-8 9H8z" fill="${purple}"/>${strokes('m5 15 6 5h9', ink)}`,
+  'edit-find': `<path d="M4.6 9 6 4.5h3L10.4 9m3.2 0L15 4.5h3L19.4 9" fill="#64748b"/><path d="M3.3 10h6.9l1.1 6H2.2zm10.5 0h6.9l1.1 6h-9.1z" fill="${ink}"/><path d="M10 10h4v3h-4z" fill="#64748b"/><circle cx="6.7" cy="16.5" r="4.2" fill="${ink}"/><circle cx="17.3" cy="16.5" r="4.2" fill="${ink}"/><circle cx="6.7" cy="16.5" r="2.7" fill="${blue}"/><circle cx="17.3" cy="16.5" r="2.7" fill="${blue}"/><circle cx="5.8" cy="15.6" r=".7" fill="${white}"/><circle cx="16.4" cy="15.6" r=".7" fill="${white}"/>`,
   'edit-select-all': `${strokes('M4 7V4h3M17 4h3v3M20 17v3h-3M7 20H4v-3', blue, 2)}${strokes('m8 12 3 3 5-6', ink, 2)}`,
   error: circle(red, strokes('M12 6v7M12 17h0', white, 2.2)),
   'folder-new': folder + badge(plus, green),

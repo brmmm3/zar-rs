@@ -16,6 +16,7 @@ mod dialogs;
 use crate::settings::ExtractionChecksum;
 use dialogs::OperationKind;
 use dialogs::benchmark::BenchmarkState;
+use dialogs::find::FindState;
 
 fn native_drop_position(frame: &eframe::Frame, context: &egui::Context) -> Option<egui::Pos2> {
     #[cfg(any(windows, target_os = "linux"))]
@@ -313,6 +314,7 @@ pub(crate) enum UiIcon {
     SaveArchive,
     NewArchive,
     Quit,
+    Find,
     SelectAll,
     ClearSelection,
     Refresh,
@@ -400,6 +402,7 @@ pub(crate) fn icon_bytes(icon: UiIcon, theme: crate::settings::IconTheme) -> &'s
         UiIcon::OpenArchive => themed_icon!("actions/document-open.png"),
         UiIcon::SaveArchive => themed_icon!("actions/document-save.png"),
         UiIcon::Quit => themed_icon!("actions/application-exit.png"),
+        UiIcon::Find => themed_icon!("actions/edit-find.png"),
         UiIcon::SelectAll => themed_icon!("actions/edit-select-all.png"),
         UiIcon::ClearSelection | UiIcon::ClearInputs => {
             themed_icon!("actions/edit-clear.png")
@@ -505,6 +508,48 @@ fn icon_button(
             label,
         ),
     )
+}
+
+fn icon_shortcut_button(
+    ui: &mut egui::Ui,
+    cache: &IconCache,
+    icon: UiIcon,
+    label: &str,
+    shortcut: &str,
+    enabled: bool,
+) -> egui::Response {
+    let texture = icon_texture(ui.ctx(), cache, icon);
+    ui.add_enabled(
+        enabled,
+        egui::Button::image_and_text(
+            egui::Image::new(&texture).fit_to_exact_size(egui::vec2(16.0, 16.0)),
+            label,
+        )
+        .shortcut_text(shortcut),
+    )
+}
+
+fn consume_alt_key(context: &egui::Context, key: egui::Key) -> bool {
+    context.input_mut(|input| {
+        input.events.iter().any(|event| {
+            matches!(
+                event,
+                egui::Event::Key {
+                    key: pressed_key,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::ALT,
+                    ..
+                } if *pressed_key == key
+            )
+        }) && input.consume_key(egui::Modifiers::ALT, key)
+    })
+}
+
+fn close_or_cancel(response: egui::Response, shortcut_enabled: bool) -> bool {
+    let response = response.on_hover_text("Alt+C");
+    response.clicked()
+        || (shortcut_enabled && response.enabled() && consume_alt_key(&response.ctx, egui::Key::C))
 }
 
 fn icon_menu_button<R>(
@@ -1427,6 +1472,7 @@ pub struct ZargApp {
     info_passwords: BTreeMap<[u8; 4], String>,
     info_unlock_prompt: Option<ArchiveInfoUnlockPrompt>,
     benchmark: BenchmarkState,
+    find: FindState,
     pending_recent_archive: Option<String>,
     window_geometry: Option<crate::settings::WindowGeometry>,
     geometry_monitor_count: usize,
@@ -1454,6 +1500,7 @@ pub struct ZargApp {
     default_encryption_method: crate::settings::DefaultEncryptionMethod,
     validate_blocks_before_extraction: bool,
     validate_blocks_on_extraction: ExtractionChecksum,
+    performance: crate::settings::PerformanceSettings,
     archive_defaults: crate::settings::ArchiveDefaults,
     default_password: String,
     default_password_input: String,
@@ -1555,6 +1602,7 @@ impl Default for ZargApp {
             info_passwords: BTreeMap::new(),
             info_unlock_prompt: None,
             benchmark: BenchmarkState::default(),
+            find: FindState::default(),
             pending_recent_archive: None,
             window_geometry: None,
             geometry_monitor_count: 0,
@@ -1582,6 +1630,7 @@ impl Default for ZargApp {
             default_encryption_method: crate::settings::DefaultEncryptionMethod::Aes256Gcm,
             validate_blocks_before_extraction: false,
             validate_blocks_on_extraction: ExtractionChecksum::Auto,
+            performance: crate::settings::PerformanceSettings::default(),
             archive_defaults: crate::settings::ArchiveDefaults::default(),
             default_password: String::new(),
             default_password_input: String::new(),
@@ -2069,6 +2118,7 @@ impl ZargApp {
     }
 
     fn discard_current_archive(&mut self) {
+        self.find.clear_results();
         self.archive_lock = None;
         self.background_extraction = None;
         self.unlock_commits_dialog = None;
@@ -2360,6 +2410,85 @@ impl ZargApp {
         });
     }
 
+    fn handle_global_shortcuts(&mut self, context: &egui::Context) {
+        let save_as = context.input_mut(|input| {
+            let shift = input.events.iter().find_map(|event| match event {
+                egui::Event::Key {
+                    key: egui::Key::S,
+                    pressed: true,
+                    repeat: false,
+                    modifiers,
+                    ..
+                } if modifiers.ctrl && !modifiers.alt && !modifiers.mac_cmd => {
+                    Some(modifiers.shift)
+                }
+                _ => None,
+            });
+            if let Some(shift) = shift {
+                let modifiers = if shift {
+                    egui::Modifiers::CTRL | egui::Modifiers::SHIFT
+                } else {
+                    egui::Modifiers::CTRL
+                };
+                input.consume_key(modifiers, egui::Key::S);
+            }
+            shift
+        });
+        if let Some(save_as) = save_as {
+            if save_as {
+                self.save_archive_as();
+            } else {
+                self.save_archive();
+            }
+        }
+
+        let key = context.input_mut(|input| {
+            let key = input.events.iter().find_map(|event| match event {
+                egui::Event::Key {
+                    key,
+                    pressed: true,
+                    repeat,
+                    modifiers: egui::Modifiers::ALT,
+                    ..
+                } if (!repeat || *key == egui::Key::S)
+                    && matches!(
+                        key,
+                        egui::Key::S
+                            | egui::Key::N
+                            | egui::Key::O
+                            | egui::Key::A
+                            | egui::Key::E
+                            | egui::Key::I
+                            | egui::Key::J
+                    ) =>
+                {
+                    Some(*key)
+                }
+                _ => None,
+            });
+            if let Some(key) = key {
+                input.consume_key(egui::Modifiers::ALT, key);
+            }
+            key
+        });
+        match key {
+            Some(egui::Key::S) => self.show_settings = true,
+            Some(egui::Key::N) if !self.busy => self.show_operation(OperationKind::NewArchive),
+            Some(egui::Key::O) if !self.busy => self.open_dialog(),
+            Some(egui::Key::A) if self.can_add_to_archive() => {
+                self.show_operation(OperationKind::AddToArchive);
+            }
+            Some(egui::Key::E) if self.can_extract_archive() => {
+                self.show_operation(OperationKind::ExtractArchive);
+            }
+            Some(egui::Key::I) if self.can_show_archive_info() => self.show_archive_info(),
+            Some(egui::Key::J) if self.can_join_commits() => {
+                self.show_operation(OperationKind::JoinCommits);
+            }
+            _ => {}
+        }
+    }
+
     fn handle_archive_shortcuts(&mut self, context: &egui::Context) {
         if !self.busy
             && self.operation.kind.is_none()
@@ -2374,6 +2503,14 @@ impl ZargApp {
         {
             if context.input(|input| input.key_pressed(egui::Key::Delete)) {
                 self.remove_selected_entries();
+            } else if context.input(|input| {
+                input.modifiers == egui::Modifiers::NONE && input.key_pressed(egui::Key::Enter)
+            }) {
+                self.pending_open = self
+                    .archive_visible_paths()
+                    .into_iter()
+                    .find(|path| self.selected.contains(path))
+                    .or_else(|| self.selected.iter().next().cloned());
             } else {
                 self.handle_archive_selection_keys(context);
             }
@@ -2404,6 +2541,17 @@ impl ZargApp {
                 .map(|index| self.entries[*index].0.clone())
                 .collect()
         }
+    }
+
+    fn select_all_visible_entries(&mut self, visible: Vec<String>) {
+        self.selected = visible.into_iter().collect();
+        self.selection_range_base = None;
+    }
+
+    fn invert_visible_selection(&mut self, visible: &[String]) {
+        self.selected = invert_selection(&self.selected, visible);
+        self.selection_anchor = None;
+        self.selection_range_base = None;
     }
 
     fn handle_archive_list_pointer(
@@ -2518,6 +2666,7 @@ impl ZargApp {
         let (key, modifiers) = context.input(|input| {
             let key = [
                 egui::Key::A,
+                egui::Key::I,
                 egui::Key::ArrowUp,
                 egui::Key::ArrowDown,
                 egui::Key::ArrowLeft,
@@ -2539,8 +2688,11 @@ impl ZargApp {
         }
         let command = modifiers.command || modifiers.ctrl;
         if key == egui::Key::A && command {
-            self.selected = visible.into_iter().collect();
-            self.selection_range_base = None;
+            self.select_all_visible_entries(visible);
+            return;
+        }
+        if key == egui::Key::I && command {
+            self.invert_visible_selection(&visible);
             return;
         }
         let current = self
@@ -4249,6 +4401,7 @@ impl ZargApp {
                     self.archive_passwords = passwords;
                 }
                 UiEvent::OpeningArchive { archive, passwords } => {
+                    self.find.clear_results();
                     self.archive_lock = None;
                     self.background_extraction = None;
                     self.open_password_dialog = None;
@@ -4348,6 +4501,7 @@ impl ZargApp {
                     self.has_unsaved_changes = dirty;
                 }
                 UiEvent::ArchiveModified => {
+                    self.find.clear_results();
                     self.background_extraction = None;
                     self.clear_archive_info();
                     self.has_unsaved_changes = true;
@@ -4405,6 +4559,7 @@ impl ZargApp {
                 }
                 UiEvent::Loaded(result) => match result {
                     Ok((toc, details)) => {
+                        self.find.clear_results();
                         self.opening_archive = false;
                         if let Some(archive) = self.pending_recent_archive.take() {
                             remember_recent_archive(&mut self.recent_archives, &archive);
@@ -4838,6 +4993,21 @@ impl ZargApp {
         !self.busy && !self.read_archive.is_empty() && self.imported_archive_dir.is_none()
     }
 
+    fn can_extract_archive(&self) -> bool {
+        !self.busy && !self.archive.is_empty()
+    }
+
+    fn can_show_archive_info(&self) -> bool {
+        self.can_extract_archive() && self.imported_archive_dir.is_none()
+    }
+
+    fn can_join_commits(&self) -> bool {
+        !self.busy
+            && self.has_current_archive()
+            && self.commit_ids.len() > 1
+            && self.imported_archive_dir.is_none()
+    }
+
     fn can_remove_selected_entries(&self) -> bool {
         !self.busy
             && !self.archive.is_empty()
@@ -4875,6 +5045,10 @@ impl ZargApp {
         !self.read_archive.is_empty()
     }
 
+    fn can_find(&self) -> bool {
+        !self.busy && self.has_current_archive() && !self.entries.is_empty()
+    }
+
     fn render_menus(&mut self, ui: &mut egui::Ui) {
         let is_imported_archive = self.imported_archive_dir.is_some();
         egui::MenuBar::new().ui(ui, |ui| {
@@ -4883,11 +5057,12 @@ impl ZargApp {
                 icon_texture(ui.ctx(), &self.icons, UiIcon::OpenArchive),
                 "File",
                 |ui| {
-                    if icon_button(
+                    if icon_shortcut_button(
                         ui,
                         &self.icons,
                         UiIcon::NewArchive,
                         "New archive",
+                        "Alt+N",
                         !self.busy,
                     )
                     .clicked()
@@ -4895,11 +5070,12 @@ impl ZargApp {
                         self.show_operation(OperationKind::NewArchive);
                         ui.close();
                     }
-                    if icon_button(
+                    if icon_shortcut_button(
                         ui,
                         &self.icons,
                         UiIcon::OpenArchive,
                         "Open archive",
+                        "Alt+O",
                         !self.busy,
                     )
                     .clicked()
@@ -4907,11 +5083,12 @@ impl ZargApp {
                         self.open_dialog();
                         ui.close();
                     }
-                    if icon_button(
+                    if icon_shortcut_button(
                         ui,
                         &self.icons,
                         UiIcon::Add,
                         "Add to archive",
+                        "Alt+A",
                         self.can_add_to_archive(),
                     )
                     .clicked()
@@ -4919,11 +5096,12 @@ impl ZargApp {
                         self.show_operation(OperationKind::AddToArchive);
                         ui.close();
                     }
-                    if icon_button(
+                    if icon_shortcut_button(
                         ui,
                         &self.icons,
                         UiIcon::SaveArchive,
                         "Save archive",
+                        "Ctrl+S",
                         self.has_unsaved_changes && self.can_save_archive_as(),
                     )
                     .clicked()
@@ -4931,11 +5109,12 @@ impl ZargApp {
                         self.save_archive();
                         ui.close();
                     }
-                    if icon_button(
+                    if icon_shortcut_button(
                         ui,
                         &self.icons,
                         UiIcon::SaveArchive,
                         "Save as...",
+                        "Ctrl+Shift+S",
                         self.can_save_archive_as(),
                     )
                     .clicked()
@@ -4979,6 +5158,12 @@ impl ZargApp {
                         self.show_operation(OperationKind::UndoCommits);
                         ui.close();
                     }
+                    if icon_button(ui, &self.icons, UiIcon::Find, "Find...", self.can_find())
+                        .clicked()
+                    {
+                        self.find.open = true;
+                        ui.close();
+                    }
                     ui.separator();
                     if icon_button(
                         ui,
@@ -4989,8 +5174,8 @@ impl ZargApp {
                     )
                     .clicked()
                     {
-                        self.selected = self.archive_visible_paths().into_iter().collect();
-                        self.selection_range_base = None;
+                        let visible = self.archive_visible_paths();
+                        self.select_all_visible_entries(visible);
                         ui.close();
                     }
                     if icon_button(
@@ -5003,9 +5188,7 @@ impl ZargApp {
                     .clicked()
                     {
                         let visible = self.archive_visible_paths();
-                        self.selected = invert_selection(&self.selected, &visible);
-                        self.selection_anchor = None;
-                        self.selection_range_base = None;
+                        self.invert_visible_selection(&visible);
                         ui.close();
                     }
                     if icon_button(
@@ -5112,15 +5295,13 @@ impl ZargApp {
                         self.show_operation(OperationKind::ChangeCommits);
                         ui.close();
                     }
-                    if icon_button(
+                    if icon_shortcut_button(
                         ui,
                         &self.icons,
                         UiIcon::Join,
                         "Join commits",
-                        !self.busy
-                            && self.has_current_archive()
-                            && self.commit_ids.len() > 1
-                            && !is_imported_archive,
+                        "Alt+J",
+                        self.can_join_commits(),
                     )
                     .clicked()
                     {
@@ -5186,8 +5367,15 @@ impl ZargApp {
                         ui.close();
                     }
                     ui.separator();
-                    if icon_button(ui, &self.icons, UiIcon::Configure, "Settings...", true)
-                        .clicked()
+                    if icon_shortcut_button(
+                        ui,
+                        &self.icons,
+                        UiIcon::Configure,
+                        "Settings...",
+                        "Alt+S",
+                        true,
+                    )
+                    .clicked()
                     {
                         self.show_settings = true;
                         ui.close();
@@ -5650,6 +5838,19 @@ impl ZargApp {
     }
 
     fn render_toolbar(&mut self, ui: &mut egui::Ui) {
+        let focus_filter = ui.input_mut(|input| {
+            input.events.iter().any(|event| {
+                matches!(
+                    event,
+                    egui::Event::Key {
+                        key: egui::Key::F,
+                        pressed: true,
+                        modifiers,
+                        ..
+                    } if modifiers.ctrl && !modifiers.alt && !modifiers.shift && !modifiers.mac_cmd
+                )
+            }) && input.consume_key(egui::Modifiers::CTRL, egui::Key::F)
+        });
         ui.horizontal(|ui| {
             if icon_button(ui, &self.icons, UiIcon::NewArchive, "New", !self.busy).clicked() {
                 self.show_operation(OperationKind::NewArchive);
@@ -5661,9 +5862,17 @@ impl ZargApp {
                 let enabled = if kind == OperationKind::AddToArchive {
                     self.can_add_to_archive()
                 } else {
-                    !self.busy && !self.archive.is_empty()
+                    self.can_extract_archive()
                 };
-                if icon_button(ui, &self.icons, icon, label, enabled).clicked() {
+                let shortcut = if kind == OperationKind::AddToArchive {
+                    "Alt+A"
+                } else {
+                    "Alt+E"
+                };
+                if icon_button(ui, &self.icons, icon, label, enabled)
+                    .on_hover_text(shortcut)
+                    .clicked()
+                {
                     self.show_operation(kind);
                 }
             }
@@ -5683,8 +5892,9 @@ impl ZargApp {
                 &self.icons,
                 UiIcon::Info,
                 "Info",
-                !self.busy && !self.archive.is_empty() && self.imported_archive_dir.is_none(),
+                self.can_show_archive_info(),
             )
+            .on_hover_text("Alt+I")
             .clicked()
             {
                 self.show_archive_info();
@@ -5708,10 +5918,15 @@ impl ZargApp {
                     .filter_invalid
                     .then_some(egui::Color32::from_rgb(230, 80, 80));
                 let edit = egui::TextEdit::singleline(&mut self.filter_text)
+                    .id(egui::Id::unique("archive-filter"))
                     .hint_text("Filter: *.txt or text")
                     .desired_width(ui.available_width().min(260.0))
                     .text_color_opt(text_color);
-                changed |= ui.add(edit).changed();
+                let response = ui.add(edit).on_hover_text("Focus filter (Ctrl+F)");
+                if focus_filter {
+                    response.request_focus();
+                }
+                changed |= response.changed();
                 if changed {
                     self.rebuild_visible_entry_indices();
                     self.structured_rows_dirty = true;
@@ -5757,6 +5972,9 @@ impl ZargApp {
         if viewport_exists {
             return builder;
         }
+        if !context.embed_viewports() {
+            context.send_viewport_cmd_to(viewport_id, egui::ViewportCommand::Focus);
+        }
         let parent_rect = context
             .input(|input| input.viewport().outer_rect)
             .unwrap_or_else(|| context.content_rect());
@@ -5792,7 +6010,10 @@ impl ZargApp {
             Self::snap_to_device_pixel(position.y, pixels_per_point),
         );
 
-        let mut builder = builder.with_inner_size(inner_size).with_position(position);
+        let mut builder = builder
+            .with_active(true)
+            .with_inner_size(inner_size)
+            .with_position(position);
         if let Some(max_inner_size) = max_inner_size {
             builder = builder.with_max_inner_size(max_inner_size);
         }
@@ -6593,6 +6814,7 @@ impl ZargApp {
         self.default_encryption_method = settings.default_encryption_method;
         self.validate_blocks_before_extraction = settings.validate_blocks_before_extraction;
         self.validate_blocks_on_extraction = settings.validate_blocks_on_extraction;
+        self.performance = settings.performance.clamped();
         self.archive_defaults.clone_from(&settings.archive_defaults);
     }
 
@@ -6666,6 +6888,7 @@ impl ZargApp {
             default_encryption_method: self.default_encryption_method,
             validate_blocks_before_extraction: self.validate_blocks_before_extraction,
             validate_blocks_on_extraction: self.validate_blocks_on_extraction,
+            performance: self.performance,
             archive_defaults: self.archive_defaults.clone(),
             recent_archives: self.recent_archives.clone(),
             bookmarks: self.file_dialog.bookmarks().to_vec(),
@@ -6747,6 +6970,7 @@ impl eframe::App for ZargApp {
         let context = ui.ctx().clone();
         let window_rect = ui.max_rect();
         self.drop_target = None;
+        self.handle_global_shortcuts(&context);
         self.handle_archive_shortcuts(&context);
         #[cfg(target_os = "linux")]
         {
@@ -7272,7 +7496,7 @@ impl eframe::App for ZargApp {
                     cancel = ui.input(|input| input.key_pressed(egui::Key::Escape));
                     ui.horizontal(|ui| {
                         accept |= ui.button("Rename").clicked();
-                        cancel |= ui.button("Cancel").clicked();
+                        cancel |= close_or_cancel(ui.button("Cancel"), true);
                     });
                 });
             if accept {
@@ -7295,6 +7519,8 @@ impl eframe::App for ZargApp {
         self.render_unlock_commits_dialog(&context);
         self.poll_benchmark(&context);
         self.render_benchmark(&context);
+        self.poll_find(&context);
+        self.render_find(&context);
         self.render_confirmation_dialog(&context);
         self.render_unsaved_archive_dialog(&context);
         self.render_about_dialog(&context);

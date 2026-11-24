@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use super::super::{IconCache, UiIcon, file_icon, icon_button, icon_texture};
+use super::super::{IconCache, UiIcon, close_or_cancel, file_icon, icon_button, icon_texture};
 
 mod render;
 
@@ -754,7 +754,10 @@ impl FileDialog {
                 confirmed = true;
                 self.open = false;
             }
-            if icon_button(ui, icon_cache, UiIcon::Cancel, "Cancel", true).clicked() {
+            if close_or_cancel(
+                icon_button(ui, icon_cache, UiIcon::Cancel, "Cancel", true),
+                true,
+            ) {
                 self.open = false;
             }
         });

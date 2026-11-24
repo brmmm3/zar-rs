@@ -130,7 +130,7 @@ impl ZargApp {
                     .frame(egui::Frame::new().inner_margin(6))
                     .show(ui, |ui| {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            cancel |= icon_button(ui, &self.icons, UiIcon::Cancel, "Cancel", !dialog.busy).clicked();
+                            cancel |= close_or_cancel(icon_button(ui, &self.icons, UiIcon::Cancel, "Cancel", !dialog.busy), true);
                             submit |= icon_button(ui, &self.icons, UiIcon::Confirm, "Open", !dialog.busy).clicked();
                         });
                     });
@@ -275,14 +275,13 @@ impl ZargApp {
                     .frame(egui::Frame::new().inner_margin(6))
                     .show(ui, |ui| {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            cancel |= icon_button(
+                            cancel |= close_or_cancel(icon_button(
                                 ui,
                                 &self.icons,
                                 UiIcon::Cancel,
                                 "Cancel",
                                 !dialog.busy,
-                            )
-                            .clicked();
+                            ), true);
                             submit |= icon_button(
                                 ui,
                                 &self.icons,

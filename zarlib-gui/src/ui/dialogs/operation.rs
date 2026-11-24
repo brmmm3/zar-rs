@@ -1659,7 +1659,12 @@ impl ZargApp {
                 ),
                 _ => true,
             };
-            if icon_button(ui, &self.icons, UiIcon::Cancel, "Cancel", true).clicked() {
+            let shortcut_enabled =
+                !ui.ctx().embed_viewports() || (!self.file_dialog.open && self.report.is_none());
+            if close_or_cancel(
+                icon_button(ui, &self.icons, UiIcon::Cancel, "Cancel", true),
+                shortcut_enabled,
+            ) {
                 self.close_operation();
             }
             let response = icon_button(ui, &self.icons, icon, label, can_start);

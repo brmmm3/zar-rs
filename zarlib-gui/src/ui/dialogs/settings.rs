@@ -9,15 +9,17 @@ pub(in crate::ui) enum SettingsTab {
     #[default]
     Appearance,
     Compression,
+    Performance,
     Advanced,
     Encryption,
     Filters,
 }
 
 impl SettingsTab {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::Appearance,
         Self::Compression,
+        Self::Performance,
         Self::Advanced,
         Self::Encryption,
         Self::Filters,
@@ -27,6 +29,7 @@ impl SettingsTab {
         match self {
             Self::Appearance => "Appearance",
             Self::Compression => "Compression",
+            Self::Performance => "Performance",
             Self::Advanced => "Advanced",
             Self::Encryption => "Encryption",
             Self::Filters => "Filters",
@@ -58,7 +61,7 @@ impl ZargApp {
 
         let viewport_id = egui::ViewportId::from_hash_of("settings-dialog");
         let size_key = "settings";
-        let size = self.dialog_size(size_key, [420.0, 360.0]);
+        let size = self.dialog_size(size_key, [480.0, 360.0]);
         let mut actual_size = None;
         let mut open = true;
         let mut selected_theme = self.theme_mode;
@@ -67,6 +70,7 @@ impl ZargApp {
         let mut selected_block_size = self.default_block_size.clone();
         let mut selected_compression_level = self.default_compression_level;
         let mut selected_encryption_method = self.default_encryption_method;
+        let mut performance = self.performance;
         let mut archive_defaults = self.archive_defaults.clone();
         let mut scale_changed = false;
         context.show_viewport_immediate(
@@ -86,7 +90,7 @@ impl ZargApp {
                     .show(ui, |ui| {
                         ui.separator();
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if icon_button(ui, &self.icons, UiIcon::Close, "Close", true).clicked() {
+                            if close_or_cancel(icon_button(ui, &self.icons, UiIcon::Close, "Close", true), true) {
                                 open = false;
                             }
                         });
@@ -164,6 +168,31 @@ impl ZargApp {
                                                 }
                                             });
                                     });
+                                }
+                                if self.settings_tab == SettingsTab::Performance {
+                                    Self::render_combo_row(ui, "CPU priority", |ui| {
+                                        egui::ComboBox::from_id_salt("settings-cpu-priority")
+                                            .selected_text(performance.cpu_priority.map_or_else(|| "Environment".to_owned(), |value| value.to_string()))
+                                            .show_ui(ui, |ui| {
+                                                ui.selectable_value(&mut performance.cpu_priority, None, "Environment");
+                                                for value in (crate::settings::min_cpu_priority()..=0).rev() {
+                                                    ui.selectable_value(&mut performance.cpu_priority, Some(value), value.to_string());
+                                                }
+                                            });
+                                    });
+                                    ui.weak("Negative values lower worker priority relative to the inherited priority.");
+                                    Self::render_combo_row(ui, "Max CPU count", |ui| {
+                                        egui::ComboBox::from_id_salt("settings-max-cpu-count")
+                                            .selected_text(performance.max_cpu_count.map_or_else(|| "Environment".to_owned(), |value| value.to_string()))
+                                            .show_ui(ui, |ui| {
+                                                ui.selectable_value(&mut performance.max_cpu_count, None, "Environment");
+                                                let cores = crate::settings::available_cpu_count();
+                                                for value in -cores..=cores {
+                                                    ui.selectable_value(&mut performance.max_cpu_count, Some(value), value.to_string());
+                                                }
+                                            });
+                                    });
+                                    ui.weak("0 uses available CPUs; negative values reserve CPUs. Changes apply to new workers.");
                                 }
                                 if self.settings_tab == SettingsTab::Encryption {
                                     Self::render_combo_row(ui, "Default encryption method", |ui| {
@@ -269,6 +298,10 @@ impl ZargApp {
         self.default_compression_level = selected_compression_level;
         self.default_encryption_method = selected_encryption_method;
         self.archive_defaults = archive_defaults;
+        if performance != self.performance {
+            self.performance = performance;
+            performance.apply();
+        }
         if scale_changed {
             self.ui_scale = selected_scale;
             self.apply_control_size(context);

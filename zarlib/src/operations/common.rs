@@ -366,19 +366,62 @@ pub fn available_memory_bytes() -> usize {
     })
 }
 
-/// Returns the requested worker count, accounting for `ZARLIB_MAX_CPU_COUNT`.
+/// Process-wide overrides for archive worker configuration.
+///
+/// `None` leaves the corresponding environment variable in effect.
+/// A priority of zero keeps the inherited worker priority. Positive priority
+/// offsets lower it, just as with `ZARLIB_CPU_PRIORITY`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WorkerOverrides {
+    pub cpu_priority: Option<u32>,
+    pub max_cpu_count: Option<isize>,
+}
+
+static WORKER_OVERRIDES: std::sync::RwLock<WorkerOverrides> =
+    std::sync::RwLock::new(WorkerOverrides {
+        cpu_priority: None,
+        max_cpu_count: None,
+    });
+
+/// Changes worker overrides for subsequently configured workers.
+///
+/// Existing worker pools are not resized or reprioritized. This does not
+/// modify the process environment.
+pub fn set_worker_overrides(overrides: WorkerOverrides) {
+    *WORKER_OVERRIDES
+        .write()
+        .expect("worker overrides lock poisoned") = overrides;
+}
+
+pub(super) fn worker_overrides() -> WorkerOverrides {
+    *WORKER_OVERRIDES
+        .read()
+        .expect("worker overrides lock poisoned")
+}
+
+fn requested_worker_count(available: usize, count: isize) -> usize {
+    match count {
+        0 => available,
+        count if count > 0 => count as usize,
+        count => available.saturating_sub(count.unsigned_abs()).max(1),
+    }
+}
+
+/// Returns the requested worker count, accounting for `ZARLIB_MAX_CPU_COUNT`
+/// and any process-wide override.
 ///
 /// Unset or zero uses the available parallelism, positive values specify the
 /// count, and negative values reserve that many available cores (at least one
 /// worker is retained). Invalid values produce a warning and use the default.
 pub fn available_compression_workers() -> usize {
     let available = std::thread::available_parallelism().map_or(1, usize::from);
+    if let Some(count) = worker_overrides().max_cpu_count {
+        return requested_worker_count(available, count);
+    }
     match std::env::var("ZARLIB_MAX_CPU_COUNT") {
         Err(std::env::VarError::NotPresent) => available,
         Ok(value) => match value.parse::<isize>() {
-            Ok(0) => available,
-            Ok(count) if count > 0 => count as usize,
-            Ok(count) => available.saturating_sub(count.unsigned_abs()).max(1),
+            Ok(count) => requested_worker_count(available, count),
             Err(_) => {
                 eprintln!("warning: invalid ZARLIB_MAX_CPU_COUNT {value:?}; using available cores");
                 available

@@ -22,6 +22,18 @@ the filter narrows the visible entries. Use View to change layouts or sorting,
 and the status bar to see aggregate sizes and commit counts. Double-click a
 file to open a temporary extracted copy, or drag entries to another application.
 File and folder drops open the Add dialog.
+Use **Alt+N**, **Alt+O**, **Alt+A**, **Alt+E**, **Alt+I**, and **Alt+J** for New,
+Open, Add, Extract, Info, and Join respectively, when those commands are available.
+**Ctrl+F** focuses the filter field.
+**Ctrl+S** saves changes and **Ctrl+Shift+S** opens Save As.
+In zarg's dialogs, **Alt+C** activates an enabled Close or Cancel button.
+New dialogs request window focus; the window manager may restrict activation.
+With the file list focused, **Ctrl+A** selects visible entries, **Ctrl+I**
+inverts the visible selection, **Delete** removes selected entries when
+editing is allowed, and **Enter** opens the first selected entry in view order
+if it is a file. If no selected entries are visible, Enter uses the first
+selected path. Opening a file uses the same temporary-copy behavior as
+double-clicking it.
 
 ### New archive
 
@@ -113,6 +125,23 @@ the GUI reports a warning. A separate output path preserves the open archive.
 order. It does not remove previously saved history, and saving clears the
 session's undo history.
 
+### Find
+
+**Edit > Find** searches regular files in a nonempty selected revision, including
+unsaved changes. Enter an archive-relative filename glob (the default `*`
+selects all files), a regex, and optional numbers of context lines before and
+after each match. The regex supports lookaround and backreferences. Results show
+paths and line numbers; matching text is bold, and line contents are limited to
+250 displayed characters. Context lines appear in the same multiline result;
+overlapping or adjacent context ranges are merged. Double-click a result to
+extract and open its file with the default application. Press **Alt+F** to
+search, **Enter** in the regex field to search, or **Alt+C** to close the dialog.
+The status bar counts displayed results, including merged context groups.
+Invalid UTF-8 bytes in results are displayed as replacement characters. Unlock
+encrypted commits first when their passwords are needed for the search.
+Matching is Unicode-aware; inline Unicode mode changes and matching individual
+invalid UTF-8 bytes are not supported.
+
 ### Unsaved changes
 
 ![Unsaved changes dialog offering Save, Discard, and Cancel](../doc/media/zarg-unsaved.png)
@@ -159,9 +188,19 @@ runs for comparisons. See the [benchmark guide](../doc/benchmarks/README.md#benc
 
 ![Settings dialog with appearance, compression, advanced, encryption, and filter tabs](../doc/media/zarg-settings.png)
 
-**Tools > Settings** controls appearance, UI scale, compression defaults,
+**Tools > Settings** (or **Alt+S**) controls appearance, UI scale, compression defaults,
 input and extraction behavior, encryption defaults, and filters. These settings
 prefill the operation dialogs; extraction filters are configured separately.
+The **Performance** tab configures archive workers. CPU priority values lower
+priority relative to the inherited priority; the available range is platform
+dependent. On macOS, any negative value selects background scheduling.
+Max CPU count ranges from minus to plus the available logical CPU count: zero
+uses the available count, negative values reserve CPUs (at least one worker
+remains), and positive values request that many workers. Memory limits may
+reduce the actual count. **Environment** leaves the corresponding
+`ZARLIB_CPU_PRIORITY` or `ZARLIB_MAX_CPU_COUNT` setting in effect. Explicit
+choices override those variables without modifying the process environment.
+Changes affect new worker pools, not workers already running.
 
 ### Errors and about
 

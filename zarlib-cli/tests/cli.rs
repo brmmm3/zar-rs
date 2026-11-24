@@ -71,6 +71,16 @@ fn cli_grep_returns_context_and_preserves_bytes() {
         output.stdout,
         b"input.txt-1-before\ninput.txt:2:\xffmatch\ninput.txt-3-after\n"
     );
+    let fancy = zarc([
+        OsStr::new("--no-config"),
+        OsStr::new("grep"),
+        archive.as_os_str(),
+        OsStr::new("(?<=mat)ch"),
+        OsStr::new("--file-filter"),
+        OsStr::new("*.txt"),
+    ]);
+    assert!(fancy.status.success(), "{fancy:?}");
+    assert_eq!(fancy.stdout, b"input.txt:2:\xffmatch\n");
     let absent = zarc([
         OsStr::new("--no-config"),
         OsStr::new("grep"),

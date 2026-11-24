@@ -23,6 +23,7 @@ const WINDOW_TITLE: &str = "ZAR Archive Manager";
 
 fn main() -> eframe::Result {
     let saved = settings::Settings::load();
+    saved.performance.apply();
     let mut create_default_archive = false;
     let mut app = match parse_context_args(std::env::args_os().skip(1)) {
         Ok(Some((action, paths))) => ui::ZargApp::from_context_action(action, paths, &saved)

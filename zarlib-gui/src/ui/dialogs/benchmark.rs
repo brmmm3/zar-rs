@@ -246,24 +246,23 @@ impl ZargApp {
                     .show(ui, |ui| {
                         ui.separator();
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if icon_button(
+                            if close_or_cancel(icon_button(
                                 ui,
                                 &self.icons,
                                 UiIcon::Close,
                                 "Close",
                                 !running,
-                            )
-                            .clicked()
+                            ), true)
                             {
                                 open = false;
                             }
-                            if icon_button(
+                            if close_or_cancel(icon_button(
                                 ui,
                                 &self.icons,
                                 UiIcon::Cancel,
                                 "Cancel",
                                 running && !cancelling,
-                            ).clicked() {
+                            ), true) {
                                 cancel = true;
                             }
                             if icon_button(ui, &self.icons, UiIcon::Confirm, "Start", !running)
@@ -445,6 +444,42 @@ mod tests {
                 .push(egui::ViewportEvent::Close);
         }
         input
+    }
+
+    #[test]
+    fn alt_c_cancels_running_benchmark_or_closes_idle_dialog() {
+        let context = egui::Context::default();
+        let mut app = ZargApp::default();
+        app.benchmark.open = true;
+        let (sender, receiver) = mpsc::channel();
+        app.benchmark.receiver = Some(receiver);
+        context
+            .run_ui(input(false), |ui| app.render_benchmark(ui.ctx()))
+            .drop_without_applying_deltas();
+        let mut shortcut = input(false);
+        shortcut
+            .events
+            .extend([true, false].map(|pressed| egui::Event::Key {
+                key: egui::Key::C,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers: egui::Modifiers::ALT,
+            }));
+        context
+            .run_ui(shortcut.clone(), |ui| app.render_benchmark(ui.ctx()))
+            .drop_without_applying_deltas();
+        assert!(app.benchmark.open);
+        assert!(app.benchmark.cancel.load(Ordering::Relaxed));
+        drop(sender);
+        app.poll_benchmark(&context);
+        context
+            .run_ui(input(false), |ui| app.render_benchmark(ui.ctx()))
+            .drop_without_applying_deltas();
+        context
+            .run_ui(shortcut, |ui| app.render_benchmark(ui.ctx()))
+            .drop_without_applying_deltas();
+        assert!(!app.benchmark.open);
     }
 
     #[test]

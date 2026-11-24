@@ -104,6 +104,9 @@ and `--after` (`-A`) select context lines; `--to`, `--password`, and
 `path:line:bytes` for matches and `path-line-bytes` for context. Line bytes
 are written unchanged apart from line terminators. Exit status is 0 for matches,
 1 for no matches, and nonzero for errors.
+Patterns use fancy-regex, including lookaround and backreferences. Matching is
+Unicode-aware; inline Unicode mode changes and matching individual invalid
+UTF-8 bytes are not supported.
 
 Rename or move an entry by recording a new commit without recompressing its data:
 

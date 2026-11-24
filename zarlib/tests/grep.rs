@@ -5,7 +5,7 @@ use zarlib::operations::{
     EncodingOptions, GrepOptions, PasswordSet, StreamEncryption, StreamInput, add_archive,
     create_archive, create_archive_from_readers, grep_archive,
 };
-use zarlib::{ContentAead, EncryptionScope};
+use zarlib::{ArchivePath, ContentAead, EncryptionScope, TocEntry};
 
 fn archive(path: &Path, files: &[(&str, &[u8])], encryption: Option<StreamEncryption<'_>>) {
     let mut readers: Vec<_> = files.iter().map(|(_, data)| Cursor::new(*data)).collect();
@@ -111,7 +111,7 @@ fn searches_lines_spanning_blocks_and_non_utf8_bytes() {
     let results = grep_archive(
         path.to_str().unwrap(),
         "*",
-        r"(?-u:\xFF)match|^$|end",
+        r"match|^$|end",
         GrepOptions {
             before: 1,
             after: 1,
@@ -127,6 +127,218 @@ fn searches_lines_spanning_blocks_and_non_utf8_bytes() {
     assert!(lines[2].bytes.is_empty());
     assert_eq!(lines[3].bytes, b"end\r");
     assert!(lines[1..].iter().all(|line| line.is_match));
+}
+
+#[test]
+fn searches_small_files_sharing_an_archive_block() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = dir.path().join("first.txt");
+    let second = dir.path().join("second.txt");
+    let path = dir.path().join("test.zar");
+    std::fs::write(&first, b"first needle\n").unwrap();
+    std::fs::write(&second, b"second needle\n").unwrap();
+    create_archive(path.to_str().unwrap(), &[first, second]).unwrap();
+    let toc = zarlib::operations::list_archive(path.to_str().unwrap(), None, None).unwrap();
+    let Some(TocEntry::File(first)) = toc.get(&ArchivePath::new("first.txt").unwrap()) else {
+        panic!("missing first file");
+    };
+    let Some(TocEntry::File(second)) = toc.get(&ArchivePath::new("second.txt").unwrap()) else {
+        panic!("missing second file");
+    };
+    assert_eq!(first.block_indices, second.block_indices);
+    assert!(first.offset_in_block.is_some() && second.offset_in_block.is_some());
+    assert_ne!(first.offset_in_block, second.offset_in_block);
+
+    let results = grep_archive(path.to_str().unwrap(), "*", "needle", Default::default()).unwrap();
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].lines[0].bytes, b"first needle");
+    assert_eq!(results[1].lines[0].bytes, b"second needle");
+}
+
+#[test]
+fn matches_and_crlf_across_block_boundaries() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.zar");
+    let block_size = 64 * 1024;
+    let mut data = b"before\n".to_vec();
+    data.resize(block_size - 2, b'a');
+    data.extend_from_slice(b"NEEDLE\n");
+    data.resize(2 * block_size - 1, b'b');
+    data.extend_from_slice(b"\r\nafter\n");
+    let mut unicode = vec![b'x'; block_size - 1];
+    unicode.extend_from_slice("éTARGET\n".as_bytes());
+    archive(
+        &path,
+        &[("large.txt", &data), ("unicode.txt", &unicode)],
+        None,
+    );
+    let toc = zarlib::operations::list_archive(path.to_str().unwrap(), None, None).unwrap();
+    assert!(matches!(
+        toc.get(&ArchivePath::new("large.txt").unwrap()),
+        Some(TocEntry::File(entry)) if entry.block_indices.len() == 3
+    ));
+    assert!(matches!(
+        toc.get(&ArchivePath::new("unicode.txt").unwrap()),
+        Some(TocEntry::File(entry)) if entry.block_indices.len() == 2
+    ));
+
+    let results = grep_archive(
+        path.to_str().unwrap(),
+        "*",
+        "NEEDLE|éTARGET",
+        GrepOptions {
+            before: 1,
+            after: 1,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(results.len(), 2);
+    let lines = &results[0].lines;
+    assert_eq!(lines.len(), 3);
+    assert_eq!(
+        (
+            lines[0].line_number,
+            lines[0].bytes.as_slice(),
+            lines[0].is_match
+        ),
+        (1, b"before".as_slice(), false)
+    );
+    assert_eq!(lines[1].line_number, 2);
+    assert!(lines[1].bytes.ends_with(b"NEEDLE"));
+    assert!(lines[1].is_match);
+    assert_eq!(lines[2].line_number, 3);
+    assert!(lines[2].bytes.iter().all(|byte| *byte == b'b'));
+    assert!(!lines[2].is_match);
+    assert_eq!(results[1].lines[0].bytes, unicode[..unicode.len() - 1]);
+    assert!(results[1].lines[0].is_match);
+}
+
+#[cfg(not(target_os = "wasi"))]
+#[test]
+fn grep_works_without_a_temporary_directory() {
+    const ARCHIVE_ENV: &str = "ZAR_GREP_NO_TEMP_TEST_ARCHIVE";
+    if let Some(path) = std::env::var_os(ARCHIVE_ENV) {
+        assert!(tempfile::tempfile().is_err());
+        let results = grep_archive(
+            Path::new(&path).to_str().unwrap(),
+            "*",
+            "NEEDLE",
+            Default::default(),
+        )
+        .unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(
+            results
+                .iter()
+                .all(|file| file.lines.len() == 1 && file.lines[0].is_match)
+        );
+        assert!(results[0].lines[0].bytes.ends_with(b"NEEDLE"));
+        assert_eq!(results[1].lines[0].bytes, b"small NEEDLE");
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.zar");
+    let mut large = vec![b'x'; 64 * 1024 - 2];
+    large.extend_from_slice(b"NEEDLE\n");
+    archive(
+        &path,
+        &[("large.txt", &large), ("small.txt", b"small NEEDLE\n")],
+        None,
+    );
+    let unavailable = dir.path().join("not-a-directory");
+    std::fs::write(&unavailable, b"not a directory").unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "grep_works_without_a_temporary_directory",
+            "--nocapture",
+        ])
+        .env(ARCHIVE_ENV, &path)
+        .env("TMPDIR", &unavailable)
+        .env("TMP", &unavailable)
+        .env("TEMP", &unavailable)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "child failed: {}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+}
+
+#[test]
+fn supports_lookaround_and_backreferences_on_byte_lines() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.zar");
+    archive(
+        &path,
+        &[
+            (
+                "input.txt",
+                b"\xffprefix foo foo!\nprefix foo bar!\n\xffmatch\n",
+            ),
+            ("unicode.txt", "café café\n".as_bytes()),
+        ],
+        None,
+    );
+    let results = grep_archive(
+        path.to_str().unwrap(),
+        "*",
+        r"(?<=prefix )(\w+) \1(?=!)",
+        Default::default(),
+    )
+    .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].lines.len(), 1);
+    assert_eq!(results[0].lines[0].bytes, b"\xffprefix foo foo!");
+
+    let results = grep_archive(
+        path.to_str().unwrap(),
+        "unicode.txt",
+        r"^(\w+) \1$",
+        Default::default(),
+    )
+    .unwrap();
+    assert_eq!(results[0].lines[0].bytes, "café café".as_bytes());
+
+    let error = grep_archive(
+        path.to_str().unwrap(),
+        "*",
+        r"(?-u:\xFF)",
+        Default::default(),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("Unicode"), "{error}");
+}
+
+#[test]
+fn reports_regex_backtracking_errors_with_file_and_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.zar");
+    archive(
+        &path,
+        &[(
+            "input.txt",
+            b"first\nabababababababababababababababababababababababababababab\n",
+        )],
+        None,
+    );
+    let error = grep_archive(
+        path.to_str().unwrap(),
+        "*",
+        r"(?i)(a|b|ab)*(?>c)",
+        Default::default(),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("input.txt"), "{error}");
+    assert!(error.contains("line 2"), "{error}");
+    assert!(error.contains("backtrack"), "{error}");
 }
 
 #[test]

@@ -1,8 +1,8 @@
 use super::{FilterSet, PasswordSet, PreparedExtraction};
 use crate::{ArchivePath, TocEntry};
+use fancy_regex::{BytesMode, Regex, RegexBuilder};
 #[cfg(not(target_os = "wasi"))]
 use rayon::prelude::*;
-use regex::bytes::Regex;
 use std::collections::VecDeque;
 use std::io::{self, Write};
 use std::path::Path;
@@ -38,9 +38,15 @@ pub struct GrepFile {
 /// Results are ordered by path and then line number. Overlapping context is
 /// returned once. Lines are byte-preserving, except that LF and CRLF line
 /// terminators are removed. A trailing newline does not create an extra line.
-/// The byte regex uses the `regex` crate's syntax, including its Unicode
-/// defaults. Set `(?-u:...)` in a pattern to match arbitrary non-UTF-8 bytes.
+/// The byte regex uses `fancy_regex` syntax, including lookaround and
+/// backreferences. Matching is Unicode-aware even on non-UTF-8 input; invalid
+/// bytes cannot be matched individually. Inline Unicode mode changes such as
+/// `(?-u:...)` are not supported. Matching can fail if the regex engine's
+/// backtracking limit is exceeded.
 /// Selected files are fully read and checked, including files with no matches.
+/// File contents are searched in memory as archive blocks are decoded; no
+/// temporary files are created. A line spanning blocks is buffered until its
+/// terminator so that the regex sees the complete line.
 /// The archive must not change during the search. Native targets search files
 /// in parallel; WASI searches sequentially.
 pub fn grep_archive(
@@ -49,7 +55,9 @@ pub fn grep_archive(
     pattern: &str,
     options: GrepOptions<'_>,
 ) -> Result<Vec<GrepFile>, Box<dyn std::error::Error>> {
-    let regex = Regex::new(pattern)?;
+    let regex = RegexBuilder::new(pattern)
+        .bytes_mode(BytesMode::UnicodeBytes)
+        .build()?;
     let filters =
         FilterSet::from_patterns(&[file_filter.to_owned()], &[], &[], &[], &[] as &[&Path])?;
     let default_passwords = PasswordSet::default();
@@ -125,7 +133,12 @@ impl<'a> SearchWriter<'a> {
             .checked_add(1)
             .ok_or_else(|| io::Error::other("line number overflow"))?;
         let bytes = std::mem::take(&mut self.pending);
-        let is_match = self.regex.is_match(&bytes);
+        let is_match = self.regex.is_match(bytes.as_slice()).map_err(|error| {
+            io::Error::other(format!(
+                "regex match failed on line {}: {error}",
+                self.line_number
+            ))
+        })?;
         let line = GrepLine {
             line_number: self.line_number,
             bytes,

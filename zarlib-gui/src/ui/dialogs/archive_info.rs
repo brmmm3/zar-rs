@@ -151,8 +151,10 @@ impl ZargApp {
                     .show(ui, |ui| {
                         ui.separator();
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if icon_button(ui, &self.icons, UiIcon::Close, "Close", true).clicked()
-                            {
+                            if close_or_cancel(
+                                icon_button(ui, &self.icons, UiIcon::Close, "Close", true),
+                                !ui.ctx().embed_viewports() || self.info_unlock_prompt.is_none(),
+                            ) {
                                 open = false;
                             }
                         });
@@ -246,10 +248,10 @@ impl ZargApp {
                     }
                     ui.add_space(8.0);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .add_enabled(!prompt.busy, egui::Button::new("Cancel"))
-                            .clicked()
-                        {
+                        if close_or_cancel(
+                            ui.add_enabled(!prompt.busy, egui::Button::new("Cancel")),
+                            true,
+                        ) {
                             action = Some(InfoUnlockAction::Cancel);
                         }
                         if ui

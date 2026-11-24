@@ -181,10 +181,55 @@ pub struct Settings {
     pub default_encryption_method: DefaultEncryptionMethod,
     pub validate_blocks_before_extraction: bool,
     pub validate_blocks_on_extraction: ExtractionChecksum,
+    pub performance: PerformanceSettings,
     pub archive_defaults: ArchiveDefaults,
     pub column_widths: BTreeMap<String, f32>,
     pub recent_archives: Vec<String>,
     pub bookmarks: Vec<PathBuf>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PerformanceSettings {
+    pub cpu_priority: Option<i32>,
+    pub max_cpu_count: Option<isize>,
+}
+
+impl PerformanceSettings {
+    pub fn clamped(self) -> Self {
+        let cores = available_cpu_count();
+        Self {
+            cpu_priority: self
+                .cpu_priority
+                .map(|value| value.clamp(min_cpu_priority(), 0)),
+            max_cpu_count: self.max_cpu_count.map(|value| value.clamp(-cores, cores)),
+        }
+    }
+
+    pub fn apply(self) {
+        let settings = self.clamped();
+        zarlib::operations::set_worker_overrides(zarlib::operations::WorkerOverrides {
+            cpu_priority: settings.cpu_priority.map(i32::unsigned_abs),
+            max_cpu_count: settings.max_cpu_count,
+        });
+    }
+}
+
+pub fn available_cpu_count() -> isize {
+    std::thread::available_parallelism().map_or(1, |count| {
+        isize::try_from(count.get()).unwrap_or(isize::MAX)
+    })
+}
+
+pub const fn min_cpu_priority() -> i32 {
+    if cfg!(target_os = "linux") {
+        -39
+    } else if cfg!(windows) {
+        -4
+    } else if cfg!(target_os = "macos") {
+        -1
+    } else {
+        0
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -229,6 +274,7 @@ impl Default for Settings {
             default_encryption_method: DefaultEncryptionMethod::Aes256Gcm,
             validate_blocks_before_extraction: false,
             validate_blocks_on_extraction: ExtractionChecksum::Auto,
+            performance: PerformanceSettings::default(),
             archive_defaults: ArchiveDefaults::default(),
             column_widths: BTreeMap::new(),
             recent_archives: Vec::new(),
@@ -356,6 +402,18 @@ impl Settings {
                         settings.validate_blocks_on_extraction = mode;
                     }
                 }
+                "cpu_priority" => {
+                    if let Ok(value) = value.parse::<i32>()
+                        && value <= 0
+                    {
+                        settings.performance.cpu_priority = Some(value);
+                    }
+                }
+                "max_cpu_count" => {
+                    if let Ok(value) = value.parse::<isize>() {
+                        settings.performance.max_cpu_count = Some(value);
+                    }
+                }
                 "default_metadata" => settings.archive_defaults.metadata = value == "true",
                 "default_dates" => settings.archive_defaults.dates = value == "true",
                 "default_creation_time" => {
@@ -467,6 +525,12 @@ impl Settings {
             "validate_blocks_on_extraction={}\n",
             self.validate_blocks_on_extraction.as_setting()
         ));
+        if let Some(value) = self.performance.cpu_priority {
+            text.push_str(&format!("cpu_priority={value}\n"));
+        }
+        if let Some(value) = self.performance.max_cpu_count {
+            text.push_str(&format!("max_cpu_count={value}\n"));
+        }
         let defaults = &self.archive_defaults;
         text.push_str(&format!(
             "default_metadata={}\ndefault_dates={}\ndefault_creation_time={}\ndefault_access_time={}\ndefault_special_files={}\ndefault_strict={}\ndefault_save_user={}\n",
@@ -544,6 +608,10 @@ mod tests {
             default_encryption_method: DefaultEncryptionMethod::ChaCha20Poly1305,
             validate_blocks_before_extraction: true,
             validate_blocks_on_extraction: ExtractionChecksum::Auto,
+            performance: PerformanceSettings {
+                cpu_priority: Some(-1),
+                max_cpu_count: Some(-2),
+            },
             archive_defaults: ArchiveDefaults {
                 metadata: true,
                 dates: true,
@@ -570,6 +638,38 @@ mod tests {
     fn settings_round_trip() {
         let settings = sample();
         assert_eq!(Settings::parse(&settings.render()), settings);
+    }
+
+    #[test]
+    fn performance_settings_round_trip_and_clamp_to_available_choices() {
+        let defaults = Settings::parse("");
+        assert_eq!(defaults.performance, PerformanceSettings::default());
+        let parsed = Settings::parse("cpu_priority=-1\nmax_cpu_count=-2\n");
+        assert_eq!(
+            Settings::parse(&parsed.render()).performance,
+            parsed.performance
+        );
+        assert_eq!(
+            Settings::parse("cpu_priority=1\nmax_cpu_count=bad\n").performance,
+            defaults.performance
+        );
+        let cores = available_cpu_count();
+        let clamped = PerformanceSettings {
+            cpu_priority: Some(i32::MIN),
+            max_cpu_count: Some(isize::MIN),
+        }
+        .clamped();
+        assert_eq!(clamped.cpu_priority, Some(min_cpu_priority()));
+        assert_eq!(clamped.max_cpu_count, Some(-cores));
+        assert_eq!(
+            PerformanceSettings {
+                max_cpu_count: Some(isize::MAX),
+                ..Default::default()
+            }
+            .clamped()
+            .max_cpu_count,
+            Some(cores)
+        );
     }
 
     #[test]

@@ -45,6 +45,30 @@ fn about_dialog_renders_product_and_version() {
 }
 
 #[test]
+fn about_dialog_takes_focus_only_when_opened() {
+    let context = egui::Context::default();
+    let mut app = ZargApp {
+        show_about: true,
+        ..Default::default()
+    };
+    let other = egui::Id::unique("other-widget");
+    context
+        .run_ui(egui::RawInput::default(), |ui| {
+            ui.memory_mut(|memory| memory.request_focus(other));
+            app.render_about_dialog(ui.ctx());
+            assert_ne!(ui.memory(|memory| memory.focused()), Some(other));
+        })
+        .drop_without_applying_deltas();
+    context
+        .run_ui(egui::RawInput::default(), |ui| {
+            ui.memory_mut(|memory| memory.request_focus(other));
+            app.render_about_dialog(ui.ctx());
+            assert_eq!(ui.memory(|memory| memory.focused()), Some(other));
+        })
+        .drop_without_applying_deltas();
+}
+
+#[test]
 fn closing_operation_error_dialog_clears_report() {
     let context = egui::Context::default();
     let mut app = ZargApp {
@@ -68,6 +92,192 @@ fn closing_operation_error_dialog_clears_report() {
         .run_ui(input, |ui| app.render_operation_error_dialog(ui.ctx()))
         .drop_without_applying_deltas();
     assert!(app.report.is_none());
+}
+
+#[test]
+fn alt_c_closes_dialogs_and_cancels_their_actions() {
+    fn frame(
+        context: &egui::Context,
+        app: &mut ZargApp,
+        modifiers: egui::Modifiers,
+        mut render: impl FnMut(&mut ZargApp, &egui::Context),
+    ) {
+        context
+            .run_ui(egui::RawInput::default(), |ui| render(app, ui.ctx()))
+            .drop_without_applying_deltas();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1000.0, 800.0),
+            )),
+            events: vec![egui::Event::Key {
+                key: egui::Key::C,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            }],
+            ..Default::default()
+        };
+        context
+            .run_ui(input, |ui| render(app, ui.ctx()))
+            .drop_without_applying_deltas();
+    }
+
+    let mut app = ZargApp {
+        show_settings: true,
+        ..Default::default()
+    };
+    frame(
+        &egui::Context::default(),
+        &mut app,
+        egui::Modifiers::ALT | egui::Modifiers::CTRL,
+        ZargApp::render_settings_dialog,
+    );
+    assert!(app.show_settings);
+    frame(
+        &egui::Context::default(),
+        &mut app,
+        egui::Modifiers::ALT,
+        ZargApp::render_settings_dialog,
+    );
+    assert!(!app.show_settings);
+
+    app.show_about = true;
+    frame(
+        &egui::Context::default(),
+        &mut app,
+        egui::Modifiers::ALT,
+        ZargApp::render_about_dialog,
+    );
+    assert!(!app.show_about);
+    app.report = Some("error".into());
+    frame(
+        &egui::Context::default(),
+        &mut app,
+        egui::Modifiers::ALT,
+        ZargApp::render_operation_error_dialog,
+    );
+    assert!(app.report.is_none());
+
+    app.show_operation(OperationKind::NewArchive);
+    frame(
+        &egui::Context::default(),
+        &mut app,
+        egui::Modifiers::ALT,
+        ZargApp::render_operation_dialog,
+    );
+    assert!(app.operation.kind.is_none());
+
+    app.pending_archive_switch = Some(ArchiveSwitchAction::New);
+    frame(
+        &egui::Context::default(),
+        &mut app,
+        egui::Modifiers::ALT,
+        ZargApp::render_unsaved_archive_dialog,
+    );
+    assert!(app.pending_archive_switch.is_none());
+
+    let (events_tx, events_rx) = mpsc::channel();
+    let (answers_tx, answers_rx) = mpsc::channel();
+    let cancellation = Arc::new(AtomicBool::new(false));
+    app.worker = Some(WorkerChannels {
+        events: events_rx,
+        answers: answers_tx,
+        cancellation: Some(Arc::clone(&cancellation)),
+    });
+    app.confirmation = Some("Overwrite?".into());
+    frame(
+        &egui::Context::default(),
+        &mut app,
+        egui::Modifiers::ALT,
+        ZargApp::render_confirmation_dialog,
+    );
+    assert!(app.confirmation.is_none());
+    assert_eq!(answers_rx.try_recv().unwrap(), None);
+    assert!(cancellation.load(Ordering::Relaxed));
+    drop(events_tx);
+    app.worker = None;
+
+    let (answers, receiver) = mpsc::channel();
+    app.open_password_dialog = Some(OpenPasswordDialog {
+        rows: Vec::new(),
+        answers,
+        error: None,
+        busy: true,
+    });
+    frame(
+        &egui::Context::default(),
+        &mut app,
+        egui::Modifiers::ALT,
+        ZargApp::render_open_password_dialog,
+    );
+    assert!(app.open_password_dialog.is_some());
+    assert!(receiver.try_recv().is_err());
+    app.open_password_dialog.as_mut().unwrap().busy = false;
+    frame(
+        &egui::Context::default(),
+        &mut app,
+        egui::Modifiers::ALT,
+        ZargApp::render_open_password_dialog,
+    );
+    assert!(app.open_password_dialog.is_none());
+    assert!(receiver.try_recv().unwrap().is_none());
+
+    app.unlock_commits_dialog = Some(UnlockCommitsDialog {
+        rows: Vec::new(),
+        result: None,
+        error: None,
+        busy: false,
+    });
+    frame(
+        &egui::Context::default(),
+        &mut app,
+        egui::Modifiers::ALT,
+        ZargApp::render_unlock_commits_dialog,
+    );
+    assert!(app.unlock_commits_dialog.is_none());
+
+    app.info_view = Some(ArchiveInfoView {
+        archive: "archive.zar".into(),
+        commits: Vec::new(),
+        metadata: Vec::new(),
+    });
+    app.info_unlock_prompt = Some(ArchiveInfoUnlockPrompt {
+        commit_id: [0; 4],
+        password: String::new(),
+        error: None,
+        busy: false,
+    });
+    frame(
+        &egui::Context::default(),
+        &mut app,
+        egui::Modifiers::ALT,
+        ZargApp::render_archive_info,
+    );
+    assert!(app.info_view.is_some());
+    assert!(app.info_unlock_prompt.is_none());
+    frame(
+        &egui::Context::default(),
+        &mut app,
+        egui::Modifiers::ALT,
+        ZargApp::render_archive_info,
+    );
+    assert!(app.info_view.is_none());
+
+    app.show_operation(OperationKind::NewArchive);
+    app.file_dialog.open_for_selection(None);
+    frame(
+        &egui::Context::default(),
+        &mut app,
+        egui::Modifiers::ALT,
+        |app, context| {
+            app.render_operation_dialog(context);
+            app.render_file_picker_dialog(context);
+        },
+    );
+    assert!(!app.file_dialog.open);
+    assert_eq!(app.operation.kind, Some(OperationKind::NewArchive));
 }
 
 #[test]
@@ -276,8 +486,46 @@ fn new_dialog_builder_restores_remembered_size() {
         );
         assert_eq!(builder.inner_size, Some(egui::vec2(320.0, 240.0)));
         assert!(builder.position.is_some());
+        assert_eq!(builder.active, Some(true));
     });
     output.drop_without_applying_deltas();
+}
+
+#[test]
+fn dialog_focus_is_requested_on_open_and_reopen_but_not_while_open() {
+    let context = egui::Context::default();
+    context.set_embed_viewports(false);
+    let viewport_id = egui::ViewportId::from_hash_of("settings-dialog");
+
+    for exists in [false, true, false] {
+        let mut input = egui::RawInput::default();
+        if exists {
+            input
+                .viewports
+                .insert(viewport_id, egui::ViewportInfo::default());
+        }
+        let output = context.run_ui(input, |ui| {
+            let builder = ZargApp::centered_dialog_viewport_builder(
+                ui.ctx(),
+                viewport_id,
+                "Settings",
+                [480.0, 360.0],
+                true,
+            );
+            assert_eq!(builder.active, (!exists).then_some(true));
+            ui.ctx()
+                .show_viewport_deferred(viewport_id, builder, |_, _| {});
+        });
+        let focused = output
+            .viewport_output
+            .get(&viewport_id)
+            .unwrap()
+            .commands
+            .iter()
+            .any(|command| matches!(command, egui::ViewportCommand::Focus));
+        assert_eq!(focused, !exists);
+        output.drop_without_applying_deltas();
+    }
 }
 
 #[test]
@@ -1622,6 +1870,290 @@ fn cached_move_is_undoable_and_saved() {
     )
     .unwrap();
     assert_eq!(std::fs::read(output).unwrap(), b"original contents");
+}
+
+#[test]
+fn alt_s_opens_settings_even_with_text_focus_or_a_busy_worker() {
+    for (modifiers, opens) in [
+        (egui::Modifiers::ALT, true),
+        (egui::Modifiers::NONE, false),
+        (egui::Modifiers::ALT | egui::Modifiers::CTRL, false),
+        (egui::Modifiers::ALT | egui::Modifiers::SHIFT, false),
+    ] {
+        let context = egui::Context::default();
+        let mut app = ZargApp {
+            busy: true,
+            ..Default::default()
+        };
+        let mut text = String::new();
+        context
+            .run_ui(egui::RawInput::default(), |ui| {
+                ui.text_edit_singleline(&mut text).request_focus();
+            })
+            .drop_without_applying_deltas();
+        let input = egui::RawInput {
+            events: vec![
+                egui::Event::ModifiersChanged(modifiers),
+                egui::Event::Key {
+                    key: egui::Key::S,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers,
+                },
+                egui::Event::ModifiersChanged(egui::Modifiers::NONE),
+            ],
+            ..Default::default()
+        };
+        context
+            .run_ui(input, |ui| {
+                app.handle_global_shortcuts(ui.ctx());
+                if opens {
+                    assert!(!ui.input(|input| input.key_pressed(egui::Key::S)));
+                }
+            })
+            .drop_without_applying_deltas();
+        assert_eq!(app.show_settings, opens);
+    }
+}
+
+#[test]
+fn archive_command_shortcuts_follow_toolbar_availability() {
+    fn shortcut(app: &mut ZargApp, key: egui::Key, modifiers: egui::Modifiers) {
+        let context = egui::Context::default();
+        context
+            .run_ui(
+                egui::RawInput {
+                    events: vec![egui::Event::Key {
+                        key,
+                        physical_key: None,
+                        pressed: true,
+                        repeat: false,
+                        modifiers,
+                    }],
+                    ..Default::default()
+                },
+                |ui| app.handle_global_shortcuts(ui.ctx()),
+            )
+            .drop_without_applying_deltas();
+    }
+
+    let mut app = ZargApp::default();
+    for key in [egui::Key::A, egui::Key::E, egui::Key::I, egui::Key::J] {
+        shortcut(&mut app, key, egui::Modifiers::ALT);
+        assert!(app.operation.kind.is_none());
+        assert!(app.info_loading.is_none());
+    }
+    shortcut(
+        &mut app,
+        egui::Key::N,
+        egui::Modifiers::ALT | egui::Modifiers::CTRL,
+    );
+    assert!(app.operation.kind.is_none());
+    shortcut(&mut app, egui::Key::N, egui::Modifiers::ALT);
+    assert_eq!(app.operation.kind, Some(OperationKind::NewArchive));
+    app.close_operation();
+
+    let directory = tempfile::tempdir().unwrap();
+    let archive = directory.path().join("archive.zar");
+    let file = directory.path().join("file.txt");
+    std::fs::write(&file, b"contents").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[file]).unwrap();
+    app.open_archive(archive, None);
+    wait_for_worker(&mut app);
+    app.selected.insert("file.txt".into());
+    shortcut(&mut app, egui::Key::A, egui::Modifiers::ALT);
+    assert_eq!(app.operation.kind, Some(OperationKind::AddToArchive));
+    app.close_operation();
+    shortcut(&mut app, egui::Key::E, egui::Modifiers::ALT);
+    assert_eq!(app.operation.kind, Some(OperationKind::ExtractArchive));
+    assert!(app.operation.extract_selected_paths.contains("file.txt"));
+    app.close_operation();
+    shortcut(&mut app, egui::Key::I, egui::Modifiers::ALT);
+    assert!(app.info_loading.is_some());
+    let context = egui::Context::default();
+    for _ in 0..12_000 {
+        app.poll_archive_info(&context);
+        if app.info_loading.is_none() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(app.info_view.is_some());
+    app.clear_archive_info();
+
+    shortcut(&mut app, egui::Key::J, egui::Modifiers::ALT);
+    assert!(app.operation.kind.is_none());
+    app.commit_ids.push("12345678".into());
+    shortcut(&mut app, egui::Key::J, egui::Modifiers::ALT);
+    assert_eq!(app.operation.kind, Some(OperationKind::JoinCommits));
+    app.close_operation();
+
+    app.imported_archive_dir = Some(tempfile::tempdir().unwrap());
+    shortcut(&mut app, egui::Key::A, egui::Modifiers::ALT);
+    shortcut(&mut app, egui::Key::I, egui::Modifiers::ALT);
+    shortcut(&mut app, egui::Key::J, egui::Modifiers::ALT);
+    assert!(app.operation.kind.is_none());
+    assert!(app.info_loading.is_none());
+    shortcut(&mut app, egui::Key::E, egui::Modifiers::ALT);
+    assert_eq!(app.operation.kind, Some(OperationKind::ExtractArchive));
+    app.close_operation();
+    app.imported_archive_dir = None;
+
+    app.busy = true;
+    for key in [
+        egui::Key::N,
+        egui::Key::O,
+        egui::Key::A,
+        egui::Key::E,
+        egui::Key::I,
+        egui::Key::J,
+    ] {
+        shortcut(&mut app, key, egui::Modifiers::ALT);
+    }
+    assert!(app.operation.kind.is_none());
+    assert!(app.info_loading.is_none());
+    assert!(app.pending_archive_switch.is_none());
+    app.busy = false;
+    app.has_unsaved_changes = true;
+    app.latest_archive_empty = Some(false);
+    shortcut(&mut app, egui::Key::O, egui::Modifiers::ALT);
+    assert!(matches!(
+        app.pending_archive_switch,
+        Some(ArchiveSwitchAction::OpenDialog)
+    ));
+}
+
+#[test]
+fn ctrl_s_saves_staged_changes_and_respects_save_availability() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive = directory.path().join("archive.zar");
+    let original = directory.path().join("original.txt");
+    let added = directory.path().join("added.txt");
+    std::fs::write(&original, b"original").unwrap();
+    std::fs::write(&added, b"added").unwrap();
+    operations::create_archive(archive.to_str().unwrap(), &[original]).unwrap();
+    let mut app = ZargApp::default();
+    app.open_archive(archive.clone(), None);
+    wait_for_worker(&mut app);
+    app.show_operation(OperationKind::AddToArchive);
+    app.operation.input_paths.push(added);
+    let form = std::mem::take(&mut app.operation);
+    app.start_cached_add(form);
+    wait_for_worker(&mut app);
+    assert!(app.has_unsaved_changes);
+
+    let context = egui::Context::default();
+    let mut text = String::new();
+    context
+        .run_ui(egui::RawInput::default(), |ui| {
+            ui.text_edit_singleline(&mut text).request_focus();
+        })
+        .drop_without_applying_deltas();
+    let input = |modifiers| egui::RawInput {
+        events: [true, false]
+            .into_iter()
+            .map(|pressed| egui::Event::Key {
+                key: egui::Key::S,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers,
+            })
+            .collect(),
+        ..Default::default()
+    };
+    app.busy = true;
+    for modifiers in [
+        egui::Modifiers::CTRL,
+        egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
+    ] {
+        context
+            .run_ui(input(modifiers), |ui| {
+                app.handle_global_shortcuts(ui.ctx());
+                assert!(!ui.input(|input| input.key_pressed(egui::Key::S)));
+            })
+            .drop_without_applying_deltas();
+    }
+    assert!(app.has_unsaved_changes);
+    app.busy = false;
+    context
+        .run_ui(input(egui::Modifiers::CTRL | egui::Modifiers::ALT), |ui| {
+            app.handle_global_shortcuts(ui.ctx());
+        })
+        .drop_without_applying_deltas();
+    assert!(!app.busy);
+    context
+        .run_ui(input(egui::Modifiers::CTRL), |ui| {
+            app.handle_global_shortcuts(ui.ctx());
+        })
+        .drop_without_applying_deltas();
+    assert!(app.busy);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(!app.has_unsaved_changes);
+    let entries = operations::list_archive(archive.to_str().unwrap(), None, None).unwrap();
+    assert!(
+        entries
+            .get(&ArchivePath::new("added.txt").unwrap())
+            .is_some()
+    );
+}
+
+#[test]
+fn ctrl_f_focuses_the_main_filter_and_allows_typing() {
+    let context = egui::Context::default();
+    let mut app = ZargApp {
+        busy: true,
+        entries: vec![
+            ("match.txt".into(), EntryData::File(1)),
+            ("other.txt".into(), EntryData::File(1)),
+        ],
+        ..Default::default()
+    };
+    let ctrl = egui::Modifiers {
+        ctrl: true,
+        command: true,
+        ..Default::default()
+    };
+    let input = |modifiers| egui::RawInput {
+        events: vec![egui::Event::Key {
+            key: egui::Key::F,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }],
+        ..Default::default()
+    };
+    context
+        .run_ui(input(ctrl | egui::Modifiers::ALT), |ui| {
+            app.render_toolbar(ui)
+        })
+        .drop_without_applying_deltas();
+    assert!(!context.memory(|memory| memory.has_focus(egui::Id::unique("archive-filter"))));
+    let mut other_text = String::new();
+    context
+        .run_ui(egui::RawInput::default(), |ui| {
+            ui.text_edit_singleline(&mut other_text).request_focus();
+            app.render_toolbar(ui);
+        })
+        .drop_without_applying_deltas();
+    context
+        .run_ui(input(ctrl), |ui| app.render_toolbar(ui))
+        .drop_without_applying_deltas();
+    assert!(context.memory(|memory| memory.has_focus(egui::Id::unique("archive-filter"))));
+    context
+        .run_ui(
+            egui::RawInput {
+                events: vec![egui::Event::Text("match".into())],
+                ..Default::default()
+            },
+            |ui| app.render_toolbar(ui),
+        )
+        .drop_without_applying_deltas();
+    assert_eq!(app.filter_text, "match");
+    assert_eq!(app.visible_entry_indices, vec![0]);
 }
 
 #[test]
@@ -5567,6 +6099,119 @@ fn control_a_selects_visible_entries_from_an_empty_selection() {
 }
 
 #[test]
+fn archive_control_i_inverts_visible_selection_only_when_focused() {
+    let context = egui::Context::default();
+    let mut app = ZargApp {
+        entries: ["a", "b", "hidden"]
+            .into_iter()
+            .map(|path| (path.into(), EntryData::File(1)))
+            .collect(),
+        visible_entry_indices: vec![0, 1],
+        archive_list_focused: true,
+        selected: BTreeSet::from(["a".into(), "hidden".into()]),
+        selection_anchor: Some("a".into()),
+        selection_range_base: Some(BTreeSet::from(["a".into()])),
+        ..Default::default()
+    };
+    let press = |app: &mut ZargApp, modifiers: egui::Modifiers| {
+        let event = |pressed| egui::Event::Key {
+            key: egui::Key::I,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers,
+        };
+        context
+            .run_ui(
+                egui::RawInput {
+                    events: vec![
+                        egui::Event::ModifiersChanged(modifiers),
+                        event(true),
+                        event(false),
+                    ],
+                    ..Default::default()
+                },
+                |ui| app.handle_archive_shortcuts(ui.ctx()),
+            )
+            .drop_without_applying_deltas();
+    };
+    let control = egui::Modifiers {
+        ctrl: true,
+        ..Default::default()
+    };
+    press(&mut app, egui::Modifiers::NONE);
+    assert_eq!(app.selected, BTreeSet::from(["a".into(), "hidden".into()]));
+    press(&mut app, control);
+    assert_eq!(app.selected, BTreeSet::from(["b".into(), "hidden".into()]));
+    assert!(app.selection_anchor.is_none());
+    assert!(app.selection_range_base.is_none());
+    app.archive_list_focused = false;
+    press(&mut app, control);
+    assert_eq!(app.selected, BTreeSet::from(["b".into(), "hidden".into()]));
+    app.archive_list_focused = true;
+    app.busy = true;
+    press(&mut app, control);
+    assert_eq!(app.selected, BTreeSet::from(["b".into(), "hidden".into()]));
+}
+
+#[test]
+fn archive_enter_opens_first_selected_visible_entry_only_when_focused() {
+    let context = egui::Context::default();
+    let mut app = ZargApp {
+        entries: ["a", "z", "hidden"]
+            .into_iter()
+            .map(|path| (path.into(), EntryData::File(1)))
+            .collect(),
+        visible_entry_indices: vec![1, 0],
+        archive_list_focused: true,
+        selected: BTreeSet::from(["a".into(), "z".into(), "hidden".into()]),
+        ..Default::default()
+    };
+    let press = |app: &mut ZargApp, modifiers: egui::Modifiers| {
+        let event = |pressed| egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers,
+        };
+        context
+            .run_ui(
+                egui::RawInput {
+                    events: vec![
+                        egui::Event::ModifiersChanged(modifiers),
+                        event(true),
+                        event(false),
+                    ],
+                    ..Default::default()
+                },
+                |ui| app.handle_archive_shortcuts(ui.ctx()),
+            )
+            .drop_without_applying_deltas();
+    };
+    app.archive_list_focused = false;
+    press(&mut app, egui::Modifiers::NONE);
+    assert!(app.pending_open.is_none());
+    app.archive_list_focused = true;
+    press(
+        &mut app,
+        egui::Modifiers {
+            ctrl: true,
+            ..Default::default()
+        },
+    );
+    assert!(app.pending_open.is_none());
+    press(&mut app, egui::Modifiers::NONE);
+    assert_eq!(app.pending_open.take().as_deref(), Some("z"));
+    app.selected = BTreeSet::from(["hidden".into()]);
+    press(&mut app, egui::Modifiers::NONE);
+    assert_eq!(app.pending_open.take().as_deref(), Some("hidden"));
+    app.selected.clear();
+    press(&mut app, egui::Modifiers::NONE);
+    assert!(app.pending_open.is_none());
+}
+
+#[test]
 fn extended_selection_supports_replace_toggle_and_ranges() {
     let visible = [1, 2, 3, 4, 5];
     let empty = BTreeSet::new();
@@ -5631,6 +6276,7 @@ fn bundled_icons_are_valid_in_both_themes() {
         UiIcon::SaveArchive,
         UiIcon::NewArchive,
         UiIcon::Quit,
+        UiIcon::Find,
         UiIcon::SelectAll,
         UiIcon::ClearSelection,
         UiIcon::Refresh,
@@ -5689,6 +6335,25 @@ fn bundled_icons_are_valid_in_both_themes() {
             image::load_from_memory(icon_bytes(icon, theme))
                 .unwrap_or_else(|error| panic!("invalid {theme:?} icon {icon:?}: {error}"));
         }
+    }
+}
+
+#[test]
+fn find_icons_match_theme_dimensions_and_have_transparent_backgrounds() {
+    let crystal = image::load_from_memory(icon_bytes(
+        UiIcon::Find,
+        crate::settings::IconTheme::Crystal,
+    ))
+    .unwrap()
+    .into_rgba8();
+    let flat = image::load_from_memory(icon_bytes(UiIcon::Find, crate::settings::IconTheme::Flat))
+        .unwrap()
+        .into_rgba8();
+    assert_eq!(crystal.dimensions(), flat.dimensions());
+    assert_ne!(crystal.as_raw(), flat.as_raw());
+    for icon in [crystal, flat] {
+        assert!(icon.pixels().any(|pixel| pixel[3] == 0));
+        assert!(icon.pixels().any(|pixel| pixel[3] > 0));
     }
 }
 

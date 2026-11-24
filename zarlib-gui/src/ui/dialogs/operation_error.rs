@@ -49,8 +49,10 @@ impl ZargApp {
                     .show(ui, |ui| {
                         ui.separator();
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if icon_button(ui, &self.icons, UiIcon::Close, "Close", true).clicked()
-                            {
+                            if close_or_cancel(
+                                icon_button(ui, &self.icons, UiIcon::Close, "Close", true),
+                                true,
+                            ) {
                                 open = false;
                             }
                         });

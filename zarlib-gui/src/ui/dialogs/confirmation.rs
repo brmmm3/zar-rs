@@ -84,7 +84,7 @@ impl ZargApp {
                     .show(ui, |ui| {
                         ui.separator();
                         let [cancel, discard, save] = unsaved_archive_actions(ui, &self.icons);
-                        if cancel.clicked() {
+                        if close_or_cancel(cancel, true) {
                             choice = Some(UnsavedArchiveChoice::Cancel);
                         }
                         if discard.clicked() {
@@ -176,7 +176,12 @@ impl ZargApp {
                         .frame(egui::Frame::new().inner_margin(3))
                         .show(ui, |ui| {
                             for (decision, response) in confirmation_actions(ui, &self.icons) {
-                                if response.clicked() {
+                                let clicked = if decision.is_none() {
+                                    close_or_cancel(response, true)
+                                } else {
+                                    response.clicked()
+                                };
+                                if clicked {
                                     self.answer_confirmation(decision);
                                 }
                             }
