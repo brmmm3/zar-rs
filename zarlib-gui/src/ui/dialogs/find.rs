@@ -29,6 +29,7 @@ impl FindResults {
         files: Vec<operations::GrepFile>,
         pattern: &str,
         include_context: bool,
+        progress: Option<&dyn Progress>,
     ) -> Result<Self, String> {
         let regex = RegexBuilder::new(pattern)
             .bytes_mode(BytesMode::UnicodeBytes)
@@ -39,6 +40,9 @@ impl FindResults {
             let file_index = results.files.len();
             let path = file.path.to_string();
             for line in file.lines {
+                if progress.is_some_and(Progress::is_cancelled) {
+                    return Err("operation cancelled".to_owned());
+                }
                 results.invalid_utf8 |= std::str::from_utf8(&line.bytes).is_err();
                 let (text, highlights) = format_result_line(&line.bytes, line.is_match, &regex)
                     .map_err(|error| {
@@ -227,6 +231,8 @@ pub(in crate::ui) struct FindState {
     before: usize,
     after: usize,
     receiver: Option<Receiver<FindResult>>,
+    cancellation: Option<Arc<AtomicBool>>,
+    pub(in crate::ui) cancelled: bool,
     result: Option<FindResult>,
     selected_row: Option<usize>,
 }
@@ -240,6 +246,8 @@ impl Default for FindState {
             before: 0,
             after: 0,
             receiver: None,
+            cancellation: None,
+            cancelled: false,
             result: None,
             selected_row: None,
         }
@@ -250,6 +258,7 @@ impl FindState {
     pub(in crate::ui) fn clear_results(&mut self) {
         self.result = None;
         self.selected_row = None;
+        self.cancelled = false;
     }
 }
 
@@ -258,6 +267,7 @@ impl ZargApp {
         if !self.can_find() || self.operation.kind.is_some() {
             return;
         }
+        self.find.cancelled = false;
         let overlay = self
             .overlay_cache
             .as_ref()
@@ -278,22 +288,41 @@ impl ZargApp {
         let after = self.find.after;
         let (sender, receiver) = mpsc::channel();
         let (events_tx, events_rx) = mpsc::channel();
-        let (answers, _answer_rx) = mpsc::channel();
+        let (answers, answer_rx) = mpsc::channel();
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let progress = UiProgress {
+            events: events_tx.clone(),
+            answers: Arc::new(Mutex::new(answer_rx)),
+            cancellation: Some(Arc::clone(&cancellation)),
+            limit_status_updates: false,
+            last_status_update: Mutex::new(None),
+        };
         self.find.receiver = Some(receiver);
+        self.find.cancellation = Some(Arc::clone(&cancellation));
+        self.find.cancelled = false;
         self.find.result = None;
         self.find.selected_row = None;
-        self.begin_worker(events_rx, answers, "Searching archive");
+        self.begin_worker_with_cancellation(
+            events_rx,
+            answers,
+            "Searching archive",
+            Some(cancellation),
+        );
         self.status = "Searching archive...".to_owned();
         std::thread::spawn(move || {
             let result = (|| -> Result<_, Box<dyn std::error::Error>> {
+                if progress.is_cancelled() {
+                    return Err("operation cancelled".into());
+                }
                 let view = if let Some(overlay) = overlay {
                     let directory = tempfile::Builder::new()
                         .prefix("zarg-find-view-")
                         .tempdir()?;
-                    operations::combine_archives(
+                    operations::combine_archives_with_progress(
                         Path::new(&archive),
                         &overlay,
                         &directory.path().join("view.zar"),
+                        Some(&progress),
                     )?;
                     Some(directory)
                 } else {
@@ -308,7 +337,7 @@ impl ZargApp {
                         .ok_or("Temporary archive path is not valid UTF-8")?,
                     None => &archive,
                 };
-                let files = operations::grep_archive(
+                let files = operations::grep_archive_with_progress(
                     source,
                     &file_filter,
                     &pattern,
@@ -318,11 +347,15 @@ impl ZargApp {
                         to: commit.as_deref(),
                         passwords: Some(&passwords),
                     },
+                    Some(&progress),
                 )?;
-                FindResults::new(files, &pattern, before > 0 || after > 0).map_err(Into::into)
+                FindResults::new(files, &pattern, before > 0 || after > 0, Some(&progress))
+                    .map_err(Into::into)
             })()
             .map_err(|error| error.to_string());
-            let status = if result.is_ok() {
+            let status = if find_cancelled(&result, progress.is_cancelled()) {
+                "Search cancelled."
+            } else if result.is_ok() {
                 "Search complete."
             } else {
                 "Search failed."
@@ -339,13 +372,25 @@ impl ZargApp {
         match receiver.try_recv() {
             Ok(result) => {
                 self.find.receiver = None;
-                self.find.result = Some(result);
+                let cancelled = self
+                    .find
+                    .cancellation
+                    .take()
+                    .is_some_and(|token| token.load(Ordering::Relaxed));
+                self.find.cancelled = find_cancelled(&result, cancelled);
+                if self.find.cancelled {
+                    self.find.result = None;
+                    self.status = "Search cancelled.".to_owned();
+                } else {
+                    self.find.result = Some(result);
+                }
             }
             Err(mpsc::TryRecvError::Empty) => {
                 context.request_repaint_after(Duration::from_millis(100));
             }
             Err(mpsc::TryRecvError::Disconnected) => {
                 self.find.receiver = None;
+                self.find.cancellation = None;
                 self.find.result = Some(Err("Search worker stopped unexpectedly.".to_owned()));
             }
         }
@@ -356,6 +401,11 @@ impl ZargApp {
             return;
         }
         let running = self.find.receiver.is_some();
+        let cancelling = self
+            .find
+            .cancellation
+            .as_ref()
+            .is_some_and(|token| token.load(Ordering::Relaxed));
         let can_search = self.can_find() && self.operation.kind.is_none();
         let mut open = true;
         let mut start = false;
@@ -390,12 +440,22 @@ impl ZargApp {
                             ui.weak("Close the operation dialog before searching.");
                         }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if close_or_cancel(icon_button(ui, &self.icons, UiIcon::Close, "Close", !running), true) {
+                            if running {
+                                if close_or_cancel(icon_button(ui, &self.icons, UiIcon::Cancel, "Cancel", !cancelling && state.cancellation.is_some()), true)
+                                    && let Some(token) = &state.cancellation
+                                {
+                                    token.store(true, Ordering::Relaxed);
+                                }
+                            } else if close_or_cancel(icon_button(ui, &self.icons, UiIcon::Close, "Close", true), true) {
                                 open = false;
                             }
                             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                let status = if running {
+                                let status = if cancelling {
+                                    "Cancelling...".to_owned()
+                                } else if running {
                                     "Searching...".to_owned()
+                                } else if state.cancelled {
+                                    "Search cancelled.".to_owned()
                                 } else {
                                     match &state.result {
                                         Some(Ok(results)) => format!("Results: {}", results.result_count),
@@ -451,7 +511,9 @@ impl ZargApp {
                             });
                         });
                         ui.separator();
-                        if running {
+                        if cancelling {
+                            ui.label("Cancelling search...");
+                        } else if running {
                             ui.horizontal(|ui| {
                                 ui.spinner();
                                 ui.label("Searching archive...");
@@ -490,6 +552,14 @@ impl ZargApp {
             self.open_entry_externally(path);
         }
     }
+}
+
+fn find_cancelled(result: &FindResult, requested: bool) -> bool {
+    requested
+        && (result.is_ok()
+            || result.as_ref().is_err_and(|error| {
+                error == "operation cancelled" || error.ends_with(": operation cancelled")
+            }))
 }
 
 #[cfg(test)]
@@ -565,7 +635,7 @@ mod tests {
             ),
             file("b.txt", &[(9, false), (10, true)]),
         ];
-        let grouped = FindResults::new(files.clone(), "match", true).unwrap();
+        let grouped = FindResults::new(files.clone(), "match", true, None).unwrap();
         assert_eq!(grouped.result_count, 3);
         assert_eq!(
             grouped
@@ -579,7 +649,7 @@ mod tests {
         assert_eq!(grouped.rows[2].highlights, vec![0..5]);
         assert!(grouped.rows[0].highlights.is_empty());
 
-        let ungrouped = FindResults::new(files, "match", false).unwrap();
+        let ungrouped = FindResults::new(files, "match", false, None).unwrap();
         assert_eq!(ungrouped.result_count, 7);
         assert_eq!(
             ungrouped
@@ -632,7 +702,9 @@ mod tests {
                 .iter()
                 .any(|(text, _)| text == "Results: 0")
         );
-        app.find.result = Some(Ok(FindResults::new(Vec::new(), "match", true).unwrap()));
+        app.find.result = Some(Ok(
+            FindResults::new(Vec::new(), "match", true, None).unwrap()
+        ));
         assert!(
             frame(&context, &mut app)
                 .iter()
@@ -649,7 +721,7 @@ mod tests {
                 })
                 .collect(),
         }];
-        app.find.result = Some(Ok(FindResults::new(files, "match", true).unwrap()));
+        app.find.result = Some(Ok(FindResults::new(files, "match", true, None).unwrap()));
         let labels = frame(&context, &mut app);
         let status = labels
             .iter()
@@ -672,13 +744,25 @@ mod tests {
                 .iter()
                 .any(|(text, _)| text == "Results: 0")
         );
-        let (_sender, receiver) = mpsc::channel();
+        let (sender, receiver) = mpsc::channel();
         app.find.receiver = Some(receiver);
+        let cancellation = Arc::new(AtomicBool::new(false));
+        app.find.cancellation = Some(Arc::clone(&cancellation));
+        let labels = frame(&context, &mut app);
+        assert!(labels.iter().any(|(text, _)| text == "Searching..."));
+        assert!(labels.iter().any(|(text, _)| text == "Cancel"));
+        assert!(!labels.iter().any(|(text, _)| text == "Close"));
+        cancellation.store(true, Ordering::Relaxed);
         assert!(
             frame(&context, &mut app)
                 .iter()
-                .any(|(text, _)| text == "Searching...")
+                .any(|(text, _)| text == "Cancelling...")
         );
+        sender.send(Ok(FindResults::default())).unwrap();
+        app.poll_find(&context);
+        let labels = frame(&context, &mut app);
+        assert!(labels.iter().any(|(text, _)| text == "Search cancelled."));
+        assert!(labels.iter().any(|(text, _)| text == "Close"));
     }
 
     #[test]
@@ -776,7 +860,19 @@ mod tests {
         app.find.before = 1;
         app.find.after = 1;
         app.start_find();
+        app.find
+            .cancellation
+            .as_ref()
+            .unwrap()
+            .store(true, Ordering::Relaxed);
         wait(&mut app);
+        assert!(app.find.cancelled);
+        assert!(app.find.result.is_none());
+        assert!(!app.busy);
+
+        app.start_find();
+        wait(&mut app);
+        assert!(!app.find.cancelled);
         let results = app.find.result.as_ref().unwrap().as_ref().unwrap();
         assert_eq!(results.files.len(), 2);
         assert_eq!(
@@ -915,6 +1011,13 @@ mod tests {
     }
 
     #[test]
+    fn cancellation_does_not_hide_unrelated_search_errors() {
+        assert!(!find_cancelled(&Err("archive is corrupt".into()), true));
+        assert!(find_cancelled(&Err("operation cancelled".into()), true));
+        assert!(!find_cancelled(&Ok(FindResults::default()), false));
+    }
+
+    #[test]
     fn find_requires_a_loaded_nonempty_archive_not_just_visible_entries() {
         let mut app = ZargApp::default();
         assert!(!app.can_find());
@@ -1011,11 +1114,15 @@ mod tests {
 
         let (sender, receiver) = mpsc::channel();
         app.find.receiver = Some(receiver);
+        let cancellation = Arc::new(AtomicBool::new(false));
+        app.find.cancellation = Some(Arc::clone(&cancellation));
         frame(&context, &mut app, key(egui::Key::F, egui::Modifiers::ALT));
         frame(&context, &mut app, key(egui::Key::C, egui::Modifiers::ALT));
         assert!(app.find.open);
+        assert!(cancellation.load(Ordering::Relaxed));
         sender.send(Ok(FindResults::default())).unwrap();
         app.poll_find(&context);
+        assert!(app.find.cancelled);
         frame(&context, &mut app, key(egui::Key::C, egui::Modifiers::ALT));
         assert!(!app.find.open);
     }

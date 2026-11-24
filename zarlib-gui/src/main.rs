@@ -59,6 +59,7 @@ fn main() -> eframe::Result {
     }
     let options = eframe::NativeOptions {
         viewport: viewport
+            .with_active(true)
             .with_min_inner_size([720.0, 460.0])
             .with_app_id("zarg")
             .with_icon(eframe::egui::IconData {

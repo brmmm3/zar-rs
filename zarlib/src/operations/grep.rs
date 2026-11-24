@@ -1,4 +1,4 @@
-use super::{FilterSet, PasswordSet, PreparedExtraction};
+use super::{FilterSet, PasswordSet, PreparedExtraction, Progress, ProgressReporter};
 use crate::{ArchivePath, TocEntry};
 use fancy_regex::{BytesMode, Regex, RegexBuilder};
 #[cfg(not(target_os = "wasi"))]
@@ -55,6 +55,20 @@ pub fn grep_archive(
     pattern: &str,
     options: GrepOptions<'_>,
 ) -> Result<Vec<GrepFile>, Box<dyn std::error::Error>> {
+    grep_archive_with_progress(archive, file_filter, pattern, options, None)
+}
+
+/// Searches an archive like [`grep_archive`], checking for cancellation during
+/// archive preparation and while scanning file contents.
+pub fn grep_archive_with_progress(
+    archive: &str,
+    file_filter: &str,
+    pattern: &str,
+    options: GrepOptions<'_>,
+    progress: Option<&dyn Progress>,
+) -> Result<Vec<GrepFile>, Box<dyn std::error::Error>> {
+    let progress = ProgressReporter::new(progress);
+    progress.check_cancelled()?;
     let regex = RegexBuilder::new(pattern)
         .bytes_mode(BytesMode::UnicodeBytes)
         .build()?;
@@ -66,6 +80,7 @@ pub fn grep_archive(
         options.to,
         options.passwords.unwrap_or(&default_passwords),
         &filters,
+        progress.0,
     )?;
     let paths: Vec<_> = prepared
         .toc()
@@ -76,7 +91,10 @@ pub fn grep_archive(
         })
         .collect();
     let search = |path: &&ArchivePath| -> Result<Option<GrepFile>, String> {
-        let mut writer = SearchWriter::new(&regex, options.before, options.after);
+        progress
+            .check_cancelled()
+            .map_err(|error| error.to_string())?;
+        let mut writer = SearchWriter::new(&regex, options.before, options.after, &progress);
         prepared
             .write_file_to(path, &mut writer)
             .map_err(|error| format!("cannot search {path}: {error}"))?;
@@ -89,18 +107,16 @@ pub fn grep_archive(
         }))
     };
     #[cfg(not(target_os = "wasi"))]
-    let results: Vec<_> = paths.par_iter().map(search).collect();
+    let results: Vec<_> = paths.par_iter().map(search).collect::<Result<_, _>>()?;
     #[cfg(target_os = "wasi")]
-    let results: Vec<_> = paths.iter().map(search).collect();
-    results
-        .into_iter()
-        .filter_map(|result| result.transpose())
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(Into::into)
+    let results: Vec<_> = paths.iter().map(search).collect::<Result<_, _>>()?;
+    progress.check_cancelled()?;
+    Ok(results.into_iter().flatten().collect())
 }
 
 struct SearchWriter<'a> {
     regex: &'a Regex,
+    progress: &'a ProgressReporter<'a>,
     before: usize,
     after: usize,
     remaining_after: usize,
@@ -111,9 +127,15 @@ struct SearchWriter<'a> {
 }
 
 impl<'a> SearchWriter<'a> {
-    fn new(regex: &'a Regex, before: usize, after: usize) -> Self {
+    fn new(
+        regex: &'a Regex,
+        before: usize,
+        after: usize,
+        progress: &'a ProgressReporter<'a>,
+    ) -> Self {
         Self {
             regex,
+            progress,
             before,
             after,
             remaining_after: 0,
@@ -125,6 +147,7 @@ impl<'a> SearchWriter<'a> {
     }
 
     fn line(&mut self, crlf: bool) -> io::Result<()> {
+        self.check_cancelled()?;
         if crlf && self.pending.last() == Some(&b'\r') {
             self.pending.pop();
         }
@@ -166,10 +189,20 @@ impl<'a> SearchWriter<'a> {
         }
         Ok(())
     }
+
+    fn check_cancelled(&self) -> io::Result<()> {
+        if self.progress.is_cancelled() {
+            // Write::write_all retries Interrupted errors.
+            Err(io::Error::other("operation cancelled"))
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl Write for SearchWriter<'_> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.check_cancelled()?;
         for part in buf.split_inclusive(|byte| *byte == b'\n') {
             if let Some(line) = part.strip_suffix(b"\n") {
                 self.pending.extend_from_slice(line);
@@ -178,10 +211,39 @@ impl Write for SearchWriter<'_> {
                 self.pending.extend_from_slice(part);
             }
         }
+
         Ok(buf.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        Ok(())
+        self.check_cancelled()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct CancelDuringLines(AtomicUsize);
+
+    impl Progress for CancelDuringLines {
+        fn message(&self, _: &str) {}
+        fn advance(&self, _: u64) {}
+        fn is_cancelled(&self) -> bool {
+            self.0.fetch_add(1, Ordering::Relaxed) >= 2
+        }
+    }
+
+    #[test]
+    fn cancellation_interrupts_write_all_while_scanning_lines() {
+        let progress = CancelDuringLines(AtomicUsize::new(0));
+        let reporter = ProgressReporter::new(Some(&progress));
+        let regex = Regex::new("match").unwrap();
+        let mut writer = SearchWriter::new(&regex, 0, 0, &reporter);
+        let error = writer.write_all(b"match\nmatch\nmatch\n").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert!(error.to_string().contains("operation cancelled"));
+        assert_eq!(writer.lines.len(), 1);
     }
 }

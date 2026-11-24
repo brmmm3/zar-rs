@@ -153,8 +153,9 @@ impl PreparedExtraction {
         to: Option<&str>,
         passwords: &PasswordSet,
         filters: &FilterSet,
+        progress: Option<&dyn Progress>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        Self::prepare(archive, to, passwords, None, true, Some(filters))
+        Self::prepare(archive, to, passwords, progress, true, Some(filters))
     }
 
     fn prepare(

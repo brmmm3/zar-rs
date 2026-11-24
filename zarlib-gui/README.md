@@ -27,7 +27,8 @@ Open, Add, Extract, Info, and Join respectively, when those commands are availab
 **Ctrl+F** focuses the filter field.
 **Ctrl+S** saves changes and **Ctrl+Shift+S** opens Save As.
 In zarg's dialogs, **Alt+C** activates an enabled Close or Cancel button.
-New dialogs request window focus; the window manager may restrict activation.
+The main window requests focus at startup, and new dialogs request focus when
+opened. The window manager may restrict activation.
 With the file list focused, **Ctrl+A** selects visible entries, **Ctrl+I**
 inverts the visible selection, **Delete** removes selected entries when
 editing is allowed, and **Enter** opens the first selected entry in view order
@@ -135,7 +136,9 @@ paths and line numbers; matching text is bold, and line contents are limited to
 250 displayed characters. Context lines appear in the same multiline result;
 overlapping or adjacent context ranges are merged. Double-click a result to
 extract and open its file with the default application. Press **Alt+F** to
-search, **Enter** in the regex field to search, or **Alt+C** to close the dialog.
+search or **Enter** in the regex field to search. While searching, **Cancel**
+stops the search; otherwise **Close** closes the dialog. **Alt+C** activates
+the current button.
 The status bar counts displayed results, including merged context groups.
 Invalid UTF-8 bytes in results are displayed as replacement characters. Unlock
 encrypted commits first when their passwords are needed for the search.

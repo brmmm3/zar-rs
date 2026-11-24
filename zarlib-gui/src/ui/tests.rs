@@ -529,6 +529,113 @@ fn dialog_focus_is_requested_on_open_and_reopen_but_not_while_open() {
 }
 
 #[test]
+fn dialog_focus_retries_after_mapping_then_stops_on_focus_or_timeout() {
+    let context = egui::Context::default();
+    context.set_embed_viewports(false);
+    let viewport_id = egui::ViewportId::from_hash_of("settings-dialog");
+
+    for (time, exists, focused, expect_focus) in [
+        (0.0, false, false, true),
+        (0.05, true, false, false),
+        (0.11, true, false, true),
+        (0.22, true, true, false),
+        (0.33, true, false, false),
+        (1.0, false, false, true),
+        (2.01, true, false, false),
+    ] {
+        let mut input = egui::RawInput {
+            time: Some(time),
+            ..Default::default()
+        };
+        if exists {
+            input.viewports.insert(
+                viewport_id,
+                egui::ViewportInfo {
+                    focused: Some(focused),
+                    ..Default::default()
+                },
+            );
+        }
+        let output = context.run_ui(input, |ui| {
+            let builder = ZargApp::centered_dialog_viewport_builder(
+                ui.ctx(),
+                viewport_id,
+                "Settings",
+                [480.0, 360.0],
+                true,
+            );
+            ui.ctx()
+                .show_viewport_deferred(viewport_id, builder, |_, _| {});
+        });
+        let requested = output.viewport_output[&viewport_id]
+            .commands
+            .iter()
+            .any(|command| matches!(command, egui::ViewportCommand::Focus));
+        assert_eq!(requested, expect_focus, "time {time}");
+        output.drop_without_applying_deltas();
+    }
+}
+
+#[test]
+fn startup_focus_stops_retrying_when_a_dialog_opens() {
+    let context = egui::Context::default();
+    context.set_embed_viewports(false);
+    let dialog = egui::ViewportId::from_hash_of("settings-dialog");
+    let output = context.run_ui(
+        egui::RawInput {
+            time: Some(0.0),
+            ..Default::default()
+        },
+        |ui| ZargApp::focus_new_window(ui.ctx(), egui::ViewportId::ROOT, false),
+    );
+    assert!(
+        output.viewport_output[&egui::ViewportId::ROOT]
+            .commands
+            .iter()
+            .any(|command| matches!(command, egui::ViewportCommand::Focus))
+    );
+    output.drop_without_applying_deltas();
+
+    let output = context.run_ui(
+        egui::RawInput {
+            time: Some(0.11),
+            ..Default::default()
+        },
+        |ui| {
+            ZargApp::focus_new_window(ui.ctx(), dialog, false);
+            ui.ctx()
+                .show_viewport_deferred(dialog, egui::ViewportBuilder::default(), |_, _| {});
+        },
+    );
+    assert!(
+        output.viewport_output[&dialog]
+            .commands
+            .iter()
+            .any(|command| matches!(command, egui::ViewportCommand::Focus))
+    );
+    output.drop_without_applying_deltas();
+
+    let output = context.run_ui(
+        egui::RawInput {
+            time: Some(0.22),
+            ..Default::default()
+        },
+        |ui| {
+            ZargApp::focus_new_window(ui.ctx(), egui::ViewportId::ROOT, true);
+            ui.ctx()
+                .show_viewport_deferred(dialog, egui::ViewportBuilder::default(), |_, _| {});
+        },
+    );
+    assert!(
+        !output.viewport_output[&egui::ViewportId::ROOT]
+            .commands
+            .iter()
+            .any(|command| matches!(command, egui::ViewportCommand::Focus))
+    );
+    output.drop_without_applying_deltas();
+}
+
+#[test]
 fn window_and_file_list_columns_survive_settings_round_trip() {
     let context = egui::Context::default();
     let mut app = ZargApp {

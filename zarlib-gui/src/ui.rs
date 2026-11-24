@@ -1392,6 +1392,7 @@ pub struct ZargApp {
     archive: String,
     read_archive: String,
     displayed_window_title: Option<String>,
+    startup_focus_requested: bool,
     imported_archive_dir: Option<tempfile::TempDir>,
     working_archive_dir: Option<tempfile::TempDir>,
     overlay_cache: Option<OverlayCache>,
@@ -1522,6 +1523,7 @@ impl Default for ZargApp {
             archive: String::new(),
             read_archive: String::new(),
             displayed_window_title: None,
+            startup_focus_requested: false,
             imported_archive_dir: None,
             working_archive_dir: None,
             overlay_cache: None,
@@ -4598,7 +4600,11 @@ impl ZargApp {
                     self.pending_switch_after_save = false;
                     match result {
                         Ok(summary) => {
-                            self.status = summary.clone();
+                            self.status = if self.find.cancelled && summary == "Search complete." {
+                                "Search cancelled.".to_owned()
+                            } else {
+                                summary.clone()
+                            };
                             if switch_after_save
                                 && let Some(action) = self.pending_archive_switch.take()
                             {
@@ -5957,6 +5963,64 @@ impl ZargApp {
         })
     }
 
+    fn focus_new_window(context: &egui::Context, viewport_id: egui::ViewportId, exists: bool) {
+        if context.embed_viewports() {
+            return;
+        }
+
+        #[derive(Clone, Copy)]
+        struct PendingFocus {
+            viewport_id: egui::ViewportId,
+            next_attempt: f64,
+            deadline: f64,
+        }
+
+        let key = egui::Id::unique("pending-window-focus");
+        let now = context.input(|input| input.time);
+        if !exists {
+            context.data_mut(|data| {
+                data.insert_temp(
+                    key,
+                    PendingFocus {
+                        viewport_id,
+                        next_attempt: now + 0.1,
+                        deadline: now + 1.0,
+                    },
+                );
+            });
+            context.send_viewport_cmd_to(viewport_id, egui::ViewportCommand::Focus);
+            context.request_repaint_after(Duration::from_millis(100));
+            return;
+        }
+
+        let Some(mut pending) = context.data(|data| data.get_temp::<PendingFocus>(key)) else {
+            return;
+        };
+        if pending.viewport_id != viewport_id {
+            return;
+        }
+        let focused = context.input(|input| {
+            input
+                .raw
+                .viewports
+                .get(&viewport_id)
+                .and_then(|viewport| viewport.focused)
+                == Some(true)
+        });
+        if focused || now >= pending.deadline {
+            context.data_mut(|data| data.remove::<PendingFocus>(key));
+            return;
+        }
+        if now >= pending.next_attempt {
+            context.send_viewport_cmd_to(viewport_id, egui::ViewportCommand::Focus);
+            pending.next_attempt = now + 0.1;
+            context.data_mut(|data| data.insert_temp(key, pending));
+        }
+        context.request_repaint_after(Duration::from_secs_f64(
+            (pending.next_attempt - now).min(pending.deadline - now),
+        ));
+    }
+
     pub(super) fn centered_dialog_viewport_builder(
         context: &egui::Context,
         viewport_id: egui::ViewportId,
@@ -5969,11 +6033,9 @@ impl ZargApp {
             .with_title(title)
             .with_resizable(resizable)
             .with_clamp_size_to_monitor_size(true);
+        Self::focus_new_window(context, viewport_id, viewport_exists);
         if viewport_exists {
             return builder;
-        }
-        if !context.embed_viewports() {
-            context.send_viewport_cmd_to(viewport_id, egui::ViewportCommand::Focus);
         }
         let parent_rect = context
             .input(|input| input.viewport().outer_rect)
@@ -6968,6 +7030,12 @@ impl eframe::App for ZargApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let context = ui.ctx().clone();
+        Self::focus_new_window(
+            &context,
+            egui::ViewportId::ROOT,
+            self.startup_focus_requested,
+        );
+        self.startup_focus_requested = true;
         let window_rect = ui.max_rect();
         self.drop_target = None;
         self.handle_global_shortcuts(&context);

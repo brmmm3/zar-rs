@@ -1,9 +1,11 @@
 use std::io::Cursor;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use zarlib::operations::{
-    EncodingOptions, GrepOptions, PasswordSet, StreamEncryption, StreamInput, add_archive,
-    create_archive, create_archive_from_readers, grep_archive,
+    EncodingOptions, GrepOptions, PasswordSet, Progress, StreamEncryption, StreamInput,
+    add_archive, create_archive, create_archive_from_readers, grep_archive,
+    grep_archive_with_progress,
 };
 use zarlib::{ArchivePath, ContentAead, EncryptionScope, TocEntry};
 
@@ -25,6 +27,70 @@ fn archive(path: &Path, files: &[(&str, &[u8])], encryption: Option<StreamEncryp
         encryption,
     )
     .unwrap();
+}
+
+#[test]
+fn grep_honors_cancellation_before_preparing_archive() {
+    struct Cancelled;
+    impl Progress for Cancelled {
+        fn message(&self, _: &str) {}
+        fn advance(&self, _: u64) {}
+        fn is_cancelled(&self) -> bool {
+            true
+        }
+    }
+    let error = grep_archive_with_progress(
+        "nonexistent.zar",
+        "*",
+        "match",
+        GrepOptions::default(),
+        Some(&Cancelled),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("operation cancelled"));
+}
+
+#[test]
+fn grep_stops_during_file_scanning_without_returning_partial_results() {
+    struct CancelAfter {
+        checks: AtomicUsize,
+        limit: usize,
+    }
+    impl Progress for CancelAfter {
+        fn message(&self, _: &str) {}
+        fn advance(&self, _: u64) {}
+        fn is_cancelled(&self) -> bool {
+            self.checks.fetch_add(1, Ordering::Relaxed) >= self.limit
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.zar");
+    let data = b"match\n".repeat(4_000);
+    archive(&path, &[("file.txt", &data)], None);
+    let count = CancelAfter {
+        checks: AtomicUsize::new(0),
+        limit: usize::MAX,
+    };
+    let search = |progress: &CancelAfter| {
+        grep_archive_with_progress(
+            path.to_str().unwrap(),
+            "*",
+            "match",
+            GrepOptions::default(),
+            Some(progress),
+        )
+    };
+    assert_eq!(search(&count).unwrap()[0].lines.len(), 4_000);
+    let total_checks = count.checks.load(Ordering::Relaxed);
+    assert!(total_checks > 4_000);
+    let cancelled = CancelAfter {
+        checks: AtomicUsize::new(0),
+        limit: total_checks / 2,
+    };
+    let error = search(&cancelled).unwrap_err();
+    assert!(error.to_string().contains("operation cancelled"));
+    assert!(cancelled.checks.load(Ordering::Relaxed) >= cancelled.limit);
 }
 
 #[test]
