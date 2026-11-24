@@ -663,24 +663,22 @@ impl ZargApp {
                 let highlight_failed = self.find.result.as_ref().is_some_and(Result::is_err);
                 self.find.cancelled = !highlight_failed && find_cancelled(&result, cancelled);
                 if self.find.cancelled {
-                    self.find.result = None;
                     self.status = "Search cancelled.".to_owned();
-                } else {
-                    if !highlight_failed && (result.is_err() || self.find.result.is_none()) {
-                        self.find.result = Some(result);
-                    }
-                    if let Some(Ok(results)) = &mut self.find.result {
-                        results.finish(self.find.before > 0 || self.find.after > 0);
-                        self.find.selected_row = None;
-                    }
-                    if self.find.chain
-                        && !highlight_failed
-                        && let Some(Ok(results)) = &self.find.result
-                    {
-                        match results.files.iter().map(ArchivePath::new).collect() {
-                            Ok(paths) => self.find.chain_paths = Some(paths),
-                            Err(error) => self.find.result = Some(Err(error.to_string())),
-                        }
+                } else if !highlight_failed && (result.is_err() || self.find.result.is_none()) {
+                    self.find.result = Some(result);
+                }
+                if let Some(Ok(results)) = &mut self.find.result {
+                    results.finish(self.find.before > 0 || self.find.after > 0);
+                    self.find.selected_row = None;
+                }
+                if self.find.chain
+                    && !self.find.cancelled
+                    && !highlight_failed
+                    && let Some(Ok(results)) = &self.find.result
+                {
+                    match results.files.iter().map(ArchivePath::new).collect() {
+                        Ok(paths) => self.find.chain_paths = Some(paths),
+                        Err(error) => self.find.result = Some(Err(error.to_string())),
                     }
                 }
             }
@@ -733,6 +731,14 @@ impl ZargApp {
                 }
                 if consume_alt_key(ui.ctx(), egui::Key::F) && can_search && !running {
                     start = true;
+                }
+                if running
+                    && ui.ctx().input_mut(|input| {
+                        input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
+                    })
+                    && let Some(token) = &state.cancellation
+                {
+                    token.store(true, Ordering::Relaxed);
                 }
                 egui::Panel::bottom("find-actions")
                     .frame(egui::Frame::new().inner_margin(3))
@@ -858,7 +864,8 @@ impl ZargApp {
                         ui.separator();
                         if cancelling {
                             ui.label("Cancelling search...");
-                        } else if let Some(result) = &state.result {
+                        }
+                        if let Some(result) = &state.result {
                             match result {
                                 Ok(results) if results.rows.is_empty() && !running => {
                                     ui.label("No matches found.");
@@ -874,7 +881,7 @@ impl ZargApp {
                                     ui.colored_label(ui.visuals().error_fg_color, error);
                                 }
                             }
-                        } else if running {
+                        } else if running && !cancelling {
                             ui.horizontal(|ui| {
                                 ui.spinner();
                                 ui.label("Searching archive...");
@@ -1066,7 +1073,9 @@ mod tests {
                 })
                 .collect(),
         }];
-        app.find.result = Some(Ok(FindResults::new(files, "match", true, None).unwrap()));
+        app.find.result = Some(Ok(
+            FindResults::new(files.clone(), "match", true, None).unwrap()
+        ));
         let labels = frame(&context, &mut app);
         let status = labels
             .iter()
@@ -1097,17 +1106,17 @@ mod tests {
         assert!(labels.iter().any(|(text, _)| text == "Searching..."));
         assert!(labels.iter().any(|(text, _)| text == "Cancel"));
         assert!(!labels.iter().any(|(text, _)| text == "Close"));
+        app.find.result = Some(Ok(FindResults::new(files, "match", true, None).unwrap()));
         cancellation.store(true, Ordering::Relaxed);
-        assert!(
-            frame(&context, &mut app)
-                .iter()
-                .any(|(text, _)| text == "Cancelling...")
-        );
+        let labels = frame(&context, &mut app);
+        assert!(labels.iter().any(|(text, _)| text == "Cancelling..."));
+        assert!(labels.iter().any(|(text, _)| text == "1 matching file(s)."));
         sender.send(Ok(FindResults::default())).unwrap();
         app.poll_find(&context);
         let labels = frame(&context, &mut app);
         assert!(labels.iter().any(|(text, _)| text == "Search cancelled."));
         assert!(labels.iter().any(|(text, _)| text == "Close"));
+        assert!(labels.iter().any(|(text, _)| text == "1 matching file(s)."));
     }
 
     #[test]
@@ -1244,6 +1253,82 @@ mod tests {
                 .rows
                 .len(),
             1
+        );
+    }
+
+    #[test]
+    fn cancelled_find_keeps_streamed_results_without_advancing_chain() {
+        let context = egui::Context::default();
+        let mut app = ZargApp::default();
+        let (done_tx, done_rx) = mpsc::channel();
+        let (line_tx, line_rx) = mpsc::sync_channel(3);
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let previous = [ArchivePath::new("previous.txt").unwrap()]
+            .into_iter()
+            .collect();
+        app.find.receiver = Some(done_rx);
+        app.find.lines = Some(line_rx);
+        app.find.result_regex = Some(regex("match"));
+        app.find.cancellation = Some(Arc::clone(&cancellation));
+        app.find.chain = true;
+        app.find.chain_paths = Some(previous);
+        app.find.before = 1;
+        app.find.selected_row = Some(0);
+        for (path, number, bytes, is_match) in [
+            ("z.txt", 2, b"match".as_slice(), true),
+            ("a.txt", 1, b"context".as_slice(), false),
+            ("a.txt", 2, b"match".as_slice(), true),
+        ] {
+            line_tx
+                .send((
+                    path.to_owned(),
+                    operations::GrepLine {
+                        line_number: number,
+                        bytes: bytes.to_vec(),
+                        is_match,
+                    },
+                ))
+                .unwrap();
+            if !is_match {
+                app.poll_find(&context);
+                assert_eq!(
+                    app.find
+                        .result
+                        .as_ref()
+                        .unwrap()
+                        .as_ref()
+                        .unwrap()
+                        .rows
+                        .len(),
+                    2
+                );
+            }
+        }
+
+        cancellation.store(true, Ordering::Relaxed);
+        done_tx.send(Err("operation cancelled".into())).unwrap();
+        app.poll_find(&context);
+        assert!(app.find.cancelled);
+        assert_eq!(app.status, "Search cancelled.");
+        assert!(app.find.selected_row.is_none());
+        assert_eq!(
+            app.find.chain_paths.as_ref().unwrap(),
+            &[ArchivePath::new("previous.txt").unwrap()]
+                .into_iter()
+                .collect()
+        );
+        let results = app.find.result.as_ref().unwrap().as_ref().unwrap();
+        assert_eq!(
+            results
+                .rows
+                .iter()
+                .map(|row| (
+                    results.files[row.file].as_str(),
+                    row.line_number,
+                    row.group_start
+                ))
+                .collect::<Vec<_>>(),
+            [("a.txt", 1, 0), ("a.txt", 2, 0), ("z.txt", 2, 2)]
         );
     }
 
@@ -1496,7 +1581,6 @@ mod tests {
             .store(true, Ordering::Relaxed);
         wait(&mut app);
         assert!(app.find.cancelled);
-        assert!(app.find.result.is_none());
         assert!(!app.busy);
 
         app.start_find();
@@ -1836,6 +1920,27 @@ mod tests {
         assert!(app.find.open);
         assert!(cancellation.load(Ordering::Relaxed));
         sender.send(Ok(FindResults::default())).unwrap();
+        app.poll_find(&context);
+        assert!(app.find.cancelled);
+
+        frame(
+            &context,
+            &mut app,
+            key(egui::Key::Escape, egui::Modifiers::NONE),
+        );
+        assert!(app.find.open);
+        let (sender, receiver) = mpsc::channel();
+        app.find.receiver = Some(receiver);
+        let cancellation = Arc::new(AtomicBool::new(false));
+        app.find.cancellation = Some(Arc::clone(&cancellation));
+        frame(
+            &context,
+            &mut app,
+            key(egui::Key::Escape, egui::Modifiers::NONE),
+        );
+        assert!(app.find.open);
+        assert!(cancellation.load(Ordering::Relaxed));
+        sender.send(Err("operation cancelled".into())).unwrap();
         app.poll_find(&context);
         assert!(app.find.cancelled);
         frame(&context, &mut app, key(egui::Key::C, egui::Modifiers::ALT));

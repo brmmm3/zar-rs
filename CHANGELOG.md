@@ -7,6 +7,8 @@ until a version is released.
 
 ### Changed
 
+- Retained partial results when cancelling a zarg Find search and added Escape
+  as a cancellation shortcut.
 - Enabled system clipboard support in edit fields and added Alt+F to open Find
   from the main window.
 - Disabled Find searches when the search field is empty.

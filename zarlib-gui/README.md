@@ -147,7 +147,10 @@ overlapping or adjacent context ranges are merged. Double-click a result to
 extract and open its file with the default application. Press **Alt+F** to
 search or **Enter** in the filename glob or search field to search. Searching
 is disabled when the search field is empty. While
-searching, **Cancel** stops the search; otherwise **Close** closes the dialog.
+searching, **Cancel** or **Escape** stops the search and keeps results found so
+far; otherwise **Close** closes the dialog. Cancelled results may be
+incomplete, and files interrupted during the search may not have been fully
+validated.
 **Alt+C** activates the current button.
 The status bar counts displayed results, including merged context groups.
 Invalid UTF-8 bytes in results are displayed as replacement characters. Unlock
