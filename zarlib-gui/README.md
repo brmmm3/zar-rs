@@ -47,7 +47,7 @@ Choose **New** to configure a new archive. General sets compression level and
 block size; Advanced controls metadata and input handling; Encryption chooses
 the algorithm, scope, and password; Filters restrict the included paths. The
 new archive starts as an unsaved session; add files and use **Save** or
-**Save as** to write it.
+**Save as** to write it. Press **Alt+N** to activate New.
 
 ### Add to archive
 
@@ -57,6 +57,7 @@ Use **Add** or drop files into the main window. Select inputs on the Files tab
 and review compression, metadata, encryption, and filters on the other tabs.
 The Unlock tab is available when existing encrypted commits need passwords.
 Add records a new commit; the archive's existing history remains available.
+Press **Alt+A** to activate Add when it is enabled.
 
 ### Extract
 
@@ -66,6 +67,7 @@ Choose a destination and revision, and decide how to handle case collisions
 and existing files. General can restrict extraction to the current selection;
 Advanced contains metadata, special-file, dry-run, and validation options.
 Filter narrows the output, and Encryption appears for encrypted commits.
+Press **Alt+E** to activate Extract when it is enabled.
 Selected folders include their contents. The **Ask** policies display a
 question with **Yes**, **No**, **Yes to all**, **No to all**, and **Cancel**
 options. **Cancel** stops the extraction; files already extracted remain in

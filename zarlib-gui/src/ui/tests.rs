@@ -281,6 +281,95 @@ fn alt_c_closes_dialogs_and_cancels_their_actions() {
 }
 
 #[test]
+fn operation_dialog_action_shortcuts_respect_enabled_and_modal_states() {
+    fn press(
+        context: &egui::Context,
+        app: &mut ZargApp,
+        key: egui::Key,
+        modifiers: egui::Modifiers,
+    ) {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1000.0, 800.0),
+            )),
+            events: [true, false]
+                .into_iter()
+                .map(|pressed| egui::Event::Key {
+                    key,
+                    physical_key: None,
+                    pressed,
+                    repeat: false,
+                    modifiers,
+                })
+                .collect(),
+            ..Default::default()
+        };
+        context
+            .run_ui(input, |ui| app.render_operation_dialog(ui.ctx()))
+            .drop_without_applying_deltas();
+    }
+
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("input.txt");
+    let destination = directory.path().join("extracted");
+    std::fs::write(&source, b"contents").unwrap();
+    let context = egui::Context::default();
+    let mut app = ZargApp::default();
+
+    app.show_operation(OperationKind::NewArchive);
+    app.operation.password = "mismatch".into();
+    press(&context, &mut app, egui::Key::N, egui::Modifiers::ALT);
+    assert_eq!(app.operation.kind, Some(OperationKind::NewArchive));
+    app.operation.password.clear();
+    press(
+        &context,
+        &mut app,
+        egui::Key::N,
+        egui::Modifiers::ALT | egui::Modifiers::CTRL,
+    );
+    assert_eq!(app.operation.kind, Some(OperationKind::NewArchive));
+    app.file_dialog.open_for_selection(None);
+    press(&context, &mut app, egui::Key::N, egui::Modifiers::ALT);
+    assert_eq!(app.operation.kind, Some(OperationKind::NewArchive));
+    app.file_dialog.open = false;
+    app.report = Some("error".into());
+    press(&context, &mut app, egui::Key::N, egui::Modifiers::ALT);
+    assert_eq!(app.operation.kind, Some(OperationKind::NewArchive));
+    app.report = None;
+    press(&context, &mut app, egui::Key::N, egui::Modifiers::ALT);
+    assert!(app.busy);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+
+    app.show_operation(OperationKind::AddToArchive);
+    press(&context, &mut app, egui::Key::A, egui::Modifiers::ALT);
+    assert_eq!(app.operation.kind, Some(OperationKind::AddToArchive));
+    app.operation.input_paths.push(source);
+    press(&context, &mut app, egui::Key::N, egui::Modifiers::ALT);
+    assert_eq!(app.operation.kind, Some(OperationKind::AddToArchive));
+    press(&context, &mut app, egui::Key::A, egui::Modifiers::ALT);
+    assert!(app.busy);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(app.entries.iter().any(|(path, _)| path == "input.txt"));
+
+    app.show_operation(OperationKind::ExtractArchive);
+    app.operation.destination.clear();
+    press(&context, &mut app, egui::Key::E, egui::Modifiers::ALT);
+    assert_eq!(app.operation.kind, Some(OperationKind::ExtractArchive));
+    app.operation.destination = destination.to_string_lossy().into_owned();
+    press(&context, &mut app, egui::Key::E, egui::Modifiers::ALT);
+    assert!(app.busy);
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert_eq!(
+        std::fs::read(destination.join("input.txt")).unwrap(),
+        b"contents"
+    );
+}
+
+#[test]
 fn delayed_default_password_is_applied_when_ready() {
     let mut app = ZargApp::default();
     let (sender, receiver) = mpsc::channel();

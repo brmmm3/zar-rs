@@ -1667,8 +1667,23 @@ impl ZargApp {
             ) {
                 self.close_operation();
             }
+            let shortcut = match kind {
+                OperationKind::NewArchive => Some((egui::Key::N, "Alt+N")),
+                OperationKind::AddToArchive => Some((egui::Key::A, "Alt+A")),
+                OperationKind::ExtractArchive => Some((egui::Key::E, "Alt+E")),
+                _ => None,
+            };
             let response = icon_button(ui, &self.icons, icon, label, can_start);
-            if response.clicked() {
+            let response = if let Some((_, tooltip)) = shortcut {
+                response.on_hover_text(tooltip)
+            } else {
+                response
+            };
+            if response.clicked()
+                || (shortcut_enabled
+                    && response.enabled()
+                    && shortcut.is_some_and(|(key, _)| consume_alt_key(ui.ctx(), key)))
+            {
                 let form = std::mem::take(&mut self.operation);
                 self.start_operation(form);
             }

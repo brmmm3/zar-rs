@@ -7,6 +7,7 @@ until a version is released.
 
 ### Changed
 
+- Added Alt+N, Alt+A, and Alt+E shortcuts to the New, Add, and Extract dialogs.
 - Retained partial results when cancelling a zarg Find search and added Escape
   as a cancellation shortcut.
 - Enabled system clipboard support in edit fields and added Alt+F to open Find
