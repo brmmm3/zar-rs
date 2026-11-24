@@ -109,6 +109,54 @@ class VersionUpdateTests(unittest.TestCase):
                 self.assertEqual(self.run_update(version)[0], 1)
                 self.assertEqual(before, self.snapshot())
 
+    def test_updates_release_examples_and_arch_version_without_touching_pin(self):
+        arch = self.root / "packaging/linux/arch/PKGBUILD"
+        packaging_readme = self.root / "packaging/README.md"
+        original_arch = arch.read_text(encoding="utf-8")
+        original_packaging = packaging_readme.read_text(encoding="utf-8")
+        targets = {
+            self.root / "README.md",
+            packaging_readme,
+            self.root / "deploy-nuget.sh",
+            arch,
+        }
+        self.assertTrue(targets.issubset(update_version.plan_updates(self.root, "3.2.1")))
+        self.assertEqual(self.run_update("3.2.1")[0], 0)
+
+        root_readme = (self.root / "README.md").read_text(encoding="utf-8")
+        self.assertIn("ci.yml/badge.svg?branch=3.2.1", root_readme)
+        self.assertIn("/DAppVersion=3.2.1", root_readme)
+        self.assertIn("ci-v3.yml -f tag=3.2.1", root_readme)
+        self.assertIn("packaging-v3.yml -f tag=3.2.1", root_readme)
+
+        updated_packaging = packaging_readme.read_text(encoding="utf-8")
+        for script in ("update_version.py", "update_checksums.py"):
+            self.assertIn(f"scripts/{script} 3.2.1 --dry-run", updated_packaging)
+            self.assertIn(f"scripts/{script} 3.2.1\n", updated_packaging)
+        self.assertIn("/DAppVersion=3.2.1", updated_packaging)
+        self.assertIn("choco install zar-rs --version 3.2.1", updated_packaging)
+        for line in original_packaging.splitlines():
+            if "winget\\Brmmm3.Zcopy\\" in line or "ZIPs do not contain" in line:
+                self.assertIn(line, updated_packaging)
+            if "development commit." in line:
+                self.assertIn(line, updated_packaging)
+
+        self.assertIn("-p:PackageVersion=3.2.1", (self.root / "deploy-nuget.sh").read_text())
+        updated_arch = arch.read_text(encoding="utf-8")
+        self.assertIn("\npkgver=3.2.1\n", updated_arch)
+        for line in original_arch.splitlines():
+            if line.startswith(("_commit=", "sha256sums=")):
+                self.assertIn(line, updated_arch)
+
+    def test_missing_release_example_aborts_before_writing(self):
+        path = self.root / "deploy-nuget.sh"
+        path.write_text(path.read_text().replace("PackageVersion=", "OtherVersion="))
+        before = self.snapshot()
+        result, error = self.run_update("3.2.1")
+        self.assertEqual(result, 1)
+        self.assertIn("version update failed", error)
+        self.assertEqual(before, self.snapshot())
+
     def test_malformed_manifest_aborts_before_writing_other_files(self):
         path = self.root / "wasizarlib/nodejs/package.json"
         path.write_text("{", encoding="utf-8")
@@ -123,6 +171,10 @@ class VersionUpdateTests(unittest.TestCase):
             self.root / "Cargo.toml",
             self.root / "packaging/windows/scoop/zar-rs.json",
             self.root / "packaging/windows/chocolatey/zar-rs/zarg.nuspec",
+            self.root / "README.md",
+            self.root / "packaging/README.md",
+            self.root / "deploy-nuget.sh",
+            self.root / "packaging/linux/arch/PKGBUILD",
         ]
         for path in windows_files:
             path.write_bytes(path.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))

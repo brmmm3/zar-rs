@@ -5,6 +5,8 @@ until a version is released.
 
 ## Unreleased
 
+## 0.17.0 - 2026-11-24
+
 ### Added
 
 - Added `ZARLIB_CPU_PRIORITY` to lower the scheduling priority of zarlib worker

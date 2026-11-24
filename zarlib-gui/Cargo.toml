@@ -79,7 +79,7 @@ dirs = "7"
 rfd = { version = "0.18", default-features = false, features = ["xdg-portal"] }
 raw-window-handle = "0.6"
 tempfile = "3"
-zarlib = { version = "0.16.0", path = "../zarlib" }
+zarlib = { version = "0.17.0", path = "../zarlib" }
 
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
 drag = "2.1.1"

@@ -62,7 +62,7 @@ dirs = "7"
 indicatif.workspace = true
 libc = "0.2"
 serde_json.workspace = true
-zarlib = { version = "0.16.0", path = "../zarlib" }
+zarlib = { version = "0.17.0", path = "../zarlib" }
 
 [dev-dependencies]
 flate2 = "1.1"

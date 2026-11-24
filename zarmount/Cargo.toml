@@ -30,7 +30,7 @@ bin-dir = "zar-rs-linux-aarch64-static/{ bin }"
 
 [dependencies]
 clap.workspace = true
-zarlib = { version = "0.16.0", path = "../zarlib" }
+zarlib = { version = "0.17.0", path = "../zarlib" }
 zeroize.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]

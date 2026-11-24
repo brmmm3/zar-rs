@@ -31,7 +31,7 @@ if (-not [ZarRs.CpuFeatures]::IsProcessorFeaturePresent($pfAvx2InstructionsAvail
 $tools = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $archive = Join-Path $tools 'zar-rs-v3.zip'
 Get-ChocolateyWebFile -PackageName 'zar-rs-v3' -FileFullPath $archive `
-    -Url "https://github.com/brmmm3/zar-rs/releases/download/0.16.0/zar-rs-windows-$arch-v3.zip" `
+    -Url "https://github.com/brmmm3/zar-rs/releases/download/0.17.0/zar-rs-windows-$arch-v3.zip" `
     -Checksum $checksum -ChecksumType 'sha256' | Out-Null
 Get-ChocolateyUnzip -FileFullPath $archive -Destination $tools
 Remove-Item $archive

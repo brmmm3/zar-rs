@@ -24,7 +24,10 @@ FIXED_FILES = (
     "wasizarlib/nodejs/package.json",
     "wasizarlib/nodejs/package-lock.json",
     "packaging/windows/zar-rs.iss",
+    "README.md",
     "packaging/README.md",
+    "deploy-nuget.sh",
+    "packaging/linux/arch/PKGBUILD",
     *(f"packaging/windows/scoop/{name}.json" for name in PACKAGE_NAMES),
     *(
         f"packaging/windows/chocolatey/{name}/{file}"
@@ -193,9 +196,39 @@ def plan_updates(root: Path, version: str) -> dict[Path, str]:
     updated[path] = replace_field(
         updated[path], rf"(/DAppVersion=){VERSION_PATTERN}( )", version
     )
+    path = root / "README.md"
+    updated[path] = replace_field(
+        original[path], rf"(ci\.yml/badge\.svg\?branch=){VERSION_PATTERN}(\))", version
+    )
+    updated[path] = replace_field(
+        updated[path], rf"(/DAppVersion=){VERSION_PATTERN}([ \t])", version
+    )
+    updated[path] = replace_field(
+        updated[path],
+        rf"((?:ci-v3|packaging-v3)\.yml -f tag=){VERSION_PATTERN}(`)",
+        version,
+        expected=2,
+    )
     path = root / "packaging/README.md"
     updated[path] = replace_field(
         original[path], rf"(choco install zar-rs --version ){VERSION_PATTERN}( )", version
+    )
+    updated[path] = replace_field(
+        updated[path], rf"(/DAppVersion=){VERSION_PATTERN}([ \t])", version
+    )
+    updated[path] = replace_field(
+        updated[path],
+        rf"(scripts/(?:update_version|update_checksums)\.py ){VERSION_PATTERN}([ \t\r\n])",
+        version,
+        expected=4,
+    )
+    path = root / "deploy-nuget.sh"
+    updated[path] = replace_field(
+        original[path], rf"(-p:PackageVersion=){VERSION_PATTERN}([ \t\r\n])", version
+    )
+    path = root / "packaging/linux/arch/PKGBUILD"
+    updated[path] = replace_field(
+        original[path], rf"(^pkgver=){VERSION_PATTERN}([ \t\r]?$)", version
     )
     for path, text in updated.items():
         if path.suffix == ".toml" or path.name == "Cargo.lock":
@@ -220,7 +253,8 @@ def main(argv: list[str] | None = None, *, root: Path = ROOT) -> int:
             print(f"All package versions already match {args.version}.")
         print(
             "Warning: download checksums are unchanged. Replace Scoop and Chocolatey "
-            "checksums with hashes of the new release artifacts before publishing.",
+            "checksums with hashes of the new release artifacts before publishing. "
+            "Update the Arch PKGBUILD's pinned source revision and checksum before building.",
             file=sys.stderr,
         )
     except (OSError, ValueError, KeyError, ET.ParseError) as error:

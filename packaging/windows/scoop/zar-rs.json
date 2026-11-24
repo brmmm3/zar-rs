@@ -1,16 +1,16 @@
 {
-    "version": "0.16.0",
+    "version": "0.17.0",
     "description": "ZAR archive tools.",
     "homepage": "https://github.com/brmmm3/zar-rs",
     "license": "MIT|Apache-2.0",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/brmmm3/zar-rs/releases/download/0.16.0/zar-rs-windows-x86_64.zip",
+            "url": "https://github.com/brmmm3/zar-rs/releases/download/0.17.0/zar-rs-windows-x86_64.zip",
             "hash": "4fa47b33a20f6df1c7beb5d3656b4649651355430ac16f17f3184cc77f3b7133",
             "extract_dir": "zar-rs-windows-x86_64"
         },
         "arm64": {
-            "url": "https://github.com/brmmm3/zar-rs/releases/download/0.16.0/zar-rs-windows-aarch64.zip",
+            "url": "https://github.com/brmmm3/zar-rs/releases/download/0.17.0/zar-rs-windows-aarch64.zip",
             "hash": "febfce54b0b464b3e25c13153c919569783fb59f4363cf25d1bcf64e338385eb",
             "extract_dir": "zar-rs-windows-aarch64"
         }

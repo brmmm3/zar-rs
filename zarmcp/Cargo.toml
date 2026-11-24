@@ -49,14 +49,14 @@ bin-dir = "zar-rs-macos-aarch64/{ bin }"
 [dependencies]
 base64 = "0.23"
 clap.workspace = true
-czarlib = { version = "0.16.0", path = "../czarlib", default-features = false }
+czarlib = { version = "0.17.0", path = "../czarlib", default-features = false }
 globset.workspace = true
 rmcp = { version = "3.9", features = ["transport-io"] }
 schemars = "1"
 serde.workspace = true
 serde_json.workspace = true
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
-zarlib = { version = "0.16.0", path = "../zarlib" }
+zarlib = { version = "0.17.0", path = "../zarlib" }
 zeroize.workspace = true
 
 [dev-dependencies]

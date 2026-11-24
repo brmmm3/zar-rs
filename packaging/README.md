@@ -41,32 +41,33 @@ not rebuild assets already published in older releases.
 From the repository root, use Python 3.11 or newer:
 
 ```sh
-python3 scripts/update_version.py 0.15.0 --dry-run
-python3 scripts/update_version.py 0.15.0
+python3 scripts/update_version.py 0.17.0 --dry-run
+python3 scripts/update_version.py 0.17.0
 ```
 
 The script updates the Rust workspace and local dependency versions, Cargo and
-Node.js lockfiles, Python, Java, NuGet, Scoop, Chocolatey, and Inno Setup metadata.
+Node.js lockfiles, Python, Java, NuGet, Scoop, Chocolatey, Inno Setup and Arch
+package versions, and current release examples in the READMEs.
 It preserves file line endings, third-party dependency versions, changelog history,
 and existing versioned winget manifests. It does not create Git tags or publish.
 Scoop and Chocolatey checksums are deliberately left unchanged. After the release
 assets are published, update them before publishing or installing the packages:
 
 ```sh
-python3 scripts/update_checksums.py 0.15.0 --dry-run
-python3 scripts/update_checksums.py 0.15.0
+python3 scripts/update_checksums.py 0.17.0 --dry-run
+python3 scripts/update_checksums.py 0.17.0
 ```
 
 The checksum updater fetches SHA-256 digests from GitHub and defaults to the Scoop
 manifest version when no version is provided. Both scripts prepare and validate
-all manifest edits before writing files. Update the Arch PKGBUILD's source
-revision, version, and checksum separately.
+all manifest edits before writing files. The Arch PKGBUILD's source revision
+and checksum remain pinned and must be updated separately before building.
 
 ## Windows (Inno Setup)
 
 ```powershell
 cargo build --release --bins
-iscc /DAppVersion=0.11.0 packaging\windows\zar-rs.iss
+iscc /DAppVersion=0.17.0 packaging\windows\zar-rs.iss
 ```
 
 Use `/DSourceDir=target\<triple>\release` when building with `--target`, and
@@ -111,7 +112,7 @@ package locally, for example:
 Push-Location packaging\windows\chocolatey\zar-rs
 choco pack zarg.nuspec --output-directory "$env:TEMP"
 Pop-Location
-choco install zar-rs --version 0.16.0 --source "$env:TEMP" -y
+choco install zar-rs --version 0.17.0 --source "$env:TEMP" -y
 ```
 
 For the x86-64-v3 package, pack
@@ -190,8 +191,9 @@ makepkg -si
 The package is not published to the AUR. `makepkg` downloads Rust dependencies
 during `prepare()`; subsequent build steps use Cargo's frozen lockfile. The
 source archive is downloaded in full, but its root `testdata` directory is
-excluded when unpacking the build sources. For new releases, update `pkgver`
-and `_commit` to the corresponding source revision and run `updpkgsums`.
+excluded when unpacking the build sources. For new releases, update `_commit`
+to the corresponding source revision and run `updpkgsums`; the version updater
+sets `pkgver`.
 Thunar users should run `zarg-install-thunar-actions` once after installation.
 
 ### Other Linux packages
