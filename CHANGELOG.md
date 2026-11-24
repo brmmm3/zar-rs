@@ -22,6 +22,7 @@ until a version is released.
 
 ### Added
 
+- Added `/regex`, `/case`, and `/word` search settings to the zarc grep shell.
 - Added `zarc grep --shell` for interactive archive path and content searches
   with session command history, adjustable context, chained searches, and
   Escape cancellation.

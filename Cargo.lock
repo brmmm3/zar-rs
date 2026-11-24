@@ -6785,6 +6785,7 @@ dependencies = [
  "libc",
  "mimalloc",
  "rars",
+ "regex",
  "rustyline",
  "serde_json",
  "tempfile",

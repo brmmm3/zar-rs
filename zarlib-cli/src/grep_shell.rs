@@ -17,6 +17,9 @@ enum Command<'a> {
     Before(usize),
     After(usize),
     Chain(bool),
+    Regex(bool),
+    Case(bool),
+    Word(bool),
     Help,
     Quit,
 }
@@ -42,11 +45,26 @@ fn parse_command(line: &str) -> Result<Option<Command<'_>>, &'static str> {
                 Command::After(count)
             }))
         }
-        "/chain" => match args {
-            "0" => Ok(Some(Command::Chain(false))),
-            "1" => Ok(Some(Command::Chain(true))),
-            _ => Err("usage: /chain <0|1>"),
-        },
+        "/chain" | "/regex" | "/case" | "/word" => {
+            let enabled = match args {
+                "0" => false,
+                "1" => true,
+                _ => {
+                    return Err(match command {
+                        "/chain" => "usage: /chain <0|1>",
+                        "/regex" => "usage: /regex <0|1>",
+                        "/case" => "usage: /case <0|1>",
+                        _ => "usage: /word <0|1>",
+                    });
+                }
+            };
+            Ok(Some(match command {
+                "/chain" => Command::Chain(enabled),
+                "/regex" => Command::Regex(enabled),
+                "/case" => Command::Case(enabled),
+                _ => Command::Word(enabled),
+            }))
+        }
         "/find" | "/grep" => {
             let (filter, rest) =
                 if let Some(quote) = args.chars().next().filter(|&ch| ch == '\'' || ch == '"') {
@@ -68,7 +86,7 @@ fn parse_command(line: &str) -> Result<Option<Command<'_>>, &'static str> {
                 "/find" if rest.is_empty() => Ok(Some(Command::Find(filter))),
                 "/grep" if !rest.is_empty() => Ok(Some(Command::Grep(filter, rest))),
                 "/find" => Err("usage: /find <fnmatch>"),
-                _ => Err("usage: /grep <fnmatch> <regex>"),
+                _ => Err("usage: /grep <fnmatch> <pattern>"),
             }
         }
         "/help" => Err("usage: /help"),
@@ -215,6 +233,9 @@ pub(super) fn run(
     let mut after = options.after;
     let mut chain = false;
     let mut previous = None;
+    let mut regex = true;
+    let mut case_sensitive = true;
+    let mut word = false;
     loop {
         let line = match editor.readline("zarc grep> ") {
             Ok(line) => line,
@@ -241,12 +262,21 @@ pub(super) fn run(
                     output,
                     "/find <fnmatch>         List matching archive paths"
                 )?;
-                writeln!(output, "/grep <fnmatch> <regex> Search matching files")?;
+                writeln!(output, "/grep <fnmatch> <pattern> Search matching files")?;
                 writeln!(output, "/before <cnt>           Set before-context lines")?;
                 writeln!(output, "/after <cnt>            Set after-context lines")?;
                 writeln!(
                     output,
                     "/chain <0|1>            Disable or start a new grep chain"
+                )?;
+                writeln!(output, "/regex <0|1>            Use literal text or regex")?;
+                writeln!(
+                    output,
+                    "/case <0|1>             Disable or enable case sensitivity"
+                )?;
+                writeln!(
+                    output,
+                    "/word <0|1>             Disable or enable word boundaries"
                 )?;
                 writeln!(output, "/help                   Show this help")?;
                 writeln!(output, "/quit                   Exit the shell")?;
@@ -260,6 +290,9 @@ pub(super) fn run(
                 chain = enabled;
                 previous = None;
             }
+            Command::Regex(enabled) => regex = enabled,
+            Command::Case(enabled) => case_sensitive = enabled,
+            Command::Word(enabled) => word = enabled,
             Command::Find(filter) => {
                 let result = (|| {
                     let filters = FilterSet::from_patterns(
@@ -287,7 +320,29 @@ pub(super) fn run(
                 }
             }
             Command::Grep(filter, pattern) => {
-                match search(&prepared, filter, pattern, before, after, previous.as_ref()) {
+                let pattern = if regex {
+                    pattern.to_owned()
+                } else {
+                    regex::escape(pattern)
+                };
+                let pattern = if word {
+                    format!(r"(?<!\w)(?:{pattern})(?!\w)")
+                } else {
+                    pattern
+                };
+                let pattern = if case_sensitive {
+                    pattern
+                } else {
+                    format!("(?i){pattern}")
+                };
+                match search(
+                    &prepared,
+                    filter,
+                    &pattern,
+                    before,
+                    after,
+                    previous.as_ref(),
+                ) {
                     Ok(Some(matches)) if chain => previous = Some(matches),
                     Ok(Some(_)) => {}
                     Ok(None) => eprintln!("zarc grep: search cancelled"),

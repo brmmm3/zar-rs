@@ -114,14 +114,19 @@ For repeated searches, start `zarc grep backup.zar --shell`. The shell keeps
 command history for the current session (use the arrow keys) and accepts:
 
 - `/find <fnmatch>` lists matching archive paths.
-- `/grep <fnmatch> <regex>` searches matching regular files.
+- `/grep <fnmatch> <pattern>` searches matching regular files.
 - `/before <cnt>` and `/after <cnt>` set the number of context lines.
 - `/chain 1` starts a new chain; `/chain 0` disables chaining.
+- `/regex 0` searches literal text; `/regex 1` uses regular expressions (the default).
+- `/case 0` searches case-insensitively; `/case 1` enables case sensitivity (the default).
+- `/word 1` requires matches not adjacent to Unicode word characters;
+  `/word 0` disables this restriction (the default). It applies to both literal
+  and regex searches.
 - `/help` shows the supported commands.
 - `/quit` exits; EOF also exits.
 
 Patterns match archive-relative paths. Quote a fnmatch containing spaces with
-single or double quotes; the regex is the remainder of the line and is not
+single or double quotes; the search pattern is the remainder of the line and is not
 shell-unquoted. `--to`, `--password`, and `--password-for` apply throughout
 the session, and `-B`/`-A` set the initial context counts. In a chain, each
 successful `/grep` searches only files matched by the previous `/grep`, further

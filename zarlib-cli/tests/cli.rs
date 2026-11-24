@@ -160,10 +160,13 @@ fn cli_grep_shell_searches_and_recovers_from_command_errors() {
     assert_eq!(
         output.stdout,
         b"/find <fnmatch>         List matching archive paths\n\
-/grep <fnmatch> <regex> Search matching files\n\
+/grep <fnmatch> <pattern> Search matching files\n\
 /before <cnt>           Set before-context lines\n\
 /after <cnt>            Set after-context lines\n\
 /chain <0|1>            Disable or start a new grep chain\n\
+/regex <0|1>            Use literal text or regex\n\
+/case <0|1>             Disable or enable case sensitivity\n\
+/word <0|1>             Disable or enable word boundaries\n\
 /help                   Show this help\n\
 /quit                   Exit the shell\n\
 Press Esc to cancel a running grep.\n\
@@ -174,6 +177,66 @@ my file.txt\nmy file.txt-1-before\nmy file.txt:2:\xffhello world\nmy file.txt-3-
     assert!(errors.contains("usage: /help"), "{errors}");
     assert!(errors.contains("expected a fnmatch pattern"), "{errors}");
     assert!(errors.contains("zarc grep:"), "{errors}");
+}
+
+#[test]
+fn cli_grep_shell_changes_pattern_case_and_word_modes() {
+    let temp = TestDirectory::new();
+    let archive = temp.path().join("archive.zar");
+    let source = temp.path().join("input.txt");
+    std::fs::write(
+        &source,
+        "cat\nCAT\nscatter\nc.t\ncot\nélan\nélanx\ndog\ndogs\n[cat]\n",
+    )
+    .unwrap();
+    let created = zarc([
+        OsStr::new("--no-config"),
+        OsStr::new("create"),
+        archive.as_os_str(),
+        source.as_os_str(),
+    ]);
+    assert!(created.status.success(), "{created:?}");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_zarc"))
+        .args(["--no-config", "grep", "--shell"])
+        .arg(&archive)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            "/grep *.txt c.t\n/regex 0\n/grep *.txt c.t\n\
+         /case 0\n/grep *.txt CAT\n/word 1\n/grep *.txt CAT\n\
+         /grep *.txt élan\n/regex 1\n/grep *.txt cat|dog\n\
+         /case 1\n/grep *.txt cat|dog\n/regex 2\n/case -1\n/word foo\n\
+         /grep *.txt c.t|dog\n/word 0\n/grep *.txt cat\n\
+         /regex 0\n/grep *.txt [\n/quit\n"
+                .as_bytes(),
+        )
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "input.txt:1:cat\ninput.txt:3:scatter\ninput.txt:4:c.t\ninput.txt:5:cot\ninput.txt:10:[cat]\n\
+         input.txt:4:c.t\n\
+         input.txt:1:cat\ninput.txt:2:CAT\ninput.txt:3:scatter\ninput.txt:10:[cat]\n\
+         input.txt:1:cat\ninput.txt:2:CAT\ninput.txt:10:[cat]\n\
+         input.txt:6:élan\n\
+         input.txt:1:cat\ninput.txt:2:CAT\ninput.txt:8:dog\ninput.txt:10:[cat]\n\
+         input.txt:1:cat\ninput.txt:8:dog\ninput.txt:10:[cat]\n\
+         input.txt:1:cat\ninput.txt:4:c.t\ninput.txt:5:cot\ninput.txt:8:dog\ninput.txt:10:[cat]\n\
+         input.txt:1:cat\ninput.txt:3:scatter\ninput.txt:10:[cat]\n\
+         input.txt:10:[cat]\n"
+    );
+    let errors = String::from_utf8(output.stderr).unwrap();
+    assert!(errors.contains("usage: /regex <0|1>"), "{errors}");
+    assert!(errors.contains("usage: /case <0|1>"), "{errors}");
+    assert!(errors.contains("usage: /word <0|1>"), "{errors}");
 }
 
 #[test]
@@ -209,7 +272,8 @@ fn cli_grep_shell_chains_filters_and_changes_context() {
         .unwrap()
         .write_all(
             b"/before 1\n/after 1\n/chain 1\n/grep *.txt alpha\n/before 0\n/after 0\n\
-          /grep a*.txt beta\n/grep *.txt (\n/grep *.txt alpha\n/grep *.txt absent\n\
+          /regex 0\n/case 0\n/word 1\n/grep a*.txt BETA\n\
+          /regex 1\n/case 1\n/word 0\n/grep *.txt (\n/grep *.txt alpha\n/grep *.txt absent\n\
           /grep *.txt beta\n/chain 1\n/grep c*.txt beta\n/chain 0\n/grep *.txt beta\n\
           /chain 2\n/before -1\n/after foo\n/quit\n",
         )
