@@ -2462,6 +2462,7 @@ impl ZargApp {
                             | egui::Key::E
                             | egui::Key::I
                             | egui::Key::J
+                            | egui::Key::F
                     ) =>
                 {
                     Some(*key)
@@ -2484,6 +2485,7 @@ impl ZargApp {
                 self.show_operation(OperationKind::ExtractArchive);
             }
             Some(egui::Key::I) if self.can_show_archive_info() => self.show_archive_info(),
+            Some(egui::Key::F) if self.can_find() => self.find.open = true,
             Some(egui::Key::J) if self.can_join_commits() => {
                 self.show_operation(OperationKind::JoinCommits);
             }
@@ -5164,8 +5166,15 @@ impl ZargApp {
                         self.show_operation(OperationKind::UndoCommits);
                         ui.close();
                     }
-                    if icon_button(ui, &self.icons, UiIcon::Find, "Find...", self.can_find())
-                        .clicked()
+                    if icon_shortcut_button(
+                        ui,
+                        &self.icons,
+                        UiIcon::Find,
+                        "Find...",
+                        "Alt+F",
+                        self.can_find(),
+                    )
+                    .clicked()
                     {
                         self.find.open = true;
                         ui.close();

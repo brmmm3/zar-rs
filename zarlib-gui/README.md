@@ -24,7 +24,10 @@ file to open a temporary extracted copy, or drag entries to another application.
 File and folder drops open the Add dialog.
 Use **Alt+N**, **Alt+O**, **Alt+A**, **Alt+E**, **Alt+I**, and **Alt+J** for New,
 Open, Add, Extract, Info, and Join respectively, when those commands are available.
+**Alt+F** opens Find when an archive can be searched.
 **Ctrl+F** focuses the filter field.
+Text fields support the platform's clipboard shortcuts; password fields allow
+pasting but do not copy passwords to the clipboard.
 **Ctrl+S** saves changes and **Ctrl+Shift+S** opens Save As.
 In zarg's dialogs, **Alt+C** activates an enabled Close or Cancel button.
 The main window requests focus at startup, and new dialogs request focus when
@@ -130,15 +133,22 @@ session's undo history.
 
 **Edit > Find** searches regular files in a nonempty selected revision, including
 unsaved changes. Enter an archive-relative filename glob (the default `*`
-selects all files), a regex, and optional numbers of context lines before and
-after each match. The regex supports lookaround and backreferences. Results show
-paths and line numbers; matching text is bold, and line contents are limited to
+selects all files), search text, and optional numbers of context lines before
+and after each match. **Regex** is enabled by default and supports lookaround
+and backreferences; turn it off for literal text. **Aa** controls case-sensitive
+matching. In literal mode, **Word** restricts matches to text not adjacent to
+Unicode word characters. **Chain** limits each successful search to files
+matched by the previous search, additionally applying the current filename
+glob. Enabling Chain starts a new chain; an empty result keeps it empty until
+Chain is toggled off and on. Failed or cancelled searches do not change it.
+Results show paths and line numbers; matching text is bold, and line contents are limited to
 250 displayed characters. Context lines appear in the same multiline result;
 overlapping or adjacent context ranges are merged. Double-click a result to
 extract and open its file with the default application. Press **Alt+F** to
-search or **Enter** in the regex field to search. While searching, **Cancel**
-stops the search; otherwise **Close** closes the dialog. **Alt+C** activates
-the current button.
+search or **Enter** in the filename glob or search field to search. Searching
+is disabled when the search field is empty. While
+searching, **Cancel** stops the search; otherwise **Close** closes the dialog.
+**Alt+C** activates the current button.
 The status bar counts displayed results, including merged context groups.
 Invalid UTF-8 bytes in results are displayed as replacement characters. Unlock
 encrypted commits first when their passwords are needed for the search.

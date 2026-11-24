@@ -25,6 +25,24 @@ struct FindRow {
     is_match: bool,
 }
 
+fn search_pattern(text: &str, regex: bool, case_sensitive: bool, word: bool) -> String {
+    let pattern = if regex {
+        text.to_owned()
+    } else {
+        let literal = regex::escape(text);
+        if word {
+            format!(r"(?<!\w){literal}(?!\w)")
+        } else {
+            literal
+        }
+    };
+    if case_sensitive {
+        pattern
+    } else {
+        format!("(?i){pattern}")
+    }
+}
+
 impl FindResults {
     fn finish(&mut self, include_context: bool) {
         self.rows.sort_by(|left, right| {
@@ -297,6 +315,11 @@ pub(in crate::ui) struct FindState {
     pub(in crate::ui) open: bool,
     file_filter: String,
     pattern: String,
+    case_sensitive: bool,
+    word: bool,
+    regex: bool,
+    chain: bool,
+    chain_paths: Option<BTreeSet<ArchivePath>>,
     before: usize,
     after: usize,
     receiver: Option<Receiver<FindResult>>,
@@ -316,6 +339,11 @@ impl Default for FindState {
             open: false,
             file_filter: "*".to_owned(),
             pattern: String::new(),
+            case_sensitive: true,
+            word: false,
+            regex: true,
+            chain: false,
+            chain_paths: None,
             before: 0,
             after: 0,
             receiver: None,
@@ -334,6 +362,7 @@ impl Default for FindState {
 impl FindState {
     pub(in crate::ui) fn clear_results(&mut self) {
         self.cache = None;
+        self.chain_paths = None;
         self.result = None;
         self.selected_row = None;
         self.cancelled = false;
@@ -382,7 +411,7 @@ struct FindCache {
 
 impl ZargApp {
     fn start_find(&mut self) {
-        if !self.can_find() || self.operation.kind.is_some() {
+        if !self.can_find() || self.operation.kind.is_some() || self.find.pattern.is_empty() {
             return;
         }
         self.find.cancelled = false;
@@ -401,7 +430,12 @@ impl ZargApp {
         let commit = (!self.selected_commit.is_empty()).then(|| self.selected_commit.clone());
         let passwords = password_set(&self.archive_passwords, self.archive_password.as_deref());
         let file_filter = self.find.file_filter.clone();
-        let pattern = self.find.pattern.clone();
+        let pattern = search_pattern(
+            &self.find.pattern,
+            self.find.regex,
+            self.find.case_sensitive,
+            self.find.word && !self.find.regex,
+        );
         let before = self.find.before;
         let after = self.find.after;
         let regex = match RegexBuilder::new(&pattern)
@@ -445,6 +479,14 @@ impl ZargApp {
                     && cache.prepared.check_unchanged().is_ok()
             })
             .cloned();
+        if cached.is_none() {
+            self.find.chain_paths = None;
+        }
+        let chain_paths = self
+            .find
+            .chain
+            .then(|| self.find.chain_paths.clone())
+            .flatten();
         let (sender, receiver) = mpsc::channel();
         let (line_tx, line_rx) = mpsc::sync_channel(2048);
         let (header_tx, header_rx) = mpsc::channel();
@@ -530,8 +572,13 @@ impl ZargApp {
                 header_tx
                     .send(Arc::clone(&cache))
                     .map_err(|_| "search result receiver closed")?;
-                cache.prepared.search(
-                    &file_filter,
+                let mut filters =
+                    FilterSet::from_patterns(&[file_filter], &[], &[], &[], &[] as &[&Path])?;
+                if let Some(paths) = chain_paths {
+                    filters.restrict_to_paths(paths);
+                }
+                cache.prepared.search_with_filters(
+                    &filters,
                     &pattern,
                     before,
                     after,
@@ -626,6 +673,15 @@ impl ZargApp {
                         results.finish(self.find.before > 0 || self.find.after > 0);
                         self.find.selected_row = None;
                     }
+                    if self.find.chain
+                        && !highlight_failed
+                        && let Some(Ok(results)) = &self.find.result
+                    {
+                        match results.files.iter().map(ArchivePath::new).collect() {
+                            Ok(paths) => self.find.chain_paths = Some(paths),
+                            Err(error) => self.find.result = Some(Err(error.to_string())),
+                        }
+                    }
                 }
             }
             Err(mpsc::TryRecvError::Empty) => {
@@ -652,7 +708,8 @@ impl ZargApp {
             .cancellation
             .as_ref()
             .is_some_and(|token| token.load(Ordering::Relaxed));
-        let can_search = self.can_find() && self.operation.kind.is_none();
+        let can_open = self.can_find() && self.operation.kind.is_none();
+        let can_search = can_open && !self.find.pattern.is_empty();
         let mut open = true;
         let mut start = false;
         let mut open_path = None;
@@ -726,11 +783,53 @@ impl ZargApp {
                                     {
                                         start = true;
                                     }
-                                    ui.add_sized([ui.available_width(), ui.spacing().interact_size.y], egui::TextEdit::singleline(&mut state.file_filter));
+                                    if ui.selectable_label(state.chain, "Chain")
+                                        .on_hover_text("Search only files matched by the previous search")
+                                        .clicked()
+                                    {
+                                        state.chain = !state.chain;
+                                        state.chain_paths = None;
+                                    }
+                                    if ui.selectable_label(state.regex, "Regex")
+                                        .on_hover_text("Use a regular expression")
+                                        .clicked()
+                                    {
+                                        state.regex = !state.regex;
+                                    }
+                                    let word = ui.add_enabled_ui(!state.regex, |ui| {
+                                        ui.selectable_label(state.word, "Word")
+                                    }).inner.on_hover_text("Match whole words (literal searches only)");
+                                    if word.clicked() {
+                                        state.word = !state.word;
+                                    }
+                                    if ui.selectable_label(state.case_sensitive, "Aa")
+                                        .on_hover_text("Match upper and lower case")
+                                        .clicked()
+                                    {
+                                        state.case_sensitive = !state.case_sensitive;
+                                    }
+                                    let glob = ui.add_sized(
+                                        [ui.available_width(), ui.spacing().interact_size.y],
+                                        egui::TextEdit::singleline(&mut state.file_filter)
+                                            .id(egui::Id::unique("find-file-filter")),
+                                    );
+                                    if can_search && glob.lost_focus() && ui.input(|input| {
+                                        input.events.iter().any(|event| matches!(
+                                            event,
+                                            egui::Event::Key {
+                                                key: egui::Key::Enter,
+                                                pressed: true,
+                                                modifiers: egui::Modifiers::NONE,
+                                                ..
+                                            }
+                                        ))
+                                    }) {
+                                        start = true;
+                                    }
                                 });
                             });
                             ui.horizontal(|ui| {
-                                ui.label("Regex");
+                                ui.label(if state.regex { "Regex" } else { "Text" });
                                 let width = (ui.available_width() - 295.0).max(40.0);
                                 let regex = ui.add_sized(
                                     [width, ui.spacing().interact_size.y],
@@ -769,7 +868,7 @@ impl ZargApp {
                                     if results.invalid_utf8 {
                                         ui.weak("Invalid UTF-8 bytes are shown as replacement characters.");
                                     }
-                                    open_path = render_find_results(ui, results, &mut state.selected_row, can_search);
+                                    open_path = render_find_results(ui, results, &mut state.selected_row, can_open);
                                 }
                                 Err(error) => {
                                     ui.colored_label(ui.visuals().error_fg_color, error);
@@ -1149,6 +1248,223 @@ mod tests {
     }
 
     #[test]
+    fn find_supports_literal_case_and_word_modes() {
+        let directory = tempfile::tempdir().unwrap();
+        let archive = directory.path().join("archive.zar");
+        let file = directory.path().join("file.txt");
+        std::fs::write(
+            &file,
+            "cat catalog Cat _cat caté cat-cat\nliteral a.b and A.B and axb\n",
+        )
+        .unwrap();
+        operations::create_archive(archive.to_str().unwrap(), &[file]).unwrap();
+        let mut app = ZargApp::default();
+        app.open_archive(archive, None);
+        wait(&mut app);
+
+        app.find.regex = false;
+        app.find.case_sensitive = false;
+        app.find.word = true;
+        app.find.pattern = "cat".into();
+        app.start_find();
+        wait(&mut app);
+        let results = app.find.result.as_ref().unwrap().as_ref().unwrap();
+        assert_eq!(results.rows.len(), 1);
+        assert_eq!(results.rows[0].highlights.len(), 4);
+
+        app.find.word = false;
+        app.find.pattern = "a.b".into();
+        app.start_find();
+        wait(&mut app);
+        let results = app.find.result.as_ref().unwrap().as_ref().unwrap();
+        assert_eq!(results.rows[0].highlights.len(), 2);
+
+        app.find.case_sensitive = true;
+        app.start_find();
+        wait(&mut app);
+        let results = app.find.result.as_ref().unwrap().as_ref().unwrap();
+        assert_eq!(results.rows[0].highlights.len(), 1);
+
+        app.find.regex = true;
+        app.find.word = true;
+        app.start_find();
+        wait(&mut app);
+        let results = app.find.result.as_ref().unwrap().as_ref().unwrap();
+        assert_eq!(results.rows[0].highlights.len(), 2);
+
+        app.find.case_sensitive = false;
+        app.start_find();
+        wait(&mut app);
+        let results = app.find.result.as_ref().unwrap().as_ref().unwrap();
+        assert_eq!(results.rows[0].highlights.len(), 3);
+    }
+
+    #[test]
+    fn find_toggles_are_ordered_and_word_requires_literal_mode() {
+        fn texts(shape: &egui::Shape, output: &mut HashMap<String, egui::Pos2>) {
+            match shape {
+                egui::Shape::Text(text) if text.pos.y > 40.0 => {
+                    output
+                        .entry(text.galley.job.text.clone())
+                        .or_insert(text.pos);
+                }
+                egui::Shape::Vec(shapes) => {
+                    for shape in shapes {
+                        texts(shape, output);
+                    }
+                }
+                _ => {}
+            }
+        }
+        fn frame(
+            context: &egui::Context,
+            app: &mut ZargApp,
+            events: Vec<egui::Event>,
+        ) -> HashMap<String, egui::Pos2> {
+            let output = context.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1000.0, 800.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.render_find(ui.ctx()),
+            );
+            let mut labels = HashMap::new();
+            for shape in &output.shapes {
+                texts(&shape.shape, &mut labels);
+            }
+            output.drop_without_applying_deltas();
+            labels
+        }
+        fn click(context: &egui::Context, app: &mut ZargApp, label: &str) {
+            let labels = frame(context, app, Vec::new());
+            let position = labels[label] + egui::vec2(3.0, 3.0);
+            for pressed in [true, false] {
+                frame(
+                    context,
+                    app,
+                    vec![
+                        egui::Event::PointerMoved(position),
+                        egui::Event::PointerButton {
+                            pos: position,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ],
+                );
+            }
+        }
+
+        let context = egui::Context::default();
+        let mut app = ZargApp::default();
+        app.find.open = true;
+        frame(&context, &mut app, Vec::new());
+        let labels = frame(&context, &mut app, Vec::new());
+        for pair in ["Aa", "Word", "Regex", "Chain", "Find"].windows(2) {
+            assert!(labels[pair[0]].x < labels[pair[1]].x, "{labels:?}");
+        }
+        click(&context, &mut app, "Word");
+        assert!(!app.find.word);
+        click(&context, &mut app, "Regex");
+        assert!(!app.find.regex);
+        click(&context, &mut app, "Word");
+        assert!(app.find.word);
+        click(&context, &mut app, "Aa");
+        assert!(!app.find.case_sensitive);
+        click(&context, &mut app, "Chain");
+        assert!(app.find.chain);
+        app.find.chain_paths = Some([ArchivePath::new("file.txt").unwrap()].into());
+        click(&context, &mut app, "Chain");
+        assert!(!app.find.chain);
+        assert!(app.find.chain_paths.is_none());
+    }
+
+    #[test]
+    fn find_chains_successful_searches_and_preserves_chain_on_failure() {
+        let directory = tempfile::tempdir().unwrap();
+        let archive = directory.path().join("archive.zar");
+        let a = directory.path().join("a.txt");
+        let b = directory.path().join("b.txt");
+        let c = directory.path().join("c.txt");
+        std::fs::write(&a, b"alpha\nbeta\n").unwrap();
+        std::fs::write(&b, b"alpha\n").unwrap();
+        std::fs::write(&c, b"beta\n").unwrap();
+        operations::create_archive(archive.to_str().unwrap(), &[a, b, c]).unwrap();
+        let mut app = ZargApp::default();
+        app.open_archive(archive, None);
+        wait(&mut app);
+        app.find.chain = true;
+        app.find.pattern = "alpha".into();
+        app.start_find();
+        wait(&mut app);
+        assert_eq!(app.find.chain_paths.as_ref().unwrap().len(), 2);
+
+        app.find.file_filter = "a*".into();
+        app.find.pattern = "beta".into();
+        app.start_find();
+        wait(&mut app);
+        assert_eq!(
+            app.find.result.as_ref().unwrap().as_ref().unwrap().files,
+            ["a.txt"]
+        );
+        let previous = app.find.chain_paths.clone();
+
+        app.find.pattern = "(".into();
+        app.start_find();
+        assert!(app.find.result.as_ref().unwrap().is_err());
+        assert_eq!(app.find.chain_paths, previous);
+
+        app.find.file_filter = "*".into();
+        app.find.pattern = "alpha".into();
+        app.start_find();
+        app.find
+            .cancellation
+            .as_ref()
+            .unwrap()
+            .store(true, Ordering::Relaxed);
+        wait(&mut app);
+        assert!(app.find.cancelled);
+        assert_eq!(app.find.chain_paths, previous);
+
+        app.find.pattern = "absent".into();
+        app.start_find();
+        wait(&mut app);
+        assert!(app.find.chain_paths.as_ref().unwrap().is_empty());
+        app.find.pattern = "beta".into();
+        app.start_find();
+        wait(&mut app);
+        assert!(
+            app.find
+                .result
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .files
+                .is_empty()
+        );
+
+        app.find.clear_results();
+        app.start_find();
+        wait(&mut app);
+        let mut files = app
+            .find
+            .result
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .files
+            .clone();
+        files.sort();
+        assert_eq!(files, ["a.txt", "c.txt"]);
+    }
+
+    #[test]
     fn find_searches_staged_changes_and_selected_history() {
         let directory = tempfile::tempdir().unwrap();
         let archive = directory.path().join("archive.zar");
@@ -1379,6 +1695,15 @@ mod tests {
                 })
                 .collect()
         }
+        fn find_position(shape: &egui::Shape) -> Option<egui::Pos2> {
+            match shape {
+                egui::Shape::Text(text) if text.galley.job.text == "Find" && text.pos.y > 40.0 => {
+                    Some(text.pos + egui::vec2(3.0, 3.0))
+                }
+                egui::Shape::Vec(shapes) => shapes.iter().find_map(find_position),
+                _ => None,
+            }
+        }
 
         let directory = tempfile::tempdir().unwrap();
         let archive = directory.path().join("archive.zar");
@@ -1389,9 +1714,68 @@ mod tests {
         app.open_archive(archive, None);
         wait(&mut app);
         app.find.open = true;
-        app.find.pattern = "matching".into();
         let context = egui::Context::default();
         frame(&context, &mut app, Vec::new());
+        let output = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000.0, 800.0),
+                )),
+                ..Default::default()
+            },
+            |ui| app.render_find(ui.ctx()),
+        );
+        let position = output
+            .shapes
+            .iter()
+            .find_map(|shape| find_position(&shape.shape))
+            .unwrap();
+        output.drop_without_applying_deltas();
+        for pressed in [true, false] {
+            frame(
+                &context,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(position),
+                    egui::Event::PointerButton {
+                        pos: position,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+        assert!(app.find.receiver.is_none());
+        for id in ["find-regex", "find-file-filter"] {
+            context.memory_mut(|memory| memory.request_focus(egui::Id::unique(id)));
+            frame(
+                &context,
+                &mut app,
+                key(egui::Key::Enter, egui::Modifiers::NONE),
+            );
+            assert!(app.find.receiver.is_none());
+        }
+        app.find.regex = false;
+        frame(&context, &mut app, key(egui::Key::F, egui::Modifiers::ALT));
+        assert!(app.find.receiver.is_none());
+        app.start_find();
+        assert!(app.find.receiver.is_none());
+        app.find.pattern = " ".into();
+        frame(&context, &mut app, key(egui::Key::F, egui::Modifiers::ALT));
+        assert!(app.find.receiver.is_some());
+        wait(&mut app);
+        assert_eq!(
+            app.find.result.as_ref().unwrap().as_ref().unwrap().files,
+            ["file.txt"]
+        );
+        app.find.regex = true;
+        app.find.pattern = "matching".into();
+        context.memory_mut(|memory| {
+            memory.surrender_focus(egui::Id::unique("find-regex"));
+            memory.surrender_focus(egui::Id::unique("find-file-filter"));
+        });
 
         frame(
             &context,
@@ -1419,7 +1803,23 @@ mod tests {
             ["file.txt"]
         );
 
+        context.memory_mut(|memory| memory.request_focus(egui::Id::unique("find-file-filter")));
+        frame(
+            &context,
+            &mut app,
+            key(egui::Key::Enter, egui::Modifiers::NONE),
+        );
+        assert!(app.find.receiver.is_some());
+        wait(&mut app);
+
         app.operation.kind = Some(OperationKind::NewArchive);
+        context.memory_mut(|memory| memory.request_focus(egui::Id::unique("find-file-filter")));
+        frame(
+            &context,
+            &mut app,
+            key(egui::Key::Enter, egui::Modifiers::NONE),
+        );
+        assert!(app.find.receiver.is_none());
         frame(&context, &mut app, key(egui::Key::F, egui::Modifiers::ALT));
         assert!(app.find.receiver.is_none());
         app.operation.kind = None;

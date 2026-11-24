@@ -2046,10 +2046,17 @@ fn archive_command_shortcuts_follow_toolbar_availability() {
     }
 
     let mut app = ZargApp::default();
-    for key in [egui::Key::A, egui::Key::E, egui::Key::I, egui::Key::J] {
+    for key in [
+        egui::Key::A,
+        egui::Key::E,
+        egui::Key::I,
+        egui::Key::J,
+        egui::Key::F,
+    ] {
         shortcut(&mut app, key, egui::Modifiers::ALT);
         assert!(app.operation.kind.is_none());
         assert!(app.info_loading.is_none());
+        assert!(!app.find.open);
     }
     shortcut(
         &mut app,
@@ -2068,6 +2075,15 @@ fn archive_command_shortcuts_follow_toolbar_availability() {
     operations::create_archive(archive.to_str().unwrap(), &[file]).unwrap();
     app.open_archive(archive, None);
     wait_for_worker(&mut app);
+    shortcut(
+        &mut app,
+        egui::Key::F,
+        egui::Modifiers::ALT | egui::Modifiers::CTRL,
+    );
+    assert!(!app.find.open);
+    shortcut(&mut app, egui::Key::F, egui::Modifiers::ALT);
+    assert!(app.find.open);
+    app.find.open = false;
     app.selected.insert("file.txt".into());
     shortcut(&mut app, egui::Key::A, egui::Modifiers::ALT);
     assert_eq!(app.operation.kind, Some(OperationKind::AddToArchive));
@@ -2115,11 +2131,13 @@ fn archive_command_shortcuts_follow_toolbar_availability() {
         egui::Key::E,
         egui::Key::I,
         egui::Key::J,
+        egui::Key::F,
     ] {
         shortcut(&mut app, key, egui::Modifiers::ALT);
     }
     assert!(app.operation.kind.is_none());
     assert!(app.info_loading.is_none());
+    assert!(!app.find.open);
     assert!(app.pending_archive_switch.is_none());
     app.busy = false;
     app.has_unsaved_changes = true;

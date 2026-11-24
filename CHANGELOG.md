@@ -7,6 +7,11 @@ until a version is released.
 
 ### Changed
 
+- Enabled system clipboard support in edit fields and added Alt+F to open Find
+  from the main window.
+- Disabled Find searches when the search field is empty.
+- Added case, whole-word, regex, and chained-search toggles to the zarg Find
+  dialog; Enter in its filename glob now starts a search.
 - Grep now filters before scheduling workers, streams results, and reuses
   unlocked headers for repeated searches in zarg and the zarc grep shell.
 - Switched zarlib grep to fancy-regex, adding lookaround and backreference
