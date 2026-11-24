@@ -16,6 +16,9 @@ until a version is released.
 - Added a NixOS package expression for all five binaries and GUI desktop assets.
 - Added interoperable single-entry TCP streaming server and client examples
   for the language bindings and the Node.js WASI adapter.
+- Added archive grep to zarlib, zarc, and the language bindings, with filename
+  glob filters, regex matching, and optional before/after line context. Searches
+  run in parallel on native targets and sequentially on WASI.
 
 ### Changed
 

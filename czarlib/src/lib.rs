@@ -563,6 +563,35 @@ fn list(request: &Value) -> Result<Value, String> {
     Ok(json!(entries))
 }
 
+fn grep(request: &Value) -> Result<Value, String> {
+    let passwords = passwords(request)?;
+    let results = operations::grep_archive(
+        required_string(request, "archive")?,
+        required_string(request, "file_filter")?,
+        required_string(request, "pattern")?,
+        operations::GrepOptions {
+            before: integer_option(request, "before", 0_usize)?,
+            after: integer_option(request, "after", 0_usize)?,
+            to: optional_string(request, "to")?,
+            passwords: Some(&passwords),
+        },
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(json!(
+        results
+            .into_iter()
+            .map(|file| json!({
+                "path": file.path.as_str(),
+                "lines": file.lines.into_iter().map(|line| json!({
+                    "line_number": line.line_number,
+                    "bytes": line.bytes,
+                    "is_match": line.is_match,
+                })).collect::<Vec<_>>(),
+            }))
+            .collect::<Vec<_>>()
+    ))
+}
+
 fn collision_policy(request: &Value) -> Result<CollisionPolicy, String> {
     match request
         .get("collision")
@@ -698,6 +727,7 @@ fn execute(operation: &str, request: &Value) -> Result<Value, String> {
         "info_archive" => info(request),
         "cross_commit_references" => references(request),
         "list_archive" => list(request),
+        "grep_archive" => grep(request),
         "extract_archive" => extract(request),
         "extract_archive_to_memory" => extract_to_memory(request),
         _ => Err(format!("unknown operation: {operation}")),
@@ -804,6 +834,77 @@ pub unsafe extern "C" fn czarlib_string_free(value: *mut c_char) {
 mod tests {
     use super::execute_json;
     use std::io::Write;
+
+    #[test]
+    fn grep_json_preserves_bytes_context_and_reports_invalid_arguments() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("input.txt");
+        let archive = directory.path().join("archive.zar");
+        std::fs::write(&input, b"before\n\xffmatch\nafter\n").unwrap();
+        execute_json(
+            "create_archive",
+            &serde_json::json!({
+                "archive": archive, "paths": [input]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let request = serde_json::json!({
+            "archive": archive, "file_filter": "*.txt", "pattern": "match",
+            "before": 1, "after": 1
+        });
+        let result: serde_json::Value =
+            serde_json::from_str(&execute_json("grep_archive", &request.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(
+            result,
+            serde_json::json!([{
+                "path": "input.txt",
+                "lines": [
+                    {"line_number": 1, "bytes": [98,101,102,111,114,101], "is_match": false},
+                    {"line_number": 2, "bytes": [255,109,97,116,99,104], "is_match": true},
+                    {"line_number": 3, "bytes": [97,102,116,101,114], "is_match": false}
+                ]
+            }])
+        );
+        let mut bad = request;
+        bad["before"] = serde_json::json!(-1);
+        assert!(
+            execute_json("grep_archive", &bad.to_string())
+                .unwrap_err()
+                .contains("before")
+        );
+        bad["before"] = serde_json::json!(0);
+        bad["pattern"] = serde_json::json!("(");
+        assert!(execute_json("grep_archive", &bad.to_string()).is_err());
+    }
+
+    #[test]
+    fn grep_json_accepts_commit_passwords() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("input.txt");
+        let archive = directory.path().join("encrypted.zar");
+        std::fs::write(&input, b"secret").unwrap();
+        execute_json(
+            "create_archive",
+            &serde_json::json!({
+                "archive": archive, "paths": [input], "password": "secret"
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let mut request = serde_json::json!({
+            "archive": archive, "file_filter": "*", "pattern": "secret"
+        });
+        assert!(execute_json("grep_archive", &request.to_string()).is_err());
+        request["passwords"] = serde_json::json!({"00000001": "secret"});
+        let result: serde_json::Value =
+            serde_json::from_str(&execute_json("grep_archive", &request.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(result[0]["lines"][0]["bytes"], serde_json::json!(b"secret"));
+        request["passwords"] = serde_json::json!({"00000001": "wrong"});
+        assert!(execute_json("grep_archive", &request.to_string()).is_err());
+    }
 
     #[test]
     fn reports_cross_commit_references_and_info_counts() {

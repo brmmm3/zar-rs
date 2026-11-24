@@ -79,7 +79,7 @@ local operations = {
     "create_archive", "add_archive", "remove_archive", "read_custom_metadata",
     "update_custom_metadata", "join_archive", "undo_archive",
     "encrypt_archive_commits", "decrypt_archive_commits", "check_archive",
-    "info_archive", "cross_commit_references", "list_archive",
+    "info_archive", "cross_commit_references", "list_archive", "grep_archive",
     "extract_archive", "extract_archive_to_memory",
 }
 for _, operation in ipairs(operations) do

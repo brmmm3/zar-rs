@@ -18,6 +18,7 @@ globset.workspace = true
 xxhash-rust.workspace = true
 zeroize.workspace = true
 rayon.workspace = true
+regex = "1"
 flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 sysinfo = "0.40"
 libc = "0.2"

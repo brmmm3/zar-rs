@@ -582,6 +582,56 @@ fn list_archive(
 }
 
 #[pyfunction]
+#[pyo3(signature = (archive, file_filter, pattern, *, before = 0, after = 0, to = None, password = None, passwords = None))]
+#[allow(clippy::too_many_arguments)]
+fn grep_archive<'py>(
+    py: Python<'py>,
+    archive: PathBuf,
+    file_filter: String,
+    pattern: String,
+    before: usize,
+    after: usize,
+    to: Option<String>,
+    password: Option<Vec<u8>>,
+    passwords: Option<HashMap<String, Vec<u8>>>,
+) -> PyResult<Bound<'py, PyList>> {
+    let archive = archive_string(archive)?;
+    let passwords = password_set(password, passwords)?;
+    let results = py
+        .detach(|| {
+            operations::grep_archive(
+                &archive,
+                &file_filter,
+                &pattern,
+                operations::GrepOptions {
+                    before,
+                    after,
+                    to: to.as_deref(),
+                    passwords: Some(&passwords),
+                },
+            )
+            .map_err(|error| error.to_string())
+        })
+        .map_err(runtime_error)?;
+    let output = PyList::empty(py);
+    for file in results {
+        let item = PyDict::new(py);
+        item.set_item("path", file.path.as_str())?;
+        let lines = PyList::empty(py);
+        for line in file.lines {
+            let record = PyDict::new(py);
+            record.set_item("line_number", line.line_number)?;
+            record.set_item("bytes", PyBytes::new(py, &line.bytes))?;
+            record.set_item("is_match", line.is_match)?;
+            lines.append(record)?;
+        }
+        item.set_item("lines", lines)?;
+        output.append(item)?;
+    }
+    Ok(output)
+}
+
+#[pyfunction]
 #[pyo3(signature = (
     archive,
     destination,
@@ -939,6 +989,7 @@ fn _pyzarlib(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(info_archive, module)?)?;
     module.add_function(wrap_pyfunction!(cross_commit_references, module)?)?;
     module.add_function(wrap_pyfunction!(list_archive, module)?)?;
+    module.add_function(wrap_pyfunction!(grep_archive, module)?)?;
     module.add_function(wrap_pyfunction!(extract_archive, module)?)?;
     module.add_function(wrap_pyfunction!(extract_archive_to_memory, module)?)?;
     module.add_function(wrap_pyfunction!(read_custom_metadata, module)?)?;

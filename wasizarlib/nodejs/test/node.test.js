@@ -66,6 +66,12 @@ test("Node.js executes archive operations through the WASI component", async () 
 
     assert.ok(JSON.parse(response).block_size > 0);
     assert.ok((await readFile(path.join(directory, "example.zar"))).length > 0);
+    const matches = JSON.parse(execute("grep_archive", JSON.stringify({
+      archive: "/data/example.zar", file_filter: "*.txt", pattern: "WASI",
+    })));
+    assert.equal(matches.length, 1);
+    assert.ok(matches[0].path.endsWith("input.txt"));
+    assert.equal(matches[0].lines[0].is_match, true);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

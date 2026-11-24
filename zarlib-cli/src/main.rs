@@ -1646,6 +1646,45 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             }
             Ok(0)
         }
+        Command::Grep {
+            archive,
+            pattern,
+            file_filter,
+            before,
+            after,
+            to,
+            password,
+            password_for,
+        } => {
+            let passwords = prompt_password_set(password, &password_for)?;
+            let matches = grep_archive(
+                &archive,
+                &file_filter,
+                &pattern,
+                GrepOptions {
+                    before,
+                    after,
+                    to: to.as_deref(),
+                    passwords: Some(&passwords),
+                },
+            )?;
+            let stdout = io::stdout();
+            let mut output = stdout.lock();
+            for file in &matches {
+                for line in &file.lines {
+                    let separator = if line.is_match { ':' } else { '-' };
+                    write!(
+                        output,
+                        "{}{separator}{}{separator}",
+                        file.path, line.line_number
+                    )?;
+                    output.write_all(&line.bytes)?;
+                    output.write_all(b"\n")?;
+                }
+            }
+            output.flush()?;
+            Ok(u8::from(matches.is_empty()))
+        }
         Command::List {
             archive,
             to,

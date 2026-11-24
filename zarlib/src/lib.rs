@@ -2,7 +2,7 @@
 //!
 //! Provides the ZAR wire format, validation primitives, and high-level archive
 //! operations. Use [`operations`] for public create, add, remove, join,
-//! encrypt/decrypt, check, info, list, and extract APIs; the CLI is a
+//! encrypt/decrypt, check, info, list, grep, and extract APIs; the CLI is a
 //! presentation layer over them.
 
 use std::io::{self, Read, Write};

@@ -141,6 +141,7 @@ public static partial class ZarLibrary
     public static string InfoArchive(object request) => Execute("info_archive", request);
     public static string CrossCommitReferences(object request) => Execute("cross_commit_references", request);
     public static string ListArchive(object request) => Execute("list_archive", request);
+    public static string GrepArchive(object request) => Execute("grep_archive", request);
     public static string ExtractArchive(object request) => Execute("extract_archive", request);
 
     /// <summary>Extracts into memory and returns archive path to file bytes.</summary>

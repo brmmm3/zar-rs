@@ -777,6 +777,53 @@ pub(crate) enum Command {
     },
 
     #[command(
+        about = "Search archive files for a regular expression",
+        long_about = "Search regular files selected by an archive-relative glob. Results contain matching lines and optional surrounding context.\n\n\
+            USAGE EXAMPLES:\n  \
+              zarc grep archive.zar 'TODO|FIXME' --file-filter '*.rs'\n  \
+              zarc grep archive.zar error -B 2 -A 3"
+    )]
+    Grep {
+        #[arg(value_name = "ARCHIVE", help = "Archive file path to search")]
+        archive: String,
+        #[arg(value_name = "REGEX", help = "Regular expression to match per line")]
+        pattern: String,
+        #[arg(
+            long = "file-filter",
+            default_value = "*",
+            value_name = "GLOB",
+            help = "Select archive-relative file paths"
+        )]
+        file_filter: String,
+        #[arg(
+            short = 'B',
+            long,
+            default_value_t = 0,
+            value_name = "LINES",
+            help = "Include lines before each match"
+        )]
+        before: usize,
+        #[arg(
+            short = 'A',
+            long,
+            default_value_t = 0,
+            value_name = "LINES",
+            help = "Include lines after each match"
+        )]
+        after: usize,
+        #[arg(
+            long,
+            value_name = "COMMIT_ID",
+            help = "Search the archive as of this commit"
+        )]
+        to: Option<String>,
+        #[arg(long, help = "Prompt for the default password of encrypted commits")]
+        password: bool,
+        #[arg(long = "password-for", value_name = "COMMIT_ID", action = clap::ArgAction::Append, help = "Prompt for a password for this commit; may be repeated")]
+        password_for: Vec<String>,
+    },
+
+    #[command(
         alias = "l",
         about = "List files and directories in the archive table of contents",
         long_about = "List files, directories, symlinks, and special entries stored in the archive.\n\n\

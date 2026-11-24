@@ -33,6 +33,10 @@ local function run()
     assert(result.block_size == 65536)
     local listing = assert(zar.list_archive { archive = archive })
     assert(#listing == 1 and listing[1].path == name)
+    local matches = assert(zar.grep_archive {
+        archive = archive, file_filter = "*.txt", pattern = "hello",
+    })
+    assert(#matches == 1 and matches[1].path == name and matches[1].lines[1].is_match)
     assert(zar.check_archive { archive = archive }.commits == 1)
     local raw = assert(zar.execute_json("check_archive",
         require("dkjson").encode { archive = archive }))

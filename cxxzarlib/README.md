@@ -13,6 +13,8 @@ internal paths.
 
 Call `execute_json("cross_commit_references", request)` to enumerate references;
 the request and result are described in the C binding guide.
+Call `execute_json("grep_archive", request)` to search files; its JSON schema
+is documented in the C binding guide.
 
 The C++ wrapper's `execute_json` dispatcher supports archive-level custom
 key/value metadata through `read_custom_metadata` and

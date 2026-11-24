@@ -163,6 +163,11 @@ func ListArchive(request any) (json.RawMessage, error) {
 	return execute("list_archive", request)
 }
 
+// GrepArchive searches selected archive files for a regular expression.
+func GrepArchive(request any) (json.RawMessage, error) {
+	return execute("grep_archive", request)
+}
+
 // ExtractArchive extracts selected files to a destination directory.
 func ExtractArchive(request any) (json.RawMessage, error) {
 	return execute("extract_archive", request)

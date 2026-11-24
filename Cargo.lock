@@ -6639,6 +6639,7 @@ dependencies = [
  "libmkiso",
  "rars",
  "rayon",
+ "regex",
  "scandir",
  "sevenz-rust2",
  "sysinfo",

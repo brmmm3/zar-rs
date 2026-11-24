@@ -35,6 +35,9 @@ final class ZarLibraryTest {
             assertTrue(ZarLibrary.createArchive(createRequest).contains("\"block_size\":65536"));
             assertTrue(ZarLibrary.listArchive("{\"archive\":" + quote(archive.toString()) + "}")
                     .contains("alpha.txt"));
+            assertTrue(ZarLibrary.grepArchive("{\"archive\":" + quote(archive.toString())
+                    + ",\"file_filter\":\"*.txt\",\"pattern\":\"alpha\"}")
+                    .contains("\"is_match\":true"));
             assertTrue(ZarLibrary.infoArchive("{\"archive\":" + quote(archive.toString()) + "}")
                     .contains("\"id\":\"00000001\""));
             assertTrue(ZarLibrary.checkArchive("{\"archive\":" + quote(archive.toString()) + "}")

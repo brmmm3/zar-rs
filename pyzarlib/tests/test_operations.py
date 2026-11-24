@@ -8,6 +8,31 @@ import pytest
 import pyzarlib
 
 
+def test_grep_preserves_bytes_and_context(tmp_path: Path) -> None:
+    source = tmp_path / "input.txt"
+    source.write_bytes(b"before\n\xffmatch\nafter\n")
+    archive = tmp_path / "grep.zar"
+    pyzarlib.create_archive(archive, [source])
+    assert pyzarlib.grep_archive(archive, "*.txt", "match", before=1, after=1) == [
+        {"path": "input.txt", "lines": [
+            {"line_number": 1, "bytes": b"before", "is_match": False},
+            {"line_number": 2, "bytes": b"\xffmatch", "is_match": True},
+            {"line_number": 3, "bytes": b"after", "is_match": False},
+        ]}
+    ]
+    assert pyzarlib.grep_archive(archive, "*.bin", "match") == []
+    with pytest.raises(RuntimeError):
+        pyzarlib.grep_archive(archive, "*", "(")
+
+    encrypted = tmp_path / "encrypted.zar"
+    pyzarlib.create_archive(encrypted, [source], password=b"secret")
+    with pytest.raises(RuntimeError):
+        pyzarlib.grep_archive(encrypted, "*", "match")
+    assert pyzarlib.grep_archive(
+        encrypted, "*", "match", passwords={"00000001": b"secret"}
+    )[0]["lines"][0]["bytes"] == b"\xffmatch"
+
+
 def test_cross_commit_references_and_info_counts(tmp_path: Path) -> None:
     first = tmp_path / "first.txt"
     duplicate = tmp_path / "duplicate.txt"

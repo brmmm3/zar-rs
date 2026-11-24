@@ -39,6 +39,57 @@ where
 }
 
 #[test]
+fn cli_grep_returns_context_and_preserves_bytes() {
+    let temp = TestDirectory::new();
+    let source = temp.path().join("input.txt");
+    let other = temp.path().join("other.bin");
+    let archive = temp.path().join("archive.zar");
+    std::fs::write(&source, b"before\n\xffmatch\nafter\n").unwrap();
+    std::fs::write(&other, b"match\n").unwrap();
+    let output = zarc([
+        OsStr::new("--no-config"),
+        OsStr::new("create"),
+        archive.as_os_str(),
+        source.as_os_str(),
+        other.as_os_str(),
+    ]);
+    assert!(output.status.success(), "{output:?}");
+    let output = zarc([
+        OsStr::new("--no-config"),
+        OsStr::new("grep"),
+        archive.as_os_str(),
+        OsStr::new("match"),
+        OsStr::new("--file-filter"),
+        OsStr::new("*.txt"),
+        OsStr::new("-B"),
+        OsStr::new("1"),
+        OsStr::new("-A"),
+        OsStr::new("1"),
+    ]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        output.stdout,
+        b"input.txt-1-before\ninput.txt:2:\xffmatch\ninput.txt-3-after\n"
+    );
+    let absent = zarc([
+        OsStr::new("--no-config"),
+        OsStr::new("grep"),
+        archive.as_os_str(),
+        OsStr::new("absent"),
+    ]);
+    assert_eq!(absent.status.code(), Some(1));
+    assert!(absent.stdout.is_empty());
+    let invalid = zarc([
+        OsStr::new("--no-config"),
+        OsStr::new("grep"),
+        archive.as_os_str(),
+        OsStr::new("("),
+    ]);
+    assert!(!invalid.status.success());
+    assert!(!invalid.stderr.is_empty());
+}
+
+#[test]
 fn cli_encrypted_round_trip_with_password_stdin() {
     let temp = TestDirectory::new();
     let source = temp.path().join("input.txt");

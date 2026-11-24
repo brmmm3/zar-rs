@@ -68,6 +68,38 @@ block, and verifies the file checksum only when reading the whole file.
 If the archive changes or is replaced, subsequent reads fail. The
 [`zarmount` FUSE filesystem](../zarmount/README.md) uses this API.
 
+## Searching files
+
+`grep_archive` searches regular files in parallel on native targets (sequentially
+on WASI). Its file filter is a case-sensitive archive-relative glob using the
+same rules as `FilterSet`, and its pattern is a `regex` byte regex matched
+against each line. For example:
+
+```rust,no_run
+use zarlib::operations::{grep_archive, GrepOptions};
+
+let files = grep_archive("backup.zar", "*.rs", "TODO|FIXME", GrepOptions {
+    before: 1,
+    after: 2,
+    ..Default::default()
+})?;
+for file in files {
+    for line in file.lines {
+        println!("{}:{}:{}", file.path, line.line_number, String::from_utf8_lossy(&line.bytes));
+    }
+}
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Results contain only files with matches, ordered by archive path and line
+number, with overlapping context returned once and each line marked as a
+match or context. Line bytes exclude LF or CRLF terminators; non-UTF-8 bytes
+are preserved. Regex Unicode mode is enabled by default; use `(?-u:...)` for
+arbitrary bytes. `GrepOptions` also supports a commit limit and per-commit
+passwords. The archive must remain unchanged while searching. Selected files
+are fully validated, even when they have no matches. Memory use includes
+returned lines, before-context, the longest line and decoded blocks.
+
 ## Streaming regular files
 
 `create_archive_from_readers` consumes named `Read` inputs in blocks and writes

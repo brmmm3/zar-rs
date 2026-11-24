@@ -16,6 +16,8 @@ supported.
 
 Use `execute("cross_commit_references", requestJson)` to enumerate references.
 The request, result, and `info_archive` reference counts use the C JSON schema.
+`execute("grep_archive", requestJson)` searches files sequentially using the
+same request and byte-array result schema as `czarlib`.
 
 The WASI operation interface supports archive-level custom key/value metadata
 through `read_custom_metadata` and `update_custom_metadata`. Call

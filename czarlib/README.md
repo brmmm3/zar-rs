@@ -163,8 +163,20 @@ The output shapes follow the corresponding Python API:
 | `info_archive` | `archive` | `verbose`, `password`, `passwords` |
 | `cross_commit_references` | `archive` | `password`, `passwords` |
 | `list_archive` | `archive` | `to`, `password`, `passwords` |
+| `grep_archive` | `archive`, `file_filter`, `pattern` | `before`, `after`, `to`, `password`, `passwords` |
 | `extract_archive` | `archive`, `destination` | `dry_run`, `to`, `password`, `passwords`, `collision`, `existing`, `restore_metadata`, `restore_symlinks`, `restore_devices`, file/folder filters |
 | `extract_archive_to_memory` | `archive` | `to`, `password`, `passwords`, `size_limit`, `offset`, file/folder filters |
+
+`grep_archive` searches regular files selected by an archive-relative glob.
+`pattern` is a line-based byte regex; `before` and `after` are non-negative
+line counts defaulting to zero. Results are ordered by path and line number:
+`[{"path":"file.txt","lines":[{"line_number":1,"bytes":[104,105],"is_match":true}]}]`.
+`bytes` is an array of byte values without the LF or CRLF terminator; context
+is deduplicated and files without matches are omitted. `to` selects a commit,
+and locked headers or missing data passwords are errors. Native searches run
+in parallel; WASI searches sequentially. The archive must not change during
+the operation. See the [Rust guide](../doc/zarlib-developer-guide.md#searching-files)
+for regex and memory semantics.
 
 Timestamp options are opt-in. Creation- or access-time recording fails if a stored entry
 has no available timestamp. Access times depend on filesystem policies and may

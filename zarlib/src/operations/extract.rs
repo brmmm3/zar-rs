@@ -136,7 +136,7 @@ impl PreparedExtraction {
         passwords: &PasswordSet,
         progress: Option<&dyn Progress>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        Self::prepare(archive, to, passwords, progress, false)
+        Self::prepare(archive, to, passwords, progress, false, None)
     }
 
     /// Validates an archive and rejects any commit whose header is locked.
@@ -145,7 +145,16 @@ impl PreparedExtraction {
         to: Option<&str>,
         passwords: &PasswordSet,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        Self::prepare(archive, to, passwords, None, true)
+        Self::prepare(archive, to, passwords, None, true, None)
+    }
+
+    pub(super) fn new_complete_filtered(
+        archive: &str,
+        to: Option<&str>,
+        passwords: &PasswordSet,
+        filters: &FilterSet,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::prepare(archive, to, passwords, None, true, Some(filters))
     }
 
     fn prepare(
@@ -154,6 +163,7 @@ impl PreparedExtraction {
         passwords: &PasswordSet,
         progress: Option<&dyn Progress>,
         require_complete: bool,
+        filters: Option<&FilterSet>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let progress = ProgressReporter::new(progress);
         progress.check_cancelled()?;
@@ -185,7 +195,7 @@ impl PreparedExtraction {
                 to,
                 passwords,
                 Some(&progress),
-                None,
+                filters,
                 Some(headers),
                 false,
             )?
@@ -285,6 +295,31 @@ impl PreparedExtraction {
         self.check_metadata(&file.metadata()?)?;
         self.check_unchanged()?;
         Ok(result)
+    }
+
+    pub(super) fn write_file_to(
+        &self,
+        path: &ArchivePath,
+        writer: &mut impl Write,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.check_unchanged()?;
+        let Some(TocEntry::File(entry)) = self.state.0.get(path) else {
+            return Err(format!("{path} is not a file in the archive").into());
+        };
+        let source = self
+            .state
+            .1
+            .get(path)
+            .ok_or_else(|| format!("missing extraction source for {path}"))?;
+        if !matches!(source.kind, ExtractedKind::File) || source.entry != *entry {
+            return Err(format!("extraction source mismatch for {path}").into());
+        }
+        let mut file = File::open(&self.archive)?;
+        self.check_metadata(&file.metadata()?)?;
+        write_single_file_from_state(&mut file, path.as_str(), writer, entry, source, true, false)?;
+        self.check_metadata(&file.metadata()?)?;
+        self.check_unchanged()?;
+        Ok(())
     }
 
     /// Extracts entries without rebuilding the validated state.

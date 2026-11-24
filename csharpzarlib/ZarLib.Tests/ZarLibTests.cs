@@ -72,6 +72,9 @@ public sealed partial class ZarLibTests : IDisposable
         Assert.Contains("\"path\":\"input/nested\"", listing);
         Assert.Contains("\"path\":\"input/empty.txt\"", listing);
         Assert.Contains("\"size\":14", listing);
+        var matches = ZarLibrary.GrepArchive(new { archive = "sample.zar", file_filter = "*.txt", pattern = "alpha" });
+        Assert.Contains("\"path\":\"input/alpha.txt\"", matches);
+        Assert.Contains("\"is_match\":true", matches);
 
         var report = ZarLibrary.CheckArchive(new { archive = "sample.zar" });
         Assert.Contains("\"commits\":1", report);

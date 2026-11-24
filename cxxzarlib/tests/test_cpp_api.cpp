@@ -91,6 +91,12 @@ void test_create_list_check_info_extract() {
             "create response omitted block size");
 
     auto listing = invoke("list_archive", R"({"archive":"sample.zar"})");
+    auto matches = invoke("grep_archive",
+        R"({"archive":"sample.zar","file_filter":"*.txt","pattern":"alpha"})");
+    require(matches.find("\"path\":\"input/alpha.txt\"") != std::string::npos,
+            "grep omitted matching file");
+    require(matches.find("\"is_match\":true") != std::string::npos,
+            "grep omitted match marker");
     require(listing.find("\"path\":\"input/alpha.txt\"") != std::string::npos,
             "list omitted alpha file");
     require(listing.find("\"size\":14") != std::string::npos,

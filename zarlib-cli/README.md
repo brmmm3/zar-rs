@@ -30,6 +30,7 @@ One-letter shortcuts are shown in the table.
 | `info` | `i` |
 | `references` | - |
 | `list` | `l` |
+| `grep` | - |
 | `extract` | `e` |
 
 For example, `zarc a backup.zar new-file.txt` is equivalent to
@@ -90,6 +91,19 @@ instead of silently falling back to another file. Help and version output
 do not require a valid configuration file.
 
 ## Common workflows
+
+### Search archived files
+
+```sh
+zarc grep backup.zar 'TODO|FIXME' --file-filter '*.rs' -B 1 -A 2
+```
+
+The glob matches archive-relative paths and defaults to `*`. `--before` (`-B`)
+and `--after` (`-A`) select context lines; `--to`, `--password`, and
+`--password-for` select history and unlock encrypted commits. Output is
+`path:line:bytes` for matches and `path-line-bytes` for context. Line bytes
+are written unchanged apart from line terminators. Exit status is 0 for matches,
+1 for no matches, and nonzero for errors.
 
 Rename or move an entry by recording a new commit without recompressing its data:
 

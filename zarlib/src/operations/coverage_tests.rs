@@ -738,6 +738,15 @@ fn cross_commit_add_reuses_original_bytes() {
         .get(&ArchivePath::new("duplicate.txt").unwrap())
         .unwrap();
     assert!(matches!(entry, TocEntry::File(file) if file.source_commit.is_some()));
+    let matches = grep_archive(
+        fixture.archive(),
+        "duplicate.txt",
+        "alpha",
+        GrepOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].lines[0].bytes, b"alpha content");
     let references = cross_commit_references(fixture.archive()).unwrap();
     assert_eq!(references.len(), 1);
     let info = info_archive(fixture.archive(), false).unwrap();
@@ -2948,6 +2957,14 @@ fn single_file_rejects_malformed_block_indexes() {
     assert!(error.to_string().contains("checksum mismatch"));
     let error =
         check_archive_with_recovery(archive_path.to_str().unwrap(), false, None).unwrap_err();
+    assert!(error.to_string().contains("checksum mismatch"));
+    let error = grep_archive(
+        archive_path.to_str().unwrap(),
+        "*",
+        "no match",
+        GrepOptions::default(),
+    )
+    .unwrap_err();
     assert!(error.to_string().contains("checksum mismatch"));
     let partial =
         extract_archive_to_memory(archive_path.to_str().unwrap(), None, None, Some(5), 1).unwrap();

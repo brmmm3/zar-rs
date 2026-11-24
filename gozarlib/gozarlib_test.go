@@ -108,6 +108,14 @@ func TestFullArchiveOperations(t *testing.T) {
 		requireContains(t, listing, path)
 	}
 	requireContains(t, listing, `"size":14`)
+	matches, err := GrepArchive(map[string]any{
+		"archive": "sample.zar", "file_filter": "*.txt", "pattern": "alpha",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireContains(t, string(matches), `"path":"input/alpha.txt"`)
+	requireContains(t, string(matches), `"is_match":true`)
 
 	report := call(t, "check_archive", map[string]any{"archive": "sample.zar"})
 	requireContains(t, report, `"commits":1`)

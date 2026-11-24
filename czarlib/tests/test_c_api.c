@@ -132,6 +132,12 @@ static void test_create_list_check_extract(void) {
     REQUIRE(strstr(listing, "\"path\":\"input/empty.txt\"") != NULL);
     czarlib_string_free(listing);
 
+    char *matches = invoke("grep_archive",
+        "{\"archive\":\"sample.zar\",\"file_filter\":\"*.txt\",\"pattern\":\"alpha\"}");
+    REQUIRE(strstr(matches, "\"path\":\"input/alpha.txt\"") != NULL);
+    REQUIRE(strstr(matches, "\"is_match\":true") != NULL);
+    czarlib_string_free(matches);
+
     char *report = invoke("check_archive", "{\"archive\":\"sample.zar\"}");
     REQUIRE(strstr(report, "\"commits\":1") != NULL);
     REQUIRE(strstr(report, "\"logical_state_readable\":true") != NULL);

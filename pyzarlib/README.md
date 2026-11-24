@@ -5,6 +5,15 @@ The package exposes high-level create, add, remove, join, undo, commit
 encryption/decryption, custom metadata read/update, check, info, list, and
 extract operations.
 
+`grep_archive(archive, file_filter, pattern, *, before=0, after=0, to=None,
+password=None, passwords=None)` searches selected regular files in parallel.
+It returns a list of `{"path": str, "lines": [...]}` records, with each line
+containing `line_number` (one-based), `bytes` (without LF/CRLF), and
+`is_match`. Context is deduplicated and files without matches are omitted.
+Patterns, commit selection, passwords, and integrity behavior follow the
+[Rust grep API](../doc/zarlib-developer-guide.md#searching-files); passwords
+are bytes as in the other Python read operations.
+
 `cross_commit_references(archive, password=None, passwords=None)` returns all
 referencing and source commit IDs and paths. `info_archive` returns a
 `cross_commit_reference_count` per commit and accepts the same password

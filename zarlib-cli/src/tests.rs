@@ -1163,7 +1163,7 @@ fn version_and_subcommand_help_report_allocator() {
 #[test]
 fn all_subcommands_have_detailed_help_messages() {
     for cmd in [
-        "add", "remove", "join", "convert", "encrypt", "decrypt", "check", "info", "list",
+        "add", "remove", "join", "convert", "encrypt", "decrypt", "check", "info", "list", "grep",
         "extract",
     ] {
         let err = Cli::try_parse_from(["zarc", cmd, "-h"]).unwrap_err();

@@ -11,6 +11,7 @@ source archive's internal paths.
 
 `ZarLibrary.CrossCommitReferences(request)` returns the shared JSON reference
 inventory. `InfoArchive` reports per-commit cross-reference counts.
+`GrepArchive(request)` returns grep results as JSON using the C schema.
 
 The C# wrapper provides `ReadCustomMetadata` and `UpdateCustomMetadata`:
 
