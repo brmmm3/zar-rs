@@ -104,9 +104,32 @@ and `--after` (`-A`) select context lines; `--to`, `--password`, and
 `path:line:bytes` for matches and `path-line-bytes` for context. Line bytes
 are written unchanged apart from line terminators. Exit status is 0 for matches,
 1 for no matches, and nonzero for errors.
+Matching lines are emitted as files are searched; output from different files
+may be interleaved, and an error can follow partial output.
 Patterns use fancy-regex, including lookaround and backreferences. Matching is
 Unicode-aware; inline Unicode mode changes and matching individual invalid
 UTF-8 bytes are not supported.
+
+For repeated searches, start `zarc grep backup.zar --shell`. The shell keeps
+command history for the current session (use the arrow keys) and accepts:
+
+- `/find <fnmatch>` lists matching archive paths.
+- `/grep <fnmatch> <regex>` searches matching regular files.
+- `/before <cnt>` and `/after <cnt>` set the number of context lines.
+- `/chain 1` starts a new chain; `/chain 0` disables chaining.
+- `/help` shows the supported commands.
+- `/quit` exits; EOF also exits.
+
+Patterns match archive-relative paths. Quote a fnmatch containing spaces with
+single or double quotes; the regex is the remainder of the line and is not
+shell-unquoted. `--to`, `--password`, and `--password-for` apply throughout
+the session, and `-B`/`-A` set the initial context counts. In a chain, each
+successful `/grep` searches only files matched by the previous `/grep`, further
+restricted by its own fnmatch. A search with no matches leaves the chain empty;
+use `/chain 1` to start again. Failed or cancelled searches do not change the
+chain. Press Esc to cancel a running grep in an interactive terminal. Errors
+are reported without ending the session. The unlocked header is reused while
+the archive remains unchanged, and history is not saved between sessions.
 
 Rename or move an entry by recording a new commit without recompressing its data:
 

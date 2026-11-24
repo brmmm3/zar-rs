@@ -781,16 +781,25 @@ pub(crate) enum Command {
         long_about = "Search regular files selected by an archive-relative glob. Results contain matching lines and optional surrounding context.\n\n\
             USAGE EXAMPLES:\n  \
               zarc grep archive.zar 'TODO|FIXME' --file-filter '*.rs'\n  \
-              zarc grep archive.zar error -B 2 -A 3"
+              zarc grep archive.zar error -B 2 -A 3\n  \
+              zarc grep archive.zar --shell"
     )]
     Grep {
         #[arg(value_name = "ARCHIVE", help = "Archive file path to search")]
         archive: String,
-        #[arg(value_name = "REGEX", help = "Regular expression to match per line")]
-        pattern: String,
+        #[arg(
+            value_name = "REGEX",
+            required_unless_present = "shell",
+            conflicts_with = "shell",
+            help = "Regular expression to match per line"
+        )]
+        pattern: Option<String>,
+        #[arg(long, help = "Open an interactive search shell with session history")]
+        shell: bool,
         #[arg(
             long = "file-filter",
             default_value = "*",
+            conflicts_with = "shell",
             value_name = "GLOB",
             help = "Select archive-relative file paths"
         )]

@@ -105,6 +105,17 @@ are created: file contents are searched in memory as blocks are decoded, and
 lines spanning blocks are reassembled before matching. Memory use includes
 returned lines, before-context, the longest line and decoded blocks.
 
+For repeated or incremental searches, `PreparedGrep::new` reads and unlocks
+the headers once. Its `search` method filters paths before scheduling file
+workers and invokes a thread-safe callback as lines arrive. Use
+`search_with_filters` to intersect a glob with an exact-path restriction.
+Lines from different files can interleave; cancellation, callback errors, or
+integrity failures can occur after some lines have been delivered. Selected
+blocks and file checksums are checked while searching; unselected block payloads
+are not checked. A prepared header rejects an archive that has changed.
+The zarg Find dialog and the zarc grep shell reuse prepared headers across
+searches, rebuilding them when their archive view changes.
+
 ## Streaming regular files
 
 `create_archive_from_readers` consumes named `Read` inputs in blocks and writes

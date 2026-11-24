@@ -2,6 +2,7 @@ use std::io::{self, IsTerminal, Seek, Write};
 use std::process::ExitCode;
 mod args;
 mod config;
+mod grep_shell;
 use args::{Cli, Command};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 #[cfg(feature = "mimalloc")]
@@ -1101,6 +1102,19 @@ fn format_compression_ratio(compressed: u64, uncompressed: u64) -> String {
     }
 }
 
+fn write_grep_line(
+    output: &mut impl Write,
+    path: &zarlib::ArchivePath,
+    line: &GrepLine,
+    terminal_raw: bool,
+) -> io::Result<()> {
+    let separator = if line.is_match { ':' } else { '-' };
+    write!(output, "{path}{separator}{}{separator}", line.line_number)?;
+    output.write_all(&line.bytes)?;
+    output.write_all(if terminal_raw { b"\r\n" } else { b"\n" })?;
+    output.flush()
+}
+
 fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
     let start = std::time::Instant::now();
     match cli.command {
@@ -1649,6 +1663,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
         Command::Grep {
             archive,
             pattern,
+            shell,
             file_filter,
             before,
             after,
@@ -1657,33 +1672,31 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             password_for,
         } => {
             let passwords = prompt_password_set(password, &password_for)?;
-            let matches = grep_archive(
-                &archive,
+            let options = GrepOptions {
+                before,
+                after,
+                to: to.as_deref(),
+                passwords: Some(&passwords),
+            };
+            if shell {
+                return grep_shell::run(&archive, &passwords, &options);
+            }
+            let prepared = PreparedGrep::new(&archive, options.to, &passwords, None)?;
+            let found = std::sync::atomic::AtomicBool::new(false);
+            prepared.search(
                 &file_filter,
-                &pattern,
-                GrepOptions {
-                    before,
-                    after,
-                    to: to.as_deref(),
-                    passwords: Some(&passwords),
+                pattern.as_deref().ok_or("missing regular expression")?,
+                before,
+                after,
+                None,
+                &|path, line| {
+                    if line.is_match {
+                        found.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    write_grep_line(&mut io::stdout().lock(), path, &line, false)
                 },
             )?;
-            let stdout = io::stdout();
-            let mut output = stdout.lock();
-            for file in &matches {
-                for line in &file.lines {
-                    let separator = if line.is_match { ':' } else { '-' };
-                    write!(
-                        output,
-                        "{}{separator}{}{separator}",
-                        file.path, line.line_number
-                    )?;
-                    output.write_all(&line.bytes)?;
-                    output.write_all(b"\n")?;
-                }
-            }
-            output.flush()?;
-            Ok(u8::from(matches.is_empty()))
+            Ok(u8::from(!found.load(std::sync::atomic::Ordering::Relaxed)))
         }
         Command::List {
             archive,
@@ -1713,6 +1726,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                 ) {
                     continue;
                 }
+
                 match entry {
                     zarlib::TocEntry::Directory => println!("{}/", archive_path),
                     zarlib::TocEntry::File(file) => {

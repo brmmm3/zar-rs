@@ -948,7 +948,7 @@ pub fn ensure_archive_unencrypted(archive_path: &Path) -> Result<(), Box<dyn std
 pub type UnlockedCommit = (ValidatedCommit, Option<Zeroizing<[u8; DEK_SIZE]>>);
 pub type UnlockedHeader = (ValidatedHeader, Option<Zeroizing<[u8; DEK_SIZE]>>);
 
-#[derive(Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct PasswordSet {
     default: Option<Zeroizing<Vec<u8>>>,
     by_commit: BTreeMap<[u8; 4], Zeroizing<Vec<u8>>>,

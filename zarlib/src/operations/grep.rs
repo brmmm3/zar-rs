@@ -1,11 +1,12 @@
-use super::{FilterSet, PasswordSet, PreparedExtraction, Progress, ProgressReporter};
-use crate::{ArchivePath, TocEntry};
+use super::{FilterSet, PasswordSet, PreparedGrep, Progress, ProgressReporter};
+use crate::ArchivePath;
 use fancy_regex::{BytesMode, Regex, RegexBuilder};
 #[cfg(not(target_os = "wasi"))]
 use rayon::prelude::*;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::io::{self, Write};
 use std::path::Path;
+use std::sync::Mutex;
 
 /// Search options. By default, the latest archive state is searched without
 /// passwords or surrounding context.
@@ -69,80 +70,159 @@ pub fn grep_archive_with_progress(
 ) -> Result<Vec<GrepFile>, Box<dyn std::error::Error>> {
     let progress = ProgressReporter::new(progress);
     progress.check_cancelled()?;
-    let regex = RegexBuilder::new(pattern)
+    RegexBuilder::new(pattern)
         .bytes_mode(BytesMode::UnicodeBytes)
         .build()?;
-    let filters =
-        FilterSet::from_patterns(&[file_filter.to_owned()], &[], &[], &[], &[] as &[&Path])?;
     let default_passwords = PasswordSet::default();
-    let prepared = PreparedExtraction::new_complete_filtered(
+    let prepared = PreparedGrep::new(
         archive,
         options.to,
         options.passwords.unwrap_or(&default_passwords),
-        &filters,
         progress.0,
     )?;
-    let paths: Vec<_> = prepared
-        .toc()
-        .iter()
-        .filter_map(|(path, entry)| {
-            (matches!(entry, TocEntry::File(_)) && filters.includes(path.as_str(), false))
-                .then_some(path)
-        })
-        .collect();
-    let search = |path: &&ArchivePath| -> Result<Option<GrepFile>, String> {
-        progress
-            .check_cancelled()
-            .map_err(|error| error.to_string())?;
-        let mut writer = SearchWriter::new(&regex, options.before, options.after, &progress);
-        prepared
-            .write_file_to(path, &mut writer)
-            .map_err(|error| format!("cannot search {path}: {error}"))?;
-        writer
-            .finish()
-            .map_err(|error| format!("cannot search {path}: {error}"))?;
-        Ok((!writer.lines.is_empty()).then(|| GrepFile {
-            path: (*path).clone(),
-            lines: writer.lines,
-        }))
-    };
-    #[cfg(not(target_os = "wasi"))]
-    let results: Vec<_> = paths.par_iter().map(search).collect::<Result<_, _>>()?;
-    #[cfg(target_os = "wasi")]
-    let results: Vec<_> = paths.iter().map(search).collect::<Result<_, _>>()?;
-    progress.check_cancelled()?;
-    Ok(results.into_iter().flatten().collect())
+    let results = Mutex::new(BTreeMap::<ArchivePath, Vec<GrepLine>>::new());
+    prepared.search(
+        file_filter,
+        pattern,
+        options.before,
+        options.after,
+        progress.0,
+        &|path, line| {
+            results
+                .lock()
+                .map_err(|_| io::Error::other("grep results lock poisoned"))?
+                .entry(path.clone())
+                .or_default()
+                .push(line);
+            Ok(())
+        },
+    )?;
+    let results = results
+        .into_inner()
+        .map_err(|_| "grep results lock poisoned")?;
+    Ok(results
+        .into_iter()
+        .map(|(path, lines)| GrepFile { path, lines })
+        .collect())
 }
 
-struct SearchWriter<'a> {
+impl PreparedGrep {
+    /// Searches matching files in parallel and delivers each line immediately.
+    ///
+    /// Calls can occur concurrently, and lines from different files may be
+    /// interleaved. Lines within each file are delivered in order. A later
+    /// cancellation, output error, or integrity failure may follow partial output.
+    pub fn search(
+        &self,
+        file_filter: &str,
+        pattern: &str,
+        before: usize,
+        after: usize,
+        progress: Option<&dyn Progress>,
+        on_line: &(impl Fn(&ArchivePath, GrepLine) -> io::Result<()> + Sync),
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let filters =
+            FilterSet::from_patterns(&[file_filter.to_owned()], &[], &[], &[], &[] as &[&Path])?;
+        self.search_with_filters(&filters, pattern, before, after, progress, on_line)
+    }
+
+    /// Searches using a filter set, including any exact-path restrictions.
+    /// Delivery, ordering, and partial-output behavior are the same as [`Self::search`].
+    pub fn search_with_filters(
+        &self,
+        filters: &FilterSet,
+        pattern: &str,
+        before: usize,
+        after: usize,
+        progress: Option<&dyn Progress>,
+        on_line: &(impl Fn(&ArchivePath, GrepLine) -> io::Result<()> + Sync),
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let progress = ProgressReporter::new(progress);
+        progress.check_cancelled()?;
+        let regex = RegexBuilder::new(pattern)
+            .bytes_mode(BytesMode::UnicodeBytes)
+            .build()?;
+        let sources = self.selected_sources(filters, &progress)?;
+        let paths: Vec<_> = sources.iter().collect();
+        let search = |reader: &mut Result<_, String>,
+                      (path, source): &(&ArchivePath, &super::ExtractedSource)|
+         -> Result<(), String> {
+            progress
+                .check_cancelled()
+                .map_err(|error| error.to_string())?;
+            let reader = reader.as_mut().map_err(|error| error.clone())?;
+            let mut writer = SearchWriter::new(&regex, before, after, &progress, path, on_line);
+            self.write_source(reader, path, source, &mut writer)
+                .map_err(|error| format!("cannot search {path}: {error}"))?;
+            writer
+                .finish()
+                .map_err(|error| format!("cannot search {path}: {error}"))
+        };
+        #[cfg(not(target_os = "wasi"))]
+        if !paths.is_empty() {
+            let workers =
+                super::compression_worker_count(super::CREATE_BLOCK_SIZE).min(paths.len());
+            let pool = super::worker_priority::worker_pool(
+                workers,
+                "zarc-grep",
+                super::worker_priority::worker_priority(),
+            )?;
+            pool.install(|| {
+                paths
+                    .par_iter()
+                    .map_init(
+                        || self.open_reader().map_err(|error| error.to_string()),
+                        search,
+                    )
+                    .collect::<Result<Vec<_>, _>>()
+            })?;
+        }
+        #[cfg(target_os = "wasi")]
+        {
+            let mut reader = self.open_reader().map_err(|error| error.to_string());
+            paths
+                .iter()
+                .try_for_each(|item| search(&mut reader, item))?;
+        }
+        progress.check_cancelled()?;
+        self.check_unchanged()?;
+        Ok(())
+    }
+}
+
+struct SearchWriter<'a, F> {
     regex: &'a Regex,
     progress: &'a ProgressReporter<'a>,
+    path: &'a ArchivePath,
+    on_line: &'a F,
     before: usize,
     after: usize,
     remaining_after: usize,
     line_number: u64,
     pending: Vec<u8>,
     previous: VecDeque<GrepLine>,
-    lines: Vec<GrepLine>,
 }
 
-impl<'a> SearchWriter<'a> {
+impl<'a, F: Fn(&ArchivePath, GrepLine) -> io::Result<()>> SearchWriter<'a, F> {
     fn new(
         regex: &'a Regex,
         before: usize,
         after: usize,
         progress: &'a ProgressReporter<'a>,
+        path: &'a ArchivePath,
+        on_line: &'a F,
     ) -> Self {
         Self {
             regex,
             progress,
+            path,
+            on_line,
             before,
             after,
             remaining_after: 0,
             line_number: 0,
             pending: Vec::new(),
             previous: VecDeque::new(),
-            lines: Vec::new(),
         }
     }
 
@@ -168,11 +248,13 @@ impl<'a> SearchWriter<'a> {
             is_match,
         };
         if is_match {
-            self.lines.extend(self.previous.drain(..));
-            self.lines.push(line);
+            for previous in self.previous.drain(..) {
+                (self.on_line)(self.path, previous)?;
+            }
+            (self.on_line)(self.path, line)?;
             self.remaining_after = self.after;
         } else if self.remaining_after > 0 {
-            self.lines.push(line);
+            (self.on_line)(self.path, line)?;
             self.remaining_after -= 1;
         } else if self.before > 0 {
             if self.previous.len() == self.before {
@@ -200,7 +282,7 @@ impl<'a> SearchWriter<'a> {
     }
 }
 
-impl Write for SearchWriter<'_> {
+impl<F: Fn(&ArchivePath, GrepLine) -> io::Result<()>> Write for SearchWriter<'_, F> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.check_cancelled()?;
         for part in buf.split_inclusive(|byte| *byte == b'\n') {
@@ -240,10 +322,16 @@ mod tests {
         let progress = CancelDuringLines(AtomicUsize::new(0));
         let reporter = ProgressReporter::new(Some(&progress));
         let regex = Regex::new("match").unwrap();
-        let mut writer = SearchWriter::new(&regex, 0, 0, &reporter);
+        let path = ArchivePath::new("file").unwrap();
+        let lines = Mutex::new(Vec::new());
+        let on_line = |_: &ArchivePath, line| {
+            lines.lock().unwrap().push(line);
+            Ok(())
+        };
+        let mut writer = SearchWriter::new(&regex, 0, 0, &reporter, &path, &on_line);
         let error = writer.write_all(b"match\nmatch\nmatch\n").unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::Other);
         assert!(error.to_string().contains("operation cancelled"));
-        assert_eq!(writer.lines.len(), 1);
+        assert_eq!(lines.lock().unwrap().len(), 1);
     }
 }

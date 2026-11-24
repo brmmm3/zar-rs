@@ -3,8 +3,8 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use zarlib::operations::{
-    EncodingOptions, GrepOptions, PasswordSet, Progress, StreamEncryption, StreamInput,
-    add_archive, create_archive, create_archive_from_readers, grep_archive,
+    EncodingOptions, GrepOptions, PasswordSet, PreparedGrep, Progress, StreamEncryption,
+    StreamInput, add_archive, create_archive, create_archive_from_readers, grep_archive,
     grep_archive_with_progress,
 };
 use zarlib::{ArchivePath, ContentAead, EncryptionScope, TocEntry};
@@ -27,6 +27,133 @@ fn archive(path: &Path, files: &[(&str, &[u8])], encryption: Option<StreamEncryp
         encryption,
     )
     .unwrap();
+}
+
+#[test]
+fn prepared_grep_streams_before_later_errors_and_can_be_reused() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.zar");
+    archive(
+        &path,
+        &[(
+            "file.txt",
+            b"match\nabababababababababababababababababababababababababababab\n",
+        )],
+        None,
+    );
+    let prepared =
+        PreparedGrep::new(path.to_str().unwrap(), None, &PasswordSet::default(), None).unwrap();
+    let received = std::sync::Mutex::new(Vec::new());
+    let error = prepared
+        .search("*", r"match|(?i)(a|b|ab)*(?>c)", 0, 0, None, &|_, line| {
+            received.lock().unwrap().push(line);
+            Ok(())
+        })
+        .unwrap_err();
+    assert!(error.to_string().contains("backtrack"));
+    assert_eq!(received.lock().unwrap()[0].bytes, b"match");
+
+    received.lock().unwrap().clear();
+    prepared
+        .search("*.txt", "^match$", 0, 0, None, &|_, line| {
+            received.lock().unwrap().push(line);
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(received.lock().unwrap().len(), 1);
+
+    let error = prepared
+        .search("*", "match", 0, 0, None, &|_, _| {
+            Err(std::io::Error::other("sink failed"))
+        })
+        .unwrap_err();
+    assert!(error.to_string().contains("sink failed"));
+    use std::io::Write;
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap()
+        .write_all(b"changed")
+        .unwrap();
+    assert!(
+        prepared
+            .search("*", "match", 0, 0, None, &|_, _| Ok(()))
+            .unwrap_err()
+            .to_string()
+            .contains("changed")
+    );
+}
+
+#[test]
+fn grep_checks_selected_blocks_without_reading_unselected_payloads() {
+    use std::io::{Read, Seek, SeekFrom, Write};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.zar");
+    archive(
+        &path,
+        &[("selected.txt", b"match\n"), ("other.txt", b"other\n")],
+        None,
+    );
+    let mut file = std::fs::File::open(&path).unwrap();
+    let header_offset = zarlib::operations::read_first_header_offset(&mut file).unwrap();
+    let limits = zarlib::CommitValidationLimits::default();
+    let (_, data_start, _) =
+        zarlib::operations::read_commit_at_offset(&mut file, header_offset, limits).unwrap();
+    file.seek(SeekFrom::Start(header_offset)).unwrap();
+    let (header, _) =
+        zarlib::operations::read_header_with_passwords(&mut file, limits, &PasswordSet::default())
+            .unwrap();
+    let index = header.logical_header.unwrap().block_index.unwrap();
+    let toc = zarlib::operations::list_archive(path.to_str().unwrap(), None, None).unwrap();
+    let offset = |name: &str| {
+        let Some(TocEntry::File(entry)) = toc.get(&ArchivePath::new(name).unwrap()) else {
+            panic!("missing file")
+        };
+        data_start
+            + index
+                .iter()
+                .find(|block| block.index == entry.block_indices[0])
+                .unwrap()
+                .offset
+            + 20
+    };
+    let corrupt = |name: &str| {
+        let copy = dir.path().join(format!("corrupt-{name}.zar"));
+        std::fs::copy(&path, &copy).unwrap();
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&copy)
+            .unwrap();
+        file.seek(SeekFrom::Start(offset(name))).unwrap();
+        let mut byte = [0];
+        file.read_exact(&mut byte).unwrap();
+        file.seek(SeekFrom::Current(-1)).unwrap();
+        file.write_all(&[byte[0] ^ 1]).unwrap();
+        copy
+    };
+    let other = corrupt("other.txt");
+    assert_eq!(
+        grep_archive(
+            other.to_str().unwrap(),
+            "selected.txt",
+            "match",
+            Default::default()
+        )
+        .unwrap()
+        .len(),
+        1
+    );
+    let selected = corrupt("selected.txt");
+    assert!(
+        grep_archive(
+            selected.to_str().unwrap(),
+            "selected.txt",
+            "match",
+            Default::default()
+        )
+        .is_err()
+    );
 }
 
 #[test]

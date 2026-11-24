@@ -7,12 +7,17 @@ until a version is released.
 
 ### Changed
 
+- Grep now filters before scheduling workers, streams results, and reuses
+  unlocked headers for repeated searches in zarg and the zarc grep shell.
 - Switched zarlib grep to fancy-regex, adding lookaround and backreference
   support. Inline Unicode mode changes such as `(?-u:...)` are no longer
   supported, and invalid UTF-8 bytes cannot be matched individually.
 
 ### Added
 
+- Added `zarc grep --shell` for interactive archive path and content searches
+  with session command history, adjustable context, chained searches, and
+  Escape cancellation.
 - Added Ctrl+I to invert the zarg file-list selection and Enter to open the
   first selected entry, alongside existing Ctrl+A and Delete shortcuts.
 - Added zarg **Edit > Find**, with themed icons and a virtualized result list,

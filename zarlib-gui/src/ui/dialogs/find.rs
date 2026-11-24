@@ -9,6 +9,7 @@ type FindResult = Result<FindResults, String>;
 #[derive(Debug, Default)]
 struct FindResults {
     files: Vec<String>,
+    file_indices: std::collections::HashMap<String, usize>,
     rows: Vec<FindRow>,
     result_count: usize,
     invalid_utf8: bool,
@@ -25,6 +26,74 @@ struct FindRow {
 }
 
 impl FindResults {
+    fn finish(&mut self, include_context: bool) {
+        self.rows.sort_by(|left, right| {
+            self.files[left.file]
+                .cmp(&self.files[right.file])
+                .then(left.line_number.cmp(&right.line_number))
+        });
+        self.result_count = 0;
+        let mut previous: Option<(usize, u64, usize)> = None;
+        for (index, row) in self.rows.iter_mut().enumerate() {
+            row.group_start = previous
+                .filter(|(file, line, _)| {
+                    include_context
+                        && *file == row.file
+                        && line.checked_add(1) == Some(row.line_number)
+                })
+                .map_or(index, |(_, _, group)| group);
+            if row.group_start == index {
+                self.result_count += 1;
+            }
+            previous = Some((row.file, row.line_number, row.group_start));
+        }
+    }
+
+    fn push_line(
+        &mut self,
+        path: &str,
+        line: operations::GrepLine,
+        regex: &Regex,
+        include_context: bool,
+    ) -> Result<(), String> {
+        let file_index = match self.file_indices.get(path) {
+            Some(&index) => index,
+            None => {
+                self.files.push(path.to_owned());
+                let index = self.files.len() - 1;
+                self.file_indices.insert(path.to_owned(), index);
+                index
+            }
+        };
+        self.invalid_utf8 |= std::str::from_utf8(&line.bytes).is_err();
+        let (text, highlights) =
+            format_result_line(&line.bytes, line.is_match, regex).map_err(|error| {
+                format!("cannot highlight {path} line {}: {error}", line.line_number)
+            })?;
+        let group_start = self
+            .rows
+            .last()
+            .filter(|previous| {
+                include_context
+                    && previous.file == file_index
+                    && previous.line_number.checked_add(1) == Some(line.line_number)
+            })
+            .map_or(self.rows.len(), |previous| previous.group_start);
+        if group_start == self.rows.len() {
+            self.result_count += 1;
+        }
+        self.rows.push(FindRow {
+            file: file_index,
+            group_start,
+            line_number: line.line_number,
+            text,
+            highlights,
+            is_match: line.is_match,
+        });
+        Ok(())
+    }
+
+    #[cfg(test)]
     fn new(
         files: Vec<operations::GrepFile>,
         pattern: &str,
@@ -231,6 +300,10 @@ pub(in crate::ui) struct FindState {
     before: usize,
     after: usize,
     receiver: Option<Receiver<FindResult>>,
+    lines: Option<Receiver<(String, operations::GrepLine)>>,
+    headers: Option<Receiver<Arc<FindCache>>>,
+    cache: Option<Arc<FindCache>>,
+    result_regex: Option<Regex>,
     cancellation: Option<Arc<AtomicBool>>,
     pub(in crate::ui) cancelled: bool,
     result: Option<FindResult>,
@@ -246,6 +319,10 @@ impl Default for FindState {
             before: 0,
             after: 0,
             receiver: None,
+            lines: None,
+            headers: None,
+            cache: None,
+            result_regex: None,
             cancellation: None,
             cancelled: false,
             result: None,
@@ -256,10 +333,51 @@ impl Default for FindState {
 
 impl FindState {
     pub(in crate::ui) fn clear_results(&mut self) {
+        self.cache = None;
         self.result = None;
         self.selected_row = None;
         self.cancelled = false;
     }
+}
+
+#[derive(PartialEq, Eq)]
+struct FindStamp {
+    size: u64,
+    modified: std::time::SystemTime,
+    #[cfg(unix)]
+    identity: (u64, u64, i64, i64),
+}
+
+impl FindStamp {
+    fn read(path: &Path) -> std::io::Result<Self> {
+        let metadata = std::fs::metadata(path)?;
+        #[cfg(unix)]
+        let identity = {
+            use std::os::unix::fs::MetadataExt;
+            (
+                metadata.dev(),
+                metadata.ino(),
+                metadata.ctime(),
+                metadata.ctime_nsec(),
+            )
+        };
+        Ok(Self {
+            size: metadata.len(),
+            modified: metadata.modified()?,
+            #[cfg(unix)]
+            identity,
+        })
+    }
+}
+
+struct FindCache {
+    archive: String,
+    archive_stamp: FindStamp,
+    overlay: Option<(PathBuf, FindStamp)>,
+    commit: Option<String>,
+    passwords: operations::PasswordSet,
+    prepared: operations::PreparedGrep,
+    _view: Option<tempfile::TempDir>,
 }
 
 impl ZargApp {
@@ -286,7 +404,50 @@ impl ZargApp {
         let pattern = self.find.pattern.clone();
         let before = self.find.before;
         let after = self.find.after;
+        let regex = match RegexBuilder::new(&pattern)
+            .bytes_mode(BytesMode::UnicodeBytes)
+            .build()
+        {
+            Ok(regex) => regex,
+            Err(error) => {
+                self.find.result = Some(Err(error.to_string()));
+                return;
+            }
+        };
+        let archive_stamp = match FindStamp::read(Path::new(&archive)) {
+            Ok(stamp) => stamp,
+            Err(error) => {
+                self.find.result = Some(Err(error.to_string()));
+                return;
+            }
+        };
+        let overlay_stamp = match overlay
+            .as_ref()
+            .map(|path| FindStamp::read(path).map(|stamp| (path.clone(), stamp)))
+            .transpose()
+        {
+            Ok(stamp) => stamp,
+            Err(error) => {
+                self.find.result = Some(Err(error.to_string()));
+                return;
+            }
+        };
+        let cached = self
+            .find
+            .cache
+            .as_ref()
+            .filter(|cache| {
+                cache.archive == archive
+                    && cache.archive_stamp == archive_stamp
+                    && cache.overlay == overlay_stamp
+                    && cache.commit == commit
+                    && cache.passwords == passwords
+                    && cache.prepared.check_unchanged().is_ok()
+            })
+            .cloned();
         let (sender, receiver) = mpsc::channel();
+        let (line_tx, line_rx) = mpsc::sync_channel(2048);
+        let (header_tx, header_rx) = mpsc::channel();
         let (events_tx, events_rx) = mpsc::channel();
         let (answers, answer_rx) = mpsc::channel();
         let cancellation = Arc::new(AtomicBool::new(false));
@@ -298,6 +459,9 @@ impl ZargApp {
             last_status_update: Mutex::new(None),
         };
         self.find.receiver = Some(receiver);
+        self.find.lines = Some(line_rx);
+        self.find.headers = Some(header_rx);
+        self.find.result_regex = Some(regex);
         self.find.cancellation = Some(Arc::clone(&cancellation));
         self.find.cancelled = false;
         self.find.result = None;
@@ -314,43 +478,78 @@ impl ZargApp {
                 if progress.is_cancelled() {
                     return Err("operation cancelled".into());
                 }
-                let view = if let Some(overlay) = overlay {
-                    let directory = tempfile::Builder::new()
-                        .prefix("zarg-find-view-")
-                        .tempdir()?;
-                    operations::combine_archives_with_progress(
-                        Path::new(&archive),
-                        &overlay,
-                        &directory.path().join("view.zar"),
+                let cache = if let Some(cache) = cached {
+                    cache
+                } else {
+                    let view = if let Some(overlay) = &overlay {
+                        let directory = tempfile::Builder::new()
+                            .prefix("zarg-find-view-")
+                            .tempdir()?;
+                        operations::combine_archives_with_progress(
+                            Path::new(&archive),
+                            overlay,
+                            &directory.path().join("view.zar"),
+                            Some(&progress),
+                        )?;
+                        Some(directory)
+                    } else {
+                        None
+                    };
+                    let view_path = view
+                        .as_ref()
+                        .map(|directory| directory.path().join("view.zar"));
+                    let source = match &view_path {
+                        Some(path) => path
+                            .to_str()
+                            .ok_or("Temporary archive path is not valid UTF-8")?,
+                        None => &archive,
+                    };
+                    let prepared = operations::PreparedGrep::new(
+                        source,
+                        commit.as_deref(),
+                        &passwords,
                         Some(&progress),
                     )?;
-                    Some(directory)
-                } else {
-                    None
+                    if FindStamp::read(Path::new(&archive))? != archive_stamp
+                        || overlay_stamp.as_ref().is_some_and(|(path, stamp)| {
+                            FindStamp::read(path).ok().as_ref() != Some(stamp)
+                        })
+                    {
+                        return Err("archive changed during search preparation".into());
+                    }
+                    Arc::new(FindCache {
+                        archive: archive.clone(),
+                        archive_stamp,
+                        overlay: overlay_stamp,
+                        commit: commit.clone(),
+                        passwords,
+                        prepared,
+                        _view: view,
+                    })
                 };
-                let view_path = view
-                    .as_ref()
-                    .map(|directory| directory.path().join("view.zar"));
-                let source = match &view_path {
-                    Some(path) => path
-                        .to_str()
-                        .ok_or("Temporary archive path is not valid UTF-8")?,
-                    None => &archive,
-                };
-                let files = operations::grep_archive_with_progress(
-                    source,
+                header_tx
+                    .send(Arc::clone(&cache))
+                    .map_err(|_| "search result receiver closed")?;
+                cache.prepared.search(
                     &file_filter,
                     &pattern,
-                    operations::GrepOptions {
-                        before,
-                        after,
-                        to: commit.as_deref(),
-                        passwords: Some(&passwords),
-                    },
+                    before,
+                    after,
                     Some(&progress),
+                    &|path, line| {
+                        line_tx
+                            .send((path.to_string(), line))
+                            .map_err(|_| std::io::Error::other("search result receiver closed"))
+                    },
                 )?;
-                FindResults::new(files, &pattern, before > 0 || after > 0, Some(&progress))
-                    .map_err(Into::into)
+                if FindStamp::read(Path::new(&cache.archive))? != cache.archive_stamp
+                    || cache.overlay.as_ref().is_some_and(|(path, stamp)| {
+                        FindStamp::read(path).ok().as_ref() != Some(stamp)
+                    })
+                {
+                    return Err("archive changed during search".into());
+                }
+                Ok(FindResults::default())
             })()
             .map_err(|error| error.to_string());
             let status = if find_cancelled(&result, progress.is_cancelled()) {
@@ -369,20 +568,64 @@ impl ZargApp {
         let Some(receiver) = &self.find.receiver else {
             return;
         };
-        match receiver.try_recv() {
+        let completion = receiver.try_recv();
+        if let Some(headers) = &self.find.headers
+            && let Ok(cache) = headers.try_recv()
+        {
+            self.find.cache = Some(cache);
+            self.find.headers = None;
+        }
+        if let (Some(lines), Some(regex)) = (&self.find.lines, &self.find.result_regex) {
+            let mut processed = 0;
+            for (path, line) in lines.try_iter().take(2048) {
+                processed += 1;
+                let results = self
+                    .find
+                    .result
+                    .get_or_insert_with(|| Ok(FindResults::default()));
+                if let Ok(results) = results
+                    && let Err(error) = results.push_line(
+                        &path,
+                        line,
+                        regex,
+                        self.find.before > 0 || self.find.after > 0,
+                    )
+                {
+                    self.find.result = Some(Err(error));
+                    if let Some(token) = &self.find.cancellation {
+                        token.store(true, Ordering::Relaxed);
+                    }
+                    break;
+                }
+            }
+            if processed == 2048 {
+                context.request_repaint();
+            }
+        }
+        match completion {
             Ok(result) => {
                 self.find.receiver = None;
+                self.find.lines = None;
+                self.find.headers = None;
+                self.find.result_regex = None;
                 let cancelled = self
                     .find
                     .cancellation
                     .take()
                     .is_some_and(|token| token.load(Ordering::Relaxed));
-                self.find.cancelled = find_cancelled(&result, cancelled);
+                let highlight_failed = self.find.result.as_ref().is_some_and(Result::is_err);
+                self.find.cancelled = !highlight_failed && find_cancelled(&result, cancelled);
                 if self.find.cancelled {
                     self.find.result = None;
                     self.status = "Search cancelled.".to_owned();
                 } else {
-                    self.find.result = Some(result);
+                    if !highlight_failed && (result.is_err() || self.find.result.is_none()) {
+                        self.find.result = Some(result);
+                    }
+                    if let Some(Ok(results)) = &mut self.find.result {
+                        results.finish(self.find.before > 0 || self.find.after > 0);
+                        self.find.selected_row = None;
+                    }
                 }
             }
             Err(mpsc::TryRecvError::Empty) => {
@@ -390,6 +633,9 @@ impl ZargApp {
             }
             Err(mpsc::TryRecvError::Disconnected) => {
                 self.find.receiver = None;
+                self.find.lines = None;
+                self.find.headers = None;
+                self.find.result_regex = None;
                 self.find.cancellation = None;
                 self.find.result = Some(Err("Search worker stopped unexpectedly.".to_owned()));
             }
@@ -513,14 +759,9 @@ impl ZargApp {
                         ui.separator();
                         if cancelling {
                             ui.label("Cancelling search...");
-                        } else if running {
-                            ui.horizontal(|ui| {
-                                ui.spinner();
-                                ui.label("Searching archive...");
-                            });
                         } else if let Some(result) = &state.result {
                             match result {
-                                Ok(results) if results.rows.is_empty() => {
+                                Ok(results) if results.rows.is_empty() && !running => {
                                     ui.label("No matches found.");
                                 }
                                 Ok(results) => {
@@ -534,6 +775,11 @@ impl ZargApp {
                                     ui.colored_label(ui.visuals().error_fg_color, error);
                                 }
                             }
+                        } else if running {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label("Searching archive...");
+                            });
                         }
                     });
                 if !open {
@@ -769,6 +1015,7 @@ mod tests {
     fn result_list_virtualizes_and_opens_double_clicked_row() {
         let results = FindResults {
             files: vec!["first.txt".into(), "second.txt".into()],
+            file_indices: Default::default(),
             rows: (0_usize..10_000)
                 .map(|index| FindRow {
                     file: usize::from(index >= 2),
@@ -833,6 +1080,72 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         panic!("worker did not finish");
+    }
+
+    #[test]
+    fn find_reuses_headers_until_archive_changes() {
+        use std::io::{Read, Seek, Write};
+        let directory = tempfile::tempdir().unwrap();
+        let archive = directory.path().join("archive.zar");
+        let input = directory.path().join("file.txt");
+        std::fs::write(&input, b"match\n").unwrap();
+        operations::create_archive(archive.to_str().unwrap(), &[input]).unwrap();
+        let mut app = ZargApp::default();
+        app.open_archive(archive.clone(), None);
+        wait(&mut app);
+        app.find.pattern = "match".into();
+        app.start_find();
+        wait(&mut app);
+        let first = Arc::clone(app.find.cache.as_ref().unwrap());
+        app.start_find();
+        wait(&mut app);
+        assert!(Arc::ptr_eq(&first, app.find.cache.as_ref().unwrap()));
+
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&archive)
+            .unwrap();
+        let mut byte = [0];
+        file.read_exact(&mut byte).unwrap();
+        file.rewind().unwrap();
+        file.write_all(&byte).unwrap();
+        app.start_find();
+        wait(&mut app);
+        assert!(!Arc::ptr_eq(&first, app.find.cache.as_ref().unwrap()));
+    }
+
+    #[test]
+    fn find_shows_lines_while_search_is_running() {
+        let mut app = ZargApp::default();
+        let (_done_tx, done_rx) = mpsc::channel();
+        let (line_tx, line_rx) = mpsc::sync_channel(2);
+        app.find.receiver = Some(done_rx);
+        app.find.lines = Some(line_rx);
+        app.find.result_regex = Some(Regex::new("match").unwrap());
+        line_tx
+            .send((
+                "file.txt".into(),
+                operations::GrepLine {
+                    line_number: 1,
+                    bytes: b"match".to_vec(),
+                    is_match: true,
+                },
+            ))
+            .unwrap();
+        app.poll_find(&egui::Context::default());
+        assert!(app.find.receiver.is_some());
+        assert_eq!(
+            app.find
+                .result
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .rows
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -905,11 +1218,13 @@ mod tests {
         );
         assert_eq!(std::fs::read(&archive).unwrap(), original);
 
+        let cached = Arc::clone(app.find.cache.as_ref().unwrap());
         for (before, after) in [(1, 0), (0, 1)] {
             app.find.before = before;
             app.find.after = after;
             app.start_find();
             wait(&mut app);
+            assert!(Arc::ptr_eq(&cached, app.find.cache.as_ref().unwrap()));
             let results = app.find.result.as_ref().unwrap().as_ref().unwrap();
             let base_rows = results
                 .rows

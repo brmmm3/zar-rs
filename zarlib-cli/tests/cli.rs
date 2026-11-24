@@ -100,6 +100,300 @@ fn cli_grep_returns_context_and_preserves_bytes() {
 }
 
 #[test]
+fn cli_grep_keeps_streamed_output_when_a_later_match_errors() {
+    let temp = TestDirectory::new();
+    let source = temp.path().join("input.txt");
+    let archive = temp.path().join("archive.zar");
+    std::fs::write(
+        &source,
+        b"match\nabababababababababababababababababababababababababababab\n",
+    )
+    .unwrap();
+    let created = zarc([
+        OsStr::new("--no-config"),
+        OsStr::new("create"),
+        archive.as_os_str(),
+        source.as_os_str(),
+    ]);
+    assert!(created.status.success(), "{created:?}");
+    let output = zarc([
+        OsStr::new("--no-config"),
+        OsStr::new("grep"),
+        archive.as_os_str(),
+        OsStr::new(r"match|(?i)(a|b|ab)*(?>c)"),
+    ]);
+    assert!(!output.status.success());
+    assert_eq!(output.stdout, b"input.txt:1:match\n");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("backtrack"));
+}
+
+#[test]
+fn cli_grep_shell_searches_and_recovers_from_command_errors() {
+    let temp = TestDirectory::new();
+    let source = temp.path().join("my file.txt");
+    let other = temp.path().join("other.bin");
+    let archive = temp.path().join("archive.zar");
+    std::fs::write(&source, b"before\n\xffhello world\nafter\n").unwrap();
+    std::fs::write(&other, b"hello world\n").unwrap();
+    let created = zarc([
+        OsStr::new("--no-config"),
+        OsStr::new("create"),
+        archive.as_os_str(),
+        source.as_os_str(),
+        other.as_os_str(),
+    ]);
+    assert!(created.status.success(), "{created:?}");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_zarc"))
+        .args(["--no-config", "grep", "--shell", "-B", "1", "-A", "1"])
+        .arg(&archive)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(
+        b"/help\n/help extra\n/unknown\n/find\n/grep *.txt (\n/find 'my file.txt'\n/grep '*.txt' hello world\n/quit\n/find *\n",
+    ).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        output.stdout,
+        b"/find <fnmatch>         List matching archive paths\n\
+/grep <fnmatch> <regex> Search matching files\n\
+/before <cnt>           Set before-context lines\n\
+/after <cnt>            Set after-context lines\n\
+/chain <0|1>            Disable or start a new grep chain\n\
+/help                   Show this help\n\
+/quit                   Exit the shell\n\
+Press Esc to cancel a running grep.\n\
+my file.txt\nmy file.txt-1-before\nmy file.txt:2:\xffhello world\nmy file.txt-3-after\n"
+    );
+    let errors = String::from_utf8_lossy(&output.stderr);
+    assert!(errors.contains("unknown command"), "{errors}");
+    assert!(errors.contains("usage: /help"), "{errors}");
+    assert!(errors.contains("expected a fnmatch pattern"), "{errors}");
+    assert!(errors.contains("zarc grep:"), "{errors}");
+}
+
+#[test]
+fn cli_grep_shell_chains_filters_and_changes_context() {
+    let temp = TestDirectory::new();
+    let archive = temp.path().join("archive.zar");
+    let a = temp.path().join("a.txt");
+    let b = temp.path().join("b.txt");
+    let c = temp.path().join("c.txt");
+    std::fs::write(&a, b"before\nalpha\nbeta\nafter\n").unwrap();
+    std::fs::write(&b, b"before\nalpha\nother\n").unwrap();
+    std::fs::write(&c, b"beta\n").unwrap();
+    let created = zarc([
+        OsStr::new("--no-config"),
+        OsStr::new("create"),
+        archive.as_os_str(),
+        a.as_os_str(),
+        b.as_os_str(),
+        c.as_os_str(),
+    ]);
+    assert!(created.status.success(), "{created:?}");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_zarc"))
+        .args(["--no-config", "grep", "--shell"])
+        .arg(&archive)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            b"/before 1\n/after 1\n/chain 1\n/grep *.txt alpha\n/before 0\n/after 0\n\
+          /grep a*.txt beta\n/grep *.txt (\n/grep *.txt alpha\n/grep *.txt absent\n\
+          /grep *.txt beta\n/chain 1\n/grep c*.txt beta\n/chain 0\n/grep *.txt beta\n\
+          /chain 2\n/before -1\n/after foo\n/quit\n",
+        )
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(stdout.matches("a.txt:2:alpha\n").count(), 2, "{stdout}");
+    assert_eq!(stdout.matches("b.txt:2:alpha\n").count(), 1, "{stdout}");
+    assert_eq!(stdout.matches("a.txt:3:beta\n").count(), 2, "{stdout}");
+    assert_eq!(stdout.matches("c.txt:1:beta\n").count(), 2, "{stdout}");
+    assert_eq!(stdout.matches("a.txt-1-before\n").count(), 1, "{stdout}");
+    assert_eq!(stdout.matches("a.txt-3-beta\n").count(), 1, "{stdout}");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("usage: /chain <0|1>"), "{stderr}");
+    assert_eq!(
+        stderr
+            .matches("expected a nonnegative context line count")
+            .count(),
+        2,
+        "{stderr}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn cli_grep_shell_escape_cancels_and_restores_terminal() {
+    use std::io::Read;
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::process::CommandExt;
+    use std::time::{Duration, Instant};
+
+    let temp = TestDirectory::new();
+    let source = temp.path().join("long.txt");
+    let other = temp.path().join("other.txt");
+    let archive = temp.path().join("archive.zar");
+    let mut contents = b"needle\n".to_vec();
+    contents.extend_from_slice(&b"padding\n".repeat(2_000_000));
+    std::fs::write(&source, contents).unwrap();
+    std::fs::write(&other, b"needle\n").unwrap();
+    let created = zarc([
+        OsStr::new("--no-config"),
+        OsStr::new("create"),
+        archive.as_os_str(),
+        source.as_os_str(),
+        other.as_os_str(),
+    ]);
+    assert!(created.status.success(), "{created:?}");
+
+    let mut master_fd = -1;
+    let mut slave_fd = -1;
+    assert_eq!(
+        unsafe {
+            libc::openpty(
+                &mut master_fd,
+                &mut slave_fd,
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                std::ptr::null(),
+            )
+        },
+        0
+    );
+    let mut master = unsafe { std::fs::File::from_raw_fd(master_fd) };
+    let slave = unsafe { std::fs::File::from_raw_fd(slave_fd) };
+    let mut initial = std::mem::MaybeUninit::<libc::termios>::uninit();
+    assert_eq!(
+        unsafe { libc::tcgetattr(slave_fd, initial.as_mut_ptr()) },
+        0
+    );
+    let initial = unsafe { initial.assume_init() };
+    let mut command = Command::new(env!("CARGO_BIN_EXE_zarc"));
+    command
+        .args(["--no-config", "grep", "--shell"])
+        .arg(&archive)
+        .stdin(Stdio::from(slave.try_clone().unwrap()))
+        .stdout(Stdio::from(slave.try_clone().unwrap()))
+        .stderr(Stdio::from(slave.try_clone().unwrap()));
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() == -1 || libc::ioctl(0, libc::TIOCSCTTY, 0) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    struct ChildGuard(std::process::Child);
+    impl Drop for ChildGuard {
+        fn drop(&mut self) {
+            if self.0.try_wait().ok().flatten().is_none() {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+    }
+    let mut child = ChildGuard(command.spawn().unwrap());
+    let mut output = Vec::new();
+    let mut read_until = |needle: &[u8], master: &mut std::fs::File| {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !output.windows(needle.len()).any(|window| window == needle) {
+            assert!(
+                Instant::now() < deadline,
+                "terminal output: {}",
+                String::from_utf8_lossy(&output)
+            );
+            let mut fd = libc::pollfd {
+                fd: master.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            let ready = unsafe { libc::poll(&mut fd, 1, 100) };
+            assert!(ready >= 0);
+            if ready > 0 {
+                let mut bytes = [0; 4096];
+                let read = master.read(&mut bytes).unwrap();
+                assert!(read > 0, "terminal closed");
+                output.extend_from_slice(&bytes[..read]);
+            }
+        }
+        let end = output
+            .windows(needle.len())
+            .position(|window| window == needle)
+            .unwrap()
+            + needle.len();
+        output.drain(..end).collect::<Vec<_>>()
+    };
+    read_until(b"zarc grep> ", &mut master);
+    master.write_all(b"/chain 1\n").unwrap();
+    read_until(b"zarc grep> ", &mut master);
+    master.write_all(b"/grep long.txt needle\n").unwrap();
+    read_until(b"long.txt:1:needle", &mut master);
+    read_until(b"zarc grep> ", &mut master);
+    master.write_all(b"/grep * needle\n").unwrap();
+    read_until(b"long.txt:1:needle", &mut master);
+    master.write_all(b"\x1b").unwrap();
+    read_until(b"search cancelled", &mut master);
+    read_until(b"zarc grep> ", &mut master);
+    master.write_all(b"/grep other.txt needle\n").unwrap();
+    let restricted = read_until(b"zarc grep> ", &mut master);
+    assert!(
+        !restricted
+            .windows(b"other.txt:1:needle".len())
+            .any(|bytes| bytes == b"other.txt:1:needle")
+    );
+    master.write_all(b"/chain 0\n").unwrap();
+    read_until(b"zarc grep> ", &mut master);
+    master.write_all(b"/grep other.txt needle\n").unwrap();
+    read_until(b"other.txt:1:needle", &mut master);
+    read_until(b"zarc grep> ", &mut master);
+    master.write_all(b"/quit\n").unwrap();
+    assert!(child.0.wait().unwrap().success());
+    let mut restored = std::mem::MaybeUninit::<libc::termios>::uninit();
+    assert_eq!(
+        unsafe { libc::tcgetattr(slave_fd, restored.as_mut_ptr()) },
+        0
+    );
+    let restored = unsafe { restored.assume_init() };
+    assert_eq!(
+        restored.c_lflag & (libc::ICANON | libc::ECHO),
+        initial.c_lflag & (libc::ICANON | libc::ECHO)
+    );
+    assert_eq!(
+        restored.c_oflag & libc::OPOST,
+        initial.c_oflag & libc::OPOST
+    );
+}
+
+#[test]
+fn cli_grep_shell_requires_archive_and_rejects_regular_search_arguments() {
+    for args in [
+        vec!["grep", "--shell"],
+        vec!["grep", "archive.zar"],
+        vec!["grep", "archive.zar", "pattern", "--shell"],
+        vec!["grep", "archive.zar", "--shell", "--file-filter", "*.txt"],
+    ] {
+        let output = zarc(std::iter::once("--no-config").chain(args));
+        assert!(!output.status.success(), "{output:?}");
+    }
+    let output = zarc(["--no-config", "grep", "missing.zar", "--shell"]);
+    assert!(!output.status.success());
+    assert!(!output.stderr.is_empty());
+}
+
+#[test]
 fn cli_encrypted_round_trip_with_password_stdin() {
     let temp = TestDirectory::new();
     let source = temp.path().join("input.txt");

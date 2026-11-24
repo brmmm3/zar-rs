@@ -148,16 +148,6 @@ impl PreparedExtraction {
         Self::prepare(archive, to, passwords, None, true, None)
     }
 
-    pub(super) fn new_complete_filtered(
-        archive: &str,
-        to: Option<&str>,
-        passwords: &PasswordSet,
-        filters: &FilterSet,
-        progress: Option<&dyn Progress>,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        Self::prepare(archive, to, passwords, progress, true, Some(filters))
-    }
-
     fn prepare(
         archive: &str,
         to: Option<&str>,
@@ -296,31 +286,6 @@ impl PreparedExtraction {
         self.check_metadata(&file.metadata()?)?;
         self.check_unchanged()?;
         Ok(result)
-    }
-
-    pub(super) fn write_file_to(
-        &self,
-        path: &ArchivePath,
-        writer: &mut impl Write,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.check_unchanged()?;
-        let Some(TocEntry::File(entry)) = self.state.0.get(path) else {
-            return Err(format!("{path} is not a file in the archive").into());
-        };
-        let source = self
-            .state
-            .1
-            .get(path)
-            .ok_or_else(|| format!("missing extraction source for {path}"))?;
-        if !matches!(source.kind, ExtractedKind::File) || source.entry != *entry {
-            return Err(format!("extraction source mismatch for {path}").into());
-        }
-        let mut file = File::open(&self.archive)?;
-        self.check_metadata(&file.metadata()?)?;
-        write_single_file_from_state(&mut file, path.as_str(), writer, entry, source, true, false)?;
-        self.check_metadata(&file.metadata()?)?;
-        self.check_unchanged()?;
-        Ok(())
     }
 
     /// Extracts entries without rebuilding the validated state.
@@ -2278,6 +2243,304 @@ struct ExtractionCommit {
 struct ExtractionHeaders {
     toc: Toc,
     commits: Vec<ExtractionCommit>,
+}
+
+/// An unlocked, reusable archive header for searches.
+///
+/// The archive must remain unchanged while this value is in use. Data blocks
+/// and file checksums are checked when the selected files are searched.
+pub struct PreparedGrep {
+    snapshot: PreparedExtraction,
+    commits: Vec<ExtractionCommit>,
+}
+
+impl PreparedGrep {
+    /// Reads the archive headers once, without decompressing file contents.
+    pub fn new(
+        archive: &str,
+        to: Option<&str>,
+        passwords: &PasswordSet,
+        progress: Option<&dyn Progress>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let progress = ProgressReporter::new(progress);
+        progress.check_cancelled()?;
+        let mut file = File::open(archive)?;
+        let metadata = file.metadata()?;
+        #[cfg(unix)]
+        let identity = {
+            use std::os::unix::fs::MetadataExt;
+            (
+                metadata.dev(),
+                metadata.ino(),
+                metadata.ctime(),
+                metadata.ctime_nsec(),
+            )
+        };
+        let headers = load_extraction_headers(&mut file, to, passwords, Some(&progress))?;
+        if headers
+            .commits
+            .iter()
+            .any(|commit| commit.validated.logical_header.is_none())
+        {
+            return Err("cannot prepare an archive with locked commit headers".into());
+        }
+        let snapshot = PreparedExtraction {
+            archive: PathBuf::from(archive),
+            size: metadata.len(),
+            modified: metadata.modified()?,
+            #[cfg(unix)]
+            identity,
+            to: to.map(str::to_owned),
+            state: (headers.toc, BTreeMap::new(), BTreeMap::new()),
+            range_cache: std::sync::Mutex::new(None),
+        };
+        snapshot.check_metadata(&file.metadata()?)?;
+        snapshot.check_unchanged()?;
+        Ok(Self {
+            snapshot,
+            commits: headers.commits,
+        })
+    }
+
+    /// Returns the unlocked archive table of contents.
+    pub fn toc(&self) -> &Toc {
+        self.snapshot.toc()
+    }
+
+    /// Rejects a cached header if the archive has changed.
+    pub fn check_unchanged(&self) -> Result<(), Box<dyn std::error::Error>> {
+        self.snapshot.check_unchanged()
+    }
+
+    pub(super) fn selected_sources(
+        &self,
+        filters: &FilterSet,
+        progress: &ProgressReporter<'_>,
+    ) -> Result<ExtractionSources, Box<dyn std::error::Error>> {
+        self.check_unchanged()?;
+        let mut wanted = HashMap::<[u8; 4], HashSet<u32>>::new();
+        let mut selected = Vec::new();
+        for (path, entry) in self.toc().iter() {
+            if let TocEntry::File(entry) = entry
+                && filters.includes(path.as_str(), false)
+            {
+                let origin = self.toc().file_origin(path).ok_or("missing file origin")?;
+                wanted
+                    .entry(origin)
+                    .or_default()
+                    .extend(entry.block_indices.iter().copied());
+                selected.push((path, entry, origin));
+            }
+        }
+        let mut file = File::open(&self.snapshot.archive)?;
+        self.snapshot.check_metadata(&file.metadata()?)?;
+        let limits = CommitValidationLimits::default();
+        let mut all_blocks = HashMap::new();
+        let mut total_blocks = 0_u64;
+        for commit in &self.commits {
+            progress.check_cancelled()?;
+            let header = commit
+                .validated
+                .logical_header
+                .as_ref()
+                .ok_or("locked header")?;
+            let commit_header = &commit.validated.commit_header;
+            if commit.validated.encryption.is_data_encrypted() && commit.dek.is_none() {
+                return Err("cannot extract a data-encrypted commit without a password".into());
+            }
+            let wanted = wanted.get(&commit_header.commit_id);
+            let mut indices = HashSet::new();
+            let mut nonces = HashSet::new();
+            if commit.validated.encryption.is_header_encrypted()
+                && let Some(nonce) = extraction_content_nonce(&commit.validated.encryption)
+            {
+                nonces.insert(nonce);
+            }
+            let mut blocks = HashMap::new();
+            let mut offset = 0_u64;
+            let mut index_pos = 0;
+            while offset < commit_header.data_section_size {
+                progress.check_cancelled()?;
+                let indexed = match &header.block_index {
+                    Some(index) => Some(
+                        *index
+                            .get(index_pos)
+                            .ok_or(crate::FramingError::InvalidSize)?,
+                    ),
+                    None => None,
+                };
+                let (block_index, encoded_size, metadata) = if let Some(index) = indexed {
+                    if index.offset != offset || index.encoded_size < 20 {
+                        return Err(crate::FramingError::InvalidSize.into());
+                    }
+                    let metadata = if wanted.is_some_and(|set| set.contains(&index.index)) {
+                        file.seek(SeekFrom::Start(
+                            commit
+                                .data_start
+                                .checked_add(offset)
+                                .ok_or(crate::FramingError::InvalidSize)?,
+                        ))?;
+                        Some(BlockFrame::read_metadata_from(
+                            &mut file,
+                            limits.max_frame_payload_size,
+                        )?)
+                    } else {
+                        None
+                    };
+                    (index.index, index.encoded_size, metadata)
+                } else {
+                    file.seek(SeekFrom::Start(
+                        commit
+                            .data_start
+                            .checked_add(offset)
+                            .ok_or(crate::FramingError::InvalidSize)?,
+                    ))?;
+                    let metadata =
+                        BlockFrame::read_metadata_from(&mut file, limits.max_frame_payload_size)?;
+                    (metadata.block_index, metadata.encoded_size, Some(metadata))
+                };
+                if encoded_size < 20 || !indices.insert(block_index) {
+                    return Err(crate::FramingError::InvalidSize.into());
+                }
+                if let Some(metadata) = metadata {
+                    if metadata.block_index != block_index
+                        || metadata.encoded_size != encoded_size
+                        || (metadata.flags & crate::BLOCK_FLAG_ENCRYPTED != 0)
+                            != commit.validated.encryption.is_data_encrypted()
+                    {
+                        return Err(crate::FramingError::InvalidSize.into());
+                    }
+                    if let Some(nonce) = metadata.nonce
+                        && !nonces.insert(nonce)
+                    {
+                        return Err(crate::FramingError::InvalidDescriptor.into());
+                    }
+                }
+                if wanted.is_some_and(|set| set.contains(&block_index)) {
+                    blocks.insert(
+                        block_index,
+                        ExtractedBlock {
+                            offset: commit
+                                .data_start
+                                .checked_add(offset)
+                                .ok_or(crate::FramingError::InvalidSize)?,
+                            block_index,
+                            encoded_size,
+                            uncompressed_size: 0,
+                            commit_header: commit_header.clone(),
+                            algorithm: encryption_algorithm(&commit.validated.encryption),
+                            dek: commit.dek.as_ref().map(|key| Zeroizing::new(**key)),
+                        },
+                    );
+                }
+                offset = offset
+                    .checked_add(encoded_size)
+                    .filter(|&end| end <= commit_header.data_section_size)
+                    .ok_or(crate::FramingError::InvalidSize)?;
+                index_pos += 1;
+                total_blocks = total_blocks
+                    .checked_add(1)
+                    .ok_or("archive block count overflow")?;
+                if total_blocks > limits.max_blocks {
+                    return Err("archive exceeds the extraction block limit".into());
+                }
+            }
+            if header
+                .block_index
+                .as_ref()
+                .is_some_and(|index| index.len() != index_pos)
+            {
+                return Err(crate::FramingError::InvalidSize.into());
+            }
+            Toc::check_available_blocks(&header.changes, &indices)?;
+            all_blocks.insert(commit_header.commit_id, blocks);
+        }
+        let mut sources = BTreeMap::new();
+        for (path, entry, origin) in selected {
+            let blocks = all_blocks
+                .get(&origin)
+                .ok_or("missing source commit blocks")?;
+            let source_blocks = entry
+                .block_indices
+                .iter()
+                .map(|index| {
+                    blocks
+                        .get(index)
+                        .cloned()
+                        .ok_or_else(|| format!("TOC references unavailable block {index}"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            sources.insert(
+                path.clone(),
+                ExtractedSource {
+                    entry: entry.clone(),
+                    blocks: source_blocks,
+                    metadata: None,
+                    kind: ExtractedKind::File,
+                },
+            );
+        }
+        self.snapshot.check_metadata(&file.metadata()?)?;
+        self.check_unchanged()?;
+        Ok(sources)
+    }
+
+    pub(super) fn open_reader(&self) -> Result<GrepReader, Box<dyn std::error::Error>> {
+        let file = File::open(&self.snapshot.archive)?;
+        self.snapshot.check_metadata(&file.metadata()?)?;
+        Ok(GrepReader { file, cache: None })
+    }
+
+    pub(super) fn write_source(
+        &self,
+        reader: &mut GrepReader,
+        path: &ArchivePath,
+        source: &ExtractedSource,
+        writer: &mut impl Write,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.check_unchanged()?;
+        self.snapshot.check_metadata(&reader.file.metadata()?)?;
+        let mut checksum = Xxh64::new(0);
+        let mut written = 0_u64;
+        for block in &source.blocks {
+            if reader
+                .cache
+                .as_ref()
+                .is_none_or(|(offset, _)| *offset != block.offset)
+            {
+                let contents = decode_extraction_block(&mut reader.file, block)
+                    .map_err(ExtractionFailure::from_send_sync)?;
+                reader.cache = Some((block.offset, Zeroizing::new(contents)));
+            }
+            let contents = &reader.cache.as_ref().expect("block was cached").1;
+            let range = entry_block_range(&source.entry, block.block_index, contents.len())?;
+            let bytes = &contents[range];
+            checksum.update(bytes);
+            writer.write_all(bytes)?;
+            written = written
+                .checked_add(bytes.len() as u64)
+                .ok_or("decoded file size overflow")?;
+        }
+        if written != source.entry.size {
+            return Err(format!("decoded size mismatch for {path}").into());
+        }
+        if written != 0
+            && source
+                .entry
+                .checksum
+                .is_some_and(|expected| expected != checksum.digest())
+        {
+            return Err(format!("file checksum mismatch for {path}").into());
+        }
+        self.snapshot.check_metadata(&reader.file.metadata()?)?;
+        self.check_unchanged()?;
+        Ok(())
+    }
+}
+
+pub(super) struct GrepReader {
+    file: File,
+    cache: DecodedBlockCache,
 }
 
 fn load_extraction_headers(
