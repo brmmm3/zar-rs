@@ -1,11 +1,18 @@
 # zarmount
 
-`zarmount` exposes a ZAR archive as a read-only Linux FUSE filesystem.
+`zarmount` exposes a ZAR archive as a read-only virtual filesystem.
 It shows the latest commit by default, or an earlier state selected with
 `--to`. Directories, regular files, empty files, and symbolic links are
 available without extracting the archive to disk.
 
-## Install and mount
+On **Linux** it uses **FUSE**; on **Windows** it uses **ProjFS** (Projected
+File System).
+
+---
+
+## Linux (FUSE)
+
+### Install and mount
 
 Install FUSE 3 and its `fusermount3` helper, and ensure the current user can
 access `/dev/fuse`. Build with the Rust toolchain:
@@ -36,10 +43,50 @@ an existing empty directory, and the archive must not be inside it. The
 archive path must be UTF-8. Only the mounting user can access the filesystem;
 there is no `allow_other` option.
 
+---
+
+## Windows (ProjFS)
+
+### Prerequisites
+
+ProjFS must be enabled on your Windows machine. Run as Administrator:
+
+```powershell
+Enable-WindowsOptionalFeature -Online -FeatureName Client-ProjFS -NoRestart
+```
+
+A reboot may be required.
+
+### Mount
+
+```powershell
+# Mount archive.zar to an empty directory
+mkdir C:\zar-mount
+zarmount archive.zar C:\zar-mount
+```
+
+The mount runs in the foreground. Press Ctrl+C to unmount. The mountpoint
+must be an empty directory (it will be created if it does not exist).
+
+### Limitations (Windows)
+
+- The filesystem is read-only; all cancelable notifications are rejected.
+- Archives containing FIFOs or device nodes are rejected.
+- Symbolic links in archives are **resolved internally** to their target
+  (regular file or directory) since ProjFS does not expose symlinks to the
+  filesystem. If the target does not exist in the archive, the symlink is
+  omitted. Symlink chains are followed up to 64 levels; cycles are detected
+  and the symlink is omitted.
+
+---
+
+## Common options
+
 To select an earlier archive state, pass an eight-digit commit ID:
 
 ```sh
-zarmount --to 00000001 archive.zar /tmp/zar-mount
+zarmount --to 00000001 archive.zar /tmp/zar-mount   # Linux
+zarmount --to 00000001 archive.zar C:\zar-mount       # Windows
 ```
 
 ## Encrypted archives
@@ -62,19 +109,20 @@ fail rather than silently presenting an incomplete archive.
 - The archive must not be modified, replaced, or removed while mounted.
   Detected changes cause subsequent file reads to fail with an I/O error;
   unmount and mount again to see a new state.
-- The filesystem is mounted read-only, `nodev`, `nosuid`, and `noexec`.
-  Files and directories are presented as mode `0444` and `0555`, owned by
-  the mounting user. Archived permissions, ownership, and timestamps are not
-  restored; timestamps are reported as the Unix epoch.
-- Symbolic-link targets are presented as stored. Absolute or parent-relative
-  links can resolve outside the mount; use care with untrusted archives.
-  Archives containing FIFOs or device nodes are rejected.
+- On Linux the filesystem is mounted read-only, `nodev`, `nosuid`, and
+  `noexec`. Files and directories are presented as mode `0444` and `0555`,
+  owned by the mounting user. Archived permissions, ownership, and timestamps
+  are not restored; timestamps are reported as the Unix epoch.
+- On Windows the filesystem is read-only via ProjFS notification cancellation.
+- Symbolic-link targets are presented as stored on Linux. Absolute or
+  parent-relative links can resolve outside the mount; use care with untrusted
+  archives. Archives containing FIFOs or device nodes are rejected.
 - Mount preparation validates the selected archive state. Reads decode only
   the required blocks, verify their checksums and authentication, and retain
   at most one decoded block in memory. Partial reads cannot verify a whole-file
-  checksum. The operating system's FUSE page cache is bypassed.
-- This implementation supports Linux only. It does not mount ZIP, 7z, TAR,
-  or other import formats directly.
+  checksum. The operating system's page cache is bypassed.
+- This implementation supports Linux (FUSE) and Windows (ProjFS). It does not
+  mount ZIP, 7z, TAR, or other import formats directly.
 
 ## Tests
 

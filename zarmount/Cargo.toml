@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "Read-only FUSE filesystem for ZAR archives"
+description = "Read-only virtual filesystem for ZAR archives (Linux FUSE / Windows ProjFS)"
 repository = "https://github.com/brmmm3/zar-rs"
 
 [package.metadata.binstall]
@@ -28,6 +28,16 @@ bin-dir = "zar-rs-linux-x86_64-static/{ bin }"
 pkg-url = "{ repo }/releases/download/{ version }/zar-rs-linux-aarch64-static.tar.gz"
 bin-dir = "zar-rs-linux-aarch64-static/{ bin }"
 
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-url = "{ repo }/releases/download/{ version }/zar-rs-windows-x86_64.zip"
+bin-dir = "zar-rs-windows-x86_64/{ bin }{ binary-ext }"
+pkg-fmt = "zip"
+
+[package.metadata.binstall.overrides.aarch64-pc-windows-msvc]
+pkg-url = "{ repo }/releases/download/{ version }/zar-rs-windows-aarch64.zip"
+bin-dir = "zar-rs-windows-aarch64/{ bin }{ binary-ext }"
+pkg-fmt = "zip"
+
 [dependencies]
 clap.workspace = true
 zarlib = { version = "0.17.0", path = "../zarlib" }
@@ -36,7 +46,42 @@ zeroize.workspace = true
 [target.'cfg(target_os = "linux")'.dependencies]
 fuser = "0.19"
 libc = "0.2"
-signal-hook = "0.3"
+signal-hook = "0.4"
+
+[target.'cfg(windows)'.dependencies]
+windows-projfs = "0.1"
+log = "0.4"
+catppuccin-egui = { version = "5.7.0", default-features = false, features = [
+    "egui33",
+] }
+dirs = "7"
+rfd = { version = "0.18", default-features = false }
+eframe = { version = "0.37", default-features = false, features = [
+    "default_fonts",
+    "glow",
+] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+    "Win32_System_Power",
+    "Win32_System_Threading",
+    "Win32_System_SystemInformation",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Registry",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
 
 [dev-dependencies]
 tempfile = "3"
