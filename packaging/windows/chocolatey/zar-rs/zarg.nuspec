@@ -13,7 +13,7 @@
     <bugTrackerUrl>https://github.com/brmmm3/zar-rs/issues</bugTrackerUrl>
     <packageSourceUrl>
       https://github.com/brmmm3/zar-rs/tree/master/packaging/windows/chocolatey/zar-rs</packageSourceUrl>
-    <iconUrl>https://raw.githubusercontent.com/brmmm3/zar-rs/0.17.0/zarlib-gui/assets/zarg-icon.ico</iconUrl>
+    <iconUrl>https://cdn.jsdelivr.net/gh/brmmm3/zar-rs@0.17.0/zarlib-gui/assets/zarg-icon.ico</iconUrl>
     <licenseUrl>https://github.com/brmmm3/zar-rs/blob/master/LICENSE-MIT</licenseUrl>
     <releaseNotes>https://github.com/brmmm3/zar-rs/releases/tag/0.17.0</releaseNotes>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
