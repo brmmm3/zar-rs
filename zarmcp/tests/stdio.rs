@@ -386,7 +386,10 @@ fn grep_archive_finds_patterns_and_respects_options_and_passwords() {
     assert_eq!(files[0]["path"], "main.rs");
     assert_eq!(files[0]["lines"][0]["line_number"], 2);
     assert_eq!(files[0]["lines"][0]["is_match"], true);
-    assert_eq!(files[0]["lines"][0]["line"], "    println!(\"hello world\");");
+    assert_eq!(
+        files[0]["lines"][0]["line"],
+        "    println!(\"hello world\");"
+    );
     assert_eq!(files[1]["path"], "notes.txt");
     assert_eq!(files[1]["lines"][0]["line_number"], 2);
     assert_eq!(files[1]["lines"][0]["is_match"], true);
@@ -442,12 +445,14 @@ fn grep_archive_finds_patterns_and_respects_options_and_passwords() {
         json!({"archive": enc_archive, "paths": [file1], "password": "secret_pass"}),
     );
     // Missing password fails
-    assert!(client
-        .error(
-            "grep_archive",
-            json!({"archive": enc_archive, "pattern": "hello"})
-        )
-        .contains("password required"));
+    assert!(
+        client
+            .error(
+                "grep_archive",
+                json!({"archive": enc_archive, "pattern": "hello"})
+            )
+            .contains("password required")
+    );
     // Correct password succeeds
     let result = client.success(
         "grep_archive",
@@ -455,7 +460,10 @@ fn grep_archive_finds_patterns_and_respects_options_and_passwords() {
     );
     let files = result.as_array().unwrap();
     assert_eq!(files.len(), 1);
-    assert_eq!(files[0]["lines"][0]["line"], "    println!(\"hello world\");");
+    assert_eq!(
+        files[0]["lines"][0]["line"],
+        "    println!(\"hello world\");"
+    );
 
     // Works with --read-only and --allow-tools grep_archive
     let mut restricted = Client::with_args(&["--allow-tools", "grep_archive"]);

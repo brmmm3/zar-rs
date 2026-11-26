@@ -118,8 +118,10 @@ fn list_archive_with_initial_details(
                 return Err(crate::FramingError::InvalidSize.into());
             }
             let before = block_reader.stream_position()?;
-            let (metadata, prefix, prefix_len) =
-                BlockFrame::read_metadata_and_prefix_from(&mut block_reader, limits.max_frame_payload_size)?;
+            let (metadata, prefix, prefix_len) = BlockFrame::read_metadata_and_prefix_from(
+                &mut block_reader,
+                limits.max_frame_payload_size,
+            )?;
             let consumed = block_reader
                 .stream_position()?
                 .checked_sub(before)
@@ -133,7 +135,8 @@ fn list_archive_with_initial_details(
                         .ok_or("missing encryption algorithm")?;
                     let cur_pos = block_reader.stream_position()?;
                     block_reader.seek(SeekFrom::Start(before))?;
-                    let frame = BlockFrame::read_from(&mut block_reader, limits.max_frame_payload_size)?;
+                    let frame =
+                        BlockFrame::read_from(&mut block_reader, limits.max_frame_payload_size)?;
                     let len = frame
                         .uncompressed_encrypted(
                             &validated.commit_header,
@@ -158,8 +161,10 @@ fn list_archive_with_initial_details(
                     _ => {
                         let cur_pos = block_reader.stream_position()?;
                         block_reader.seek(SeekFrom::Start(before))?;
-                        let frame =
-                            BlockFrame::read_from(&mut block_reader, limits.max_frame_payload_size)?;
+                        let frame = BlockFrame::read_from(
+                            &mut block_reader,
+                            limits.max_frame_payload_size,
+                        )?;
                         let len = frame
                             .uncompressed_at_most(limits.max_uncompressed_block_size)?
                             .len() as u64;

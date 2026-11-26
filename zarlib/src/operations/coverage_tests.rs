@@ -3141,10 +3141,7 @@ fn frame_decoding_rejects_bad_descriptors_and_small_output_limits() {
     let mut frame =
         crate::HeaderFrame::from_uncompressed(header.clone(), content, descriptor, 1).unwrap();
     assert_eq!(frame.uncompressed_size(), Some(content.len() as u64));
-    assert_eq!(
-        frame.checksum(),
-        xxhash_rust::xxh3::xxh3_64(&frame.payload)
-    );
+    assert_eq!(frame.checksum(), xxhash_rust::xxh3::xxh3_64(&frame.payload));
     assert_eq!(
         frame.uncompressed_encrypted(&key, 1024),
         Err(crate::FramingError::InvalidDescriptor)

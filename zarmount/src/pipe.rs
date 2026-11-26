@@ -12,7 +12,7 @@ use windows::Win32::Foundation::{
 use windows::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
 use windows::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
 use windows::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_FLAG_OVERLAPPED, FILE_SHARE_READ,
+    CreateFileW, FILE_FLAG_OVERLAPPED, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ,
     FILE_SHARE_WRITE, OPEN_EXISTING, PIPE_ACCESS_DUPLEX, ReadFile, WriteFile,
 };
 use windows::Win32::System::IO::OVERLAPPED;
@@ -164,8 +164,7 @@ pub fn wait_for_worker_connection(
         )));
     }
 
-    let wait_res =
-        unsafe { WaitForMultipleObjects(&[event, process_handle], false, timeout_ms) };
+    let wait_res = unsafe { WaitForMultipleObjects(&[event, process_handle], false, timeout_ms) };
 
     let _ = unsafe { CloseHandle(event) };
 

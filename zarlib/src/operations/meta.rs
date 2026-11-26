@@ -57,8 +57,7 @@ fn merge_archive_metadata(
     let mut header_offset = read_first_header_offset(&mut input)?;
     let empty_passwords = PasswordSet::default();
     while header_offset != 0 {
-        let (_, _, next_header_offset) =
-            read_commit_at_offset(&mut input, header_offset, limits)?;
+        let (_, _, next_header_offset) = read_commit_at_offset(&mut input, header_offset, limits)?;
         input.seek(SeekFrom::Start(header_offset))?;
         if let Ok((validated, _)) = read_header_with_passwords(&mut input, limits, &empty_passwords)
             && let Some(header) = &validated.logical_header

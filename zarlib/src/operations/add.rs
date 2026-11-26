@@ -759,8 +759,7 @@ fn add_with_base(
     combined.flush()?;
     drop(combined);
 
-    let available_blocks: std::collections::HashSet<u32> =
-        block_sizes.keys().copied().collect();
+    let available_blocks: std::collections::HashSet<u32> = block_sizes.keys().copied().collect();
     Toc::check_available_blocks(&changes, &available_blocks)?;
     toc.apply_archive_commit(commit_header.commit_id, &changes)?;
 
@@ -779,8 +778,7 @@ fn add_with_base(
                 return Err("new commit failed header validation".into());
             }
         } else {
-            let (validated, dek) =
-                read_header_with_passwords(&mut validation, limits, passwords)?;
+            let (validated, dek) = read_header_with_passwords(&mut validation, limits, passwords)?;
             if (validated.encryption.is_header_encrypted()
                 || validated.encryption.is_data_encrypted())
                 && dek.is_none()

@@ -179,13 +179,17 @@ fn read_archive_info(
         u64,
         crate::ValidatedHeader,
     )|
-     -> Result<CommitInfoWithBlocks, Box<dyn std::error::Error + Send + Sync>> {
+     -> Result<
+        CommitInfoWithBlocks,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
         let uncompressed_size = validated
             .logical_header
             .as_ref()
             .map(|h| {
-                uncompressed_commit_size(h)
-                    .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.to_string().into() })
+                uncompressed_commit_size(h).map_err(
+                    |e| -> Box<dyn std::error::Error + Send + Sync> { e.to_string().into() },
+                )
             })
             .transpose()?;
         let header_encrypted = validated.encryption.is_header_encrypted();
@@ -275,8 +279,9 @@ fn read_archive_info(
                     };
                 }
                 details = Some(if has_stored_group_sizes(header) {
-                    summarize_commit_header_only(header, None)
-                        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.to_string().into() })?
+                    summarize_commit_header_only(header, None).map_err(
+                        |e| -> Box<dyn std::error::Error + Send + Sync> { e.to_string().into() },
+                    )?
                 } else {
                     let block_sizes = if include_block_details {
                         blocks
@@ -297,10 +302,15 @@ fn read_archive_info(
                             commit_header.data_section_size,
                             limits,
                         )
-                        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.to_string().into() })?
+                        .map_err(
+                            |e| -> Box<dyn std::error::Error + Send + Sync> {
+                                e.to_string().into()
+                            },
+                        )?
                     };
-                    summarize_commit_header_only(header, Some(&block_sizes))
-                        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.to_string().into() })?
+                    summarize_commit_header_only(header, Some(&block_sizes)).map_err(
+                        |e| -> Box<dyn std::error::Error + Send + Sync> { e.to_string().into() },
+                    )?
                 });
             } else if include_block_details {
                 blocks = scan_commit_blocks(
@@ -342,9 +352,8 @@ fn read_archive_info(
 
     #[cfg(not(target_os = "wasi"))]
     if raw_commits.len() > 1 && workers > 1 {
-        let results: Result<Vec<_>, _> = pool.install(|| {
-            raw_commits.into_par_iter().map(analyze_commit).collect()
-        });
+        let results: Result<Vec<_>, _> =
+            pool.install(|| raw_commits.into_par_iter().map(analyze_commit).collect());
         return results.map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() });
     }
 
@@ -478,7 +487,9 @@ fn build_blocks_from_header(
             } else if n_blocks > 1 {
                 for (i, &b) in entry.block_indices.iter().enumerate() {
                     let uncompressed = if i + 1 == n_blocks {
-                        entry.size.saturating_sub((i as u64).saturating_mul(block_size))
+                        entry
+                            .size
+                            .saturating_sub((i as u64).saturating_mul(block_size))
                     } else {
                         block_size
                     };
@@ -513,7 +524,10 @@ fn build_blocks_from_header(
 
         let idx = entry.index as usize;
         let (file_count, file_groups) = if use_flat_tables && idx <= max_block_index {
-            (flat_files[idx] as u64, std::mem::take(&mut flat_groups[idx]))
+            (
+                flat_files[idx] as u64,
+                std::mem::take(&mut flat_groups[idx]),
+            )
         } else {
             (
                 hash_files.remove(&entry.index).unwrap_or_default(),
@@ -608,12 +622,17 @@ fn scan_commit_blocks(
         type ScannedBlock = (u32, u64, Option<f64>);
         type ScanResult = Result<Vec<Vec<ScannedBlock>>, Box<dyn std::error::Error + Send + Sync>>;
         let chunk_size = entries.len().div_ceil(workers).max(32);
-        let process_chunk = |chunk: &[crate::HeaderBlockIndexEntry]| -> Result<Vec<ScannedBlock>, Box<dyn std::error::Error + Send + Sync>> {
+        let process_chunk = |chunk: &[crate::HeaderBlockIndexEntry]| -> Result<
+            Vec<ScannedBlock>,
+            Box<dyn std::error::Error + Send + Sync>,
+        > {
             let mut items = Vec::with_capacity(chunk.len());
             for entry in chunk {
                 let start = (data_start + entry.offset) as usize;
                 let end = (start + (entry.encoded_size as usize).min(50)).min(mmap_bytes.len());
-                let slice = mmap_bytes.get(start..end).ok_or(crate::FramingError::InvalidSize)?;
+                let slice = mmap_bytes
+                    .get(start..end)
+                    .ok_or(crate::FramingError::InvalidSize)?;
                 let (metadata, prefix, prefix_len) =
                     BlockFrame::parse_metadata_and_prefix(slice, limits.max_frame_payload_size)?;
                 let uncompressed_size = if metadata.flags & BLOCK_FLAG_ENCRYPTED != 0 {
@@ -624,11 +643,13 @@ fn scan_commit_blocks(
                     }
                     Some(u64::from(metadata.payload_size))
                 } else {
-                    let size = match zstd::zstd_safe::get_frame_content_size(&prefix[..prefix_len]) {
+                    let size = match zstd::zstd_safe::get_frame_content_size(&prefix[..prefix_len])
+                    {
                         Ok(Some(size)) => size,
                         _ => {
                             let frame = BlockFrame::read_from(
-                                &mut &mmap_bytes[start..(start + entry.encoded_size as usize).min(mmap_bytes.len())],
+                                &mut &mmap_bytes[start
+                                    ..(start + entry.encoded_size as usize).min(mmap_bytes.len())],
                                 limits.max_frame_payload_size,
                             )?;
                             frame
@@ -654,13 +675,10 @@ fn scan_commit_blocks(
             Ok(items)
         };
 
-        let chunk_results: ScanResult = if workers > 1 && let Some(pool) = pool {
-            pool.install(|| {
-                entries
-                    .par_chunks(chunk_size)
-                    .map(process_chunk)
-                    .collect()
-            })
+        let chunk_results: ScanResult = if workers > 1
+            && let Some(pool) = pool
+        {
+            pool.install(|| entries.par_chunks(chunk_size).map(process_chunk).collect())
         } else {
             entries.chunks(chunk_size).map(process_chunk).collect()
         };
@@ -671,9 +689,15 @@ fn scan_commit_blocks(
             for (block_index, compressed_size, ratio_percent) in chunk {
                 let idx = block_index as usize;
                 let (file_count, file_groups) = if use_flat_tables && idx <= max_block_index {
-                    (flat_files[idx] as u64, std::mem::take(&mut flat_groups[idx]))
+                    (
+                        flat_files[idx] as u64,
+                        std::mem::take(&mut flat_groups[idx]),
+                    )
                 } else {
-                    (hash_files.remove(&block_index).unwrap_or_default(), hash_groups.remove(&block_index).unwrap_or_default())
+                    (
+                        hash_files.remove(&block_index).unwrap_or_default(),
+                        hash_groups.remove(&block_index).unwrap_or_default(),
+                    )
                 };
                 blocks.push(BlockInfo {
                     index: block_index,
@@ -720,8 +744,7 @@ fn scan_commit_blocks(
                 _ => {
                     let cur_pos = reader.stream_position()?;
                     reader.seek(SeekFrom::Start(before))?;
-                    let frame =
-                        BlockFrame::read_from(&mut reader, limits.max_frame_payload_size)?;
+                    let frame = BlockFrame::read_from(&mut reader, limits.max_frame_payload_size)?;
                     let len = frame
                         .uncompressed_at_most(limits.max_uncompressed_block_size)?
                         .len() as u64;
@@ -744,9 +767,17 @@ fn scan_commit_blocks(
         });
         let idx = metadata.block_index as usize;
         let (file_count, file_groups) = if use_flat_tables && idx <= max_block_index {
-            (flat_files[idx] as u64, std::mem::take(&mut flat_groups[idx]))
+            (
+                flat_files[idx] as u64,
+                std::mem::take(&mut flat_groups[idx]),
+            )
         } else {
-            (hash_files.remove(&metadata.block_index).unwrap_or_default(), hash_groups.remove(&metadata.block_index).unwrap_or_default())
+            (
+                hash_files.remove(&metadata.block_index).unwrap_or_default(),
+                hash_groups
+                    .remove(&metadata.block_index)
+                    .unwrap_or_default(),
+            )
         };
         blocks.push(BlockInfo {
             index: metadata.block_index,

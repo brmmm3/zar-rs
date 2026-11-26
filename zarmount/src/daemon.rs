@@ -143,23 +143,21 @@ fn start_services(mounts: Mounts, worker: Worker) {
     };
 
     // 2. Launch elevated worker via UAC
-    let process_handle = match elevate::spawn_elevated(&[
-        "--worker".to_string(),
-        worker_pipe_name.clone(),
-    ]) {
-        Ok(h) => h,
-        Err(e) => {
-            eprintln!("zarmount: failed to spawn elevated worker: {e}");
-            dialog::spawn_error_dialog(&format!(
-                "Elevation failed:\n{e}\n\nAdministrator privileges are required for ProjFS."
-            ));
-            unsafe {
-                let _ = CloseHandle(pipe_handle);
-                PostQuitMessage(1);
+    let process_handle =
+        match elevate::spawn_elevated(&["--worker".to_string(), worker_pipe_name.clone()]) {
+            Ok(h) => h,
+            Err(e) => {
+                eprintln!("zarmount: failed to spawn elevated worker: {e}");
+                dialog::spawn_error_dialog(&format!(
+                    "Elevation failed:\n{e}\n\nAdministrator privileges are required for ProjFS."
+                ));
+                unsafe {
+                    let _ = CloseHandle(pipe_handle);
+                    PostQuitMessage(1);
+                }
+                return;
             }
-            return;
-        }
-    };
+        };
 
     // 3. Wait for the elevated worker to connect (or detect premature process termination)
     if let Err(e) = pipe::wait_for_worker_connection(pipe_handle, process_handle, 60_000) {
@@ -506,8 +504,7 @@ fn handle_tray_command(cmd_id: u32, mounts: &Mounts, worker: &Worker) {
         if let Some(mount) = list.get_mut(index)
             && mount.drive_letter.is_none()
         {
-            let out_file =
-                std::env::temp_dir().join(format!("zarmount_map_{}.txt", mount.id));
+            let out_file = std::env::temp_dir().join(format!("zarmount_map_{}.txt", mount.id));
             if let Some(letter) = dialog::spawn_map_drive_dialog(&out_file) {
                 match drive::subst(&mount.mountpoint, letter) {
                     Ok(root) => {
@@ -574,14 +571,12 @@ mod tests {
         assert_eq!(d3, Some('Z'));
 
         // Case 4: path and drive letter
-        let (p4, d4) =
-            resolve_targets(Some("C:\\mount".into()), Some("Z:".into()), 4).unwrap();
+        let (p4, d4) = resolve_targets(Some("C:\\mount".into()), Some("Z:".into()), 4).unwrap();
         assert_eq!(p4, PathBuf::from("C:\\mount"));
         assert_eq!(d4, Some('Z'));
 
         // Case 5: reversed drive letter and path
-        let (p5, d5) =
-            resolve_targets(Some("Z:".into()), Some("C:\\mount".into()), 5).unwrap();
+        let (p5, d5) = resolve_targets(Some("Z:".into()), Some("C:\\mount".into()), 5).unwrap();
         assert_eq!(p5, PathBuf::from("C:\\mount"));
         assert_eq!(d5, Some('Z'));
 

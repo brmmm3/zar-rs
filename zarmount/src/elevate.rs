@@ -13,9 +13,7 @@ use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY
 use windows::Win32::System::Threading::{
     GetCurrentProcess, GetExitCodeProcess, INFINITE, OpenProcessToken, WaitForSingleObject,
 };
-use windows::Win32::UI::Shell::{
-    SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW,
-};
+use windows::Win32::UI::Shell::{SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW};
 use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
 use windows::core::{HSTRING, PCWSTR};
 
@@ -87,10 +85,7 @@ pub fn enable_projfs_elevated() -> Result<(), Box<dyn std::error::Error>> {
     if exit_code == 0 {
         Ok(())
     } else {
-        Err(format!(
-            "Enable-WindowsOptionalFeature failed with exit code {exit_code}"
-        )
-        .into())
+        Err(format!("Enable-WindowsOptionalFeature failed with exit code {exit_code}").into())
     }
 }
 

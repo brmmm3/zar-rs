@@ -5,8 +5,8 @@ use super::pipeline::{BlockWorkItem, EncryptionContext, SmallFilePacker, encode_
 use crate::{
     ArchivePath, BlockFrame, CommitHeader, CommitValidationLimits, ContentAead,
     EncryptionDescriptor, EncryptionScope, FileEntry, HEADER_OFFSET_SIZE, HeaderFrame,
-    LogicalHeader, Toc, TocChange, TocEntry, UNENCRYPTED_DESCRIPTOR, generate_dek,
-    generate_nonce, wrap_dek_with_password,
+    LogicalHeader, Toc, TocChange, TocEntry, UNENCRYPTED_DESCRIPTOR, generate_dek, generate_nonce,
+    wrap_dek_with_password,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{File, OpenOptions};
@@ -376,8 +376,7 @@ pub fn join_archive_with_encryption(
         let (commit_header, data_start, next_header_offset) =
             read_commit_at_offset(&mut input, header_offset, limits)?;
         input.seek(SeekFrom::Start(header_offset))?;
-        let (validated, key) =
-            read_header_with_passwords(&mut input, limits, passwords)?;
+        let (validated, key) = read_header_with_passwords(&mut input, limits, passwords)?;
         let commit_end = header_offset
             .checked_add(u64::from(commit_header.header_frame_size))
             .and_then(|size| size.checked_add(HEADER_OFFSET_SIZE))
@@ -399,7 +398,8 @@ pub fn join_archive_with_encryption(
             let mut indices = HashSet::new();
             let mut remaining = commit_header.data_section_size;
             while remaining > 0 {
-                let metadata = BlockFrame::read_metadata_from(&mut reader, limits.max_frame_payload_size)?;
+                let metadata =
+                    BlockFrame::read_metadata_from(&mut reader, limits.max_frame_payload_size)?;
                 indices.insert(metadata.block_index);
                 remaining -= metadata.encoded_size;
             }
@@ -462,10 +462,10 @@ pub fn join_archive_with_encryption(
         if selected.contains(&index) || index < selected[0] {
             continue;
         }
-        let header =
-            commit.logical_header.as_ref().ok_or(
-                "cannot check references in an encrypted commit following the joined range",
-            )?;
+        let header = commit
+            .logical_header
+            .as_ref()
+            .ok_or("cannot check references in an encrypted commit following the joined range")?;
         for change in &header.changes {
             if let TocChange::PutFile { path, entry } = change
                 && let Some(source) = entry.source_commit
@@ -591,9 +591,7 @@ pub fn join_archive_with_encryption(
                                 EncryptionScope::Data | EncryptionScope::HeaderAndData
                             )
                         });
-                        if source_commit.encryption.is_data_encrypted()
-                            != output_data_encrypted
-                        {
+                        if source_commit.encryption.is_data_encrypted() != output_data_encrypted {
                             return Err(format!("cannot preserve reference for {path}: source and joined commit have different data encryption").into());
                         }
                         if source_commit.encryption.is_header_encrypted()

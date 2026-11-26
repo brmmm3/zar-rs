@@ -94,8 +94,7 @@ impl eframe::App for AskDialogApp {
         let mut do_cancel = false;
 
         ui.input(|i| {
-            if i.key_pressed(egui::Key::Escape)
-                || (i.modifiers.alt && i.key_pressed(egui::Key::C))
+            if i.key_pressed(egui::Key::Escape) || (i.modifiers.alt && i.key_pressed(egui::Key::C))
             {
                 do_cancel = true;
             }
@@ -114,15 +113,16 @@ impl eframe::App for AskDialogApp {
             .show(ui, |ui| {
                 ui.separator();
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if dialog_style::button(ui, ButtonIcon::Cancel, "Cancel").clicked()
-                        || do_cancel
+                    if dialog_style::button(ui, ButtonIcon::Cancel, "Cancel").clicked() || do_cancel
                     {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
-                    if dialog_style::button(ui, ButtonIcon::Ok, "Mount").clicked()
-                        || do_mount
-                    {
-                        let content = format!("{}\n{}\n", self.mount_path.trim(), self.selected_drive.trim());
+                    if dialog_style::button(ui, ButtonIcon::Ok, "Mount").clicked() || do_mount {
+                        let content = format!(
+                            "{}\n{}\n",
+                            self.mount_path.trim(),
+                            self.selected_drive.trim()
+                        );
                         let _ = fs::write(&self.out_file, content);
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
@@ -253,8 +253,7 @@ impl eframe::App for MapDriveDialogApp {
         let mut do_cancel = false;
 
         ui.input(|i| {
-            if i.key_pressed(egui::Key::Escape)
-                || (i.modifiers.alt && i.key_pressed(egui::Key::C))
+            if i.key_pressed(egui::Key::Escape) || (i.modifiers.alt && i.key_pressed(egui::Key::C))
             {
                 do_cancel = true;
             }
@@ -275,7 +274,8 @@ impl eframe::App for MapDriveDialogApp {
                     if (icon_button(ui, "zarmount-map", ICON_OK, "Map").clicked() || do_map)
                         && !self.selected_drive.is_empty()
                     {
-                        let _ = fs::write(&self.out_file, format!("{}\n", self.selected_drive.trim()));
+                        let _ =
+                            fs::write(&self.out_file, format!("{}\n", self.selected_drive.trim()));
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 });
@@ -351,7 +351,11 @@ pub fn spawn_map_drive_dialog(out_file: &Path) -> Option<char> {
     if status.success() && out_file.exists() {
         let content = fs::read_to_string(out_file).ok()?;
         let _ = fs::remove_file(out_file);
-        return content.trim().chars().next().map(|c| c.to_ascii_uppercase());
+        return content
+            .trim()
+            .chars()
+            .next()
+            .map(|c| c.to_ascii_uppercase());
     }
     None
 }
@@ -372,14 +376,11 @@ impl eframe::App for ProjFsDialogApp {
         let mut do_cancel = false;
 
         ui.input(|i| {
-            if i.key_pressed(egui::Key::Escape)
-                || (i.modifiers.alt && i.key_pressed(egui::Key::C))
+            if i.key_pressed(egui::Key::Escape) || (i.modifiers.alt && i.key_pressed(egui::Key::C))
             {
                 do_cancel = true;
             }
-            if i.key_pressed(egui::Key::Enter)
-                || (i.modifiers.alt && i.key_pressed(egui::Key::E))
-            {
+            if i.key_pressed(egui::Key::Enter) || (i.modifiers.alt && i.key_pressed(egui::Key::E)) {
                 do_enable = true;
             }
         });
@@ -393,8 +394,7 @@ impl eframe::App for ProjFsDialogApp {
                     {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
-                    if icon_button(ui, "zarmount-enable", ICON_OK, "Enable").clicked()
-                        || do_enable
+                    if icon_button(ui, "zarmount-enable", ICON_OK, "Enable").clicked() || do_enable
                     {
                         let _ = fs::write(&self.out_file, "enable\n");
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -407,19 +407,14 @@ impl eframe::App for ProjFsDialogApp {
             ui.horizontal(|ui| {
                 let app_icon_texture = load_icon(ui.ctx(), "zarmount-app-icon", ICON_APP);
                 ui.add(
-                    egui::Image::new(&app_icon_texture)
-                        .fit_to_exact_size(egui::vec2(48.0, 48.0)),
+                    egui::Image::new(&app_icon_texture).fit_to_exact_size(egui::vec2(48.0, 48.0)),
                 );
                 ui.add_space(8.0);
                 ui.vertical(|ui| {
                     ui.heading("Windows Projected File System (ProjFS)");
                     ui.add_space(4.0);
-                    ui.label(
-                        "Windows Projected File System (ProjFS) is currently not enabled.",
-                    );
-                    ui.label(
-                        "ProjFS is required to mount ZAR archives as a virtual filesystem.",
-                    );
+                    ui.label("Windows Projected File System (ProjFS) is currently not enabled.");
+                    ui.label("ProjFS is required to mount ZAR archives as a virtual filesystem.");
                     ui.add_space(4.0);
                     ui.label("Would you like to enable ProjFS now?");
                 });
@@ -461,8 +456,7 @@ pub fn spawn_projfs_dialog() -> bool {
         Ok(p) => p,
         Err(_) => return false,
     };
-    let out_file =
-        std::env::temp_dir().join(format!("zarmount_projfs_{}.txt", std::process::id()));
+    let out_file = std::env::temp_dir().join(format!("zarmount_projfs_{}.txt", std::process::id()));
     let _ = fs::remove_file(&out_file);
     let status = Command::new(&exe)
         .args(["--projfs-dialog", &out_file.to_string_lossy()])
@@ -493,8 +487,7 @@ impl eframe::App for SettingsDialogApp {
 
         let mut do_close = false;
         ui.input(|i| {
-            if i.key_pressed(egui::Key::Escape)
-                || (i.modifiers.alt && i.key_pressed(egui::Key::C))
+            if i.key_pressed(egui::Key::Escape) || (i.modifiers.alt && i.key_pressed(egui::Key::C))
             {
                 do_close = true;
             }
@@ -510,9 +503,7 @@ impl eframe::App for SettingsDialogApp {
             .show(ui, |ui| {
                 ui.separator();
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if dialog_style::button(ui, ButtonIcon::Close, "Close").clicked()
-                        || do_close
-                    {
+                    if dialog_style::button(ui, ButtonIcon::Close, "Close").clicked() || do_close {
                         let _ = self.settings.save();
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
@@ -619,8 +610,7 @@ impl eframe::App for AboutDialogApp {
 
         let mut do_close = false;
         ui.input(|i| {
-            if i.key_pressed(egui::Key::Escape)
-                || (i.modifiers.alt && i.key_pressed(egui::Key::C))
+            if i.key_pressed(egui::Key::Escape) || (i.modifiers.alt && i.key_pressed(egui::Key::C))
             {
                 do_close = true;
             }
@@ -635,9 +625,7 @@ impl eframe::App for AboutDialogApp {
             .show_separator_line(false)
             .show(ui, |ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if dialog_style::button(ui, ButtonIcon::Close, "Close").clicked()
-                        || do_close
-                    {
+                    if dialog_style::button(ui, ButtonIcon::Close, "Close").clicked() || do_close {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 });
@@ -755,8 +743,7 @@ impl eframe::App for PasswordDialogApp {
         let mut do_open = false;
 
         ui.input(|i| {
-            if i.key_pressed(egui::Key::Escape)
-                || (i.modifiers.alt && i.key_pressed(egui::Key::C))
+            if i.key_pressed(egui::Key::Escape) || (i.modifiers.alt && i.key_pressed(egui::Key::C))
             {
                 do_cancel = true;
             }
@@ -864,8 +851,7 @@ impl eframe::App for ErrorDialogApp {
         let ctx = ui.ctx().clone();
         let mut do_close = false;
         ui.input(|i| {
-            if i.key_pressed(egui::Key::Escape)
-                || (i.modifiers.alt && i.key_pressed(egui::Key::C))
+            if i.key_pressed(egui::Key::Escape) || (i.modifiers.alt && i.key_pressed(egui::Key::C))
             {
                 do_close = true;
             }
@@ -877,8 +863,7 @@ impl eframe::App for ErrorDialogApp {
             .show(ui, |ui| {
                 ui.separator();
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if icon_button(ui, "zarmount-close", ICON_CLOSE, "Close").clicked()
-                        || do_close
+                    if icon_button(ui, "zarmount-close", ICON_CLOSE, "Close").clicked() || do_close
                     {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }

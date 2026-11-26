@@ -182,7 +182,12 @@ fn show_menu(hwnd: HWND) {
             }
 
             let unmount_w: Vec<u16> = "Unmount\0".encode_utf16().collect();
-            let _ = AppendMenuW(sub, MF_STRING, unmount_id as usize, PCWSTR(unmount_w.as_ptr()));
+            let _ = AppendMenuW(
+                sub,
+                MF_STRING,
+                unmount_id as usize,
+                PCWSTR(unmount_w.as_ptr()),
+            );
 
             let label_w: Vec<u16> = entry
                 .label
@@ -197,10 +202,20 @@ fn show_menu(hwnd: HWND) {
         }
 
         let settings_w: Vec<u16> = "Settings\0".encode_utf16().collect();
-        let _ = AppendMenuW(menu, MF_STRING, cmd::SETTINGS as usize, PCWSTR(settings_w.as_ptr()));
+        let _ = AppendMenuW(
+            menu,
+            MF_STRING,
+            cmd::SETTINGS as usize,
+            PCWSTR(settings_w.as_ptr()),
+        );
 
         let about_w: Vec<u16> = "About\0".encode_utf16().collect();
-        let _ = AppendMenuW(menu, MF_STRING, cmd::ABOUT as usize, PCWSTR(about_w.as_ptr()));
+        let _ = AppendMenuW(
+            menu,
+            MF_STRING,
+            cmd::ABOUT as usize,
+            PCWSTR(about_w.as_ptr()),
+        );
 
         let exit_w: Vec<u16> = "Exit\0".encode_utf16().collect();
         let _ = AppendMenuW(menu, MF_STRING, cmd::EXIT as usize, PCWSTR(exit_w.as_ptr()));
