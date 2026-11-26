@@ -345,7 +345,12 @@ fn serve(runtime: &Path) -> Result<(), String> {
                 .map(|mount| {
                     (
                         mount.id,
-                        format!("{} ({})", mount.archive.display(), mount.path.display()),
+                        mount
+                            .archive
+                            .file_name()
+                            .unwrap_or(mount.archive.as_os_str())
+                            .to_string_lossy()
+                            .into_owned(),
                     )
                 })
                 .collect();

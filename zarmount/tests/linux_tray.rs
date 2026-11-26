@@ -250,7 +250,17 @@ fn tray_daemon_mounts_and_unmounts_multiple_archives() {
     );
     wait_until(|| !third.exists());
     let shown = layout(&service);
-    assert!(shown.contains("archive with spaces.zar"), "{shown}");
+    assert_eq!(
+        shown
+            .matches("'label': <'archive with spaces.zar'>")
+            .count(),
+        2,
+        "{shown}"
+    );
+    assert!(
+        !shown.contains(&temp.path().display().to_string()),
+        "{shown}"
+    );
     let unmount = menu_id(&shown, "Unmount");
     click(&service, unmount);
     wait_until(|| !first.exists());
