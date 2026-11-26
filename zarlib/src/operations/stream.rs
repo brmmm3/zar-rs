@@ -12,7 +12,7 @@ use crate::{
 };
 use std::collections::{BTreeSet, HashMap};
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use xxhash_rust::xxh64::Xxh64;
+use xxhash_rust::xxh3::Xxh3;
 use zeroize::Zeroizing;
 
 /// A regular file to add to a new archive. The reader is consumed to EOF.
@@ -121,7 +121,7 @@ pub fn create_archive_from_readers(
     for (input, path) in inputs.iter_mut().zip(paths) {
         let mut size = 0_u64;
         let mut indices = Vec::new();
-        let mut checksum = Xxh64::new(0);
+        let mut checksum = Xxh3::new();
         loop {
             let mut filled = 0;
             while filled < buffer.len() {

@@ -18,29 +18,39 @@ impl ZargApp {
 
     fn start_archive_info_load(&mut self, passwords: BTreeMap<[u8; 4], String>) {
         let archive = self.archive.clone();
-        let view = match self.temporary_archive_view() {
-            Ok(view) => view,
-            Err(error) => {
-                self.status = format!("Cannot prepare archive view: {error}");
-                return;
-            }
-        };
-        let working_archive = view.as_ref().map_or_else(
-            || self.read_archive.clone(),
-            |directory| {
-                directory
-                    .path()
-                    .join("view.zar")
-                    .to_string_lossy()
-                    .into_owned()
-            },
-        );
+        let read_archive = self.read_archive.clone();
+        let overlay_path = self
+            .overlay_cache
+            .as_ref()
+            .filter(|_| self.has_unsaved_changes)
+            .map(|cache| cache.path());
         let (sender, receiver) = mpsc::channel();
         self.info_loading = Some(receiver);
         self.status = "Reading archive information...".to_owned();
         std::thread::spawn(move || {
-            let _view = view;
             let result = (|| {
+                let view_dir = if let Some(overlay) = overlay_path {
+                    let directory = tempfile::Builder::new()
+                        .prefix("zarg-archive-view-")
+                        .tempdir()
+                        .map_err(|e| e.to_string())?;
+                    let view_path = directory.path().join("view.zar");
+                    operations::combine_archives(Path::new(&read_archive), &overlay, &view_path)
+                        .map_err(|e| e.to_string())?;
+                    Some(directory)
+                } else {
+                    None
+                };
+                let working_archive = view_dir.as_ref().map_or_else(
+                    || read_archive.clone(),
+                    |directory| {
+                        directory
+                            .path()
+                            .join("view.zar")
+                            .to_string_lossy()
+                            .into_owned()
+                    },
+                );
                 let mut password_set = PasswordSet::default();
                 for (commit_id, password) in &passwords {
                     password_set.insert_for_commit(*commit_id, password.as_bytes().to_vec());

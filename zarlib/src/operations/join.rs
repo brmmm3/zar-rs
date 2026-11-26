@@ -5,21 +5,24 @@ use super::pipeline::{BlockWorkItem, EncryptionContext, SmallFilePacker, encode_
 use crate::{
     ArchivePath, BlockFrame, CommitHeader, CommitValidationLimits, ContentAead,
     EncryptionDescriptor, EncryptionScope, FileEntry, HEADER_OFFSET_SIZE, HeaderFrame,
-    LogicalHeader, Toc, TocChange, TocEntry, UNENCRYPTED_DESCRIPTOR, ValidatedCommit, generate_dek,
+    LogicalHeader, Toc, TocChange, TocEntry, UNENCRYPTED_DESCRIPTOR, generate_dek,
     generate_nonce, wrap_dek_with_password,
 };
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
-use xxhash_rust::xxh64::Xxh64;
+use xxhash_rust::xxh3::Xxh3;
 use zeroize::Zeroizing;
 
 struct JoinCommit {
     header: CommitHeader,
     data_start: u64,
     commit_end: u64,
-    validated: ValidatedCommit,
+    logical_header: Option<LogicalHeader>,
+    encryption: EncryptionDescriptor,
+    block_indices: HashSet<u32>,
+    block_count: u64,
     key: Option<Zeroizing<[u8; crate::DEK_SIZE]>>,
 }
 
@@ -243,8 +246,6 @@ pub fn save_overlay_archive(
             return Err("output encryption must protect all encrypted overlay content".into());
         }
     }
-    let first_id = format!("{:08x}", u32::from_le_bytes(first.id));
-    let last_id = format!("{:08x}", u32::from_le_bytes(last.id));
     let parent = destination
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
@@ -252,37 +253,48 @@ pub fn save_overlay_archive(
     let directory = tempfile::tempdir_in(parent)?;
     let assembled = directory.path().join("assembled.zar");
     combine_archives(base, overlay, &assembled)?;
-    let assembled_path = assembled
-        .to_str()
-        .ok_or("temporary archive path is not valid UTF-8")?;
-    join_archive_with_encryption(
-        assembled_path,
-        &first_id,
-        &last_id,
-        options,
-        None,
-        passwords,
-        encryption,
-    )?;
-    let saved_commits = super::info::info_archive(assembled_path, false)?;
-    let saved_id = saved_commits
-        .last()
-        .ok_or("saved archive contains no commits")?
-        .id;
-    let mut source = File::open(&assembled)?;
-    let mut output = tempfile::NamedTempFile::new_in(parent)?;
-    io::copy(&mut source, &mut output)?;
-    output
-        .as_file()
-        .set_permissions(File::open(base)?.metadata()?.permissions())?;
-    output.as_file_mut().sync_all()?;
+
+    let saved_id = if first.id == last.id && encryption.is_none() {
+        last.id
+    } else {
+        let first_id = format!("{:08x}", u32::from_le_bytes(first.id));
+        let last_id = format!("{:08x}", u32::from_le_bytes(last.id));
+        let assembled_path = assembled
+            .to_str()
+            .ok_or("temporary archive path is not valid UTF-8")?;
+        join_archive_with_encryption(
+            assembled_path,
+            &first_id,
+            &last_id,
+            options,
+            None,
+            passwords,
+            encryption,
+        )?;
+        let saved_commits = super::info::info_archive(assembled_path, false)?;
+        saved_commits
+            .last()
+            .ok_or("saved archive contains no commits")?
+            .id
+    };
+
+    let _ = std::fs::set_permissions(&assembled, File::open(base)?.metadata()?.permissions());
     let current_metadata = std::fs::metadata(base)?;
     if current_metadata.len() != base_metadata.len()
         || current_metadata.modified()? != base_metadata.modified()?
     {
         return Err("base archive changed while saving".into());
     }
-    output.persist(destination).map_err(|error| error.error)?;
+    if super::transform::replace_archive(&assembled, destination).is_err() {
+        let mut source = File::open(&assembled)?;
+        let mut output = tempfile::NamedTempFile::new_in(parent)?;
+        io::copy(&mut source, &mut output)?;
+        output
+            .as_file()
+            .set_permissions(File::open(base)?.metadata()?.permissions())?;
+        output.as_file_mut().sync_all()?;
+        output.persist(destination).map_err(|error| error.error)?;
+    }
     Ok(saved_id)
 }
 
@@ -363,8 +375,9 @@ pub fn join_archive_with_encryption(
     while header_offset != 0 {
         let (commit_header, data_start, next_header_offset) =
             read_commit_at_offset(&mut input, header_offset, limits)?;
+        input.seek(SeekFrom::Start(header_offset))?;
         let (validated, key) =
-            read_commit_with_passwords(&mut input, commit_header.clone(), limits, passwords)?;
+            read_header_with_passwords(&mut input, limits, passwords)?;
         let commit_end = header_offset
             .checked_add(u64::from(commit_header.header_frame_size))
             .and_then(|size| size.checked_add(HEADER_OFFSET_SIZE))
@@ -374,11 +387,33 @@ pub fn join_archive_with_encryption(
             "Joining commit {:08x}",
             u32::from_le_bytes(commit_header.commit_id)
         ));
+        let (block_indices, block_count) = if let Some(ref lh) = validated.logical_header
+            && let Some(ref bi) = lh.block_index
+        {
+            let indices = bi.iter().map(|e| e.index).collect::<HashSet<_>>();
+            let count = bi.len() as u64;
+            (indices, count)
+        } else {
+            input.seek(SeekFrom::Start(data_start))?;
+            let mut reader = std::io::BufReader::with_capacity(128 * 1024, &mut input);
+            let mut indices = HashSet::new();
+            let mut remaining = commit_header.data_section_size;
+            while remaining > 0 {
+                let metadata = BlockFrame::read_metadata_from(&mut reader, limits.max_frame_payload_size)?;
+                indices.insert(metadata.block_index);
+                remaining -= metadata.encoded_size;
+            }
+            let count = indices.len() as u64;
+            (indices, count)
+        };
         commits.push(JoinCommit {
             header: commit_header,
             data_start,
             commit_end,
-            validated,
+            logical_header: validated.logical_header,
+            encryption: validated.encryption,
+            block_indices,
+            block_count,
             key,
         });
         header_offset = next_header_offset;
@@ -404,8 +439,8 @@ pub fn join_archive_with_encryption(
     let selected: Vec<usize> = (first..=last)
         .filter(|&index| {
             let commit = &commits[index];
-            commit.validated.logical_header.is_some()
-                && (!commit.validated.encryption.is_data_encrypted() || commit.key.is_some())
+            commit.logical_header.is_some()
+                && (!commit.encryption.is_data_encrypted() || commit.key.is_some())
         })
         .collect();
     if selected.is_empty() {
@@ -428,7 +463,7 @@ pub fn join_archive_with_encryption(
             continue;
         }
         let header =
-            commit.validated.logical_header.as_ref().ok_or(
+            commit.logical_header.as_ref().ok_or(
                 "cannot check references in an encrypted commit following the joined range",
             )?;
         for change in &header.changes {
@@ -444,7 +479,6 @@ pub fn join_archive_with_encryption(
         .iter()
         .flat_map(|&index| {
             commits[index]
-                .validated
                 .logical_header
                 .as_ref()
                 .unwrap()
@@ -463,11 +497,10 @@ pub fn join_archive_with_encryption(
     let mut prefix_toc = Toc::default();
     for commit in &commits[..first_selected] {
         let header = commit
-            .validated
             .logical_header
             .as_ref()
             .ok_or("cannot build join prefix while a preceding commit header is encrypted")?;
-        Toc::check_available_blocks(&header.changes, &commit.validated.block_indices)?;
+        Toc::check_available_blocks(&header.changes, &commit.block_indices)?;
         prefix_toc.apply_archive_commit(commit.header.commit_id, &header.changes)?;
     }
     let mut joined_toc = prefix_toc.clone();
@@ -481,8 +514,8 @@ pub fn join_archive_with_encryption(
     for &index in &selected {
         let commit = &commits[index];
         let commit_header = &commit.header;
-        let header = commit.validated.logical_header.as_ref().unwrap();
-        let algorithm = match &commit.validated.encryption {
+        let header = commit.logical_header.as_ref().unwrap();
+        let algorithm = match &commit.encryption {
             crate::EncryptionDescriptor::Unencrypted => None,
             crate::EncryptionDescriptor::Symmetric { algorithm, .. }
             | crate::EncryptionDescriptor::Password { algorithm, .. }
@@ -493,7 +526,7 @@ pub fn join_archive_with_encryption(
         };
         input.seek(io::SeekFrom::Start(commit.data_start))?;
         let mut data_reader = (&mut input).take(commit_header.data_section_size);
-        let mut blocks = HashMap::with_capacity(commit.validated.block_count as usize);
+        let mut blocks = HashMap::with_capacity(commit.block_count as usize);
         while data_reader.limit() != 0 {
             let block = BlockFrame::read_from(&mut data_reader, limits.max_frame_payload_size)?;
             let contents = if block.flags & crate::BLOCK_FLAG_ENCRYPTED != 0 {
@@ -513,7 +546,7 @@ pub fn join_archive_with_encryption(
             blocks.insert(block.block_index, contents);
         }
         super::meta::merge_custom_metadata(&mut custom_metadata, &header.metadata);
-        Toc::check_available_blocks(&header.changes, &commit.validated.block_indices)?;
+        Toc::check_available_blocks(&header.changes, &commit.block_indices)?;
         joined_toc.apply_archive_commit(commit.header.commit_id, &header.changes)?;
         let metadata: HashMap<_, _> = header
             .entry_metadata
@@ -558,13 +591,13 @@ pub fn join_archive_with_encryption(
                                 EncryptionScope::Data | EncryptionScope::HeaderAndData
                             )
                         });
-                        if source_commit.validated.encryption.is_data_encrypted()
+                        if source_commit.encryption.is_data_encrypted()
                             != output_data_encrypted
                         {
                             return Err(format!("cannot preserve reference for {path}: source and joined commit have different data encryption").into());
                         }
-                        if source_commit.validated.encryption.is_header_encrypted()
-                            || source_commit.validated.encryption.is_data_encrypted()
+                        if source_commit.encryption.is_header_encrypted()
+                            || source_commit.encryption.is_data_encrypted()
                         {
                             let password = encryption.map(|(password, _, _)| password).ok_or("cannot preserve an encrypted source reference in an unencrypted joined commit")?;
                             let offset = source_commit
@@ -785,7 +818,7 @@ pub fn join_archive_with_encryption(
             let contents = written_files
                 .get(path)
                 .ok_or_else(|| format!("missing data for joined file {path}"))?;
-            let mut hasher = Xxh64::new(0);
+            let mut hasher = Xxh3::new();
             hasher.update(contents);
             let checksum = hasher.digest();
             if let Some(existing) =
@@ -1007,8 +1040,9 @@ pub fn join_archive_with_encryption(
     let mut validation_count = 0usize;
     while output_offset != 0 {
         let (ch, _, next_offset) = read_commit_at_offset(&mut validation, output_offset, limits)?;
+        validation.seek(SeekFrom::Start(output_offset))?;
         let (validated, _) =
-            read_commit_with_passwords(&mut validation, ch.clone(), limits, &validation_passwords)?;
+            read_header_with_passwords(&mut validation, limits, &validation_passwords)?;
         if ch.commit_id == new_commit_id && validated.logical_header.is_none() {
             return Err("joined commit failed logical-header validation".into());
         }

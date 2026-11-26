@@ -13,14 +13,16 @@ fn compress_block(bytes: &[u8], level: i32) -> std::io::Result<Vec<u8>> {
     COMPRESSOR.with(|cell| {
         let mut slot = cell.borrow_mut();
         if slot.as_ref().is_none_or(|(current, _)| *current != level) {
-            *slot = Some((level, zstd::bulk::Compressor::new(level)?));
+            let mut c = zstd::bulk::Compressor::new(level)?;
+            let _ = c.include_contentsize(true);
+            *slot = Some((level, c));
         }
         let (_, compressor) = slot.as_mut().expect("compressor initialised above");
         compressor.compress(bytes)
     })
 }
 
-use xxhash_rust::xxh64::xxh64;
+use xxhash_rust::xxh3::xxh3_64;
 
 use crate::{CommitHeader, FramingError};
 
@@ -66,7 +68,7 @@ impl HeaderFrame {
         if payload.len() > u32::MAX as usize {
             return Err(FramingError::InvalidSize);
         }
-        let checksum = xxh64(&payload, 0);
+        let checksum = xxh3_64(&payload);
         Ok(Self {
             commit_header,
             encryption_descriptor,
@@ -132,7 +134,7 @@ impl HeaderFrame {
         aad.extend_from_slice(&(encryption_descriptor.len() as u32).to_le_bytes());
         aad.extend_from_slice(&encryption_descriptor);
         let payload = crate::encrypt_content(nonce.0, key, &nonce.1, &aad, &compressed)?;
-        let checksum = xxh64(&payload, 0);
+        let checksum = xxh3_64(&payload);
         Ok(Self {
             commit_header,
             encryption_descriptor,
@@ -253,7 +255,7 @@ impl HeaderFrame {
         reader.read_exact(&mut encryption_descriptor)?;
         let mut payload = vec![0; payload_len];
         reader.read_exact(&mut payload)?;
-        if xxh64(&payload, 0) != checksum {
+        if xxh3_64(&payload) != checksum {
             return Err(FramingError::ChecksumMismatch);
         }
         Ok(Self {
@@ -274,7 +276,7 @@ impl HeaderFrame {
     }
 
     fn verify_checksum_payload(&self) -> Result<(), FramingError> {
-        if xxh64(&self.payload, 0) != self.checksum {
+        if xxh3_64(&self.payload) != self.checksum {
             return Err(FramingError::ChecksumMismatch);
         }
         Ok(())
@@ -341,12 +343,118 @@ impl BlockFrame {
         })
     }
 
+    /// Read a block's metadata and its initial payload prefix (up to 18 bytes) in a single
+    /// forward pass, seeking past the remaining payload. Avoids backward seeking.
+    pub fn read_metadata_and_prefix_from(
+        reader: &mut (impl Read + std::io::Seek),
+        max_payload_size: usize,
+    ) -> Result<(BlockFrameMetadata, [u8; 18], usize), FramingError> {
+        let payload_size = read_u32(reader)?;
+        let flags = read_u16(reader)?;
+        let reserved = read_u16(reader)?;
+        let block_index = read_u32(reader)?;
+        if payload_size as usize > max_payload_size || reserved != 0 {
+            return Err(FramingError::InvalidSize);
+        }
+        validate_block_flags(flags)?;
+        let has_nonce = flags & BLOCK_FLAG_NONCE_PRESENT != 0;
+        let nonce = if has_nonce {
+            let mut nonce = [0_u8; BLOCK_NONCE_SIZE];
+            reader.read_exact(&mut nonce)?;
+            Some(nonce)
+        } else {
+            None
+        };
+        let _checksum = read_u64(reader)?;
+        let mut prefix = [0_u8; 18];
+        let prefix_len = (payload_size as usize).min(prefix.len());
+        reader.read_exact(&mut prefix[..prefix_len])?;
+        let remaining = payload_size as usize - prefix_len;
+        if remaining > 0 {
+            reader.seek(std::io::SeekFrom::Current(remaining as i64))?;
+        }
+        let encoded_size = (BLOCK_FIXED_SIZE as u64)
+            .checked_add(if has_nonce {
+                BLOCK_NONCE_SIZE as u64
+            } else {
+                0
+            })
+            .and_then(|size| size.checked_add(u64::from(payload_size)))
+            .ok_or(FramingError::InvalidSize)?;
+        Ok((
+            BlockFrameMetadata {
+                flags,
+                block_index,
+                nonce,
+                payload_size,
+                encoded_size,
+            },
+            prefix,
+            prefix_len,
+        ))
+    }
+
+    /// Parse a block's metadata and initial payload prefix from an in-memory byte slice
+    /// without any seeks or memory allocations.
+    pub fn parse_metadata_and_prefix(
+        bytes: &[u8],
+        max_payload_size: usize,
+    ) -> Result<(BlockFrameMetadata, [u8; 18], usize), FramingError> {
+        if bytes.len() < 20 {
+            return Err(FramingError::InvalidSize);
+        }
+        let payload_size = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+        let flags = u16::from_le_bytes(bytes[4..6].try_into().unwrap());
+        let reserved = u16::from_le_bytes(bytes[6..8].try_into().unwrap());
+        let block_index = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
+        if payload_size as usize > max_payload_size || reserved != 0 {
+            return Err(FramingError::InvalidSize);
+        }
+        validate_block_flags(flags)?;
+        let has_nonce = flags & BLOCK_FLAG_NONCE_PRESENT != 0;
+        let (nonce, prefix_offset) = if has_nonce {
+            if bytes.len() < 32 {
+                return Err(FramingError::InvalidSize);
+            }
+            let mut nonce = [0_u8; BLOCK_NONCE_SIZE];
+            nonce.copy_from_slice(&bytes[12..24]);
+            (Some(nonce), 32)
+        } else {
+            (None, 20)
+        };
+        let mut prefix = [0_u8; 18];
+        let available = bytes.len().saturating_sub(prefix_offset);
+        let prefix_len = (payload_size as usize).min(prefix.len()).min(available);
+        if prefix_len > 0 {
+            prefix[..prefix_len].copy_from_slice(&bytes[prefix_offset..prefix_offset + prefix_len]);
+        }
+        let encoded_size = (BLOCK_FIXED_SIZE as u64)
+            .checked_add(if has_nonce {
+                BLOCK_NONCE_SIZE as u64
+            } else {
+                0
+            })
+            .and_then(|size| size.checked_add(u64::from(payload_size)))
+            .ok_or(FramingError::InvalidSize)?;
+        Ok((
+            BlockFrameMetadata {
+                flags,
+                block_index,
+                nonce,
+                payload_size,
+                encoded_size,
+            },
+            prefix,
+            prefix_len,
+        ))
+    }
+
     pub fn from_stored(block_index: u32, bytes: &[u8]) -> Result<Self, FramingError> {
         if bytes.len() > u32::MAX as usize {
             return Err(FramingError::InvalidSize);
         }
         let payload = bytes.to_vec();
-        let checksum = xxh64(&payload, 0);
+        let checksum = xxh3_64(&payload);
         Ok(Self {
             flags: BLOCK_FLAG_UNCOMPRESSED,
             block_index,
@@ -371,7 +479,7 @@ impl BlockFrame {
         if payload.len() > u32::MAX as usize {
             return Err(FramingError::InvalidSize);
         }
-        let checksum = xxh64(&payload, 0);
+        let checksum = xxh3_64(&payload);
         Ok(Self {
             flags,
             block_index,
@@ -454,7 +562,7 @@ impl BlockFrame {
         if payload.len() != payload_len {
             return Err(FramingError::InvalidSize);
         }
-        let checksum = xxh64(&payload, 0);
+        let checksum = xxh3_64(&payload);
         Ok(Self {
             flags,
             block_index,
@@ -508,7 +616,7 @@ impl BlockFrame {
         let checksum = read_u64(reader)?;
         let mut payload = vec![0; payload_len];
         reader.read_exact(&mut payload)?;
-        if validate_checksum && xxh64(&payload, 0) != checksum {
+        if validate_checksum && xxh3_64(&payload) != checksum {
             return Err(FramingError::ChecksumMismatch);
         }
         Ok(Self {
@@ -627,7 +735,7 @@ impl BlockFrame {
         if self.payload.len() > u32::MAX as usize {
             return Err(FramingError::InvalidSize);
         }
-        if validate_checksum && xxh64(&self.payload, 0) != self.checksum {
+        if validate_checksum && xxh3_64(&self.payload) != self.checksum {
             return Err(FramingError::ChecksumMismatch);
         }
         validate_block_flags(self.flags)?;
@@ -794,7 +902,7 @@ mod tests {
             commit_header,
             encryption_descriptor: descriptor,
             payload: vec![1, 2, 3],
-            checksum: xxh64(&[1, 2, 3], 0),
+            checksum: xxh3_64(&[1, 2, 3]),
             uncompressed_size: None,
         };
         assert_eq!(
@@ -807,7 +915,7 @@ mod tests {
     fn header_frame_preserves_unsupported_descriptor_for_copy_through() {
         let descriptor = vec![1, 2, 3];
         let payload = vec![4, 5, 6];
-        let checksum = xxh64(&payload, 0);
+        let checksum = xxh3_64(&payload);
         let commit_header = CommitHeader::new(0, [1; 4], 0, 64).unwrap();
         let mut encoded = Vec::new();
         commit_header.write_fixed(&mut encoded).unwrap();

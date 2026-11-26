@@ -25,7 +25,7 @@ use std::os::fd::{AsRawFd, FromRawFd};
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use xxhash_rust::xxh64::Xxh64;
+use xxhash_rust::xxh3::Xxh3;
 use zeroize::Zeroizing;
 
 #[derive(Clone)]
@@ -559,7 +559,7 @@ fn read_file_range_from_state(
         .ok_or("selected file range overflow")?;
     let read_full_file = offset == 0 && selected_end == file_entry.size;
     let mut file_offset = 0_u64;
-    let mut checksum = Xxh64::new(0);
+    let mut checksum = Xxh3::new();
 
     for block in &source.blocks {
         let block_range =
@@ -702,7 +702,7 @@ fn write_single_file_from_state(
     validate_blocks: bool,
     flush_output: bool,
 ) -> Result<u64, Box<dyn std::error::Error>> {
-    let mut checksum = Xxh64::new(0);
+    let mut checksum = Xxh3::new();
     let mut written = 0_u64;
     for block in &source.blocks {
         let contents =
@@ -1869,7 +1869,7 @@ fn extract_regular_file(
         Err(error) => return Err(error.into()),
     };
     let mut written = 0_u64;
-    let mut checksum = Xxh64::new(0);
+    let mut checksum = Xxh3::new();
     for block in &source.blocks {
         progress.check_cancelled()?;
         let uncached;
@@ -2500,7 +2500,7 @@ impl PreparedGrep {
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.check_unchanged()?;
         self.snapshot.check_metadata(&reader.file.metadata()?)?;
-        let mut checksum = Xxh64::new(0);
+        let mut checksum = Xxh3::new();
         let mut written = 0_u64;
         for block in &source.blocks {
             if reader

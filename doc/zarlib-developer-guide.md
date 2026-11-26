@@ -606,7 +606,7 @@ implements confirmation. Otherwise, select a non-interactive policy.
   file, directory, symlink, named-pipe, or device entry. `Toc::apply_commit`
   applies an ordered set of changes atomically and checks path-kind conflicts.
 - `FileEntry` carries a logical size, commit-local block indices, and an
-  optional xxhash64 file checksum. `Toc::apply_commit_with_available_blocks`
+  optional xxhash3 file checksum. `Toc::apply_commit_with_available_blocks`
   additionally validates newly added files' references against a commit's
   available block indices.
 - `FileGroupKind` derives the empty, tiny (1–8 bytes), small, and big grouping

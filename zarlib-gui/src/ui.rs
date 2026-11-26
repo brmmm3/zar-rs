@@ -604,7 +604,6 @@ pub(super) struct OperationForm {
     kind: Option<OperationKind>,
     new_archive_tab: dialogs::operation::NewArchiveTab,
     add_archive_tab: dialogs::operation::AddArchiveTab,
-    open_add_inputs: bool,
     extract_tab: dialogs::operation::ExtractTab,
     extract_has_encrypted_commits: bool,
     extract_selected_only: bool,
@@ -670,7 +669,6 @@ impl OperationForm {
     fn new(kind: OperationKind, archive: &str) -> Self {
         Self {
             kind: Some(kind),
-            open_add_inputs: kind == OperationKind::AddToArchive,
             archive: archive.to_owned(),
             destination: ".".to_owned(),
             block_size: "8M".to_owned(),

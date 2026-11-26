@@ -1,8 +1,9 @@
 use super::common::*;
 use super::remove::append_header_only_commit;
-use crate::{CommitValidationLimits, LogicalHeader, MetadataType, ValidatedCommit};
+use crate::{CommitValidationLimits, LogicalHeader, MetadataType};
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
+use std::io::{Seek, SeekFrom};
 use std::path::Path;
 
 /// Keys starting with this prefix are reserved for the library.
@@ -54,11 +55,14 @@ fn merge_archive_metadata(
     let mut input = File::open(archive)?;
     let limits = CommitValidationLimits::default();
     let mut header_offset = read_first_header_offset(&mut input)?;
+    let empty_passwords = PasswordSet::default();
     while header_offset != 0 {
-        let (commit_header, _, next_header_offset) =
+        let (_, _, next_header_offset) =
             read_commit_at_offset(&mut input, header_offset, limits)?;
-        let validated = ValidatedCommit::read_body(&mut input, commit_header, limits)?;
-        if let Some(header) = &validated.logical_header {
+        input.seek(SeekFrom::Start(header_offset))?;
+        if let Ok((validated, _)) = read_header_with_passwords(&mut input, limits, &empty_passwords)
+            && let Some(header) = &validated.logical_header
+        {
             merge_custom_metadata(merged, &header.metadata);
         }
         header_offset = next_header_offset;

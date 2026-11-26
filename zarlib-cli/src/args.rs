@@ -93,7 +93,7 @@ pub(crate) enum Command {
         long_about = "Create a new single-commit ZAR archive from specified files and directories.\n\n\
             The pipeline scans all input paths, groups files into empty, tiny (1-8 bytes), small, \
             and big files, detects hard links by filesystem inode/identity to reuse block indices, \
-            deduplicates identical contents using xxhash64 and content comparison, compresses data \
+            deduplicates identical contents using xxhash3 and content comparison, compresses data \
             blocks using Zstandard, and optionally encrypts block payloads and headers using AEAD \
             (AES-256-GCM or ChaCha20-Poly1305) with an Argon2id-derived key.\n\n\
             ZIP, 7z, RAR, ISO, TAR, TAR.GZ, TGZ, and GZ input paths are imported using their internal entry paths (standalone GZ files use their basename without `.gz`), not stored as a single source archive. \
@@ -698,7 +698,7 @@ pub(crate) enum Command {
         alias = "k",
         about = "Verify archive integrity, framing, and block checksums",
         long_about = "Verify archive container framing, commit headers, and block checksums.\n\n\
-            Validates container magic, commit header frames, data block checksums (xxhash64), \
+            Validates container magic, commit header frames, data block checksums (xxhash3), \
             and table-of-contents consistency. If corrupted or damaged framing is encountered, \
             the optional --recover flag scans ahead to resynchronize at the next valid commit.\n\n\
             USAGE EXAMPLES:\n  \
@@ -889,7 +889,7 @@ pub(crate) enum Command {
         alias = "e",
         about = "Extract files and directories from the archive to a destination",
         long_about = "Extract archived files, directories, and special entries into a destination directory.\n\n\
-            Streams and decompresses data blocks directly to target files with SHA/xxhash64 \
+            Streams and decompresses data blocks directly to target files with SHA/xxhash3 \
             verification. Provides configurable policies for handling case-insensitive filesystem \
             collisions and existing files on disk.\n\n\
             USAGE EXAMPLES:\n  \

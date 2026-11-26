@@ -6,14 +6,14 @@ use super::pipeline::*;
 use crate::{
     ArchivePath, BlockFrame, CommitHeader, CommitValidationLimits, ContentAead,
     EncryptionDescriptor, EncryptionScope, FileEntry, HEADER_OFFSET_SIZE, HeaderFrame,
-    LogicalHeader, Toc, TocChange, UNENCRYPTED_DESCRIPTOR, ValidatedCommit, generate_dek,
-    generate_nonce, wrap_dek_with_password,
+    LogicalHeader, Toc, TocChange, UNENCRYPTED_DESCRIPTOR, generate_dek, generate_nonce,
+    wrap_dek_with_password,
 };
 use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use xxhash_rust::xxh64::Xxh64;
+use xxhash_rust::xxh3::Xxh3;
 use zeroize::Zeroizing;
 
 struct HistoricalCandidate {
@@ -213,7 +213,7 @@ fn find_historical_duplicates(
         let Ok(mut input) = File::open(&entry.source_path) else {
             continue;
         };
-        let mut hasher = Xxh64::new(0);
+        let mut hasher = Xxh3::new();
         let mut buffer = vec![0; 128 * 1024];
         let mut size = 0_u64;
         loop {
@@ -759,21 +759,9 @@ fn add_with_base(
     combined.flush()?;
     drop(combined);
 
-    let mut commit_reader = File::open(&staged_archive)?;
-    let new_data_start = new_header_offset
-        .checked_sub(data_section_size)
-        .ok_or("new commit data start underflow")?;
-    commit_reader.seek(SeekFrom::Start(new_data_start))?;
-    let validated = match dek.as_ref() {
-        Some(dek) => ValidatedCommit::read_body_with_key(
-            &mut commit_reader,
-            commit_header.clone(),
-            limits,
-            dek,
-        )?,
-        None => ValidatedCommit::read_body(&mut commit_reader, commit_header.clone(), limits)?,
-    };
-    Toc::check_available_blocks(&changes, &validated.block_indices)?;
+    let available_blocks: std::collections::HashSet<u32> =
+        block_sizes.keys().copied().collect();
+    Toc::check_available_blocks(&changes, &available_blocks)?;
     toc.apply_archive_commit(commit_header.commit_id, &changes)?;
 
     let mut validation = File::open(&staged_archive)?;
@@ -783,25 +771,16 @@ fn add_with_base(
         ProgressReporter::new(progress).check_cancelled()?;
         let (ch, _, next_header_offset) =
             read_commit_at_offset(&mut validation, header_offset, limits)?;
+        validation.seek(SeekFrom::Start(header_offset))?;
         if ch.commit_id == new_commit_id {
-            validation.seek(SeekFrom::Start(header_offset))?;
             let (validated_header, _) =
                 read_header_with_password(&mut validation, limits, new_commit_password)?;
             if validated_header.logical_header.is_none() {
                 return Err("new commit failed header validation".into());
             }
-            let data_start = header_offset
-                .checked_sub(ch.data_section_size)
-                .ok_or("new commit data start underflow")?;
-            validation.seek(SeekFrom::Start(data_start))?;
-            if let Some(dek) = dek.as_ref() {
-                ValidatedCommit::read_body_with_key(&mut validation, ch, limits, dek)?;
-            } else {
-                ValidatedCommit::read_body(&mut validation, ch, limits)?;
-            }
         } else {
             let (validated, dek) =
-                read_commit_with_passwords(&mut validation, ch, limits, passwords)?;
+                read_header_with_passwords(&mut validation, limits, passwords)?;
             if (validated.encryption.is_header_encrypted()
                 || validated.encryption.is_data_encrypted())
                 && dek.is_none()
@@ -815,7 +794,14 @@ fn add_with_base(
         }
         header_offset = next_header_offset;
     }
-    drop(commit_reader);
+    let expected_end = new_header_offset
+        .checked_add(u64::from(commit_header.header_frame_size))
+        .and_then(|size| size.checked_add(HEADER_OFFSET_SIZE))
+        .ok_or("archive size overflow")?;
+    let actual_end = validation.seek(SeekFrom::End(0))?;
+    if actual_end != expected_end {
+        return Err("added archive failed validation".into());
+    }
     drop(validation);
     ProgressReporter::new(progress).check_cancelled()?;
     std::fs::rename(&staged_archive, archive_path).map_err(|error| {

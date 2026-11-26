@@ -77,7 +77,7 @@ skinparam defaultTextAlignment center
 
 rectangle "Commit header\n22 bytes" as commit_header #DCEEFF
 rectangle "compressed_header_len\nu32" as compressed_len
-rectangle "header_checksum\nxxHash64, u64" as header_checksum
+rectangle "header_checksum\nxxHash3, u64" as header_checksum
 rectangle "encryption_descriptor_len\nu32" as descriptor_len
 rectangle "Encryption descriptor\nvariable length" as descriptor #EAF7E8
 rectangle "Header payload\ncompressed; optionally encrypted" as payload #FCE4D6
@@ -151,7 +151,7 @@ rectangle "flags\nu16" as flags
 rectangle "reserved\nu16; must be zero" as reserved
 rectangle "block_index\nu32" as block_index
 rectangle "nonce\n12 bytes, only when flag is set" as nonce #EAF7E8
-rectangle "payload_checksum\nxxHash64, u64" as checksum
+rectangle "payload_checksum\nxxHash3, u64" as checksum
 rectangle "payload\nvariable length" as payload #FCE4D6
 
 payload_size --> flags

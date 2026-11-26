@@ -38,7 +38,7 @@ By default all tools below are available. Configure the server's startup
 arguments in the MCP client to restrict both tool discovery and tool calls:
 
 - `--read-only` enables only `info_archive`, `list_archive`, `check_archive`,
-  and `read_file`. It disables `extract_archive` as well as archive
+  `read_file`, and `grep_archive`. It disables `extract_archive` as well as archive
   modifications, including for extraction dry runs.
 - `--allow-tools TOOL,...` enables only the named tools. It can be repeated.
   For example, `--allow-tools info_archive,read_file` exposes those two tools
@@ -79,6 +79,7 @@ filesystem access times.
 | `check_archive` | Verify archive framing, checksums, and encrypted content. |
 | `extract_archive` | Extract to a local destination, optionally selecting a historical commit or using `dry_run`. Existing files are not overwritten. |
 | `read_file` | Read a range of one regular file from the archive without extracting it to disk. |
+| `grep_archive` | Search regular files for regular expression matches, optionally filtering paths or returning context lines. |
 
 Tool arguments and descriptions are available through MCP tool discovery.
 Successful results are JSON in a text content block; operation failures are
@@ -93,6 +94,12 @@ returned. `size_limit` defaults to 1 MiB and cannot exceed 1 MiB. A full-sized
 response may have more data; use the next byte offset to read another range.
 This supports binary files as well as text. A partial read is not a full-file
 checksum verification; use `check_archive` to verify the archive.
+
+`grep_archive` searches regular files in the archive using regular expressions
+(with `fancy_regex` syntax including lookaround). Files can be filtered by an
+archive-relative glob (`file_filter`, defaulting to `*`). `before` and `after`
+select lines of surrounding context. Matched lines include `line_number`,
+`line` (as a UTF-8 string), and `is_match`.
 
 ZAR supports archive-level custom key/value metadata, but this MCP server does
 not expose a metadata tool. Use `zarc` to set, list, or remove values:

@@ -535,7 +535,7 @@ The [file architecture](./doc/zar-file-format.md) describes the
 [container and commit layout](./doc/zar-file-format.md#physical-layout),
 [header frame and logical-header versioning](./doc/zar-file-format.md#header-frame),
 and [data block frames](./doc/zar-file-format.md#data-block-frame), including
-xxHash64 checksums. Checksums detect corruption, not malicious modification;
+xxHash3 checksums. Checksums detect corruption, not malicious modification;
 encrypted payloads also require AEAD authentication. The
 [encryption reference](./doc/zarlib-developer-guide.md#encryption-and-operation-constraints)
 explains algorithms, scopes, and per-commit passwords. For the actual encoding

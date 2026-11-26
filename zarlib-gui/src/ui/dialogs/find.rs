@@ -1209,6 +1209,7 @@ mod tests {
         wait(&mut app);
         assert!(Arc::ptr_eq(&first, app.find.cache.as_ref().unwrap()));
 
+        app.archive_lock = None;
         let mut file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
@@ -1218,6 +1219,7 @@ mod tests {
         file.read_exact(&mut byte).unwrap();
         file.rewind().unwrap();
         file.write_all(&byte).unwrap();
+        drop(file);
         app.start_find();
         wait(&mut app);
         assert!(!Arc::ptr_eq(&first, app.find.cache.as_ref().unwrap()));

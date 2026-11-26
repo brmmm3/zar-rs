@@ -367,7 +367,7 @@ mod tests {
 
     use crate::frames::HEADER_FRAME_FIXED_SIZE;
     use crate::{CommitHeader, ContentAead, EncryptionScope, UNENCRYPTED_DESCRIPTOR};
-    use xxhash_rust::xxh64::xxh64;
+    use xxhash_rust::xxh3::xxh3_64;
 
     fn empty_logical_header() -> Vec<u8> {
         LogicalHeader::default().encode().unwrap()
@@ -394,7 +394,7 @@ mod tests {
         // Write header frame manually
         commit_header.write_fixed(&mut body).unwrap();
         body.extend_from_slice(&(header_payload.len() as u32).to_le_bytes());
-        body.extend_from_slice(&xxh64(&header_payload, 0).to_le_bytes());
+        body.extend_from_slice(&xxh3_64(&header_payload).to_le_bytes());
         body.extend_from_slice(&(descriptor.len() as u32).to_le_bytes());
         body.extend_from_slice(descriptor);
         body.extend_from_slice(&header_payload);

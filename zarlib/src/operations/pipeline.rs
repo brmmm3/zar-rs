@@ -12,7 +12,7 @@ use std::io::{self, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 #[cfg(not(target_os = "wasi"))]
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
-use xxhash_rust::xxh64::Xxh64;
+use xxhash_rust::xxh3::Xxh3;
 use zeroize::Zeroizing;
 
 pub fn archive_prefix(input: &Path, cwd: &Path) -> Result<String, Box<dyn std::error::Error>> {
@@ -1105,7 +1105,7 @@ pub fn worker_loop(
 }
 
 fn checksum_file(file: &mut File, progress: &ProgressReporter<'_>) -> io::Result<(u64, u64)> {
-    let mut hasher = Xxh64::new(0);
+    let mut hasher = Xxh3::new();
     let mut buffer = vec![0u8; 128 * 1024];
     let mut total_read = 0u64;
     loop {
@@ -1419,7 +1419,7 @@ pub fn process_file_entries_parallel(
                         progress.inc(buf.len() as u64);
 
                         let checksum = {
-                            let mut hasher = Xxh64::new(0);
+                            let mut hasher = Xxh3::new();
                             hasher.update(&buf);
                             hasher.digest()
                         };
@@ -1538,7 +1538,7 @@ pub fn process_file_entries_parallel(
                                 break;
                             }
                         };
-                        let mut verification_hasher = Xxh64::new(0);
+                        let mut verification_hasher = Xxh3::new();
                         let mut remaining = total_read;
                         for block_index in indices.iter().copied() {
                             if progress.is_cancelled() {
@@ -1839,7 +1839,7 @@ pub fn process_file_entries_parallel(
                 .into());
             }
             context.progress.inc(entry.size);
-            let mut hasher = Xxh64::new(0);
+            let mut hasher = Xxh3::new();
             hasher.update(&contents);
             let checksum = hasher.digest();
 
@@ -1914,7 +1914,7 @@ pub fn process_file_entries_parallel(
                     });
 
                 let mut file = File::open(&entry.source_path)?;
-                let mut verification_hasher = Xxh64::new(0);
+                let mut verification_hasher = Xxh3::new();
                 let mut remaining = total_read;
                 for index in indices.iter().copied() {
                     let chunk_size = remaining.min(buffer_size as u64) as usize;

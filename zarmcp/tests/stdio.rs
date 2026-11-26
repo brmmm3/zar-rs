@@ -64,8 +64,14 @@ fn read_only_and_allowlist_block_undiscovered_tools() {
     let mut client = Client::with_args(&["--read-only"]);
     let tools = client.request("tools/list", json!({}));
     let tools = tools["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 4);
-    for name in ["info_archive", "list_archive", "check_archive", "read_file"] {
+    assert_eq!(tools.len(), 5);
+    for name in [
+        "info_archive",
+        "list_archive",
+        "check_archive",
+        "read_file",
+        "grep_archive",
+    ] {
         assert!(tools.iter().any(|tool| tool["name"] == name));
     }
     let read = client.success("read_file", json!({"archive": archive, "path": "file.txt"}));
@@ -353,4 +359,109 @@ fn encrypted_operations_require_and_authenticate_passwords() {
         0
     );
     assert!(client.success("list_archive", json!({"archive": archive, "password": "new", "passwords": {"00000001": "correct"}, "to": "00000001"})).as_array().unwrap().iter().any(|entry| entry["path"] == "secret.txt"));
+}
+
+#[test]
+fn grep_archive_finds_patterns_and_respects_options_and_passwords() {
+    let dir = tempfile::tempdir().unwrap();
+    let archive = dir.path().join("archive.zar");
+    let file1 = dir.path().join("main.rs");
+    let file2 = dir.path().join("notes.txt");
+    std::fs::write(&file1, b"fn main() {\n    println!(\"hello world\");\n}\n").unwrap();
+    std::fs::write(&file2, b"first line\nhello from notes\nthird line\n").unwrap();
+
+    let mut client = Client::new();
+    client.success(
+        "create_archive",
+        json!({"archive": archive, "paths": [file1, file2]}),
+    );
+
+    // Default search across all files (file_filter omitted)
+    let result = client.success(
+        "grep_archive",
+        json!({"archive": archive, "pattern": "hello"}),
+    );
+    let files = result.as_array().unwrap();
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0]["path"], "main.rs");
+    assert_eq!(files[0]["lines"][0]["line_number"], 2);
+    assert_eq!(files[0]["lines"][0]["is_match"], true);
+    assert_eq!(files[0]["lines"][0]["line"], "    println!(\"hello world\");");
+    assert_eq!(files[1]["path"], "notes.txt");
+    assert_eq!(files[1]["lines"][0]["line_number"], 2);
+    assert_eq!(files[1]["lines"][0]["is_match"], true);
+    assert_eq!(files[1]["lines"][0]["line"], "hello from notes");
+
+    // Filter by file_filter glob
+    let result = client.success(
+        "grep_archive",
+        json!({"archive": archive, "pattern": "hello", "file_filter": "*.rs"}),
+    );
+    let files = result.as_array().unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0]["path"], "main.rs");
+
+    // Context lines: before = 1, after = 1
+    let result = client.success(
+        "grep_archive",
+        json!({
+            "archive": archive,
+            "pattern": "hello from",
+            "file_filter": "*.txt",
+            "before": 1,
+            "after": 1
+        }),
+    );
+    let files = result.as_array().unwrap();
+    assert_eq!(files.len(), 1);
+    let lines = files[0]["lines"].as_array().unwrap();
+    assert_eq!(lines.len(), 3);
+    assert_eq!(lines[0]["line_number"], 1);
+    assert_eq!(lines[0]["line"], "first line");
+    assert_eq!(lines[0]["is_match"], false);
+    assert_eq!(lines[1]["line_number"], 2);
+    assert_eq!(lines[1]["line"], "hello from notes");
+    assert_eq!(lines[1]["is_match"], true);
+    assert_eq!(lines[2]["line_number"], 3);
+    assert_eq!(lines[2]["line"], "third line");
+    assert_eq!(lines[2]["is_match"], false);
+
+    // Lookaround regex
+    let result = client.success(
+        "grep_archive",
+        json!({"archive": archive, "pattern": "(?<=println!\\(\")hello"}),
+    );
+    let files = result.as_array().unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0]["path"], "main.rs");
+
+    // Encrypted archive
+    let enc_archive = dir.path().join("encrypted.zar");
+    client.success(
+        "create_archive",
+        json!({"archive": enc_archive, "paths": [file1], "password": "secret_pass"}),
+    );
+    // Missing password fails
+    assert!(client
+        .error(
+            "grep_archive",
+            json!({"archive": enc_archive, "pattern": "hello"})
+        )
+        .contains("password required"));
+    // Correct password succeeds
+    let result = client.success(
+        "grep_archive",
+        json!({"archive": enc_archive, "pattern": "hello", "password": "secret_pass"}),
+    );
+    let files = result.as_array().unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0]["lines"][0]["line"], "    println!(\"hello world\");");
+
+    // Works with --read-only and --allow-tools grep_archive
+    let mut restricted = Client::with_args(&["--allow-tools", "grep_archive"]);
+    let result = restricted.success(
+        "grep_archive",
+        json!({"archive": archive, "pattern": "main"}),
+    );
+    assert_eq!(result.as_array().unwrap().len(), 1);
 }

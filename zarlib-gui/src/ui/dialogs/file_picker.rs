@@ -952,7 +952,9 @@ mod tests {
         std::fs::write(&small, b"a").unwrap();
         std::fs::write(&large, b"longer").unwrap();
         for (path, seconds) in [(&small, 100), (&large, 200)] {
-            std::fs::File::open(path)
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(path)
                 .unwrap()
                 .set_times(
                     std::fs::FileTimes::new().set_modified(

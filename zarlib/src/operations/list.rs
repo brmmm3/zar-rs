@@ -5,7 +5,7 @@ use crate::{
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{BufReader, Seek, SeekFrom};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ArchiveEntryDetails {
@@ -109,6 +109,7 @@ fn list_archive_with_initial_details(
         }
 
         file.seek(SeekFrom::Start(data_start))?;
+        let mut block_reader = BufReader::with_capacity(128 * 1024, &mut file);
         let mut block_sizes = HashMap::new();
         let mut remaining = validated.commit_header.data_section_size;
         let mut blocks_seen = 0_u64;
@@ -116,10 +117,10 @@ fn list_archive_with_initial_details(
             if blocks_seen >= limits.max_blocks {
                 return Err(crate::FramingError::InvalidSize.into());
             }
-            let before = file.stream_position()?;
-            let metadata =
-                BlockFrame::read_metadata_from(&mut file, limits.max_frame_payload_size)?;
-            let consumed = file
+            let before = block_reader.stream_position()?;
+            let (metadata, prefix, prefix_len) =
+                BlockFrame::read_metadata_and_prefix_from(&mut block_reader, limits.max_frame_payload_size)?;
+            let consumed = block_reader
                 .stream_position()?
                 .checked_sub(before)
                 .ok_or("block offset underflow")?;
@@ -130,18 +131,19 @@ fn list_archive_with_initial_details(
                 if let Some(key) = &key {
                     let algorithm = encryption_algorithm(&validated.encryption)
                         .ok_or("missing encryption algorithm")?;
-                    file.seek(SeekFrom::Start(before))?;
-                    let frame = BlockFrame::read_from(&mut file, limits.max_frame_payload_size)?;
-                    Some(
-                        frame
-                            .uncompressed_encrypted(
-                                &validated.commit_header,
-                                key,
-                                algorithm,
-                                limits.max_uncompressed_block_size,
-                            )?
-                            .len() as u64,
-                    )
+                    let cur_pos = block_reader.stream_position()?;
+                    block_reader.seek(SeekFrom::Start(before))?;
+                    let frame = BlockFrame::read_from(&mut block_reader, limits.max_frame_payload_size)?;
+                    let len = frame
+                        .uncompressed_encrypted(
+                            &validated.commit_header,
+                            key,
+                            algorithm,
+                            limits.max_uncompressed_block_size,
+                        )?
+                        .len() as u64;
+                    block_reader.seek(SeekFrom::Start(cur_pos))?;
+                    Some(len)
                 } else {
                     None
                 }
@@ -151,23 +153,20 @@ fn list_archive_with_initial_details(
                 }
                 Some(u64::from(metadata.payload_size))
             } else {
-                let end = file.stream_position()?;
-                file.seek(SeekFrom::Start(end - u64::from(metadata.payload_size)))?;
-                let mut prefix = [0_u8; 18];
-                let length = usize::try_from(metadata.payload_size)?.min(prefix.len());
-                file.read_exact(&mut prefix[..length])?;
-                let size = match zstd::zstd_safe::get_frame_content_size(&prefix[..length]) {
+                let size = match zstd::zstd_safe::get_frame_content_size(&prefix[..prefix_len]) {
                     Ok(Some(size)) => size,
                     _ => {
-                        file.seek(SeekFrom::Start(before))?;
+                        let cur_pos = block_reader.stream_position()?;
+                        block_reader.seek(SeekFrom::Start(before))?;
                         let frame =
-                            BlockFrame::read_from(&mut file, limits.max_frame_payload_size)?;
-                        frame
+                            BlockFrame::read_from(&mut block_reader, limits.max_frame_payload_size)?;
+                        let len = frame
                             .uncompressed_at_most(limits.max_uncompressed_block_size)?
-                            .len() as u64
+                            .len() as u64;
+                        block_reader.seek(SeekFrom::Start(cur_pos))?;
+                        len
                     }
                 };
-                file.seek(SeekFrom::Start(end))?;
                 if size > limits.max_uncompressed_block_size as u64 {
                     return Err(crate::FramingError::InvalidSize.into());
                 }
@@ -185,6 +184,7 @@ fn list_archive_with_initial_details(
             remaining -= consumed;
             blocks_seen += 1;
         }
+        drop(block_reader);
 
         let block_indices = block_sizes.keys().copied().collect::<HashSet<_>>();
         if let Some(header) = header {

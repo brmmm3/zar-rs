@@ -7,7 +7,7 @@ use crate::{
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, Read, Seek};
-use xxhash_rust::xxh64::Xxh64;
+use xxhash_rust::xxh3::Xxh3;
 
 pub fn check_archive_with_recovery(
     path: &str,
@@ -194,7 +194,7 @@ pub fn check_archive_with_recovery_and_passwords_progress(
                         }
                         let mut decoded_size = 0_u64;
                         let mut all_blocks_readable = true;
-                        let mut checksum = Xxh64::new(0);
+                        let mut checksum = Xxh3::new();
                         for index in &entry.block_indices {
                             progress.check_cancelled()?;
                             match block_sizes.get(index) {

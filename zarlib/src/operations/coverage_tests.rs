@@ -3143,7 +3143,7 @@ fn frame_decoding_rejects_bad_descriptors_and_small_output_limits() {
     assert_eq!(frame.uncompressed_size(), Some(content.len() as u64));
     assert_eq!(
         frame.checksum(),
-        xxhash_rust::xxh64::xxh64(&frame.payload, 0)
+        xxhash_rust::xxh3::xxh3_64(&frame.payload)
     );
     assert_eq!(
         frame.uncompressed_encrypted(&key, 1024),
@@ -3440,7 +3440,7 @@ fn small_file_packer_reuses_duplicates_and_flushes_incompatible_blocks() {
         next_index += 1;
         Ok(next_index)
     };
-    let checksum = |contents: &[u8]| xxhash_rust::xxh64::xxh64(contents, 0);
+    let checksum = |contents: &[u8]| xxhash_rust::xxh3::xxh3_64(contents);
     let (index, offset, completed) = packer
         .add(b"abc".to_vec(), checksum(b"abc"), false, &mut allocate)
         .unwrap();

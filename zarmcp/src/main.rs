@@ -17,7 +17,13 @@ use zarlib::{ArchivePath, ContentAead, EncryptionScope, operations::PasswordSet}
 use zeroize::Zeroizing;
 
 const MAX_READ_BYTES: u64 = 1024 * 1024;
-const READ_ONLY_TOOLS: &[&str] = &["info_archive", "list_archive", "check_archive", "read_file"];
+const READ_ONLY_TOOLS: &[&str] = &[
+    "info_archive",
+    "list_archive",
+    "check_archive",
+    "read_file",
+    "grep_archive",
+];
 
 #[derive(Parser)]
 #[command(about = "Serve ZAR archive tools over MCP stdio")]
@@ -146,6 +152,27 @@ struct ReadRequest {
     offset: Option<u64>,
     /// Maximum bytes to return, from 1 through 1048576; defaults to 1048576.
     size_limit: Option<u64>,
+}
+
+#[derive(Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct GrepRequest {
+    /// Archive to search.
+    archive: String,
+    /// Regular expression pattern to search for (supports lookaround and backreferences).
+    pattern: String,
+    /// Glob pattern to filter archive files (e.g. '*.rs', 'src/**'); defaults to '*'.
+    file_filter: Option<String>,
+    /// Number of lines of leading context to return; defaults to 0.
+    before: Option<usize>,
+    /// Number of lines of trailing context to return; defaults to 0.
+    after: Option<usize>,
+    /// Default password for encrypted commits.
+    password: Option<String>,
+    /// Passwords keyed by eight-digit commit ID.
+    passwords: Option<BTreeMap<String, String>>,
+    /// Select the archive state through this commit ID; omit for latest.
+    to: Option<String>,
 }
 
 #[derive(Clone)]
@@ -286,6 +313,30 @@ fn execute(operation: &str, request: Value) -> Result<Value, String> {
                 "data": STANDARD.encode(bytes),
             }))
         }
+        "grep_archive" => {
+            verify_credentials(&request)?;
+            let mut query = request.clone();
+            if query.get("file_filter").and_then(Value::as_str).is_none() {
+                query["file_filter"] = json!("*");
+            }
+            let mut result = execute_json(operation, &query)?;
+            if let Some(files) = result.as_array_mut() {
+                for file in files {
+                    if let Some(lines) = file.get_mut("lines").and_then(Value::as_array_mut) {
+                        for line in lines {
+                            if let Some(bytes) = line.get("bytes").and_then(Value::as_array) {
+                                let byte_vec: Vec<u8> = bytes
+                                    .iter()
+                                    .filter_map(|b| b.as_u64().and_then(|b| u8::try_from(b).ok()))
+                                    .collect();
+                                line["line"] = json!(String::from_utf8_lossy(&byte_vec));
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(result)
+        }
         _ => Err("unknown archive operation".into()),
     }
 }
@@ -425,6 +476,14 @@ impl ZarServer {
     )]
     async fn read_file(&self, Parameters(request): Parameters<ReadRequest>) -> CallToolResult {
         self.run("read_file", request).await
+    }
+
+    #[tool(
+        description = "Search regular files in a ZAR archive for regular expression matches.",
+        annotations(read_only_hint = true)
+    )]
+    async fn grep_archive(&self, Parameters(request): Parameters<GrepRequest>) -> CallToolResult {
+        self.run("grep_archive", request).await
     }
 }
 

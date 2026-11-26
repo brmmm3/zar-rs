@@ -23,7 +23,7 @@ authors = ["Martin Bammer <mrbm74@gmail.com>"]
 clap = { version = "4", features = ["derive"] }
 indicatif = "0.18"
 rayon = "1"
-xxhash-rust = { version = "0.8", features = ["xxh64"] }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
 aes-gcm = { version = "0.11", features = ["zeroize"] }
 argon2 = "0.6"
 chacha20poly1305 = { version = "0.11", features = ["zeroize"] }

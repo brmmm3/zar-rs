@@ -1,12 +1,18 @@
 use super::common::*;
 use super::remove_commits::CrossCommitReference;
+#[cfg(not(target_os = "wasi"))]
+use super::worker_priority::{worker_pool, worker_priority};
 use crate::{
-    BLOCK_FLAG_ENCRYPTED, BlockFrame, CommitValidationLimits, ContainerHeader, ContentAead,
-    FileEntry, FileGroupKind, HEADER_OFFSET_SIZE, LogicalHeader, MetadataType, TocChange,
+    BLOCK_FLAG_ENCRYPTED, BLOCK_FLAG_UNCOMPRESSED, BlockFrame, CommitHeader,
+    CommitValidationLimits, ContainerHeader, ContentAead, FileEntry, FileGroupKind,
+    HEADER_OFFSET_SIZE, LogicalHeader, MetadataType, TocChange,
 };
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+#[cfg(not(target_os = "wasi"))]
+use rayon::prelude::*;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{BufReader, Seek, SeekFrom};
+use xxhash_rust::xxh3::Xxh3Builder;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct HeaderCompressionStats {
@@ -135,14 +141,11 @@ fn read_archive_info(
     let mut file = File::open(path)?;
     let container = ContainerHeader::read_from(&mut file)?;
     let limits = CommitValidationLimits::default();
-    let mut commits = Vec::<CommitInfoWithBlocks>::new();
+    let mut raw_commits = Vec::new();
     let mut header_offset = container.first_header_offset;
     while header_offset != 0 {
         let (commit_header, data_start, next_header_offset) =
             read_commit_at_offset(&mut file, header_offset, limits)?;
-        let mut details = None;
-        let mut header_compression = None;
-        let mut blocks = Vec::new();
         let commit_size = header_offset
             .checked_add(u64::from(commit_header.header_frame_size))
             .and_then(|size| size.checked_add(HEADER_OFFSET_SIZE))
@@ -151,10 +154,39 @@ fn read_archive_info(
             .ok_or("commit size overflow")?;
         file.seek(SeekFrom::Start(header_offset))?;
         let (validated, _) = read_header_with_passwords(&mut file, limits, passwords)?;
+        raw_commits.push((commit_header, data_start, commit_size, validated));
+        header_offset = next_header_offset;
+    }
+
+    #[cfg(not(target_os = "wasi"))]
+    let mmap = unsafe { memmap2::Mmap::map(&file).ok() };
+    #[cfg(target_os = "wasi")]
+    let mmap: Option<Vec<u8>> = None;
+    drop(file);
+
+    #[cfg(not(target_os = "wasi"))]
+    let workers = available_compression_workers();
+    #[cfg(target_os = "wasi")]
+    let workers = 1;
+
+    #[cfg(not(target_os = "wasi"))]
+    let pool = worker_pool(workers, "zarc-info", worker_priority())?;
+
+    let mmap_ref = mmap.as_deref();
+    let analyze_commit = |(commit_header, data_start, commit_size, validated): (
+        CommitHeader,
+        u64,
+        u64,
+        crate::ValidatedHeader,
+    )|
+     -> Result<CommitInfoWithBlocks, Box<dyn std::error::Error + Send + Sync>> {
         let uncompressed_size = validated
             .logical_header
             .as_ref()
-            .map(uncompressed_commit_size)
+            .map(|h| {
+                uncompressed_commit_size(h)
+                    .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.to_string().into() })
+            })
             .transpose()?;
         let header_encrypted = validated.encryption.is_header_encrypted();
         let header_changes = validated
@@ -204,6 +236,7 @@ fn read_archive_info(
                 commit_size as f64 * 100.0 / size as f64
             }
         });
+        let mut header_compression = None;
         if verbose {
             header_compression = Some(HeaderCompressionStats {
                 compressed_size: validated.header_compressed_size,
@@ -217,39 +250,75 @@ fn read_archive_info(
                 }),
             });
         }
+        let mut details = None;
+        let mut blocks = Vec::new();
         if verbose {
             let logical_header = validated.logical_header.as_ref();
-            if include_block_details {
-                blocks = scan_commit_blocks(
-                    &mut file,
-                    data_start,
-                    commit_header.data_section_size,
-                    logical_header,
-                    limits,
-                )?;
-            }
             if let Some(header) = logical_header {
+                if include_block_details {
+                    blocks = if let Some(entries) = &header.block_index {
+                        build_blocks_from_header(header, entries, data_encrypted)?
+                    } else {
+                        scan_commit_blocks(
+                            ScanDataParams {
+                                path,
+                                data_start,
+                                data_section_size: commit_header.data_section_size,
+                                limits,
+                                mmap: mmap_ref,
+                            },
+                            Some(header),
+                            workers,
+                            #[cfg(not(target_os = "wasi"))]
+                            Some(&pool),
+                        )?
+                    };
+                }
                 details = Some(if has_stored_group_sizes(header) {
-                    summarize_commit_header_only(header, None)?
+                    summarize_commit_header_only(header, None)
+                        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.to_string().into() })?
                 } else {
                     let block_sizes = if include_block_details {
                         blocks
                             .iter()
                             .map(|block| (block.index, block.compressed_size))
                             .collect::<HashMap<_, _>>()
+                    } else if let Some(entries) = &header.block_index {
+                        let overhead = if data_encrypted { 32 } else { 20 };
+                        entries
+                            .iter()
+                            .map(|e| (e.index, e.encoded_size.saturating_sub(overhead)))
+                            .collect::<HashMap<_, _>>()
                     } else {
+                        let mut file = File::open(path)?;
                         scan_block_sizes(
                             &mut file,
                             data_start,
                             commit_header.data_section_size,
                             limits,
-                        )?
+                        )
+                        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.to_string().into() })?
                     };
-                    summarize_commit_header_only(header, Some(&block_sizes))?
+                    summarize_commit_header_only(header, Some(&block_sizes))
+                        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.to_string().into() })?
                 });
+            } else if include_block_details {
+                blocks = scan_commit_blocks(
+                    ScanDataParams {
+                        path,
+                        data_start,
+                        data_section_size: commit_header.data_section_size,
+                        limits,
+                        mmap: mmap_ref,
+                    },
+                    None,
+                    workers,
+                    #[cfg(not(target_os = "wasi"))]
+                    Some(&pool),
+                )?;
             }
         }
-        commits.push(CommitInfoWithBlocks {
+        Ok(CommitInfoWithBlocks {
             commit: CommitInfo {
                 id: commit_header.commit_id,
                 size: commit_size,
@@ -268,10 +337,22 @@ fn read_archive_info(
                 encryption_algorithm: content_algorithm,
             },
             blocks,
+        })
+    };
+
+    #[cfg(not(target_os = "wasi"))]
+    if raw_commits.len() > 1 && workers > 1 {
+        let results: Result<Vec<_>, _> = pool.install(|| {
+            raw_commits.into_par_iter().map(analyze_commit).collect()
         });
-        header_offset = next_header_offset;
+        return results.map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() });
     }
-    Ok(commits)
+
+    raw_commits
+        .into_iter()
+        .map(analyze_commit)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| -> Box<dyn std::error::Error> { e.to_string().into() })
 }
 
 fn uncompressed_commit_size(header: &LogicalHeader) -> Result<u64, Box<dyn std::error::Error>> {
@@ -326,15 +407,172 @@ pub fn group_size_metadata(
         .collect()
 }
 
-fn scan_commit_blocks(
-    file: &mut File,
+fn build_blocks_from_header(
+    header: &LogicalHeader,
+    entries: &[crate::HeaderBlockIndexEntry],
+    data_encrypted: bool,
+) -> Result<Vec<BlockInfo>, Box<dyn std::error::Error + Send + Sync>> {
+    let max_block_index = entries.iter().map(|e| e.index).max().unwrap_or(0) as usize;
+    let use_flat_tables = max_block_index <= 4_000_000;
+    let mut flat_files = if use_flat_tables {
+        vec![0_u32; max_block_index + 1]
+    } else {
+        Vec::new()
+    };
+    let mut flat_groups: Vec<Vec<&'static str>> = if use_flat_tables {
+        vec![Vec::new(); max_block_index + 1]
+    } else {
+        Vec::new()
+    };
+    let mut flat_uncompressed = if use_flat_tables {
+        vec![0_u64; max_block_index + 1]
+    } else {
+        Vec::new()
+    };
+    let mut hash_files = HashMap::<u32, u64>::new();
+    let mut hash_groups = HashMap::<u32, Vec<&'static str>>::new();
+    let mut hash_uncompressed = HashMap::<u32, u64>::new();
+
+    let block_size = header
+        .block_size
+        .map(u64::from)
+        .unwrap_or(CREATE_BLOCK_SIZE as u64);
+
+    for change in &header.changes {
+        if let TocChange::PutFile { entry, .. } = change
+            && entry.source_commit.is_none()
+        {
+            let group = file_group_name(header, entry);
+            for &index in &entry.block_indices {
+                let idx = index as usize;
+                if use_flat_tables && idx <= max_block_index {
+                    flat_files[idx] = flat_files[idx].saturating_add(1);
+                    let g = &mut flat_groups[idx];
+                    if !g.contains(&group) {
+                        g.push(group);
+                    }
+                } else {
+                    let count = hash_files.entry(index).or_default();
+                    *count = count.checked_add(1).ok_or("block file count overflow")?;
+                    let g = hash_groups.entry(index).or_default();
+                    if !g.contains(&group) {
+                        g.push(group);
+                    }
+                }
+            }
+
+            let n_blocks = entry.block_indices.len();
+            if n_blocks == 1 {
+                let b = entry.block_indices[0];
+                let uncompressed = if let Some(offset) = entry.offset_in_block {
+                    u64::from(offset).saturating_add(entry.size)
+                } else {
+                    entry.size
+                };
+                if use_flat_tables && (b as usize) <= max_block_index {
+                    flat_uncompressed[b as usize] = flat_uncompressed[b as usize].max(uncompressed);
+                } else {
+                    let cur = hash_uncompressed.entry(b).or_default();
+                    *cur = (*cur).max(uncompressed);
+                }
+            } else if n_blocks > 1 {
+                for (i, &b) in entry.block_indices.iter().enumerate() {
+                    let uncompressed = if i + 1 == n_blocks {
+                        entry.size.saturating_sub((i as u64).saturating_mul(block_size))
+                    } else {
+                        block_size
+                    };
+                    if use_flat_tables && (b as usize) <= max_block_index {
+                        flat_uncompressed[b as usize] = uncompressed;
+                    } else {
+                        hash_uncompressed.insert(b, uncompressed);
+                    }
+                }
+            }
+        }
+    }
+
+    let overhead = if data_encrypted { 32 } else { 20 };
+    let mut blocks = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let compressed_size = entry.encoded_size.saturating_sub(overhead);
+        let ratio_percent = if data_encrypted {
+            None
+        } else {
+            let uncompressed = if use_flat_tables && (entry.index as usize) <= max_block_index {
+                flat_uncompressed[entry.index as usize]
+            } else {
+                hash_uncompressed.get(&entry.index).copied().unwrap_or(0)
+            };
+            if uncompressed == 0 {
+                Some(0.0)
+            } else {
+                Some(compressed_size as f64 * 100.0 / uncompressed as f64)
+            }
+        };
+
+        let idx = entry.index as usize;
+        let (file_count, file_groups) = if use_flat_tables && idx <= max_block_index {
+            (flat_files[idx] as u64, std::mem::take(&mut flat_groups[idx]))
+        } else {
+            (
+                hash_files.remove(&entry.index).unwrap_or_default(),
+                hash_groups.remove(&entry.index).unwrap_or_default(),
+            )
+        };
+
+        blocks.push(BlockInfo {
+            index: entry.index,
+            compressed_size,
+            ratio_percent,
+            file_count,
+            file_groups,
+        });
+    }
+
+    Ok(blocks)
+}
+
+struct ScanDataParams<'a> {
+    path: &'a str,
     data_start: u64,
     data_section_size: u64,
-    header: Option<&LogicalHeader>,
     limits: CommitValidationLimits,
-) -> Result<Vec<BlockInfo>, Box<dyn std::error::Error>> {
-    let mut groups_by_block = HashMap::<u32, BTreeSet<&'static str>>::new();
-    let mut files_by_block = HashMap::<u32, u64>::new();
+    mmap: Option<&'a [u8]>,
+}
+
+fn scan_commit_blocks(
+    params: ScanDataParams<'_>,
+    header: Option<&LogicalHeader>,
+    workers: usize,
+    #[cfg(not(target_os = "wasi"))] pool: Option<&rayon::ThreadPool>,
+) -> Result<Vec<BlockInfo>, Box<dyn std::error::Error + Send + Sync>> {
+    let ScanDataParams {
+        path,
+        data_start,
+        data_section_size,
+        limits,
+        mmap,
+    } = params;
+    let max_block_index = header
+        .and_then(|h| h.block_index.as_ref())
+        .and_then(|entries| entries.iter().map(|e| e.index).max())
+        .unwrap_or(0) as usize;
+
+    let use_flat_tables = max_block_index <= 4_000_000;
+    let mut flat_files = if use_flat_tables {
+        vec![0_u32; max_block_index + 1]
+    } else {
+        Vec::new()
+    };
+    let mut flat_groups: Vec<Vec<&'static str>> = if use_flat_tables {
+        vec![Vec::new(); max_block_index + 1]
+    } else {
+        Vec::new()
+    };
+    let mut hash_files = HashMap::<u32, u64>::new();
+    let mut hash_groups = HashMap::<u32, Vec<&'static str>>::new();
+
     if let Some(header) = header {
         for change in &header.changes {
             if let TocChange::PutFile { entry, .. } = change
@@ -342,45 +580,161 @@ fn scan_commit_blocks(
             {
                 let group = file_group_name(header, entry);
                 for &index in &entry.block_indices {
-                    groups_by_block.entry(index).or_default().insert(group);
-                    let count = files_by_block.entry(index).or_default();
-                    *count = count.checked_add(1).ok_or("block file count overflow")?;
+                    let idx = index as usize;
+                    if use_flat_tables && idx <= max_block_index {
+                        flat_files[idx] = flat_files[idx].saturating_add(1);
+                        let g = &mut flat_groups[idx];
+                        if !g.contains(&group) {
+                            g.push(group);
+                        }
+                    } else {
+                        let count = hash_files.entry(index).or_default();
+                        *count = count.checked_add(1).ok_or("block file count overflow")?;
+                        let g = hash_groups.entry(index).or_default();
+                        if !g.contains(&group) {
+                            g.push(group);
+                        }
+                    }
                 }
             }
         }
     }
 
+    #[cfg(not(target_os = "wasi"))]
+    if let Some(header) = header
+        && let Some(entries) = &header.block_index
+        && let Some(mmap_bytes) = mmap
+    {
+        type ScannedBlock = (u32, u64, Option<f64>);
+        type ScanResult = Result<Vec<Vec<ScannedBlock>>, Box<dyn std::error::Error + Send + Sync>>;
+        let chunk_size = entries.len().div_ceil(workers).max(32);
+        let process_chunk = |chunk: &[crate::HeaderBlockIndexEntry]| -> Result<Vec<ScannedBlock>, Box<dyn std::error::Error + Send + Sync>> {
+            let mut items = Vec::with_capacity(chunk.len());
+            for entry in chunk {
+                let start = (data_start + entry.offset) as usize;
+                let end = (start + (entry.encoded_size as usize).min(50)).min(mmap_bytes.len());
+                let slice = mmap_bytes.get(start..end).ok_or(crate::FramingError::InvalidSize)?;
+                let (metadata, prefix, prefix_len) =
+                    BlockFrame::parse_metadata_and_prefix(slice, limits.max_frame_payload_size)?;
+                let uncompressed_size = if metadata.flags & BLOCK_FLAG_ENCRYPTED != 0 {
+                    None
+                } else if metadata.flags & BLOCK_FLAG_UNCOMPRESSED != 0 {
+                    if metadata.payload_size as usize > limits.max_uncompressed_block_size {
+                        return Err(crate::FramingError::InvalidSize.into());
+                    }
+                    Some(u64::from(metadata.payload_size))
+                } else {
+                    let size = match zstd::zstd_safe::get_frame_content_size(&prefix[..prefix_len]) {
+                        Ok(Some(size)) => size,
+                        _ => {
+                            let frame = BlockFrame::read_from(
+                                &mut &mmap_bytes[start..(start + entry.encoded_size as usize).min(mmap_bytes.len())],
+                                limits.max_frame_payload_size,
+                            )?;
+                            frame
+                                .uncompressed_at_most(limits.max_uncompressed_block_size)?
+                                .len() as u64
+                        }
+                    };
+                    if size > limits.max_uncompressed_block_size as u64 {
+                        return Err(crate::FramingError::InvalidSize.into());
+                    }
+                    Some(size)
+                };
+                let compressed_size = u64::from(metadata.payload_size);
+                let ratio_percent = uncompressed_size.map(|size| {
+                    if size == 0 {
+                        0.0
+                    } else {
+                        compressed_size as f64 * 100.0 / size as f64
+                    }
+                });
+                items.push((metadata.block_index, compressed_size, ratio_percent));
+            }
+            Ok(items)
+        };
+
+        let chunk_results: ScanResult = if workers > 1 && let Some(pool) = pool {
+            pool.install(|| {
+                entries
+                    .par_chunks(chunk_size)
+                    .map(process_chunk)
+                    .collect()
+            })
+        } else {
+            entries.chunks(chunk_size).map(process_chunk).collect()
+        };
+
+        let chunk_results = chunk_results?;
+        let mut blocks = Vec::with_capacity(entries.len());
+        for chunk in chunk_results {
+            for (block_index, compressed_size, ratio_percent) in chunk {
+                let idx = block_index as usize;
+                let (file_count, file_groups) = if use_flat_tables && idx <= max_block_index {
+                    (flat_files[idx] as u64, std::mem::take(&mut flat_groups[idx]))
+                } else {
+                    (hash_files.remove(&block_index).unwrap_or_default(), hash_groups.remove(&block_index).unwrap_or_default())
+                };
+                blocks.push(BlockInfo {
+                    index: block_index,
+                    compressed_size,
+                    ratio_percent,
+                    file_count,
+                    file_groups,
+                });
+            }
+        }
+        return Ok(blocks);
+    }
+
+    let mut file = File::open(path)?;
     let mut blocks = Vec::new();
     let mut remaining = data_section_size;
     file.seek(SeekFrom::Start(data_start))?;
+    let mut reader = BufReader::with_capacity(128 * 1024, file);
     while remaining > 0 {
         if blocks.len() as u64 >= limits.max_blocks {
             return Err(crate::FramingError::InvalidSize.into());
         }
-        let (frame, consumed) = {
-            let mut limited_data = file.take(remaining);
-            let frame = BlockFrame::read_from(&mut limited_data, limits.max_frame_payload_size)?;
-            let consumed = remaining - limited_data.limit();
-            if consumed == 0 || frame.encoded_size()? as u64 != consumed {
+        let before = reader.stream_position()?;
+        let (metadata, prefix, prefix_len) =
+            BlockFrame::read_metadata_and_prefix_from(&mut reader, limits.max_frame_payload_size)?;
+        let consumed = reader
+            .stream_position()?
+            .checked_sub(before)
+            .ok_or("block offset underflow")?;
+        if consumed == 0 || consumed > remaining || consumed != metadata.encoded_size {
+            return Err(crate::FramingError::InvalidSize.into());
+        }
+        remaining -= consumed;
+        let uncompressed_size = if metadata.flags & BLOCK_FLAG_ENCRYPTED != 0 {
+            None
+        } else if metadata.flags & BLOCK_FLAG_UNCOMPRESSED != 0 {
+            if metadata.payload_size as usize > limits.max_uncompressed_block_size {
                 return Err(crate::FramingError::InvalidSize.into());
             }
-            (frame, consumed)
-        };
-        remaining -= consumed;
-        let uncompressed_size = if frame.flags & BLOCK_FLAG_ENCRYPTED == 0 {
-            Some(
-                u64::try_from(
-                    frame
-                        .uncompressed_at_most(limits.max_uncompressed_block_size)?
-                        .len(),
-                )
-                .map_err(|_| "block uncompressed size overflow")?,
-            )
+            Some(u64::from(metadata.payload_size))
         } else {
-            None
+            let size = match zstd::zstd_safe::get_frame_content_size(&prefix[..prefix_len]) {
+                Ok(Some(size)) => size,
+                _ => {
+                    let cur_pos = reader.stream_position()?;
+                    reader.seek(SeekFrom::Start(before))?;
+                    let frame =
+                        BlockFrame::read_from(&mut reader, limits.max_frame_payload_size)?;
+                    let len = frame
+                        .uncompressed_at_most(limits.max_uncompressed_block_size)?
+                        .len() as u64;
+                    reader.seek(SeekFrom::Start(cur_pos))?;
+                    len
+                }
+            };
+            if size > limits.max_uncompressed_block_size as u64 {
+                return Err(crate::FramingError::InvalidSize.into());
+            }
+            Some(size)
         };
-        let compressed_size =
-            u64::try_from(frame.payload.len()).map_err(|_| "block compressed size overflow")?;
+        let compressed_size = u64::from(metadata.payload_size);
         let ratio_percent = uncompressed_size.map(|size| {
             if size == 0 {
                 0.0
@@ -388,18 +742,18 @@ fn scan_commit_blocks(
                 compressed_size as f64 * 100.0 / size as f64
             }
         });
+        let idx = metadata.block_index as usize;
+        let (file_count, file_groups) = if use_flat_tables && idx <= max_block_index {
+            (flat_files[idx] as u64, std::mem::take(&mut flat_groups[idx]))
+        } else {
+            (hash_files.remove(&metadata.block_index).unwrap_or_default(), hash_groups.remove(&metadata.block_index).unwrap_or_default())
+        };
         blocks.push(BlockInfo {
-            index: frame.block_index,
+            index: metadata.block_index,
             compressed_size,
             ratio_percent,
-            file_count: files_by_block
-                .remove(&frame.block_index)
-                .unwrap_or_default(),
-            file_groups: groups_by_block
-                .remove(&frame.block_index)
-                .unwrap_or_default()
-                .into_iter()
-                .collect(),
+            file_count,
+            file_groups,
         });
     }
     Ok(blocks)
@@ -414,11 +768,12 @@ fn scan_block_sizes(
     let mut block_sizes = HashMap::new();
     let mut remaining = data_section_size;
     file.seek(SeekFrom::Start(data_start))?;
+    let mut reader = BufReader::with_capacity(128 * 1024, file);
     while remaining > 0 {
         if block_sizes.len() as u64 >= limits.max_blocks {
             return Err(crate::FramingError::InvalidSize.into());
         }
-        let metadata = BlockFrame::read_metadata_from(file, limits.max_frame_payload_size)?;
+        let metadata = BlockFrame::read_metadata_from(&mut reader, limits.max_frame_payload_size)?;
         if metadata.encoded_size == 0 || metadata.encoded_size > remaining {
             return Err(crate::FramingError::InvalidSize.into());
         }
@@ -440,8 +795,14 @@ pub fn summarize_commit_header_only(
     block_sizes: Option<&HashMap<u32, u64>>,
 ) -> Result<CommitFileStats, Box<dyn std::error::Error>> {
     let mut stats = CommitFileStats::default();
-    let mut seen_files = std::collections::HashSet::new();
-    let mut counted_blocks = std::collections::HashSet::new();
+    let mut seen_files = std::collections::HashSet::with_capacity_and_hasher(
+        header.changes.len(),
+        Xxh3Builder::new(),
+    );
+    let mut counted_blocks = std::collections::HashSet::with_capacity_and_hasher(
+        block_sizes.map_or(0, |b| b.len()),
+        Xxh3Builder::new(),
+    );
     stats.header_changes = summarize_header_changes(header);
     for entry in &header.entry_metadata {
         let counts = &mut stats.entry_metadata;
@@ -452,6 +813,20 @@ pub fn summarize_commit_header_only(
         counts.creation_times += u64::from(entry.created_unix_millis.is_some());
         counts.access_times += u64::from(entry.accessed_unix_millis.is_some());
     }
+
+    let flat_block_sizes = block_sizes.and_then(|sizes| {
+        let max_idx = sizes.keys().copied().max().unwrap_or(0) as usize;
+        if max_idx <= sizes.len().saturating_mul(4).max(1024) && max_idx <= 4_000_000 {
+            let mut flat = vec![0_u64; max_idx + 1];
+            for (&idx, &size) in sizes {
+                flat[idx as usize] = size;
+            }
+            Some(flat)
+        } else {
+            None
+        }
+    });
+
     for change in &header.changes {
         let entry = match change {
             TocChange::PutFile { entry, .. } => entry,
@@ -490,7 +865,21 @@ pub fn summarize_commit_header_only(
                 .uncompressed_size
                 .checked_add(entry.size)
                 .ok_or("uncompressed group size overflow")?;
-            if let Some(block_sizes) = block_sizes {
+            if let Some(flat) = &flat_block_sizes {
+                for index in &entry.block_indices {
+                    if counted_blocks.insert((name, *index)) {
+                        let size = flat
+                            .get(*index as usize)
+                            .copied()
+                            .filter(|&s| s != 0)
+                            .ok_or("missing block frame size")?;
+                        group.compressed_size = group
+                            .compressed_size
+                            .checked_add(size)
+                            .ok_or("compressed group size overflow")?;
+                    }
+                }
+            } else if let Some(block_sizes) = block_sizes {
                 for index in &entry.block_indices {
                     if counted_blocks.insert((name, *index)) {
                         group.compressed_size = group

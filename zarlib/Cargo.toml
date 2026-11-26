@@ -38,6 +38,7 @@ sevenz-rust2 = { version = "0.25", default-features = false, features = ["compre
 
 [target.'cfg(not(target_os = "wasi"))'.dependencies]
 crossbeam-channel = "0.5"
+memmap2 = "0.9"
 rayon.workspace = true
 scandir = "4.0"
 
