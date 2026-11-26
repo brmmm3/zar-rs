@@ -769,6 +769,53 @@ fn add_archive_tabs_switch_and_preserve_values() {
 }
 
 #[test]
+fn add_archive_initially_focuses_add_button_without_stealing_focus_later() {
+    let context = egui::Context::default();
+    let mut app = ZargApp {
+        operation: form(OperationKind::AddToArchive, "archive.zar"),
+        ..Default::default()
+    };
+    app.operation.input_paths.push(PathBuf::from("input.txt"));
+    let mut add_id = egui::Id::NULL;
+    let mut clear_id = egui::Id::NULL;
+    run_frame(&context, |ui| {
+        let buttons = app.render_add_archive_file_buttons(ui);
+        add_id = buttons[0].id;
+        clear_id = buttons[2].id;
+    });
+    assert_eq!(context.memory(|memory| memory.focused()), Some(add_id));
+
+    context.memory_mut(|memory| memory.request_focus(clear_id));
+    run_frame(&context, |ui| {
+        app.render_add_archive_file_buttons(ui);
+    });
+    assert_eq!(context.memory(|memory| memory.focused()), Some(clear_id));
+
+    app.operation = form(OperationKind::AddToArchive, "archive.zar");
+    run_frame(&context, |ui| {
+        add_id = app.render_add_archive_file_buttons(ui)[0].id;
+    });
+    assert_eq!(context.memory(|memory| memory.focused()), Some(add_id));
+}
+
+#[test]
+fn add_archive_dialog_opens_input_picker_once_per_opening() {
+    let context = egui::Context::default();
+    let mut app = ZargApp {
+        operation: form(OperationKind::AddToArchive, "archive.zar"),
+        ..Default::default()
+    };
+    run_frame(&context, |ui| app.render_operation_dialog(ui.ctx()));
+    assert!(app.file_dialog.open);
+    app.file_dialog.open = false;
+    run_frame(&context, |ui| app.render_operation_dialog(ui.ctx()));
+    assert!(!app.file_dialog.open);
+    app.operation = form(OperationKind::AddToArchive, "archive.zar");
+    run_frame(&context, |ui| app.render_operation_dialog(ui.ctx()));
+    assert!(app.file_dialog.open);
+}
+
+#[test]
 fn add_archive_files_list_fills_space_and_buttons_work() {
     for height in [360.0, 600.0] {
         let context = egui::Context::default();

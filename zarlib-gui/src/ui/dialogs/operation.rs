@@ -1192,7 +1192,11 @@ impl ZargApp {
                 "Add folders/files",
                 true,
             );
-            if add.clicked() {
+            let open_on_start = std::mem::take(&mut self.operation.open_add_inputs);
+            if open_on_start {
+                add.request_focus();
+            }
+            if open_on_start || add.clicked() {
                 self.choose_input_paths();
             }
             let remove = icon_button(

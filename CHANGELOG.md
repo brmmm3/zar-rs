@@ -11,6 +11,8 @@ until a version is released.
 
 ### Changed
 
+- Open the folder/files picker automatically when zarg's Add to archive dialog opens.
+- Show only archive filenames in the Linux zarmount tray menu.
 - Matched the zarmount About, Settings, and mount dialogs to zarg's styling.
 - Added Alt+N, Alt+A, and Alt+E shortcuts to the New, Add, and Extract dialogs.
 - Retained partial results when cancelling a zarg Find search and added Escape
