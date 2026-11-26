@@ -97,6 +97,25 @@ errors. Archive paths must refer to preopened directories. The shim's
 filesystem capabilities are enforced per instance; do not preopen directories
 the component does not need.
 
+## Searching archive files
+
+Give the component a preopen containing `backup.zar`, then invoke its WIT
+`execute` export with operation `grep_archive` and this JSON request:
+
+```json
+{"archive":"/data/backup.zar","file_filter":"*.txt","pattern":"(?i)TODO|FIXME","before":1,"after":1}
+```
+
+The WIT result contains a JSON response or an error. Search is sequential on
+WASI and returns completed results grouped by archive path, omitting files
+without matches. Each line has a one-based `line_number`, raw `bytes` as a
+numeric array without the terminator, and `is_match` distinguishing matches
+from context. Do not assume the bytes are UTF-8. For an executable Node.js
+example and preopen setup, see the
+[Node adapter grep example](./nodejs/README.md#searching-archive-files).
+The shared [grep contract](../czarlib/README.md#searching-archive-files)
+describes glob and regex syntax, commits, encryption, integrity, and memory.
+
 ## Streaming
 
 With the `streaming` feature enabled, the WIT world imports

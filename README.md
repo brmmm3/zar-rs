@@ -114,6 +114,10 @@ Highlights:
   cross-commit references; the GUI has a reference viewer. `remove-commits`
   removes selected commits while retaining at least one, subject to dependency
   validation for readable history. The GUI also supports undo for unsaved edits.
+- **Search without extraction.** Grep archive contents in parallel with
+  filename filters, regular expressions, and optional context using
+  [`zarc grep`](./zarlib-cli/README.md#search-archived-files), zarg Find,
+  or the [Python API](./pyzarlib/README.md#searching-archive-files).
 - **Desktop workflows.** `zarg` supports drag-and-drop, selected-file
   extraction, archive testing and benchmarking, and file-manager context
   actions for creating, opening, extracting, and testing archives.

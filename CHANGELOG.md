@@ -53,6 +53,8 @@ until a version is released.
 - Switched zarlib grep to fancy-regex, adding lookaround and backreference
   support. Inline Unicode mode changes such as `(?-u:...)` are no longer
   supported, and invalid UTF-8 bytes cannot be matched individually.
+- Expanded grep documentation and added search examples for all language
+  bindings and the Node.js WASI adapter.
 
 ### Fixed
 

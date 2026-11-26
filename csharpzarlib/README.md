@@ -2,7 +2,7 @@
 
 C# (.NET 10) wrapper for ZAR. It P/Invokes the `czarlib` JSON C ABI and exposes
 archive operations for create, add, remove, custom metadata, join, undo,
-encrypt/decrypt commit ranges, check, info, list, extract and in-memory extract.
+encrypt/decrypt commit ranges, check, info, list, grep, extract and in-memory extract.
 Request and response fields are documented in
 [../czarlib/README.md](../czarlib/README.md).
 Create and Add requests may include `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz`
@@ -128,6 +128,44 @@ Dictionary<string, byte[]> files = ZarLibrary.ExtractArchiveToMemory(new { archi
   for cross-commit references. When commits use different passwords, supply
   their current passwords through the per-commit `passwords` map instead of
   a single default `password`.
+
+## Searching archive files
+
+Search an existing `backup.zar`, including one line of context on each side:
+
+```csharp
+using System;
+using System.Text.Json;
+using Zar;
+
+string response = ZarLibrary.GrepArchive(new
+{
+    archive = "backup.zar",
+    file_filter = "*.txt",
+    pattern = "(?i)TODO|FIXME",
+    before = 1,
+    after = 1,
+});
+using var results = JsonDocument.Parse(response);
+foreach (var file in results.RootElement.EnumerateArray())
+{
+    foreach (var line in file.GetProperty("lines").EnumerateArray())
+    {
+        Console.WriteLine($"{file.GetProperty("path").GetString()}:" +
+            $"{line.GetProperty("line_number").GetInt64()} " +
+            $"match={line.GetProperty("is_match").GetBoolean()} " +
+            $"bytes={line.GetProperty("bytes").GetRawText()}");
+    }
+}
+```
+
+`GrepArchive` returns JSON and throws `ZarException` on request or archive
+errors. Results are grouped by path and exclude files without matches.
+`line_number` is one-based, `is_match` identifies matches versus context,
+and `bytes` is an array of raw byte values without the line terminator; it
+need not be UTF-8. See the
+[grep contract](../czarlib/README.md#searching-archive-files) for glob,
+regex, commit, encryption, integrity, and memory behavior.
 
 ## Tests and examples
 

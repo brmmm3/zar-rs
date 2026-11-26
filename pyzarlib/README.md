@@ -5,14 +5,8 @@ The package exposes high-level create, add, remove, join, undo, commit
 encryption/decryption, custom metadata read/update, check, info, list, and
 extract operations.
 
-`grep_archive(archive, file_filter, pattern, *, before=0, after=0, to=None,
-password=None, passwords=None)` searches selected regular files in parallel.
-It returns a list of `{"path": str, "lines": [...]}` records, with each line
-containing `line_number` (one-based), `bytes` (without LF/CRLF), and
-`is_match`. Context is deduplicated and files without matches are omitted.
-Patterns, commit selection, passwords, and integrity behavior follow the
-[Rust grep API](../doc/zarlib-developer-guide.md#searching-files); passwords
-are bytes as in the other Python read operations.
+[`grep_archive`](#searching-archive-files) searches the contents of selected
+regular files without extracting them.
 
 `cross_commit_references(archive, password=None, passwords=None)` returns all
 referencing and source commit IDs and paths. `info_archive` returns a
@@ -166,6 +160,86 @@ assert output.getvalue() == b"hello"
 
 Run the complete example with `python examples/streaming.py`. `BytesIO` is
 used here for convenience; disk files and other compatible streams work too.
+
+## Searching archive files
+
+```text
+grep_archive(archive, file_filter, pattern, *, before=0, after=0,
+             to=None, password=None, passwords=None)
+```
+
+`archive` is a string or `pathlib.Path`. `file_filter` is a case-sensitive
+glob matched against archive-relative paths before file contents are searched.
+For example, `"*"` searches all regular files and `"*.py"` includes Python
+files in subdirectories too. Directories, symlinks, and other non-regular
+entries are not searched.
+
+`pattern` is a line-based regex string using `fancy_regex` syntax, not Python's
+`re` engine. Matching is case-sensitive by default; `(?i)` enables
+case-insensitive matching. Lookaround and backreferences are supported.
+`before` and `after` are non-negative counts of context lines, both defaulting
+to zero. Overlapping context is returned once.
+
+The function returns a list sorted by archive path. Each item has a `path`
+string and a `lines` list sorted by line number. Each line is a dictionary
+with a one-based `line_number`, `bytes` containing the original line without
+its LF or CRLF terminator, and `is_match` indicating a match rather than
+context. Files without matches are omitted; no matches returns `[]`.
+
+The following self-contained example creates a temporary archive, searches it
+case-insensitively, and distinguishes matching lines from context:
+
+```python
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+import pyzarlib
+
+with TemporaryDirectory() as directory:
+    source = Path(directory) / "notes.txt"
+    source.write_bytes(b"first line\nTODO: check backup\r\nafter\n")
+    archive = Path(directory) / "backup.zar"
+    pyzarlib.create_archive(archive, [source])
+
+    results = pyzarlib.grep_archive(
+        archive, "*.txt", r"(?i)\b(todo|fixme)\b", before=1, after=1
+    )
+    for file in results:
+        for line in file["lines"]:
+            separator = ":" if line["is_match"] else "-"
+            print(f"{file['path']}{separator}{line['line_number']}{separator}{line['bytes']!r}")
+```
+
+Output:
+
+```text
+notes.txt-1-b'first line'
+notes.txt:2:b'TODO: check backup'
+notes.txt-3-b'after'
+```
+
+Run the same example with `python examples/grep.py`. Decode `line["bytes"]`
+explicitly when text is needed, for example
+`line["bytes"].decode("utf-8", errors="replace")`. Non-UTF-8 bytes are
+preserved in results; matching is Unicode-aware and invalid bytes cannot be
+matched individually. Inline Unicode mode changes such as `(?-u:...)` are
+not supported.
+
+`to` selects an eight-hex-digit commit ID, as returned by `info_archive`;
+the default is the latest state. For encrypted archives, provide a bytes
+`password` as a fallback and/or `passwords={commit_id: password_bytes}` for
+specific commits. A specific password takes precedence. Unlike partial
+listing, grep fails if required headers or selected data cannot be unlocked.
+
+Selected files are fully read and checked, including files with no matches;
+unselected block payloads are not checked. Invalid regexes, authentication,
+integrity, or search errors raise `RuntimeError`; an invalid password-map
+commit ID raises `ValueError`. Keep the archive unchanged during the search.
+Native searches run in parallel and release the Python GIL, but this API
+returns results only after the search completes; it does not expose streaming
+callbacks or reusable prepared headers. Memory use includes returned lines,
+context, decoded blocks, and the longest line. See the
+[Rust grep API](../doc/zarlib-developer-guide.md#searching-files) for details.
 
 ## Example
 
@@ -488,6 +562,9 @@ staging-time filesystem timestamps, and extraction does not restore them.
   and optional detailed statistics.
 - `list_archive(archive, *, to=None, password=None)` returns the
   effective TOC as dictionaries.
+- `grep_archive(archive, file_filter, pattern, *, before=0, after=0,
+  to=None, password=None, passwords=None)` searches selected files and returns
+  grouped matching and context lines; see [Searching archive files](#searching-archive-files).
 - `extract_archive(archive, destination, *, dry_run=False, to=None,
   password=None, collision="rename", existing="error", restore_metadata=False,
   restore_symlinks=False, restore_devices=False, include_files=None,

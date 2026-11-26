@@ -3,7 +3,7 @@
 `jzarlib-jni` is the Java Native Interface binding to the `czarlib` C ABI. It
 provides the archive operations and JSON contract as the C wrapper: create,
 add, remove, custom metadata, join, undo, encrypt/decrypt commit ranges, check,
-info, list, filesystem extract, and in-memory extract. See
+info, list, grep, filesystem extract, and in-memory extract. See
 [`czarlib/README.md`](../czarlib/README.md) for operation request fields,
 filters, encryption options, and limitations. Create and Add requests may
 include `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz` source paths; their contents
@@ -97,6 +97,31 @@ archive.
 In-memory extraction returns JSON arrays of byte values. Passwords in request
 JSON are plaintext credentials: obtain them securely and do not log password-
 bearing requests.
+
+### Searching archive files
+
+With the JNI library configured as above and an existing `backup.zar`:
+
+```java
+import org.zar.jarlib.jni.ZarLibrary;
+
+public class GrepExample {
+    public static void main(String[] args) throws Exception {
+        String result = ZarLibrary.grepArchive(
+            "{\"archive\":\"backup.zar\",\"file_filter\":\"*.txt\"," +
+            "\"pattern\":\"(?i)TODO|FIXME\",\"before\":1,\"after\":1}");
+        System.out.println(result);
+    }
+}
+```
+
+The result is JSON grouped by archive path, with files without matches
+omitted. Each line has a one-based `line_number`, raw `bytes` as an array of
+numbers without the terminator, and `is_match` to distinguish matches from
+context. Parse the JSON without assuming the bytes are UTF-8. Request and
+archive errors throw `ZarException`. See the
+[grep contract](../czarlib/README.md#searching-archive-files) for glob,
+regex, commit, encryption, integrity, and memory behavior.
 
 ### Streaming
 

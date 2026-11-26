@@ -140,6 +140,36 @@ reported as `rust::Error` exceptions. The bridge does not retain either input
 string. Password-bearing JSON requests contain plaintext credentials: obtain
 passwords securely and do not log those request strings.
 
+## Searching archive files
+
+For an existing `backup.zar`, search `.txt` paths for a case-insensitive
+regex and include one line of context on each side:
+
+```cpp
+#include "cxxzarlib/src/lib.rs.h"
+#include "rust/cxx.h"
+#include <iostream>
+
+int main() {
+    try {
+        auto result = cxxzarlib::execute_json(
+            "grep_archive",
+            R"({"archive":"backup.zar","file_filter":"*.txt","pattern":"(?i)TODO|FIXME","before":1,"after":1})");
+        std::cout << result.c_str() << '\n';
+    } catch (const rust::Error &error) {
+        std::cerr << "grep failed: " << error.what() << '\n';
+        return 1;
+    }
+}
+```
+
+The response is JSON grouped by archive path. Each line has a one-based
+`line_number`, a `bytes` array, and `is_match` to distinguish matches from
+context; files without matches are omitted. Use a JSON parser to consume the
+result and preserve the byte arrays rather than assuming UTF-8. See the
+[grep contract](../czarlib/README.md#searching-archive-files) for glob,
+regex, commit, encryption, integrity, and memory behavior.
+
 ## C++ streams
 
 The native wrapper in `include/cxxzarlib/stream.hpp` provides

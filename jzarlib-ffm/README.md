@@ -3,7 +3,7 @@
 `jzarlib-ffm` is the Java Foreign Function & Memory API binding to `czarlib`. It
 requires Java 25 or newer and exposes the JSON operations for create, add,
 remove, custom metadata, join, undo, encrypt/decrypt commit ranges, check, info,
-list, filesystem extract, and in-memory extract. See
+list, grep, filesystem extract, and in-memory extract. See
 [`czarlib/README.md`](../czarlib/README.md) for all request fields, filters,
 encryption settings, and support boundaries. Create and Add requests may include
 `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz` source paths; their contents are
@@ -128,6 +128,32 @@ The read result is a JSON object. The update request takes a `set` object and
 an optional `remove` array; it appends a metadata-only commit. Values are
 strings, signed integers, or finite numbers, and updates require an unencrypted
 archive.
+
+## Searching archive files
+
+With native access enabled, the C library configured as above, and an existing
+`backup.zar`:
+
+```java
+import org.zar.jarlib.ffm.ZarLibrary;
+
+public class GrepExample {
+    public static void main(String[] args) throws Exception {
+        String result = ZarLibrary.grepArchive(
+            "{\"archive\":\"backup.zar\",\"file_filter\":\"*.txt\"," +
+            "\"pattern\":\"(?i)TODO|FIXME\",\"before\":1,\"after\":1}");
+        System.out.println(result);
+    }
+}
+```
+
+The result is JSON grouped by archive path, with files without matches
+omitted. Each line has a one-based `line_number`, raw `bytes` as an array of
+numbers without the terminator, and `is_match` to distinguish matches from
+context. Parse the JSON without assuming the bytes are UTF-8. Request and
+archive errors throw `ZarException`. See the
+[grep contract](../czarlib/README.md#searching-archive-files) for glob,
+regex, commit, encryption, integrity, and memory behavior.
 
 ## Examples
 

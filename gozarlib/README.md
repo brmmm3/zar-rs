@@ -116,6 +116,56 @@ Password fields in request values are plaintext credentials. Obtain them
 securely, do not log password-bearing requests, and clear mutable credential
 buffers when practical.
 
+## Searching archive files
+
+This example searches an existing `backup.zar`, including one line of context
+before and after each match:
+
+```go
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "log"
+
+    "github.com/brmmm3/zar-rs/gozarlib"
+)
+
+func main() {
+    response, err := gozarlib.GrepArchive(map[string]any{
+        "archive": "backup.zar", "file_filter": "*.txt",
+        "pattern": "(?i)TODO|FIXME", "before": 1, "after": 1,
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    var files []struct {
+        Path string `json:"path"`
+        Lines []struct {
+            Number  uint64 `json:"line_number"`
+            Bytes   []byte `json:"bytes"`
+            IsMatch bool   `json:"is_match"`
+        } `json:"lines"`
+    }
+    if err := json.Unmarshal(response, &files); err != nil {
+        log.Fatal(err)
+    }
+    for _, file := range files {
+        for _, line := range file.Lines {
+            fmt.Printf("%s:%d match=%t bytes=%v\n", file.Path, line.Number, line.IsMatch, line.Bytes)
+        }
+    }
+}
+```
+
+`GrepArchive` returns a `json.RawMessage` or an error. The result groups
+one-based lines by archive path, omits files without matches, and retains line
+contents as bytes (without the line terminator), including non-UTF-8 data.
+`is_match` distinguishes matches from context. See the
+[grep contract](../czarlib/README.md#searching-archive-files) for glob,
+regex, commit, encryption, integrity, and memory behavior.
+
 ## Streaming
 
 `CreateArchiveFromReaders` creates an archive directly from `io.Reader` values.

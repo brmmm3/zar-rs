@@ -36,6 +36,39 @@ Operation errors are thrown. Archive paths must refer to configured preopens.
 The adapter exposes no environment variables, arguments, or network access to
 the component.
 
+## Searching archive files
+
+For an existing `/srv/zar-data/backup.zar`, search `.txt` files with one line
+of context before and after each match:
+
+```js
+import { createWasizarlib } from "@zar-rs/wasizarlib-node";
+
+const { execute } = await createWasizarlib({
+  preopens: { "/data": "/srv/zar-data" },
+});
+const files = JSON.parse(execute("grep_archive", JSON.stringify({
+  archive: "/data/backup.zar",
+  file_filter: "*.txt",
+  pattern: "(?i)TODO|FIXME",
+  before: 1,
+  after: 1,
+})));
+for (const file of files) {
+  for (const line of file.lines) {
+    console.log(file.path, line.line_number, line.is_match, Buffer.from(line.bytes));
+  }
+}
+```
+
+`execute` is synchronous and throws on errors. Results are grouped by path;
+files without matches are omitted. `line_number` is one-based, `is_match`
+distinguishes matches from context, and `bytes` contains raw byte values
+without the line terminator. The example uses a `Buffer` to preserve bytes
+that may not be UTF-8. WASI searches are sequential. See the
+[grep contract](../../czarlib/README.md#searching-archive-files) for glob,
+regex, commit, encryption, integrity, and memory behavior.
+
 ## Synchronous streaming
 
 `createFromStreams(archive, inputs, options)` and

@@ -167,16 +167,70 @@ The output shapes follow the corresponding Python API:
 | `extract_archive` | `archive`, `destination` | `dry_run`, `to`, `password`, `passwords`, `collision`, `existing`, `restore_metadata`, `restore_symlinks`, `restore_devices`, file/folder filters |
 | `extract_archive_to_memory` | `archive` | `to`, `password`, `passwords`, `size_limit`, `offset`, file/folder filters |
 
-`grep_archive` searches regular files selected by an archive-relative glob.
-`pattern` is a line-based byte regex; `before` and `after` are non-negative
-line counts defaulting to zero. Results are ordered by path and line number:
-`[{"path":"file.txt","lines":[{"line_number":1,"bytes":[104,105],"is_match":true}]}]`.
-`bytes` is an array of byte values without the LF or CRLF terminator; context
-is deduplicated and files without matches are omitted. `to` selects a commit,
-and locked headers or missing data passwords are errors. Native searches run
-in parallel; WASI searches sequentially. The archive must not change during
-the operation. See the [Rust guide](../doc/zarlib-developer-guide.md#searching-files)
-for regex and memory semantics.
+## Searching archive files
+
+`grep_archive` searches regular files without extracting them. `archive`,
+`file_filter`, and `pattern` are required JSON strings. The case-sensitive
+`file_filter` glob selects archive-relative paths before searching; `"*"`
+selects all regular files and `"*.txt"` also matches files in subdirectories.
+`pattern` is a line-based `fancy_regex` byte regex, not a C regex. It supports
+lookaround and backreferences; use `(?i)` for case-insensitive matching.
+`before` and `after` are non-negative context-line counts, both defaulting
+to zero. Overlapping context is returned once.
+
+For an existing `backup.zar`, this complete C example prints the JSON result:
+
+```c
+#include "czarlib.h"
+#include <stdio.h>
+
+int main(void) {
+    char *response = NULL;
+    char *error = NULL;
+    int status = czarlib_execute_json(
+        "grep_archive",
+        "{\"archive\":\"backup.zar\",\"file_filter\":\"*.txt\","
+        "\"pattern\":\"(?i)TODO|FIXME\",\"before\":1,\"after\":1}",
+        &response, &error);
+    if (status != 0) {
+        fprintf(stderr, "grep failed: %s\n", error ? error : "wrapper error");
+    } else {
+        puts(response);
+    }
+    czarlib_string_free(response);
+    czarlib_string_free(error);
+    return status;
+}
+```
+
+Results are ordered by path and line number, for example:
+
+```json
+[{"path":"file.txt","lines":[{"line_number":1,"bytes":[104,105],"is_match":true}]}]
+```
+
+`line_number` is one-based; `bytes` is an array of byte values without the
+LF or CRLF terminator, not a text string. `is_match` distinguishes matches
+from context. Files without matches are omitted and no matches returns `[]`.
+Non-UTF-8 data is preserved, although regex matching is Unicode-aware and
+cannot match invalid bytes individually. Inline Unicode mode changes such as
+`(?-u:...)` are not supported.
+
+`to` optionally selects an eight-hex-digit commit ID (latest by default).
+For encrypted archives, `password` is a UTF-8 fallback and `passwords` maps
+commit IDs to UTF-8 passwords; a specific password takes precedence. Unlike
+partial listing, grep fails if required headers or selected data cannot be
+unlocked. Invalid regexes, authentication failures, and integrity errors are
+reported as errors; keep the archive unchanged during the search.
+
+Selected files are fully read and checked, including files with no matches;
+unselected block payloads are not checked. Native searches run in parallel;
+WASI searches sequentially. The JSON
+dispatcher returns the complete result, not a stream; memory includes
+returned lines, context, decoded blocks, and the longest line. See the
+[Rust guide](../doc/zarlib-developer-guide.md#searching-files) for details.
+
+## Other options
 
 Timestamp options are opt-in. Creation- or access-time recording fails if a stored entry
 has no available timestamp. Access times depend on filesystem policies and may

@@ -2,7 +2,7 @@
 
 Lua 5.4 bindings for ZAR, using the [`czarlib` C ABI](../czarlib/README.md).
 The table API exposes all C JSON operations, including archive creation,
-history, metadata, encryption, checking, listing, and extraction. Seekable
+history, metadata, encryption, checking, listing, grep, and extraction. Seekable
 archive streams and individual file readers and writers are also supported.
 
 ## Requirements and build
@@ -73,6 +73,34 @@ JSON object; the top-level request and options are always objects. JSON
 responses use dkjson's table representations; `extract_archive_to_memory`
 returns numeric byte arrays, not Lua strings. Lua's numeric representation can
 lose precision for JSON integers outside its signed integer range.
+
+## Searching archive files
+
+Search an existing `backup.zar` with one line of context on each side:
+
+```lua
+local zar = require("luazarlib")
+local files = assert(zar.grep_archive {
+    archive = "backup.zar",
+    file_filter = "*.txt",
+    pattern = "(?i)TODO|FIXME",
+    before = 1,
+    after = 1,
+})
+for _, file in ipairs(files) do
+    for _, line in ipairs(file.lines) do
+        print(file.path, line.line_number, line.is_match, table.concat(line.bytes, ","))
+    end
+end
+```
+
+The table API returns decoded results or `nil, error_message`. Results are
+grouped by archive path and omit files without matches; `line_number` is
+one-based, `is_match` distinguishes matches from context, and `bytes` is a
+numeric table of raw bytes without the line terminator, not necessarily
+UTF-8 text. See the
+[grep contract](../czarlib/README.md#searching-archive-files) for glob,
+regex, commit, encryption, integrity, and memory behavior.
 
 ## Streaming
 
