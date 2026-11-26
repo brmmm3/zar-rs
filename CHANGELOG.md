@@ -5,12 +5,38 @@ until a version is released.
 
 ## Unreleased
 
-### Fixed
+## 0.17.0 - 2026-11-24
 
-- Fixed Linux zarmount dialogs failing after the running binary is rebuilt.
+### Added
+
+- Added `ZARLIB_CPU_PRIORITY` to lower the scheduling priority of zarlib worker
+  threads on Linux, macOS, and Windows.
+- Added `ZARLIB_MAX_CPU_COUNT` to configure parallel compression and extraction
+  workers, with negative values reserving cores.
+- Added a NixOS package expression for all five binaries and GUI desktop assets.
+- Added interoperable single-entry TCP streaming server and client examples
+  for the language bindings and the Node.js WASI adapter.
+- Added archive grep to zarlib, zarc, and the language bindings, with filename
+  glob filters, regex matching, and optional before/after line context. Searches
+  run in parallel on native targets and sequentially on WASI.
+- Added a Linux zarmount tray daemon for multiple FUSE mounts, mount and
+  password dialogs, settings, and opening mounts in the default file manager.
+  Use `--foreground` for the previous terminal-only behavior.
+- Added `/regex`, `/case`, and `/word` search settings to the zarc grep shell.
+- Added `zarc grep --shell` for interactive archive path and content searches
+  with session command history, adjustable context, chained searches, and
+  Escape cancellation.
+- Added Ctrl+I to invert the zarg file-list selection and Enter to open the
+  first selected entry, alongside existing Ctrl+A and Delete shortcuts.
+- Added zarg **Edit > Find**, with themed icons and a virtualized result list,
+  to search archive file contents by glob and regex, with optional surrounding
+  lines and double-click to open matching files.
+- Added zarg Performance settings for archive worker CPU priority and maximum
+  CPU count, with live updates for new worker pools.
 
 ### Changed
 
+- Updated the `scandir` dependency to 4.0 in zarlib and zcopy.
 - Open the folder/files picker automatically when zarg's Add to archive dialog opens.
 - Show only archive filenames in the Linux zarmount tray menu.
 - Matched the zarmount About, Settings, and mount dialogs to zarg's styling.
@@ -28,41 +54,9 @@ until a version is released.
   support. Inline Unicode mode changes such as `(?-u:...)` are no longer
   supported, and invalid UTF-8 bytes cannot be matched individually.
 
-### Added
+### Fixed
 
-- Added a Linux zarmount tray daemon for multiple FUSE mounts, mount and
-  password dialogs, settings, and opening mounts in the default file manager.
-  Use `--foreground` for the previous terminal-only behavior.
-- Added `/regex`, `/case`, and `/word` search settings to the zarc grep shell.
-- Added `zarc grep --shell` for interactive archive path and content searches
-  with session command history, adjustable context, chained searches, and
-  Escape cancellation.
-- Added Ctrl+I to invert the zarg file-list selection and Enter to open the
-  first selected entry, alongside existing Ctrl+A and Delete shortcuts.
-- Added zarg **Edit > Find**, with themed icons and a virtualized result list,
-  to search archive file contents by glob and regex, with optional surrounding
-  lines and double-click to open matching files.
-- Added zarg Performance settings for archive worker CPU priority and maximum
-  CPU count, with live updates for new worker pools.
-
-## 0.17.0 - 2026-11-24
-
-### Added
-
-- Added `ZARLIB_CPU_PRIORITY` to lower the scheduling priority of zarlib worker
-  threads on Linux, macOS, and Windows.
-- Added `ZARLIB_MAX_CPU_COUNT` to configure parallel compression and extraction
-  workers, with negative values reserving cores.
-- Added a NixOS package expression for all five binaries and GUI desktop assets.
-- Added interoperable single-entry TCP streaming server and client examples
-  for the language bindings and the Node.js WASI adapter.
-- Added archive grep to zarlib, zarc, and the language bindings, with filename
-  glob filters, regex matching, and optional before/after line context. Searches
-  run in parallel on native targets and sequentially on WASI.
-
-### Changed
-
-- Updated the `scandir` dependency to 4.0 in zarlib and zcopy.
+- Fixed Linux zarmount dialogs failing after the running binary is rebuilt.
 
 ## 0.16.0 - 2026-11-21
 
