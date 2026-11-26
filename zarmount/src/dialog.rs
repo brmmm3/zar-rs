@@ -18,6 +18,7 @@ use std::sync::OnceLock;
 use eframe::egui;
 use zarlib::operations::{self, PasswordSet};
 
+use crate::dialog_style::{self, ButtonIcon};
 use crate::drive;
 use crate::settings::{FileManager, Settings};
 use crate::theme::{self, ThemeMode};
@@ -104,15 +105,21 @@ impl eframe::App for AskDialogApp {
         });
 
         egui::Panel::bottom("ask-dialog-actions")
-            .frame(egui::Frame::new().inner_margin(6))
+            .frame(
+                egui::Frame::new()
+                    .fill(ui.visuals().window_fill().to_opaque())
+                    .inner_margin(3),
+            )
+            .show_separator_line(false)
             .show(ui, |ui| {
+                ui.separator();
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if icon_button(ui, "zarmount-cancel", ICON_CANCEL, "Cancel").clicked()
+                    if dialog_style::button(ui, ButtonIcon::Cancel, "Cancel").clicked()
                         || do_cancel
                     {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
-                    if icon_button(ui, "zarmount-mount", ICON_OK, "Mount").clicked()
+                    if dialog_style::button(ui, ButtonIcon::Ok, "Mount").clicked()
                         || do_mount
                     {
                         let content = format!("{}\n{}\n", self.mount_path.trim(), self.selected_drive.trim());
@@ -122,42 +129,47 @@ impl eframe::App for AskDialogApp {
                 });
             });
 
-        egui::CentralPanel::default().show(ui, |ui| {
-            ui.add_space(4.0);
-            ui.label("Path to mount to:");
-            ui.horizontal(|ui| {
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.mount_path)
-                        .desired_width(ui.available_width() - 85.0),
-                );
-                if ui.button("Browse...").clicked()
-                    && let Some(folder) = rfd::FileDialog::new().pick_folder()
-                {
-                    self.mount_path = folder.to_string_lossy().into_owned();
-                }
-            });
-
-            ui.add_space(12.0);
-            ui.label("Drive letter (optional):");
-            let display_drive = if self.selected_drive.is_empty() {
-                "(None)".to_string()
-            } else {
-                format!("{}:", self.selected_drive)
-            };
-
-            egui::ComboBox::from_id_salt("ask-drive-combo")
-                .selected_text(display_drive)
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut self.selected_drive, String::new(), "(None)");
-                    for &letter in &self.unmapped_drives {
-                        ui.selectable_value(
-                            &mut self.selected_drive,
-                            letter.to_string(),
-                            format!("{letter}:"),
-                        );
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::new()
+                    .fill(ui.visuals().window_fill().to_opaque())
+                    .inner_margin(3),
+            )
+            .show(ui, |ui| {
+                ui.label("Path to mount to:");
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.mount_path)
+                            .desired_width(ui.available_width() - 85.0),
+                    );
+                    if ui.button("Browse...").clicked()
+                        && let Some(folder) = rfd::FileDialog::new().pick_folder()
+                    {
+                        self.mount_path = folder.to_string_lossy().into_owned();
                     }
                 });
-        });
+
+                ui.add_space(12.0);
+                ui.label("Drive letter (optional):");
+                let display_drive = if self.selected_drive.is_empty() {
+                    "(None)".to_string()
+                } else {
+                    format!("{}:", self.selected_drive)
+                };
+
+                egui::ComboBox::from_id_salt("ask-drive-combo")
+                    .selected_text(display_drive)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.selected_drive, String::new(), "(None)");
+                        for &letter in &self.unmapped_drives {
+                            ui.selectable_value(
+                                &mut self.selected_drive,
+                                letter.to_string(),
+                                format!("{letter}:"),
+                            );
+                        }
+                    });
+            });
     }
 }
 
@@ -489,10 +501,16 @@ impl eframe::App for SettingsDialogApp {
         });
 
         egui::Panel::bottom("settings-dialog-actions")
-            .frame(egui::Frame::new().inner_margin(6))
+            .frame(
+                egui::Frame::new()
+                    .fill(ui.visuals().window_fill().to_opaque())
+                    .inner_margin(3),
+            )
+            .show_separator_line(false)
             .show(ui, |ui| {
+                ui.separator();
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if icon_button(ui, "zarmount-close", ICON_CLOSE, "Close").clicked()
+                    if dialog_style::button(ui, ButtonIcon::Close, "Close").clicked()
                         || do_close
                     {
                         let _ = self.settings.save();
@@ -501,53 +519,55 @@ impl eframe::App for SettingsDialogApp {
                 });
             });
 
-        egui::CentralPanel::default().show(ui, |ui| {
-            ui.add_space(6.0);
-            ui.heading("Settings");
-            ui.add_space(8.0);
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::new()
+                    .fill(ui.visuals().window_fill().to_opaque())
+                    .inner_margin(3),
+            )
+            .show(ui, |ui| {
+                // File manager combobox
+                ui.label("File manager:");
+                let mut fm_changed = false;
+                egui::ComboBox::from_id_salt("settings-file-manager")
+                    .selected_text(self.settings.file_manager.label())
+                    .show_ui(ui, |ui| {
+                        for fm in FileManager::ALL {
+                            if fm.is_available() {
+                                fm_changed |= ui
+                                    .selectable_value(
+                                        &mut self.settings.file_manager,
+                                        fm,
+                                        fm.label(),
+                                    )
+                                    .changed();
+                            }
+                        }
+                    });
 
-            // File manager combobox
-            ui.label("File manager:");
-            let mut fm_changed = false;
-            egui::ComboBox::from_id_salt("settings-file-manager")
-                .selected_text(self.settings.file_manager.label())
-                .show_ui(ui, |ui| {
-                    for fm in FileManager::ALL {
-                        if fm.is_available() {
-                            fm_changed |= ui
-                                .selectable_value(
-                                    &mut self.settings.file_manager,
-                                    fm,
-                                    fm.label(),
-                                )
+                ui.add_space(10.0);
+
+                // Theme combobox (same options as zarg)
+                ui.label("Theme:");
+                let mut theme_changed = false;
+                egui::ComboBox::from_id_salt("settings-theme")
+                    .selected_text(self.settings.theme_mode.label())
+                    .show_ui(ui, |ui| {
+                        for mode in ThemeMode::ALL {
+                            theme_changed |= ui
+                                .selectable_value(&mut self.settings.theme_mode, mode, mode.label())
                                 .changed();
                         }
-                    }
-                });
+                    });
 
-            ui.add_space(10.0);
-
-            // Theme combobox (same options as zarg)
-            ui.label("Theme:");
-            let mut theme_changed = false;
-            egui::ComboBox::from_id_salt("settings-theme")
-                .selected_text(self.settings.theme_mode.label())
-                .show_ui(ui, |ui| {
-                    for mode in ThemeMode::ALL {
-                        theme_changed |= ui
-                            .selectable_value(&mut self.settings.theme_mode, mode, mode.label())
-                            .changed();
-                    }
-                });
-
-            if theme_changed {
-                theme::apply_theme(&ctx, self.settings.theme_mode);
-                let _ = self.settings.save();
-            }
-            if fm_changed {
-                let _ = self.settings.save();
-            }
-        });
+                if theme_changed {
+                    theme::apply_theme(&ctx, self.settings.theme_mode);
+                    let _ = self.settings.save();
+                }
+                if fm_changed {
+                    let _ = self.settings.save();
+                }
+            });
     }
 }
 
@@ -607,10 +627,15 @@ impl eframe::App for AboutDialogApp {
         });
 
         egui::Panel::bottom("about-actions")
-            .frame(egui::Frame::new().inner_margin(6))
+            .frame(
+                egui::Frame::new()
+                    .fill(ui.visuals().window_fill().to_opaque())
+                    .inner_margin(3),
+            )
+            .show_separator_line(false)
             .show(ui, |ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if icon_button(ui, "zarmount-close", ICON_CLOSE, "Close").clicked()
+                    if dialog_style::button(ui, ButtonIcon::Close, "Close").clicked()
                         || do_close
                     {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -618,35 +643,13 @@ impl eframe::App for AboutDialogApp {
                 });
             });
 
-        egui::CentralPanel::default().show(ui, |ui| {
-            ui.vertical(|ui| {
-                ui.horizontal(|ui| {
-                    let app_icon_texture = load_icon(ui.ctx(), "zarmount-app-icon", ICON_APP);
-                    ui.add(
-                        egui::Image::new(&app_icon_texture)
-                            .fit_to_exact_size(egui::vec2(72.0, 72.0)),
-                    );
-                    ui.add_space(8.0);
-                    ui.vertical(|ui| {
-                        ui.heading("ZAR Archive Manager");
-                        ui.label("A graphical archive manager and mount filesystem for ZAR.");
-                        ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
-                        ui.hyperlink_to("GitHub repository", "https://github.com/brmmm3/zar-rs");
-                    });
-                });
-                ui.separator();
-                ui.label(format!("Author: {}", env!("CARGO_PKG_AUTHORS")));
-                ui.label(format!("License: {}", env!("CARGO_PKG_LICENSE")));
-                ui.separator();
-                ui.label("Icons: KDE4 Crystal Diamond 1.1 by Paolino (Paolo Campitelli)");
-                ui.horizontal(|ui| {
-                    ui.label("Licensed under the");
-                    ui.hyperlink_to("GNU LGPL 3.0", "https://www.gnu.org/licenses/lgpl-3.0.html");
-                    ui.label("-");
-                    ui.hyperlink_to("paolocampitelli.com", "https://www.paolocampitelli.com/");
-                });
-            });
-        });
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::new()
+                    .fill(ui.visuals().window_fill().to_opaque())
+                    .inner_margin(3),
+            )
+            .show(ui, dialog_style::about);
     }
 }
 
@@ -655,7 +658,7 @@ pub fn run_about_dialog() -> ExitCode {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("About zarmount")
-            .with_inner_size([460.0, 240.0])
+            .with_inner_size([440.0, 220.0])
             .with_resizable(false)
             .with_app_id("zarmount-about")
             .with_icon(app_icon()),

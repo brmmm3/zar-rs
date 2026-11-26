@@ -3,6 +3,16 @@
 #[cfg(target_os = "linux")]
 mod mount;
 
+#[cfg(target_os = "linux")]
+mod linux_daemon;
+
+#[cfg(target_os = "linux")]
+mod linux_dialog;
+
+// Keep re-execution working when a running binary is replaced by a rebuild.
+#[cfg(target_os = "linux")]
+const SELF_EXECUTABLE: &str = "/proc/self/exe";
+
 #[cfg(target_os = "windows")]
 mod mount_windows;
 
@@ -30,23 +40,18 @@ mod daemon;
 #[cfg(target_os = "windows")]
 mod dialog;
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 mod theme;
+
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+mod dialog_style;
 
 #[cfg(target_os = "windows")]
 mod settings;
 
 #[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {
-    use clap::Parser;
-    match mount::run(mount::Options::parse()) {
-        Ok(Some(signal)) => std::process::ExitCode::from(128 + signal as u8),
-        Ok(None) => std::process::ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("zarmount: {error}");
-            std::process::ExitCode::FAILURE
-        }
-    }
+    linux_daemon::main()
 }
 
 #[cfg(target_os = "windows")]
@@ -151,14 +156,15 @@ fn main() -> std::process::ExitCode {
 
 #[cfg(target_os = "windows")]
 fn attach_console() {
-    use windows::core::PCWSTR;
     use windows::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE};
     use windows::Win32::Storage::FileSystem::{
         CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
     };
     use windows::Win32::System::Console::{
-        AttachConsole, SetStdHandle, ATTACH_PARENT_PROCESS, GetStdHandle, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
+        ATTACH_PARENT_PROCESS, AttachConsole, GetStdHandle, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
+        SetStdHandle,
     };
+    use windows::core::PCWSTR;
 
     // If stdout is already redirected (e.g. pipe or file), keep it!
     if let Ok(h) = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) }
@@ -208,19 +214,13 @@ fn run_client(args: &[String]) -> std::process::ExitCode {
 
     // If --ask was passed, open the ask dialog to let user choose path and drive letter
     let command = if options.ask {
-        let temp_prefill =
-            std::env::temp_dir().join(format!("zarmount_{}", std::process::id()));
+        let temp_prefill = std::env::temp_dir().join(format!("zarmount_{}", std::process::id()));
         let out_file =
             std::env::temp_dir().join(format!("zarmount_ask_{}.txt", std::process::id()));
         let chosen = dialog::spawn_ask_dialog(&temp_prefill, &out_file);
         match chosen {
             Some((path, Some(drive))) => {
-                format!(
-                    "mount {} {} {}:",
-                    archive.display(),
-                    path.display(),
-                    drive
-                )
+                format!("mount {} {} {}:", archive.display(), path.display(), drive)
             }
             Some((path, None)) => {
                 format!("mount {} {}", archive.display(), path.display())

@@ -15,21 +15,35 @@ File System).
 ### Install and mount
 
 Install FUSE 3 and its `fusermount3` helper, and ensure the current user can
-access `/dev/fuse`. Build with the Rust toolchain:
+access `/dev/fuse`. The default mode also requires a desktop D-Bus session,
+a StatusNotifierItem-compatible system tray, a private `XDG_RUNTIME_DIR`, and
+`xdg-open` to open the system's default file manager:
 
 ```sh
 cargo binstall zarmount
-mkdir -p /tmp/zar-mount
-# Mount without extracting (instant readonly-access)
+# Mount without extracting, and open the default file manager
 zarmount archive.zar /tmp/zar-mount
-# In another terminal or after Ctrl+C:
-fusermount3 -u /mnt/archive
+# Or use an automatically created temporary mount directory
+zarmount archive.zar
+# Choose a mount directory in a dialog
+zarmount --ask archive.zar
 ```
 
-The mount runs in the foreground. Press Ctrl-C to unmount and exit, or in
-another terminal browse or read files and unmount it:
+The first invocation starts a per-user daemon. Subsequent invocations add
+mounts to its tray menu, where each mount can be opened or unmounted. Exit
+unmounts all archives and stops the daemon. Automatically created mount
+directories are removed after unmounting. Externally unmounted sessions are
+also cleaned up. Daemon errors are logged to
+`$XDG_RUNTIME_DIR/zarmount/daemon.log`. If an unmount fails, the daemon
+reports the error and retains the mount rather than claiming success; use
+`fusermount3 -u` to recover it if necessary, then restart the daemon.
+
+For terminal-only use, supply `--foreground` and an existing empty directory.
+Press Ctrl-C to unmount and exit, or unmount from another terminal:
 
 ```sh
+mkdir -p /tmp/zar-mount
+zarmount --foreground archive.zar /tmp/zar-mount
 ls -la /tmp/zar-mount
 fusermount3 -u /tmp/zar-mount
 ```
@@ -39,9 +53,10 @@ forcibly or crashes, recover a disconnected mountpoint with
 `fusermount3 -u /tmp/zar-mount`.
 
 Linux binary release archives also contain `zarmount`. The mountpoint must be
-an existing empty directory, and the archive must not be inside it. The
-archive path must be UTF-8. Only the mounting user can access the filesystem;
-there is no `allow_other` option.
+empty (daemon mode creates it if necessary), and the archive must not be inside
+it. The archive path must be UTF-8. Only the mounting user can access the
+filesystem; there is no `allow_other` option. Drive-letter mapping is
+Windows-only.
 
 ---
 
@@ -102,7 +117,9 @@ Each file contains password bytes, optionally followed by a single newline
 (LF or CRLF). Empty passwords are rejected. Restrict the files' permissions;
 never put password contents in command arguments. A commit-specific password
 overrides the default. Missing or incorrect credentials cause the mount to
-fail rather than silently presenting an incomplete archive.
+fail rather than silently presenting an incomplete archive. In Linux daemon
+mode, if no password files are supplied, encrypted archives prompt for
+commit-specific passwords.
 
 ## Behavior and limitations
 
@@ -130,7 +147,8 @@ fail rather than silently presenting an incomplete archive.
 cargo test -p zarmount
 cargo test -p zarmount kernel_mount_is_read_only_and_serves_random_reads -- --ignored
 cargo test -p zarmount --test fuse_cli -- --ignored
+cargo test -p zarmount --test linux_tray -- --ignored
 ```
 
-The second command performs an actual mount and requires an accessible FUSE
-device and helper. Its temporary mount is removed when the test ends.
+The ignored tests perform actual mounts and require an accessible FUSE device
+and helper. The tray test also requires `dbus-run-session` and `gdbus`.

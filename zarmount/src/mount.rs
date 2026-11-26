@@ -38,25 +38,25 @@ impl Drop for CloseSignalsOnDrop {
 #[path = "tests.rs"]
 mod tests;
 
-#[derive(Parser)]
+#[derive(Parser, serde::Serialize, serde::Deserialize)]
 #[command(
     version,
     about = "Mount a ZAR archive as a read-only Linux FUSE filesystem"
 )]
 pub struct Options {
     /// Archive to mount.
-    archive: PathBuf,
+    pub(crate) archive: PathBuf,
     /// Existing empty directory to mount on.
-    mountpoint: PathBuf,
+    pub(crate) mountpoint: PathBuf,
     /// Select the archive state through this eight-digit commit ID.
     #[arg(long)]
-    to: Option<String>,
+    pub(crate) to: Option<String>,
     /// File containing the default password (one optional trailing newline is removed).
     #[arg(long)]
-    password_file: Option<PathBuf>,
+    pub(crate) password_file: Option<PathBuf>,
     /// Commit-specific password file, as COMMIT_ID=PATH. May be repeated.
     #[arg(long, value_name = "COMMIT_ID=PATH")]
-    password_for: Vec<String>,
+    pub(crate) password_for: Vec<String>,
 }
 
 fn password_file(path: &Path) -> Result<Vec<u8>> {
@@ -97,7 +97,10 @@ fn passwords(options: &Options) -> Result<PasswordSet> {
     Ok(passwords)
 }
 
-pub fn run(options: Options) -> Result<Option<i32>> {
+fn session(
+    options: &Options,
+    supplied_passwords: Option<&PasswordSet>,
+) -> Result<fuser::Session<ArchiveFs>> {
     let archive = fs::canonicalize(&options.archive)?;
     let mountpoint = fs::canonicalize(&options.mountpoint)?;
     if !mountpoint.is_dir() {
@@ -107,9 +110,10 @@ pub fn run(options: Options) -> Result<Option<i32>> {
         return Err("archive must not be inside the mountpoint".into());
     }
     let archive_name = archive.to_str().ok_or("archive path must be UTF-8")?;
-    let passwords = passwords(&options)?;
+    let file_passwords = passwords(options)?;
+    let passwords = supplied_passwords.unwrap_or(&file_passwords);
     let prepared =
-        PreparedExtraction::new_complete(archive_name, options.to.as_deref(), &passwords)?;
+        PreparedExtraction::new_complete(archive_name, options.to.as_deref(), passwords)?;
     let filesystem = ArchiveFs::new(prepared)?;
     let mut config = Config::default();
     config.mount_options = vec![
@@ -121,8 +125,52 @@ pub fn run(options: Options) -> Result<Option<i32>> {
         MountOption::FSName("zarmount".into()),
         MountOption::Subtype("zarmount".into()),
     ];
+    Ok(fuser::Session::new(filesystem, mountpoint, &config)?)
+}
+
+pub(crate) fn start(
+    options: &Options,
+    supplied_passwords: Option<&PasswordSet>,
+) -> Result<MountedSession> {
+    let mut session = session(options, supplied_passwords)?;
+    let unmounter = session.unmount_callable();
+    let worker = thread::Builder::new()
+        .name("zarmount-session".into())
+        .spawn(move || session.run())?;
+    Ok(MountedSession {
+        unmounter,
+        worker,
+        unmount_error: None,
+    })
+}
+
+pub(crate) struct MountedSession {
+    unmounter: fuser::SessionUnmounter,
+    worker: thread::JoinHandle<std::io::Result<()>>,
+    unmount_error: Option<(std::io::ErrorKind, String)>,
+}
+
+impl MountedSession {
+    pub(crate) fn unmount(&mut self) -> std::io::Result<()> {
+        // fuser consumes its unmount handle even when unmounting fails.
+        if let Some((kind, message)) = &self.unmount_error {
+            return Err(std::io::Error::new(*kind, message.clone()));
+        }
+        if let Err(error) = self.unmounter.unmount() {
+            self.unmount_error = Some((error.kind(), error.to_string()));
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn finished(&self) -> bool {
+        self.unmount_error.is_none() && self.worker.is_finished()
+    }
+}
+
+pub fn run(options: Options) -> Result<Option<i32>> {
     let mut signals = Signals::new([SIGINT, SIGTERM, SIGHUP])?;
-    let mut session = fuser::Session::new(filesystem, mountpoint, &config)?;
+    let mut session = session(&options, None)?;
     let mut unmounter = session.unmount_callable();
     let signal_handle = signals.handle();
     let worker = thread::Builder::new()

@@ -5,8 +5,13 @@ until a version is released.
 
 ## Unreleased
 
+### Fixed
+
+- Fixed Linux zarmount dialogs failing after the running binary is rebuilt.
+
 ### Changed
 
+- Matched the zarmount About, Settings, and mount dialogs to zarg's styling.
 - Added Alt+N, Alt+A, and Alt+E shortcuts to the New, Add, and Extract dialogs.
 - Retained partial results when cancelling a zarg Find search and added Escape
   as a cancellation shortcut.
@@ -23,6 +28,9 @@ until a version is released.
 
 ### Added
 
+- Added a Linux zarmount tray daemon for multiple FUSE mounts, mount and
+  password dialogs, settings, and opening mounts in the default file manager.
+  Use `--foreground` for the previous terminal-only behavior.
 - Added `/regex`, `/case`, and `/word` search settings to the zarc grep shell.
 - Added `zarc grep --shell` for interactive archive path and content searches
   with session command history, adjustable context, chained searches, and

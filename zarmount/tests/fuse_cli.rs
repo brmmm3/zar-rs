@@ -53,6 +53,7 @@ fn cli_reports_invalid_mountpoint() {
     fs::write(&archive, b"not needed").unwrap();
     fs::write(&mountpoint, b"file").unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_zarmount"))
+        .arg("--foreground")
         .arg(&archive)
         .arg(&mountpoint)
         .output()
@@ -89,6 +90,7 @@ fn cli_mounts_encrypted_archive_and_rejects_writes() {
     let password = dir.path().join("password");
     fs::write(&password, b"secret\n").unwrap();
     let child = Command::new(env!("CARGO_BIN_EXE_zarmount"))
+        .arg("--foreground")
         .args(["--password-file"])
         .arg(password)
         .arg(&archive)
@@ -146,6 +148,7 @@ fn cli_unmounts_on_termination_signals() {
         let mountpoint = dir.path().join(format!("mount-{signal}"));
         fs::create_dir(&mountpoint).unwrap();
         let child = Command::new(env!("CARGO_BIN_EXE_zarmount"))
+            .arg("--foreground")
             .arg(&archive)
             .arg(&mountpoint)
             .spawn()
