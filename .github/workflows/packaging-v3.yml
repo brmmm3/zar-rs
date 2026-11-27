@@ -71,6 +71,7 @@ jobs:
           ref: ${{ needs.prepare.outputs.sha }}
           persist-credentials: false
       - name: Download x86-64-v3 Linux binaries
+        id: linux-binaries
         if: matrix.format != 'flatpak'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -84,13 +85,28 @@ jobs:
           tar -xzf reused/zar-rs-linux-x86_64-v3.tar.gz -C dist/reused
           test -x dist/reused/zar-rs-linux-x86_64-v3/zarc
           test -x dist/reused/zar-rs-linux-x86_64-v3/zarg
+          if test -x dist/reused/zar-rs-linux-x86_64-v3/zarmount; then
+            echo "has_zarmount=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_zarmount=false" >> "$GITHUB_OUTPUT"
+          fi
           echo "BIN_DIR=$PWD/dist/reused/zar-rs-linux-x86_64-v3" >> "$GITHUB_ENV"
           echo "SKIP_BUILD=1" >> "$GITHUB_ENV"
+      - name: Install Rust toolchain for missing zarmount
+        if: matrix.format != 'flatpak' && steps.linux-binaries.outputs.has_zarmount != 'true'
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
+        with:
+          toolchain: stable
+          targets: x86_64-unknown-linux-gnu
       - name: Install packaging tools
         env:
           FORMAT: ${{ matrix.format }}
+          HAS_ZARMOUNT: ${{ steps.linux-binaries.outputs.has_zarmount }}
         run: |
           sudo apt-get update
+          if [[ "$FORMAT" != flatpak && "$HAS_ZARMOUNT" != true ]]; then
+            sudo apt-get install -y libgl1-mesa-dev libwayland-dev libx11-dev libxcursor-dev libxi-dev libxkbcommon-dev libxrandr-dev pkg-config
+          fi
           case "$FORMAT" in
             deb) sudo apt-get install -y libxcb1-dev ;;
             rpm) sudo apt-get install -y libxcb1-dev rpm ;;
@@ -110,6 +126,15 @@ jobs:
                 org.freedesktop.Sdk.Extension.rust-stable//26.08
               ;;
           esac
+      - name: Build missing x86-64-v3 zarmount
+        if: matrix.format != 'flatpak' && steps.linux-binaries.outputs.has_zarmount != 'true'
+        env:
+          RUSTFLAGS: -C target-cpu=x86-64-v3
+          CFLAGS: -march=x86-64-v3
+          CXXFLAGS: -march=x86-64-v3
+        run: |
+          cargo build --release --locked --target x86_64-unknown-linux-gnu -p zarmount --bin zarmount
+          cp target/x86_64-unknown-linux-gnu/release/zarmount "$BIN_DIR/"
       - name: Set Flatpak sandbox compiler flags
         if: matrix.format == 'flatpak'
         run: |

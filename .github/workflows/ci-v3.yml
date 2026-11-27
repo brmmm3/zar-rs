@@ -101,7 +101,7 @@ jobs:
         with:
           toolchain: stable
           targets: ${{ matrix.platform.target }}
-      - name: Build zarc and zarg
+      - name: Build Unix binaries
         if: runner.os != 'Windows'
         env:
           RUSTFLAGS: ${{ matrix.platform.static && '-C target-cpu=x86-64-v3 -C target-feature=+crt-static' || '-C target-cpu=x86-64-v3' }}
@@ -109,7 +109,13 @@ jobs:
           CXXFLAGS: ${{ runner.os != 'Windows' && '-march=x86-64-v3' || '' }}
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: ${{ matrix.platform.static && 'musl-gcc' || '' }}
           TARGET: ${{ matrix.platform.target }}
-        run: cargo build --release --locked --target ${{ matrix.platform.target }} --workspace --bin zarc --bin zarg
+        shell: bash
+        run: |
+          bins=(--bin zarc --bin zarg)
+          if [[ "$TARGET" == *-linux-* ]]; then
+            bins+=(--bin zarmount)
+          fi
+          cargo build --release --locked --target "$TARGET" --workspace "${bins[@]}"
       - name: Build Windows binaries
         if: runner.os == 'Windows'
         env:
@@ -142,6 +148,9 @@ jobs:
         run: |
           mkdir -p "dist/zar-rs-$PLATFORM-v3"
           cp "target/$TARGET/release/zarc" "target/$TARGET/release/zarg" "dist/zar-rs-$PLATFORM-v3/"
+          if [[ "$TARGET" == *-linux-* ]]; then
+            cp "target/$TARGET/release/zarmount" "dist/zar-rs-$PLATFORM-v3/"
+          fi
           tar -C dist -czf "dist/zar-rs-$PLATFORM-v3.tar.gz" "zar-rs-$PLATFORM-v3"
       - name: Package binaries (Windows)
         if: runner.os == 'Windows'

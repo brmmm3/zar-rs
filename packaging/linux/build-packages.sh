@@ -11,6 +11,8 @@
 #   BIN_DIR        directory holding zarc and zarg (default: target/release)
 #   SKIP_BUILD=1   do not run cargo
 #   APPIMAGETOOL   path to appimagetool (default: appimagetool from PATH)
+#   DIST_DIR       package output and work directory (default: dist/)
+#   FLATPAK_MANIFEST  Flatpak manifest path (default: bundled manifest)
 #
 # Required tools per format: dpkg-deb (deb), rpmbuild (rpm), appimagetool
 # (appimage), flatpak-builder and flatpak (flatpak).
@@ -18,7 +20,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HERE="$ROOT/packaging/linux"
-DIST="$ROOT/dist"
+DIST="${DIST_DIR:-$ROOT/dist}"
 BIN_DIR="${BIN_DIR:-$ROOT/target/release}"
 VERSION="$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p}' "$ROOT/Cargo.toml")"
 APP_ID="io.github.brmmm3.Zarg"
@@ -185,10 +187,14 @@ build_flatpak() {
     need flatpak-builder
     need flatpak
     local work="$DIST/work/flatpak"
+    local -a state_arg=()
+    if [ -n "${DIST_DIR:-}" ]; then
+        state_arg=(--state-dir="$work/state")
+    fi
     rm -rf "$work"
     mkdir -p "$work" "$DIST"
     flatpak-builder --force-clean --user --install-deps-from=flathub \
-        --repo="$work/repo" "$work/build" "$HERE/$APP_ID.yml"
+        "${state_arg[@]}" --repo="$work/repo" "$work/build" "${FLATPAK_MANIFEST:-$HERE/$APP_ID.yml}"
     flatpak build-bundle "$work/repo" "$DIST/zar-rs-${VERSION}-$(uname -m).flatpak" "$APP_ID"
     echo "Created $DIST/zar-rs-${VERSION}-$(uname -m).flatpak"
 }

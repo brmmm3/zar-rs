@@ -3,13 +3,13 @@ import io
 import subprocess
 import tarfile
 import tempfile
-import tomllib
 import unittest
 import zipfile
 from pathlib import Path
 from unittest import mock
 
 import run_ci
+import tomllib
 
 
 class RunnerTests(unittest.TestCase):
@@ -236,7 +236,7 @@ class RunnerTests(unittest.TestCase):
     def test_wheel_matrix_covers_all_declared_python_versions(self):
         self.assertEqual(
             run_ci.WHEEL_VERSIONS,
-            ("3.9", "3.10", "3.11", "3.12", "3.13", "3.14", "3.15"),
+            ("3.11", "3.12", "3.13", "3.14", "3.15"),
         )
 
     def test_ruff_installer_adds_python_user_scripts(self):
@@ -565,6 +565,7 @@ class RunnerTests(unittest.TestCase):
             mock.patch.object(run_ci, "AUTO_INSTALL_ENABLED", True),
             mock.patch.object(run_ci, "require", return_value="pyenv"),
             mock.patch.object(run_ci.subprocess, "run", side_effect=subprocess_run),
+            mock.patch.object(run_ci.shutil, "which", return_value=None),
             mock.patch.object(run_ci, "install_linux_packages") as install,
             mock.patch.object(run_ci, "command") as command,
         ):
@@ -680,13 +681,13 @@ class RunnerTests(unittest.TestCase):
                 )
             build.assert_called_once()
             self.assertEqual(
-                build.call_args.kwargs["env"]["RUSTFLAGS"], "-C target-cpu=x86-64-v3"
+                build.call_args.kwargs["env"]["RUSTFLAGS"], "-C target-cpu=x86-64"
             )
             self.assertEqual(
-                build.call_args.kwargs["env"]["CFLAGS"], "-march=x86-64-v3"
+                build.call_args.kwargs["env"]["CFLAGS"], "-march=x86-64"
             )
             self.assertEqual(
-                build.call_args.kwargs["env"]["CXXFLAGS"], "-march=x86-64-v3"
+                build.call_args.kwargs["env"]["CXXFLAGS"], "-march=x86-64"
             )
             artifact = root / "dist/zar-rs-linux-x86_64.tar.gz"
             with tarfile.open(artifact) as archive:
@@ -714,6 +715,41 @@ class RunnerTests(unittest.TestCase):
                     archive.extractfile("zar-rs-linux-x86_64/zarmount").read(), b"mount"
                 )
 
+    def test_wasi_archive_contains_legacy_and_streaming_components(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            node = root / "wasizarlib/nodejs"
+            (node / "node_modules").mkdir(parents=True)
+            (node / "legacy-smoke.mjs").write_text("", encoding="utf-8")
+            for name in ("README.md", "wit/world.wit", "wit/legacy/world.wit"):
+                path = root / "wasizarlib" / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(name, encoding="utf-8")
+            component = root / "target/wasm32-wasip2/release/wasizarlib.wasm"
+            component.parent.mkdir(parents=True)
+
+            def execute(args, **kwargs):
+                if args[:2] == ["cargo", "build"]:
+                    component.write_bytes(b"streaming" if "--features" in args else b"legacy")
+                elif args[:2] == ["npm", "pack"]:
+                    (Path(args[-1]) / "node.tgz").write_bytes(b"node")
+
+            with (
+                mock.patch.object(run_ci, "ROOT", root),
+                mock.patch.object(run_ci, "DIST", root / "dist"),
+                mock.patch.object(run_ci, "require"),
+                mock.patch.object(run_ci, "ensure_rustup_item"),
+                mock.patch.object(Path, "is_dir", return_value=True),
+                mock.patch.object(run_ci, "command", side_effect=execute) as command,
+            ):
+                run_ci.wasi()
+            with tarfile.open(root / "dist/wasizarlib-wasip2.tar.gz") as archive:
+                self.assertEqual(archive.extractfile("wasizarlib/wasizarlib.wasm").read(), b"legacy")
+                self.assertEqual(archive.extractfile("wasizarlib/wasizarlib-streaming.wasm").read(), b"streaming")
+                self.assertIn("wasizarlib/wit/legacy/world.wit", archive.getnames())
+                self.assertIn("wasizarlib/wit/world.wit", archive.getnames())
+            self.assertTrue(any("legacy-smoke.mjs" in str(call.args[0]) for call in command.call_args_list))
+
     def test_static_binary_preserves_x86_cpu_target(self):
         with (
             mock.patch.object(run_ci, "require"),
@@ -726,13 +762,13 @@ class RunnerTests(unittest.TestCase):
             )
         env = build.call_args.kwargs["env"]
         self.assertEqual(
-            env["RUSTFLAGS"], "-C target-cpu=x86-64-v3 -C target-feature=+crt-static"
+            env["RUSTFLAGS"], "-C target-cpu=x86-64 -C target-feature=+crt-static"
         )
-        self.assertEqual(env["CFLAGS"], "-march=x86-64-v3")
-        self.assertEqual(env["CXXFLAGS"], "-march=x86-64-v3")
+        self.assertEqual(env["CFLAGS"], "-march=x86-64")
+        self.assertEqual(env["CXXFLAGS"], "-march=x86-64")
         self.assertEqual(env["CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER"], "musl-gcc")
 
-    def test_x86_wheel_build_uses_v3_compiler_flags(self):
+    def test_x86_wheel_build_uses_baseline_compiler_flags(self):
         def build_wheel(args, **kwargs):
             self.assertEqual(kwargs["cwd"], run_ci.ROOT / "pyzarlib")
             (Path(args[4]) / "test.whl").touch()
@@ -748,9 +784,9 @@ class RunnerTests(unittest.TestCase):
         ):
             run_ci.wheels({})
         env = build.call_args.kwargs["env"]
-        self.assertEqual(env["RUSTFLAGS"], "-C target-cpu=x86-64-v3")
-        self.assertEqual(env["CFLAGS"], "-march=x86-64-v3")
-        self.assertEqual(env["CXXFLAGS"], "-march=x86-64-v3")
+        self.assertEqual(env["RUSTFLAGS"], "-C target-cpu=x86-64")
+        self.assertEqual(env["CFLAGS"], "-march=x86-64")
+        self.assertEqual(env["CXXFLAGS"], "-march=x86-64")
 
     def test_wheel_flags_do_not_apply_unix_x86_options_to_other_targets(self):
         def build_wheel(args, **kwargs):
@@ -760,7 +796,7 @@ class RunnerTests(unittest.TestCase):
         for system, arch, rustflags in (
             ("Linux", "aarch64", None),
             ("Windows", "aarch64", None),
-            ("Windows", "x86_64", "-C target-cpu=x86-64-v3"),
+            ("Windows", "x86_64", "-C target-cpu=x86-64"),
         ):
             with (
                 self.subTest(system=system, arch=arch),
@@ -788,6 +824,7 @@ class RunnerTests(unittest.TestCase):
             (release / "zarg.exe").write_bytes(b"gui")
             (release / "zcopy.exe").write_bytes(b"copy")
             (release / "zarmcp.exe").write_bytes(b"mcp")
+            (release / "zarmount.exe").write_bytes(b"mount")
             with (
                 mock.patch.object(run_ci, "ROOT", root),
                 mock.patch.object(run_ci, "DIST", root / "dist"),
@@ -815,6 +852,7 @@ class RunnerTests(unittest.TestCase):
                         "zar-rs-windows-x86_64/zarg.exe",
                         "zar-rs-windows-x86_64/zcopy.exe",
                         "zar-rs-windows-x86_64/zarmcp.exe",
+                        "zar-rs-windows-x86_64/zarmount.exe",
                     },
                 )
 

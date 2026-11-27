@@ -27,15 +27,25 @@ from the same source. Baseline and ARM package filenames retain their usual name
 
 The `x.y.z` release also includes x86-64-v3 packages built by
 `.github/workflows/packaging-v3.yml`. It reuses the matching v3 release
-binaries, including Windows `zcopy` and `zarmount`, and sets v3 compiler flags
-inside the Flatpak SDK. Older v3 binary archives without required installer
-executables are supported by building them during packaging. Package filenames carry a `-v3` suffix; their
+binaries, including Linux `zarmount` and Windows `zcopy` and `zarmount`, and sets
+v3 compiler flags inside the Flatpak SDK. Older v3 archives missing these
+required executables are supported by building them during packaging. Package filenames carry a `-v3` suffix; their
 internal package versions are unchanged. OS, system
 library, and Flatpak runtime requirements still apply. The workflow runs after
 the v3 release workflow or can be dispatched manually with its source tag.
 The v1 and v3 packages use the same internal package version and identity, so they replace
 one another rather than installing side by side. These workflow changes do
 not rebuild assets already published in older releases.
+
+## Local packaging runners
+
+Run `python3 scripts/run_packaging.py` for baseline packages or
+`python3 scripts/run_packaging-v3.py` for x86-64-v3 packages on Linux,
+Windows, or Intel macOS. Both build from the current checkout rather than
+reusing release assets. The v3 runner stages output separately, applies v3
+flags inside Flatpak, and refuses to overwrite existing v3 packages. Packages
+require an x86-64-v3-compatible CPU. The Linux runner installs packaging
+prerequisites and Flatpak runtimes; Windows may install Rust and Inno Setup.
 
 ## Updating package versions
 

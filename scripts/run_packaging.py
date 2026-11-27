@@ -9,8 +9,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import tomllib
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
+
+import tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
 LINUX_FORMATS = ("deb", "rpm", "appimage", "flatpak")
@@ -51,7 +54,42 @@ def require(name: str) -> str:
 def linux_elevation() -> list[str]:
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         return []
-    return [require("sudo")]
+    return [require("sudo"), "-A"]
+
+
+def compiler_environment(v3: bool = False) -> dict[str, str]:
+    env = os.environ.copy()
+    machine = platform.machine().lower()
+    if machine in ("x86_64", "amd64", "x64"):
+        cpu = "x86-64-v3" if v3 else "x86-64"
+        env["RUSTFLAGS"] = f"-C target-cpu={cpu}"
+        if platform.system() != "Windows":
+            env["CFLAGS"] = f"-march={cpu}"
+            env["CXXFLAGS"] = f"-march={cpu}"
+    return env
+
+
+@contextmanager
+def v3_flatpak_manifest() -> Generator[Path, None, None]:
+    original = ROOT / "packaging/linux/io.github.brmmm3.Zarg.yml"
+    text = original.read_text(encoding="utf-8")
+    marker = "    CARGO_HOME: /run/build/zar-rs/cargo\n"
+    if text.count(marker) != 1 or any(
+        f"    {name}:" in text for name in ("RUSTFLAGS", "CFLAGS", "CXXFLAGS")
+    ):
+        raise PackagingFailure("cannot safely apply v3 flags to Flatpak manifest")
+    flags = (
+        '    RUSTFLAGS: "-C target-cpu=x86-64-v3"\n'
+        '    CFLAGS: "-march=x86-64-v3"\n'
+        '    CXXFLAGS: "-march=x86-64-v3"\n'
+    )
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", suffix=".yml", dir=original.parent
+    ) as file:
+        path = Path(file.name)
+        file.write(text.replace(marker, marker + flags))
+        file.flush()
+        yield path
 
 
 def install_linux_tools() -> dict[str, str]:
@@ -98,10 +136,21 @@ def install_linux_tools() -> dict[str, str]:
     return env
 
 
-def build_linux_packages() -> None:
-    env = install_linux_tools()
+def build_linux_packages(v3: bool = False, dist: Path | None = None) -> None:
+    tools_env = install_linux_tools()
+    env = compiler_environment(v3)
+    env.update({key: tools_env[key] for key in ("APPIMAGETOOL", "APPIMAGE_EXTRACT_AND_RUN")})
+    if dist is not None:
+        env["DIST_DIR"] = str(dist)
+        env.pop("BIN_DIR", None)
+        env.pop("SKIP_BUILD", None)
     script = ROOT / "packaging" / "linux" / "build-packages.sh"
-    command(["bash", str(script), "all"], env)
+    if v3:
+        with v3_flatpak_manifest() as manifest:
+            env["FLATPAK_MANIFEST"] = str(manifest)
+            command(["bash", str(script), "all"], env)
+    else:
+        command(["bash", str(script), "all"], env)
 
 
 def workspace_version() -> str:
@@ -143,7 +192,7 @@ def inno_setup_compiler() -> str:
     return compiler
 
 
-def build_windows_installers() -> None:
+def build_windows_installers(v3: bool = False, dist: Path | None = None) -> None:
     rustup = require("rustup")
     cargo = require("cargo")
     command([rustup, "toolchain", "install", "stable", "--profile", "minimal"])
@@ -163,24 +212,30 @@ def build_windows_installers() -> None:
             "--locked",
             "--target",
             target,
-        ]
+        ],
+        env=compiler_environment(v3),
     )
     binary_directory = ROOT / "target" / target / "release"
-    command(
-        [
+    args = [
             iscc,
             f"/DAppVersion={version}",
             f"/DArch={architecture}",
             f"/DSourceDir={binary_directory}",
-            str(installer),
-        ]
-    )
+    ]
+    if dist is not None:
+        args.append(f"/O{dist}")
+    command([*args, str(installer)])
 
 
-def build_macos_packages() -> None:
+def build_macos_packages(v3: bool = False, dist: Path | None = None) -> None:
     require("cargo")
     script = ROOT / "packaging" / "macos" / "build-packages.sh"
-    command(["bash", str(script), "all"])
+    env = compiler_environment(v3)
+    if dist is not None:
+        env["DIST_DIR"] = str(dist)
+        env.pop("BIN_DIR", None)
+        env.pop("SKIP_BUILD", None)
+    command(["bash", str(script), "all"], env)
 
 
 def build_for_system(system: str) -> None:

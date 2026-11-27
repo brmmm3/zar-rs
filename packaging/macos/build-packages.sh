@@ -7,6 +7,7 @@
 # Environment:
 #   BIN_DIR        directory holding zarc and zarg (default: target/release)
 #   SKIP_BUILD=1   do not run cargo
+#   DIST_DIR       package output and work directory (default: dist/)
 #   CODESIGN_IDENTITY   optional "Developer ID Application" identity for signing
 #   INSTALLER_IDENTITY  optional "Developer ID Installer" identity for the pkg
 #
@@ -16,7 +17,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-DIST="$ROOT/dist"
+DIST="${DIST_DIR:-$ROOT/dist}"
 BIN_DIR="${BIN_DIR:-$ROOT/target/release}"
 VERSION="$(awk '
     /^\[workspace\.package\]$/ { in_workspace=1; next }

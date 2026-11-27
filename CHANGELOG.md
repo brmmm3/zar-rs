@@ -55,6 +55,10 @@ until a version is released.
   supported, and invalid UTF-8 bytes cannot be matched individually.
 - Expanded grep documentation and added search examples for all language
   bindings and the Node.js WASI adapter.
+- Updated local CI and packaging runners to match current artifacts and added
+  a local x86-64-v3 packaging runner.
+- Include `zarmount` in Linux v3 binary archives and build it when packaging
+  older v3 archives that lack it.
 
 ### Fixed
 

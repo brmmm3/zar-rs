@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
 AUTO_INSTALL_ENABLED = True
 PYTHON_VERSIONS = ("3.11", "3.12", "3.13", "3.14", "3.15", "3.14t", "3.15t")
-WHEEL_VERSIONS = ("3.9", "3.10", "3.11", "3.12", "3.13", "3.14", "3.15")
+WHEEL_VERSIONS = ("3.11", "3.12", "3.13", "3.14", "3.15")
 PLATFORMS = (
     ("linux-x86_64", "Linux", "x86_64", "x86_64-unknown-linux-gnu", False),
     ("linux-aarch64", "Linux", "aarch64", "aarch64-unknown-linux-gnu", False),
@@ -75,7 +75,7 @@ def install_linux_packages(packages: list[str]) -> None:
         sudo = shutil.which("sudo")
         if sudo is None:
             raise JobFailure("installing Linux tools requires root or sudo")
-        elevate = [sudo]
+        elevate = [sudo, "-A"]
 
     env = os.environ.copy()
     if manager == "apt-get":
@@ -810,6 +810,7 @@ def wasi() -> None:
         )
     env = os.environ.copy()
     env["CFLAGS_wasm32_wasip2"] = "-isystem /usr/include/wasm32-wasi"
+    ensure_rustup_item("target", "wasm32-wasip2")
     command(
         [
             "cargo",
@@ -824,15 +825,34 @@ def wasi() -> None:
         env=env,
     )
     node = ROOT / "wasizarlib/nodejs"
-    command(["npm", "run", "build:js"], cwd=node)
-    command(["npm", "test"], cwd=node)
-    with tempfile.TemporaryDirectory(prefix="zar-ci-wasi-") as temp:
+    component = ROOT / "target/wasm32-wasip2/release/wasizarlib.wasm"
+    with tempfile.TemporaryDirectory(prefix="zar-ci-wasi-", dir=node) as temp:
         tmp = Path(temp)
+        legacy = tmp / "wasizarlib-legacy.wasm"
+        shutil.copy2(component, legacy)
+        command(
+            ["cargo", "build", "--release", "--locked", "-p", "wasizarlib",
+             "--features", "streaming", "--target", "wasm32-wasip2"],
+            env=env,
+        )
+        (tmp / "node_modules").symlink_to(node / "node_modules", target_is_directory=True)
+        shutil.copy2(node / "legacy-smoke.mjs", tmp)
+        command(
+            [str(node / "node_modules/.bin/jco"), "transpile", str(legacy),
+             "--instantiation", "async", "--out-dir", str(tmp / "dist/legacy")],
+            cwd=node,
+        )
+        command(["node", str(tmp / "legacy-smoke.mjs")], cwd=node)
+        command(["npm", "run", "build:js"], cwd=node)
+        command(["npm", "test"], cwd=node)
         command(["npm", "pack", "--pack-destination", str(tmp)], cwd=node)
         stage = tmp / "wasizarlib"
-        copy_required(ROOT / "target/wasm32-wasip2/release/wasizarlib.wasm", stage)
+        stage.mkdir()
+        shutil.copy2(legacy, stage / "wasizarlib.wasm")
+        shutil.copy2(component, stage / "wasizarlib-streaming.wasm")
         copy_required(ROOT / "wasizarlib/README.md", stage)
         copy_required(ROOT / "wasizarlib/wit/world.wit", stage / "wit")
+        copy_required(ROOT / "wasizarlib/wit/legacy/world.wit", stage / "wit/legacy")
         copy_required(one_file(tmp, "*.tgz"), stage)
         archive_directory(stage, DIST / "wasizarlib-wasip2.tar.gz")
 
@@ -939,14 +959,14 @@ def binaries(
 ) -> None:
     env = os.environ.copy()
     if target.startswith("x86_64-"):
-        env["RUSTFLAGS"] = "-C target-cpu=x86-64-v3"
+        env["RUSTFLAGS"] = "-C target-cpu=x86-64"
         if not (windows or cross_windows):
-            env["CFLAGS"] = "-march=x86-64-v3"
-            env["CXXFLAGS"] = "-march=x86-64-v3"
+            env["CFLAGS"] = "-march=x86-64"
+            env["CXXFLAGS"] = "-march=x86-64"
     if static:
         require("musl-gcc")
         env["RUSTFLAGS"] = (
-            "-C target-cpu=x86-64-v3 -C target-feature=+crt-static"
+            "-C target-cpu=x86-64 -C target-feature=+crt-static"
             if target.startswith("x86_64-")
             else "-C target-feature=+crt-static"
         )
@@ -968,7 +988,7 @@ def binaries(
     with tempfile.TemporaryDirectory(prefix="zar-ci-binaries-") as temp:
         stage = Path(temp) / f"zar-rs-{name}"
         binary_names = ("zarc", "zarg", "zcopy", "zarmcp")
-        if "-linux-" in target:
+        if "-linux-" in target or windows:
             binary_names += ("zarmount",)
         for binary in binary_names:
             copy_required(
@@ -1015,10 +1035,10 @@ def wheels(overrides: dict[str, str]) -> None:
     interpreters = [find_python(version, overrides) for version in WHEEL_VERSIONS]
     env = os.environ.copy()
     if host_arch() == "x86_64":
-        env["RUSTFLAGS"] = "-C target-cpu=x86-64-v3"
+        env["RUSTFLAGS"] = "-C target-cpu=x86-64"
         if platform.system() != "Windows":
-            env["CFLAGS"] = "-march=x86-64-v3"
-            env["CXXFLAGS"] = "-march=x86-64-v3"
+            env["CFLAGS"] = "-march=x86-64"
+            env["CXXFLAGS"] = "-march=x86-64"
     with tempfile.TemporaryDirectory(prefix="zar-ci-wheels-") as temp:
         command(
             [maturin, "build", "--release", "--out", temp, "--interpreter"]
@@ -1122,6 +1142,15 @@ def main(argv: list[str] | None = None) -> int:
     else:
         for name in (*core, "zcopy-test", "czarlib"):
             runner.skip(name, "CI job runs on Linux and Windows")
+
+    if linux:
+        def lua_tests() -> None:
+            command(["cargo", "build", "--locked", "-p", "czarlib"])
+            command(["make", "-C", "luazarlib", "test"])
+
+        runner.run("luazarlib", lua_tests)
+    else:
+        runner.skip("luazarlib", "CI job runs on Linux")
 
     runner.run("ruff", ruff_check)
     runner.run("rumdl", rumdl_check)

@@ -48,8 +48,7 @@ the matching Linux musl build. Other matrix entries are explicitly reported as
 skipped; run the script on each CI host to cover the full matrix.
 The Go tests build the C library in `target/debug`, matching the wrapper's
 configured cgo linker and runtime search paths.
-The local runner does not yet include the Lua job; run `make -C luazarlib test`
-separately after installing its [dependencies](luazarlib/README.md#requirements-and-build).
+The Lua job requires its [dependencies](luazarlib/README.md#requirements-and-build).
 GitHub checkout, artifact reuse, uploads, and publication are not performed.
 Linux wheels are built on the host rather than in the CI manylinux container,
 so their portability may differ. Cross-host job dependencies cannot be enforced
@@ -65,7 +64,7 @@ the runner installs it along with Clang/LLVM when needed. These installs may
 require administrator privileges or `sudo`. Pass `--no-install` to disable
 automatic setup.
 
-Python wheels are built in release mode for CPython 3.9 through 3.15. Linux
+Python wheels are built in release mode for CPython 3.11 through 3.15. Linux
 Python test matrix versions are provisioned with pyenv, including
 free-threaded builds, and each temporary test environment installs `pytest>=8`.
 Windows wheel builds use the Python launcher and install missing versions with
