@@ -178,21 +178,33 @@ jobs:
           }
           "BINARY_DIR=$binaryDir" >> $env:GITHUB_ENV
           "has_zcopy=$((Test-Path (Join-Path $binaryDir 'zcopy.exe')).ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          $needsZarmount = Select-String -Quiet -SimpleMatch '{#SourceDir}\zarmount.exe' packaging/windows/zar-rs.iss
+          $hasZarmount = !$needsZarmount -or (Test-Path (Join-Path $binaryDir 'zarmount.exe'))
+          "has_zarmount=$($hasZarmount.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
       - name: Install Rust toolchain
-        if: steps.binaries.outputs.has_zcopy != 'true'
+        if: steps.binaries.outputs.has_zcopy != 'true' || steps.binaries.outputs.has_zarmount != 'true'
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
         with:
           toolchain: stable
           targets: x86_64-pc-windows-msvc
-      - name: Build x86-64-v3 zcopy
-        if: steps.binaries.outputs.has_zcopy != 'true'
+      - name: Build x86-64-v3 binaries
+        if: steps.binaries.outputs.has_zcopy != 'true' || steps.binaries.outputs.has_zarmount != 'true'
         env:
           RUSTFLAGS: -C target-cpu=x86-64-v3
+          HAS_ZCOPY: ${{ steps.binaries.outputs.has_zcopy }}
+          HAS_ZARMOUNT: ${{ steps.binaries.outputs.has_zarmount }}
         shell: pwsh
         run: |
-          cargo build --release --locked --target x86_64-pc-windows-msvc --workspace --bin zcopy
+          $missing = @()
+          if ($env:HAS_ZCOPY -ne 'true') { $missing += 'zcopy' }
+          if ($env:HAS_ZARMOUNT -ne 'true') { $missing += 'zarmount' }
+          $bins = @()
+          foreach ($binary in $missing) { $bins += @('--bin', $binary) }
+          cargo build --release --locked --target x86_64-pc-windows-msvc --workspace @bins
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Copy-Item target/x86_64-pc-windows-msvc/release/zcopy.exe $env:BINARY_DIR
+          foreach ($binary in $missing) {
+            Copy-Item "target/x86_64-pc-windows-msvc/release/$binary.exe" $env:BINARY_DIR
+          }
       - name: Verify zcopy
         shell: pwsh
         run: |

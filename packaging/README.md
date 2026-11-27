@@ -1,7 +1,7 @@
 # Packaging
 
 Installers for `zarc` (CLI) and `zarg` (GUI). The Windows suite installer
-also includes `zcopy`. Output goes to `dist/`.
+also includes `zcopy` and `zarmount`. Output goes to `dist/`.
 
 The installed `zarc` CLI and `zarg` GUI support custom archive-level key/value
 metadata. For example, use `zarc meta backup.zar --set project=example` to
@@ -21,14 +21,15 @@ run on `master` for the exact commit when those artifacts are still retained.
 If no matching artifact is available, it builds from source. Flatpak
 continues to build inside its Freedesktop SDK. Normal x86-64 builds explicitly
 use the baseline CPU target for Rust and native C/C++ code where applicable;
-static builds retain that target. Windows archives contain all three installer
-executables. Baseline and ARM package filenames retain their usual names.
+static builds retain that target. Windows archives contain all four installer
+executables. If a reused Windows archive lacks `zarmount`, packaging builds it
+from the same source. Baseline and ARM package filenames retain their usual names.
 
 The `x.y.z` release also includes x86-64-v3 packages built by
 `.github/workflows/packaging-v3.yml`. It reuses the matching v3 release
-binaries, including Windows `zcopy`, and sets v3 compiler flags inside the
-Flatpak SDK. Older v3 binary archives without `zcopy` are still supported by
-building it during packaging. Package filenames carry a `-v3` suffix; their
+binaries, including Windows `zcopy` and `zarmount`, and sets v3 compiler flags
+inside the Flatpak SDK. Older v3 binary archives without required installer
+executables are supported by building them during packaging. Package filenames carry a `-v3` suffix; their
 internal package versions are unchanged. OS, system
 library, and Flatpak runtime requirements still apply. The workflow runs after
 the v3 release workflow or can be dispatched manually with its source tag.

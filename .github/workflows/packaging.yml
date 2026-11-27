@@ -179,6 +179,7 @@ jobs:
           run-id: ${{ needs.find-reusable-ci-run.outputs.run_id }}
           github-token: ${{ github.token }}
       - name: Prepare reused Windows binaries
+        id: prepare-windows
         if: steps.reuse.outcome == 'success'
         env:
           BINARY_PLATFORM: ${{ matrix.binary_platform }}
@@ -194,8 +195,9 @@ jobs:
             }
           }
           "BINARY_DIR=$binaryDir" >> $env:GITHUB_ENV
+          "has_zarmount=$((Test-Path (Join-Path $binaryDir 'zarmount.exe')).ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
       - name: Install Rust toolchain
-        if: steps.reuse.outcome != 'success'
+        if: steps.reuse.outcome != 'success' || steps.prepare-windows.outputs.has_zarmount != 'true'
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # zizmor: ignore[unpinned-uses]
         with:
           toolchain: stable
@@ -207,7 +209,19 @@ jobs:
           RUSTFLAGS: ${{ matrix.arch == 'x64' && '-C target-cpu=x86-64' || '' }}
         run: |
           cargo build --release --bins --locked --target $env:TARGET
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "BINARY_DIR=$PWD/target/$env:TARGET/release" >> $env:GITHUB_ENV
+      - name: Build zarmount
+        if: steps.reuse.outcome == 'success' && steps.prepare-windows.outputs.has_zarmount != 'true'
+        env:
+          TARGET: ${{ matrix.target }}
+          RUSTFLAGS: ${{ matrix.arch == 'x64' && '-C target-cpu=x86-64' || '' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo build --release --locked --target $env:TARGET -p zarmount
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item "target/$env:TARGET/release/zarmount.exe" $env:BINARY_DIR
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
       - name: Build installer
