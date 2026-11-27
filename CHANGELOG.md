@@ -225,6 +225,9 @@ until a version is released.
 - Added undo support to remove a positive number of trailing commits while
   retaining the first commit. The operation is available in `zarc`, `zarg`,
   Python, C/C++, Go, Java FFM/JNI, C#, and WASI interfaces.
+- Added "Convert to ZAR" context menu integration for desktop file managers
+  (Windows Explorer, Linux Dolphin/Nautilus/Thunar, and macOS) to convert
+  selected archives or folders containing supported archives into ZAR archives.
 
 ### Fixed
 

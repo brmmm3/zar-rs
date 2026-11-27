@@ -1,19 +1,14 @@
 [Desktop Entry]
 Type=Service
 MimeType=all/all;
-Actions=createArchive;addToArchive;createNamedArchive
+Actions=createArchive;convertToZar;
 
 [Desktop Action createArchive]
 Name=Create Archive...
 Icon=zarg
 Exec=zarg --context create -- %F
 
-[Desktop Action addToArchive]
-Name=Add to Archive...
+[Desktop Action convertToZar]
+Name=Convert to ZAR
 Icon=zarg
-Exec=zarg --context add -- %F
-
-[Desktop Action createNamedArchive]
-Name=Create Archive (named)
-Icon=zarg
-Exec=zarg --context create-named -- %F
+Exec=zarg --context convert-to-zar -- %F

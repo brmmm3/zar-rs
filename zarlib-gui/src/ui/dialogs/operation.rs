@@ -1666,6 +1666,9 @@ impl ZargApp {
                 shortcut_enabled,
             ) {
                 self.close_operation();
+                if self.extract_to_mode {
+                    self.exit_requested = true;
+                }
             }
             let shortcut = match kind {
                 OperationKind::NewArchive => Some((egui::Key::N, "Alt+N")),
@@ -1733,5 +1736,150 @@ impl ZargApp {
                 }
             });
         }
+    }
+
+    pub(in crate::ui) fn render_extract_here_dialog(&mut self, ui: &mut egui::Ui) {
+        ui.painter()
+            .rect_filled(ui.max_rect(), 0.0, ui.visuals().window_fill().to_opaque());
+
+        egui::Panel::bottom("extract-here-actions")
+            .frame(egui::Frame::new().inner_margin(3))
+            .show_separator_line(false)
+            .show(ui, |ui| {
+                ui.separator();
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let cancel = icon_button(ui, &self.icons, UiIcon::Cancel, "Cancel", true);
+                    if !ui.memory(|memory| memory.areas().visible_last_frame(&ui.layer_id())) {
+                        cancel.request_focus();
+                    }
+                    let cancel_clicked = close_or_cancel(cancel, true)
+                        || ui.input(|i| i.key_pressed(egui::Key::Escape));
+                    if cancel_clicked {
+                        if let Some(worker) = &self.worker
+                            && let Some(token) = &worker.cancellation
+                        {
+                            token.store(true, Ordering::Relaxed);
+                        }
+                        self.exit_requested = true;
+                    }
+                });
+            });
+
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().inner_margin(12))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let icon = icon_texture(ui.ctx(), &self.icons, UiIcon::Extract);
+                    ui.add(egui::Image::new(&icon).fit_to_exact_size(egui::vec2(48.0, 48.0)));
+                    ui.add_space(8.0);
+                    ui.vertical(|ui| {
+                        let archive_name = Path::new(&self.archive)
+                            .file_name()
+                            .map(|name| name.to_string_lossy().into_owned())
+                            .unwrap_or_default();
+                        let heading_text = if archive_name.is_empty() {
+                            "Extracting archive...".to_owned()
+                        } else {
+                            format!("Extracting {archive_name}...")
+                        };
+                        ui.heading(heading_text);
+                        ui.add_space(4.0);
+                        let message = if self.progress_message.is_empty() {
+                            if self.busy { "Extracting..." } else { "Done" }
+                        } else {
+                            &self.progress_message
+                        };
+                        ui.add(egui::Label::new(message).truncate())
+                            .on_hover_text(&self.progress_message);
+                        ui.add_space(6.0);
+                        let progress_bar = egui::ProgressBar::new(self.progress)
+                            .desired_width(ui.available_width());
+                        if self.progress_known {
+                            ui.add(progress_bar.show_percentage());
+                        } else {
+                            ui.add(progress_bar);
+                        }
+                    });
+                });
+            });
+    }
+
+    pub(in crate::ui) fn render_standalone_extract_dialog(&mut self, ui: &mut egui::Ui) {
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.close_operation();
+            self.exit_requested = true;
+            return;
+        }
+        ui.painter()
+            .rect_filled(ui.max_rect(), 0.0, ui.visuals().window_fill().to_opaque());
+        egui::Panel::bottom("operation-actions")
+            .frame(egui::Frame::new().inner_margin(3))
+            .show_separator_line(false)
+            .show(ui, |ui| {
+                self.render_operation_actions(ui, OperationKind::ExtractArchive)
+            });
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().inner_margin(3))
+            .show(ui, |ui| {
+                self.render_extract_tabs(ui);
+                ui.separator();
+                egui::ScrollArea::vertical()
+                    .id_salt(("extract-form", self.operation.extract_tab.label()))
+                    .scroll_bar_rect(ui.max_rect())
+                    .show(ui, |ui| self.render_extract_tab_contents(ui));
+            });
+    }
+
+    pub(in crate::ui) fn render_convert_to_zar_dialog(&mut self, ui: &mut egui::Ui) {
+        ui.painter()
+            .rect_filled(ui.max_rect(), 0.0, ui.visuals().window_fill().to_opaque());
+
+        egui::Panel::bottom("convert-actions")
+            .frame(egui::Frame::new().inner_margin(3))
+            .show_separator_line(false)
+            .show(ui, |ui| {
+                ui.separator();
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let cancel = icon_button(ui, &self.icons, UiIcon::Cancel, "Cancel", true);
+                    if !ui.memory(|memory| memory.areas().visible_last_frame(&ui.layer_id())) {
+                        cancel.request_focus();
+                    }
+                    let cancel_clicked = close_or_cancel(cancel, true)
+                        || ui.input(|i| i.key_pressed(egui::Key::Escape));
+                    if cancel_clicked {
+                        if let Some(worker) = &self.worker
+                            && let Some(token) = &worker.cancellation
+                        {
+                            token.store(true, Ordering::Relaxed);
+                        }
+                        self.exit_requested = true;
+                    }
+                });
+            });
+
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().inner_margin(12))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let icon = icon_texture(ui.ctx(), &self.icons, UiIcon::ZarArchive);
+                    ui.add(egui::Image::new(&icon).fit_to_exact_size(egui::vec2(48.0, 48.0)));
+                    ui.add_space(8.0);
+                    ui.vertical(|ui| {
+                        ui.heading("Converting to ZAR...");
+                        ui.add_space(4.0);
+                        let message = if self.progress_message.is_empty() {
+                            if self.busy { "Converting..." } else { "Done" }
+                        } else {
+                            &self.progress_message
+                        };
+                        ui.add(egui::Label::new(message).truncate())
+                            .on_hover_text(&self.progress_message);
+                        ui.add_space(6.0);
+                        let progress_bar = egui::ProgressBar::new(self.progress)
+                            .desired_width(ui.available_width());
+                        ui.add(progress_bar.show_percentage());
+                    });
+                });
+            });
     }
 }

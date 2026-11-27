@@ -37,6 +37,9 @@ fn install_window(window: HWND) {
 }
 
 pub(crate) fn install_viewports(frame: &eframe::Frame) {
+    if cfg!(test) {
+        return;
+    }
     let Ok(handle) = frame.window_handle() else {
         return;
     };

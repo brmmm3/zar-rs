@@ -49,30 +49,99 @@ fn main() -> eframe::Result {
         .expect("embedded app icon must be a valid PNG")
         .into_rgba8();
     let (width, height) = icon.dimensions();
-    let mut viewport = eframe::egui::ViewportBuilder::default().with_inner_size([1200.0, 680.0]);
-    if let Some(geometry) = saved.geometry_for_startup(settings::monitor_count()) {
-        let geometry = startup_geometry_at_default_zoom(geometry, saved.ui_scale);
-        viewport = viewport.with_inner_size(geometry.size);
-        if let Some(position) = geometry.position {
-            viewport = viewport.with_position(position);
-        }
-    }
-    let options = eframe::NativeOptions {
-        viewport: viewport
+    let (window_title, viewport) = if app.is_convert_to_zar_mode() {
+        let size = [460.0, 160.0];
+        let mut builder = eframe::egui::ViewportBuilder::default()
+            .with_inner_size(size)
+            .with_min_inner_size([400.0, 140.0])
+            .with_resizable(false)
             .with_active(true)
-            .with_min_inner_size([720.0, 460.0])
             .with_app_id("zarg")
             .with_icon(eframe::egui::IconData {
                 rgba: icon.into_raw(),
                 width,
                 height,
-            }),
+            });
+        if let Some(position) = centered_extract_here_position(size, saved.ui_scale) {
+            builder = builder.with_position(position);
+        }
+        ("Convert to ZAR", builder)
+    } else if app.is_extract_to_mode() {
+        let size = [520.0, 300.0];
+        let mut builder = eframe::egui::ViewportBuilder::default()
+            .with_inner_size(size)
+            .with_min_inner_size([500.0, 280.0])
+            .with_resizable(true)
+            .with_active(true)
+            .with_app_id("zarg")
+            .with_icon(eframe::egui::IconData {
+                rgba: icon.into_raw(),
+                width,
+                height,
+            });
+        if let Some(position) = centered_extract_here_position(size, saved.ui_scale) {
+            builder = builder.with_position(position);
+        }
+        ("Extract", builder)
+    } else if app.is_extract_here_mode() {
+        let size = if app.has_encrypted_commits() {
+            [480.0, 200.0]
+        } else {
+            [460.0, 160.0]
+        };
+        let mut builder = eframe::egui::ViewportBuilder::default()
+            .with_inner_size(size)
+            .with_min_inner_size([400.0, 150.0])
+            .with_resizable(false)
+            .with_active(true)
+            .with_app_id("zarg")
+            .with_icon(eframe::egui::IconData {
+                rgba: icon.into_raw(),
+                width,
+                height,
+            });
+        if let Some(position) = centered_extract_here_position(size, saved.ui_scale) {
+            builder = builder.with_position(position);
+        }
+        (
+            if app.has_encrypted_commits() {
+                "Password Required"
+            } else {
+                "Extract Archive"
+            },
+            builder,
+        )
+    } else {
+        let mut viewport =
+            eframe::egui::ViewportBuilder::default().with_inner_size([1200.0, 680.0]);
+        if let Some(geometry) = saved.geometry_for_startup(settings::monitor_count()) {
+            let geometry = startup_geometry_at_default_zoom(geometry, saved.ui_scale);
+            viewport = viewport.with_inner_size(geometry.size);
+            if let Some(position) = geometry.position {
+                viewport = viewport.with_position(position);
+            }
+        }
+        (
+            WINDOW_TITLE,
+            viewport
+                .with_active(true)
+                .with_min_inner_size([720.0, 460.0])
+                .with_app_id("zarg")
+                .with_icon(eframe::egui::IconData {
+                    rgba: icon.into_raw(),
+                    width,
+                    height,
+                }),
+        )
+    };
+    let options = eframe::NativeOptions {
+        viewport,
         ..Default::default()
     };
     let theme_mode = saved.theme_mode;
     let ui_scale = saved.ui_scale;
     eframe::run_native(
-        WINDOW_TITLE,
+        window_title,
         options,
         Box::new(move |creation_context| {
             #[cfg(windows)]
@@ -102,6 +171,32 @@ fn startup_geometry_at_default_zoom(
     }
 }
 
+#[cfg(not(all(target_os = "linux", target_env = "musl")))]
+fn centered_extract_here_position(size: [f32; 2], ui_scale: f32) -> Option<[f32; 2]> {
+    let displays = display_info::DisplayInfo::all().ok()?;
+    let display = displays
+        .iter()
+        .find(|d| d.is_primary)
+        .or_else(|| displays.first())?;
+    let scale = if display.scale_factor > 0.0 {
+        display.scale_factor
+    } else {
+        1.0
+    };
+    let width_points = display.width as f32 / scale;
+    let height_points = display.height as f32 / scale;
+    let x_points = display.x as f32 / scale;
+    let y_points = display.y as f32 / scale;
+    let center_x = x_points + (width_points - size[0] * ui_scale) * 0.5;
+    let center_y = y_points + (height_points - size[1] * ui_scale) * 0.5;
+    Some([center_x.max(x_points), center_y.max(y_points)])
+}
+
+#[cfg(all(target_os = "linux", target_env = "musl"))]
+fn centered_extract_here_position(_size: [f32; 2], _ui_scale: f32) -> Option<[f32; 2]> {
+    None
+}
+
 fn parse_context_args(
     args: impl IntoIterator<Item = OsString>,
 ) -> Result<Option<(ui::ContextAction, Vec<PathBuf>)>, String> {
@@ -124,7 +219,8 @@ fn parse_context_args(
         .and_then(|value| value.into_string().ok())
         .ok_or_else(|| "missing context action".to_owned())?;
     let action = match action.as_str() {
-        "create" => ui::ContextAction::Create,
+        "create" | "create-archive" => ui::ContextAction::Create,
+        "convert-to-zar" => ui::ContextAction::ConvertToZar,
         "add" => ui::ContextAction::Add,
         "create-named" => ui::ContextAction::CreateNamed,
         "open" => ui::ContextAction::Open,
@@ -190,6 +286,36 @@ mod tests {
                 ]
             ))
         );
+
+        let parsed_alias = parse_context_args(os_args(&[
+            "--context",
+            "create-archive",
+            "--",
+            "/tmp/first file",
+        ]))
+        .unwrap();
+        assert_eq!(
+            parsed_alias,
+            Some((
+                ui::ContextAction::Create,
+                vec![PathBuf::from("/tmp/first file")]
+            ))
+        );
+
+        let parsed_convert = parse_context_args(os_args(&[
+            "--context",
+            "convert-to-zar",
+            "--",
+            "/tmp/first archive.zip",
+        ]))
+        .unwrap();
+        assert_eq!(
+            parsed_convert,
+            Some((
+                ui::ContextAction::ConvertToZar,
+                vec![PathBuf::from("/tmp/first archive.zip")]
+            ))
+        );
     }
 
     #[test]
@@ -232,5 +358,15 @@ mod tests {
     #[test]
     fn unknown_context_action_is_rejected() {
         assert!(parse_context_args(os_args(&["--context", "unknown"])).is_err());
+    }
+
+    #[test]
+    fn centered_extract_here_position_returns_position_if_displays_available() {
+        let size = [460.0, 160.0];
+        let pos = centered_extract_here_position(size, 1.0);
+        #[cfg(not(all(target_os = "linux", target_env = "musl")))]
+        if display_info::DisplayInfo::all().is_ok() {
+            assert!(pos.is_some());
+        }
     }
 }

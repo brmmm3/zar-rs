@@ -32,6 +32,11 @@ rustPlatform.buildRustPackage {
       ../../wasizarlib/Cargo.toml
       ../../wasizarlib/src
       ./zarg-mime.xml
+      ./dolphin-files.desktop
+      ./dolphin-archives.desktop
+      ./nautilus-script.sh
+      ./thunar-uca.xml
+      ./install-thunar-actions.py
     ];
   };
   cargoLock.lockFile = ../../Cargo.lock;
@@ -74,8 +79,27 @@ rustPlatform.buildRustPackage {
     install -Dm644 zarlib-gui/assets/zarg-icon.png "$out/share/icons/hicolor/256x256/apps/zarg.png"
     install -Dm644 zarlib-gui/assets/zarg-error.png "$out/share/icons/hicolor/64x64/apps/zarg-error.png"
     install -Dm644 zarlib-gui/assets/application-x-zar.png "$out/share/icons/hicolor/64x64/mimetypes/application-x-zar.png"
-    install -Dm644 packaging/linux/zarg-mime.xml "$out/share/mime/packages/zar-rs.xml"
-
+    install -Dm644 packaging/linux/zarg-mime.xml "$out/share/mime/packages/zar-rs.xml"    install -Dm644 packaging/linux/dolphin-files.desktop \
+      "$out/share/kio/servicemenus/zarg-files.desktop"
+    install -Dm644 packaging/linux/dolphin-archives.desktop \
+      "$out/share/kio/servicemenus/zarg-archives.desktop"
+    install -Dm755 packaging/linux/nautilus-script.sh \
+      "$out/libexec/zar-rs/nautilus-script"
+    install -Dm644 packaging/linux/thunar-uca.xml \
+      "$out/share/zar-rs/thunar-uca.xml"
+    install -Dm755 packaging/linux/install-thunar-actions.py \
+      "$out/bin/zarg-install-thunar-actions"
+    mkdir -p "$out/share/nautilus/scripts"
+    for script_name in \
+      "ZAR - Open Archive" \
+      "ZAR - Extract here" \
+      "ZAR - Extract to..." \
+      "ZAR - Create Archive..." \
+      "ZAR - Convert to ZAR" \
+      "ZAR - Mount Archive"; do
+      ln -s "$out/libexec/zar-rs/nautilus-script" \
+        "$out/share/nautilus/scripts/$script_name"
+    done
     wrapProgram "$out/bin/zarg" --prefix LD_LIBRARY_PATH : ${
       lib.makeLibraryPath [
         libGL

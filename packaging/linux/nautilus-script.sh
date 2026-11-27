@@ -2,16 +2,31 @@
 set -eu
 
 case "$(basename "$0")" in
-    "ZAR - Create Archive...") action=create ;;
-    "ZAR - Add to Archive...") action=add ;;
-    "ZAR - Create Archive (named)") action=create-named ;;
     "ZAR - Open Archive") action=open ;;
     "ZAR - Extract here") action=extract-here ;;
     "ZAR - Extract to...") action=extract-to ;;
-    "ZAR - Extract to archive folder") action=extract-to-folder ;;
-    "ZAR - Test Archive") action=test ;;
+    "ZAR - Create Archive...") action=create ;;
+    "ZAR - Convert to ZAR") action=convert-to-zar ;;
+    "ZAR - Mount Archive") action=mount ;;
     *) echo "Unknown ZAR Nautilus action." >&2; exit 2 ;;
 esac
+
+if [ "$action" = "mount" ]; then
+    # Mount expects a single archive; use the first selected file.
+    if [ "$#" -eq 0 ] && [ -n "${NAUTILUS_SCRIPT_SELECTED_FILE_PATHS:-}" ]; then
+        old_ifs=$IFS
+        IFS='
+'
+        set -f
+        set -- $NAUTILUS_SCRIPT_SELECTED_FILE_PATHS
+        IFS=$old_ifs
+    fi
+    if [ "$#" -eq 0 ]; then
+        echo "Select a ZAR archive first." >&2
+        exit 2
+    fi
+    exec /usr/bin/zarmount --ask "$1"
+fi
 
 if [ "$#" -eq 0 ] && [ -n "${NAUTILUS_SCRIPT_SELECTED_FILE_PATHS:-}" ]; then
     old_ifs=$IFS

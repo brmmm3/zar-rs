@@ -576,8 +576,57 @@ fn new_dialog_builder_restores_remembered_size() {
         assert_eq!(builder.inner_size, Some(egui::vec2(320.0, 240.0)));
         assert!(builder.position.is_some());
         assert_eq!(builder.active, Some(true));
+        assert_eq!(
+            builder.window_level,
+            Some(egui::viewport::WindowLevel::AlwaysOnTop)
+        );
     });
     output.drop_without_applying_deltas();
+}
+
+#[test]
+fn context_create_opens_new_dialog_on_top_without_root_stealing_focus() {
+    let directory = tempfile::tempdir().unwrap();
+    let input = directory.path().join("file.txt");
+    std::fs::write(&input, b"hello").unwrap();
+    let mut app = ZargApp::from_context_action(
+        ContextAction::Create,
+        vec![input],
+        &crate::settings::Settings::default(),
+    )
+    .unwrap();
+    assert_eq!(app.operation.kind, Some(OperationKind::NewArchive));
+
+    let context = egui::Context::default();
+    context.set_embed_viewports(false);
+    let mut native_frame = eframe::Frame::_new_kittest();
+    let output = context.run_ui(egui::RawInput::default(), |ui| {
+        eframe::App::ui(&mut app, ui, &mut native_frame);
+    });
+
+    let root_focused = output
+        .viewport_output
+        .get(&egui::ViewportId::ROOT)
+        .is_some_and(|v| {
+            v.commands
+                .iter()
+                .any(|c| matches!(c, egui::ViewportCommand::Focus))
+        });
+    output.drop_without_applying_deltas();
+    assert!(!root_focused);
+
+    let new_dialog_id = egui::ViewportId::from_hash_of("operation-dialog:New archive");
+    let builder = ZargApp::centered_dialog_viewport_builder(
+        &context,
+        new_dialog_id,
+        "New archive",
+        [500.0, 300.0],
+        true,
+    );
+    assert_eq!(
+        builder.window_level,
+        Some(egui::viewport::WindowLevel::AlwaysOnTop)
+    );
 }
 
 #[test]
@@ -1218,6 +1267,7 @@ fn extract_dialog_detects_encryption_for_main_and_context_actions() {
             &crate::settings::Settings::default(),
         )
         .unwrap();
+        assert!(context_app.is_extract_to_mode());
         assert_eq!(
             context_app.operation.destination,
             directory.path().to_string_lossy()
@@ -1236,6 +1286,87 @@ fn extract_dialog_detects_encryption_for_main_and_context_actions() {
             *context_app.operation.commit_ids.last().unwrap()
         );
     }
+}
+
+#[test]
+fn extract_to_standalone_dialog_cancel_requests_exit() {
+    let mut app = ZargApp {
+        extract_to_mode: true,
+        ..Default::default()
+    };
+    app.operation = app.new_operation_form(OperationKind::ExtractArchive, "sample.zar");
+    assert_eq!(app.operation.kind, Some(OperationKind::ExtractArchive));
+
+    let context = egui::Context::default();
+    let mut cancel_input = egui::RawInput::default();
+    cancel_input.events.push(egui::Event::Key {
+        key: egui::Key::Escape,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    context
+        .run_ui(cancel_input, |ui| {
+            app.render_standalone_extract_dialog(ui);
+        })
+        .drop_without_applying_deltas();
+    assert_eq!(app.operation.kind, None);
+    assert!(app.exit_requested);
+}
+
+#[test]
+fn extract_to_standalone_dialog_extracts_and_requests_exit_when_finished() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive_dir = directory.path().join("sub");
+    std::fs::create_dir_all(&archive_dir).unwrap();
+    let input = archive_dir.join("sample.txt");
+    std::fs::write(&input, b"extract to content").unwrap();
+    let archive = archive_dir.join("sample.zar");
+    operations::create_archive(archive.to_str().unwrap(), &[input.clone()]).unwrap();
+    std::fs::remove_file(&input).unwrap();
+    assert!(!input.exists());
+
+    let dest_dir = directory.path().join("output");
+    std::fs::create_dir_all(&dest_dir).unwrap();
+
+    let mut app = ZargApp::from_context_action(
+        ContextAction::ExtractTo,
+        vec![archive],
+        &crate::settings::Settings::default(),
+    )
+    .unwrap();
+    assert!(app.is_extract_to_mode());
+    assert!(!app.busy);
+    assert_eq!(app.operation.kind, Some(OperationKind::ExtractArchive));
+
+    app.operation.destination = dest_dir.to_string_lossy().into_owned();
+
+    let context = egui::Context::default();
+    let mut extract_input = egui::RawInput::default();
+    extract_input.events.push(egui::Event::Key {
+        key: egui::Key::E,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::ALT,
+    });
+    context
+        .run_ui(extract_input, |ui| {
+            app.render_standalone_extract_dialog(ui);
+        })
+        .drop_without_applying_deltas();
+
+    assert!(app.busy);
+    assert_eq!(app.operation.kind, None);
+
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(app.exit_requested);
+
+    let extracted = dest_dir.join("sample.txt");
+    assert!(extracted.exists());
+    assert_eq!(std::fs::read(&extracted).unwrap(), b"extract to content");
 }
 
 #[test]
@@ -1259,6 +1390,280 @@ fn extract_destination_defaults_to_archive_parent_or_current_directory() {
     wait_for_worker(&mut unsaved);
     unsaved.show_operation(OperationKind::ExtractArchive);
     assert_eq!(unsaved.operation.destination, ".");
+}
+
+#[test]
+fn extract_here_context_action_extracts_and_requests_exit_when_finished() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive_dir = directory.path().join("sub");
+    std::fs::create_dir_all(&archive_dir).unwrap();
+    let input = archive_dir.join("extracted_file.txt");
+    std::fs::write(&input, b"extract here content").unwrap();
+    let archive = archive_dir.join("sample.zar");
+    operations::create_archive(archive.to_str().unwrap(), &[input.clone()]).unwrap();
+    std::fs::remove_file(&input).unwrap();
+    assert!(!input.exists());
+
+    let mut app = ZargApp::from_context_action(
+        ContextAction::ExtractHere,
+        vec![archive],
+        &crate::settings::Settings::default(),
+    )
+    .unwrap();
+    assert!(app.is_extract_here_mode());
+    assert!(app.busy);
+
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(app.exit_requested);
+    assert!(input.exists());
+    assert_eq!(std::fs::read(&input).unwrap(), b"extract here content");
+}
+
+#[test]
+fn extract_here_dialog_renders_progress_and_cancel_requests_exit() {
+    let cancellation = Arc::new(AtomicBool::new(false));
+    let (_events_tx, events_rx) = mpsc::channel();
+    let (answer_tx, _answer_rx) = mpsc::channel();
+    drop(_answer_rx);
+    let mut app = ZargApp {
+        extract_here_mode: true,
+        archive: "my_archive.zar".to_owned(),
+        ..Default::default()
+    };
+    app.begin_worker_with_cancellation(
+        events_rx,
+        answer_tx,
+        "Extracting entries...",
+        Some(cancellation.clone()),
+    );
+    app.progress = 0.42;
+    app.progress_known = true;
+
+    let context = egui::Context::default();
+    let input = egui::RawInput::default();
+    context
+        .run_ui(input, |ui| {
+            app.render_extract_here_dialog(ui);
+        })
+        .drop_without_applying_deltas();
+    assert!(!cancellation.load(Ordering::Relaxed));
+    assert!(!app.exit_requested);
+
+    let mut cancel_input = egui::RawInput::default();
+    cancel_input.events.push(egui::Event::Key {
+        key: egui::Key::Escape,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    context
+        .run_ui(cancel_input, |ui| {
+            app.render_extract_here_dialog(ui);
+        })
+        .drop_without_applying_deltas();
+    assert!(cancellation.load(Ordering::Relaxed));
+    assert!(app.exit_requested);
+}
+
+#[test]
+fn center_extract_here_window_positions_window_when_outer_rect_is_known() {
+    let mut app = ZargApp {
+        extract_here_mode: true,
+        ..Default::default()
+    };
+    let context = egui::Context::default();
+    let mut input = egui::RawInput::default();
+    let viewport = input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap();
+    viewport.outer_rect = Some(egui::Rect::from_min_size(
+        egui::pos2(100.0, 100.0),
+        egui::vec2(460.0, 160.0),
+    ));
+    context
+        .run_ui(input, |ui| {
+            app.center_extract_here_window(ui.ctx());
+        })
+        .drop_without_applying_deltas();
+    #[cfg(not(all(target_os = "linux", target_env = "musl")))]
+    if display_info::DisplayInfo::from_point(200, 200).is_ok() {
+        assert!(app.centered_extract_here);
+    }
+}
+
+#[test]
+fn extract_here_encrypted_commits_shows_password_dialog_first_and_extracts_when_unlocked() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive_dir = directory.path().join("sub");
+    std::fs::create_dir_all(&archive_dir).unwrap();
+    let input = archive_dir.join("secret.txt");
+    std::fs::write(&input, b"secret data").unwrap();
+    let archive = archive_dir.join("encrypted.zar");
+    operations::create_archive_with_password_progress_and_filters_and_encryption(
+        archive.to_str().unwrap(),
+        std::slice::from_ref(&input),
+        false,
+        EncodingOptions::default(),
+        Some((
+            b"correct_pass".as_slice(),
+            ContentAead::Aes256Gcm,
+            EncryptionScope::HeaderAndData,
+        )),
+        None,
+        CreateFilterOptions {
+            input: CreateInputOptions::default(),
+            filters: &FilterSet::default(),
+        },
+    )
+    .unwrap();
+    std::fs::remove_file(&input).unwrap();
+    assert!(!input.exists());
+
+    let mut app = ZargApp::from_context_action(
+        ContextAction::ExtractHere,
+        vec![archive],
+        &crate::settings::Settings::default(),
+    )
+    .unwrap();
+    assert!(app.is_extract_here_mode());
+    assert!(app.has_encrypted_commits());
+    assert!(!app.busy);
+
+    let context = egui::Context::default();
+
+    // 1. Enter wrong password
+    {
+        let state = app.extract_here_password.as_mut().unwrap();
+        state.rows[0].password = "wrong_pass".to_owned();
+    }
+    let mut enter_input = egui::RawInput::default();
+    enter_input.events.push(egui::Event::Key {
+        key: egui::Key::Enter,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    context
+        .run_ui(enter_input, |ui| {
+            app.render_extract_here_password_dialog(ui);
+        })
+        .drop_without_applying_deltas();
+
+    for _ in 0..100 {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let frame_input = egui::RawInput::default();
+        context
+            .run_ui(frame_input, |ui| {
+                app.render_extract_here_password_dialog(ui);
+            })
+            .drop_without_applying_deltas();
+        if app
+            .extract_here_password
+            .as_ref()
+            .and_then(|s| s.error.as_ref())
+            .is_some()
+        {
+            break;
+        }
+    }
+    assert!(app.extract_here_password.as_ref().unwrap().error.is_some());
+    assert!(!app.busy);
+    assert!(!input.exists());
+
+    // 2. Enter correct password
+    {
+        let state = app.extract_here_password.as_mut().unwrap();
+        state.rows[0].password = "correct_pass".to_owned();
+    }
+    let mut enter_input2 = egui::RawInput::default();
+    enter_input2.events.push(egui::Event::Key {
+        key: egui::Key::Enter,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    context
+        .run_ui(enter_input2, |ui| {
+            app.render_extract_here_password_dialog(ui);
+        })
+        .drop_without_applying_deltas();
+
+    for _ in 0..100 {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let frame_input = egui::RawInput::default();
+        context
+            .run_ui(frame_input, |ui| {
+                app.render_extract_here_password_dialog(ui);
+            })
+            .drop_without_applying_deltas();
+        if app.extract_here_password.is_none() {
+            break;
+        }
+    }
+    assert!(app.extract_here_password.is_none());
+    assert!(app.busy);
+
+    wait_for_worker(&mut app);
+    assert!(app.report.is_none(), "{:?}", app.report);
+    assert!(app.exit_requested);
+    assert!(input.exists());
+    assert_eq!(std::fs::read(&input).unwrap(), b"secret data");
+}
+
+#[test]
+fn extract_here_encrypted_commits_cancel_password_dialog_requests_exit() {
+    let directory = tempfile::tempdir().unwrap();
+    let archive_dir = directory.path().join("sub");
+    std::fs::create_dir_all(&archive_dir).unwrap();
+    let input = archive_dir.join("secret.txt");
+    std::fs::write(&input, b"secret data").unwrap();
+    let archive = archive_dir.join("encrypted.zar");
+    operations::create_archive_with_password_progress_and_filters_and_encryption(
+        archive.to_str().unwrap(),
+        std::slice::from_ref(&input),
+        false,
+        EncodingOptions::default(),
+        Some((
+            b"pass".as_slice(),
+            ContentAead::Aes256Gcm,
+            EncryptionScope::HeaderAndData,
+        )),
+        None,
+        CreateFilterOptions {
+            input: CreateInputOptions::default(),
+            filters: &FilterSet::default(),
+        },
+    )
+    .unwrap();
+
+    let mut app = ZargApp::from_context_action(
+        ContextAction::ExtractHere,
+        vec![archive],
+        &crate::settings::Settings::default(),
+    )
+    .unwrap();
+    assert!(app.has_encrypted_commits());
+    assert!(!app.busy);
+
+    let context = egui::Context::default();
+    let mut cancel_input = egui::RawInput::default();
+    cancel_input.events.push(egui::Event::Key {
+        key: egui::Key::Escape,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    context
+        .run_ui(cancel_input, |ui| {
+            app.render_extract_here_password_dialog(ui);
+        })
+        .drop_without_applying_deltas();
+
+    assert!(app.extract_here_password.is_none());
+    assert!(app.exit_requested);
 }
 
 #[test]
@@ -6679,4 +7084,186 @@ fn benchmark_reports_sizes_and_cleans_up() {
     assert_eq!(result.uncompressed, 100_005);
     assert!(result.archive_size > 0 && result.archive_size < result.uncompressed);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_converted_zar_path() {
+    assert_eq!(
+        converted_zar_path(Path::new("archive.zip")),
+        PathBuf::from("archive.zar")
+    );
+    assert_eq!(
+        converted_zar_path(Path::new("archive.tar.gz")),
+        PathBuf::from("archive.zar")
+    );
+    assert_eq!(
+        converted_zar_path(Path::new("ARCHIVE.TAR.GZ")),
+        PathBuf::from("ARCHIVE.zar")
+    );
+    assert_eq!(
+        converted_zar_path(Path::new("archive.tgz")),
+        PathBuf::from("archive.zar")
+    );
+    assert_eq!(
+        converted_zar_path(Path::new("ARCHIVE.TGZ")),
+        PathBuf::from("ARCHIVE.zar")
+    );
+    assert_eq!(
+        converted_zar_path(Path::new("/path/to/archive.7z")),
+        PathBuf::from("/path/to/archive.zar")
+    );
+    assert_eq!(
+        converted_zar_path(Path::new("backup.txt.gz")),
+        PathBuf::from("backup.txt.zar")
+    );
+}
+
+#[test]
+fn test_convert_to_zar_no_supported_archives() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("unsupported.txt");
+    std::fs::write(&file, b"test").unwrap();
+    let result = ZargApp::from_context_action(
+        ContextAction::ConvertToZar,
+        vec![file],
+        &crate::settings::Settings::default(),
+    );
+    assert!(result.is_err());
+    assert_eq!(
+        result.err().unwrap(),
+        "No supported archives found to convert."
+    );
+}
+
+#[test]
+fn test_convert_to_zar_rejects_zar_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("archive.zar");
+    std::fs::write(&file, b"ZAR1fake").unwrap();
+    let result = ZargApp::from_context_action(
+        ContextAction::ConvertToZar,
+        vec![file],
+        &crate::settings::Settings::default(),
+    );
+    assert!(result.is_err());
+    assert_eq!(
+        result.err().unwrap(),
+        "No supported archives found to convert."
+    );
+}
+
+#[test]
+fn test_convert_to_zar_converts_folder_and_ignores_subfolders() {
+    let dir = tempfile::tempdir().unwrap();
+    let zip_bytes: &[u8] = &[
+        // Local file header (30 bytes)
+        0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x86,
+        0xa6, 0x10, 0x36, 0x05, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00,
+        0x00, // File name "a.txt" (5 bytes)
+        b'a', b'.', b't', b'x', b't', // File data "hello" (5 bytes)
+        b'h', b'e', b'l', b'l', b'o',
+        // Central directory header (46 bytes + 5 bytes name = 51 bytes)
+        0x50, 0x4b, 0x01, 0x02, 0x14, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x86, 0xa6, 0x10, 0x36, 0x05, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x05, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, // File name "a.txt"
+        b'a', b'.', b't', b'x', b't', // End of central directory record (22 bytes)
+        0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x33, 0x00, 0x00,
+        0x00, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+    let zip1 = dir.path().join("archive1.zip");
+    std::fs::write(&zip1, zip_bytes).unwrap();
+
+    let sub = dir.path().join("subdir");
+    std::fs::create_dir(&sub).unwrap();
+    let zip2 = sub.join("archive2.zip");
+    std::fs::write(&zip2, zip_bytes).unwrap();
+
+    let mut app = ZargApp::from_context_action(
+        ContextAction::ConvertToZar,
+        vec![dir.path().to_path_buf()],
+        &crate::settings::Settings::default(),
+    )
+    .unwrap();
+    assert!(app.is_convert_to_zar_mode());
+
+    wait_for_worker(&mut app);
+
+    assert!(app.report.is_none());
+    assert!(dir.path().join("archive1.zar").exists());
+    assert!(!sub.join("archive2.zar").exists());
+}
+
+#[test]
+fn test_convert_to_zar_converts_multiple_files_directly() {
+    let dir = tempfile::tempdir().unwrap();
+    let zip_bytes: &[u8] = &[
+        // Local file header (30 bytes)
+        0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x86,
+        0xa6, 0x10, 0x36, 0x05, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00,
+        0x00, // File name "a.txt" (5 bytes)
+        b'a', b'.', b't', b'x', b't', // File data "hello" (5 bytes)
+        b'h', b'e', b'l', b'l', b'o',
+        // Central directory header (46 bytes + 5 bytes name = 51 bytes)
+        0x50, 0x4b, 0x01, 0x02, 0x14, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x86, 0xa6, 0x10, 0x36, 0x05, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x05, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, // File name "a.txt"
+        b'a', b'.', b't', b'x', b't', // End of central directory record (22 bytes)
+        0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x33, 0x00, 0x00,
+        0x00, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+    let file1 = dir.path().join("first.zip");
+    std::fs::write(&file1, zip_bytes).unwrap();
+    let file2 = dir.path().join("second.zip");
+    std::fs::write(&file2, zip_bytes).unwrap();
+
+    let mut app = ZargApp::from_context_action(
+        ContextAction::ConvertToZar,
+        vec![file1.clone(), file2.clone()],
+        &crate::settings::Settings::default(),
+    )
+    .unwrap();
+    assert!(app.is_convert_to_zar_mode());
+
+    wait_for_worker(&mut app);
+
+    assert!(app.report.is_none());
+    assert!(dir.path().join("first.zar").exists());
+    assert!(dir.path().join("second.zar").exists());
+}
+
+#[test]
+fn test_convert_to_zar_dialog_renders_and_cancel_requests_exit() {
+    let mut app = ZargApp {
+        convert_to_zar_mode: true,
+        busy: true,
+        progress: 0.5,
+        progress_message: "archive.zip".to_owned(),
+        ..Default::default()
+    };
+    let token = Arc::new(AtomicBool::new(false));
+    let (_events_tx, events_rx) = mpsc::channel();
+    let (answers_tx, _answers_rx) = mpsc::channel();
+    app.begin_worker_with_cancellation(events_rx, answers_tx, "archive.zip", Some(token.clone()));
+
+    let context = egui::Context::default();
+    let output = context.run_ui(
+        egui::RawInput {
+            events: vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::default(),
+            }],
+            ..Default::default()
+        },
+        |ui| {
+            app.render_convert_to_zar_dialog(ui);
+        },
+    );
+    output.drop_without_applying_deltas();
+    assert!(token.load(Ordering::Relaxed));
+    assert!(app.exit_requested);
 }

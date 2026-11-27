@@ -74,12 +74,12 @@ Use `/DSourceDir=target\<triple>\release` when building with `--target`, and
 `/DArch=arm64` for Windows on ARM. The installer can add `zarc` to the system
 `PATH` along with `zcopy`, create Start menu and desktop shortcuts, and register Explorer verbs
 for files, folders and `.zar` archives. Explorer passes multiple selections to
-the create actions. Windows does not support substituting the selected
-filename into a registry verb's display text, so the named actions use fixed
-labels. **Create Archive (named)** creates `<first file's stem>.zar` or
-`<first folder's name>.zar` beside the first selected item. **Extract to archive
-folder** extracts `foo.zar` into a sibling folder named `foo`. The `.zar` file
-icon is generated from the PNG MIME icon.
+the create actions. Verbs for opening and extracting archives appear only for supported archive formats
+(`.zar`, `.zip`, `.7z`, `.rar`, `.iso`, `.tar`, `.tgz`, `.gz`), **Mount Archive** appears only for `.zar` archives,
+and **Convert to ZAR** converts selected archives into `.zar` archives beside the originals (appearing only for folders
+and convertible archive formats: `.zip`, `.7z`, `.rar`, `.iso`, `.tar`, `.tgz`, `.gz`, and hidden for `.zar` and unsupported files).
+**Extract to archive folder** extracts `foo.zar` into a sibling folder named `foo`.
+The `.zar` file icon is generated from the PNG MIME icon.
 
 ### Windows Package Manager
 

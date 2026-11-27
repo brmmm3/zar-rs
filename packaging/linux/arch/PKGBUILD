@@ -67,14 +67,12 @@ package() {
   mkdir -p "$pkgdir/usr/share/nautilus/scripts"
   local script_name
   for script_name in \
-    "ZAR - Create Archive..." \
-    "ZAR - Add to Archive..." \
-    "ZAR - Create Archive (named)" \
     "ZAR - Open Archive" \
     "ZAR - Extract here" \
     "ZAR - Extract to..." \
-    "ZAR - Extract to archive folder" \
-    "ZAR - Test Archive"; do
+    "ZAR - Create Archive..." \
+    "ZAR - Convert to ZAR" \
+    "ZAR - Mount Archive"; do
     ln -s /usr/libexec/zar-rs/nautilus-script "$pkgdir/usr/share/nautilus/scripts/$script_name"
   done
 }

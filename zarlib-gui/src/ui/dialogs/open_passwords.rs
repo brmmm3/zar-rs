@@ -339,6 +339,169 @@ impl ZargApp {
             context.request_repaint_after(std::time::Duration::from_millis(100));
         }
     }
+
+    pub(in crate::ui) fn render_extract_here_password_dialog(&mut self, ui: &mut egui::Ui) {
+        let Some(state) = &mut self.extract_here_password else {
+            return;
+        };
+
+        let result = state.result.as_ref().map(Receiver::try_recv);
+        match result {
+            Some(Ok(result)) => {
+                state.result = None;
+                state.busy = false;
+                match result {
+                    Ok(passwords) => {
+                        self.remember_commit_passwords(&passwords);
+                        self.extract_here_password = None;
+                        ui.ctx()
+                            .send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                                460.0, 160.0,
+                            )));
+                        let mut form =
+                            self.new_operation_form(OperationKind::ExtractArchive, &self.archive);
+                        form.archive_passwords = passwords;
+                        self.start_operation(form);
+                        return;
+                    }
+                    Err(error) => state.error = Some(error),
+                }
+            }
+            Some(Err(mpsc::TryRecvError::Disconnected)) => {
+                state.result = None;
+                state.busy = false;
+                state.error = Some("Password check stopped unexpectedly.".to_owned());
+            }
+            Some(Err(mpsc::TryRecvError::Empty)) | None => {}
+        }
+
+        ui.painter()
+            .rect_filled(ui.max_rect(), 0.0, ui.visuals().window_fill().to_opaque());
+
+        let busy = self.extract_here_password.as_ref().is_some_and(|s| s.busy);
+        let can_submit = !busy
+            && self
+                .extract_here_password
+                .as_ref()
+                .is_some_and(|s| s.rows.iter().any(|r| r.encrypted && !r.password.is_empty()));
+        let mut cancel = false;
+        let mut submit = false;
+
+        egui::Panel::bottom("extract-here-password-actions")
+            .frame(egui::Frame::new().inner_margin(3))
+            .show_separator_line(false)
+            .show(ui, |ui| {
+                ui.separator();
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let cancel_btn = icon_button(ui, &self.icons, UiIcon::Cancel, "Cancel", !busy);
+                    cancel |= close_or_cancel(cancel_btn, true)
+                        || ui.input(|i| i.key_pressed(egui::Key::Escape));
+                    let extract_btn =
+                        icon_button(ui, &self.icons, UiIcon::Unlock, "Extract", can_submit);
+                    submit |= extract_btn.clicked()
+                        || (!busy && can_submit && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                });
+            });
+
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().inner_margin(12))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let icon = icon_texture(ui.ctx(), &self.icons, UiIcon::Lock);
+                    ui.add(egui::Image::new(&icon).fit_to_exact_size(egui::vec2(48.0, 48.0)));
+                    ui.add_space(8.0);
+                    ui.vertical(|ui| {
+                        let archive_name = Path::new(&self.archive)
+                            .file_name()
+                            .map(|name| name.to_string_lossy().into_owned())
+                            .unwrap_or_default();
+                        let heading_text = if archive_name.is_empty() {
+                            "Encrypted Archive".to_owned()
+                        } else {
+                            format!("{archive_name} is encrypted")
+                        };
+                        ui.heading(heading_text);
+                        ui.add_space(4.0);
+                        ui.label("Enter password to extract:");
+                        ui.add_space(6.0);
+
+                        let Some(state) = &mut self.extract_here_password else {
+                            return;
+                        };
+                        let encrypted_count = state.rows.iter().filter(|r| r.encrypted).count();
+                        if encrypted_count <= 1 {
+                            for row in &mut state.rows {
+                                if row.encrypted {
+                                    let edit = ui.add_enabled(
+                                        !busy,
+                                        egui::TextEdit::singleline(&mut row.password)
+                                            .password(true)
+                                            .hint_text("Password")
+                                            .desired_width(ui.available_width()),
+                                    );
+                                    if !ui.memory(|m| m.areas().visible_last_frame(&ui.layer_id()))
+                                    {
+                                        edit.request_focus();
+                                    }
+                                    if edit.lost_focus()
+                                        && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                                    {
+                                        submit = true;
+                                    }
+                                }
+                            }
+                        } else {
+                            egui::ScrollArea::vertical()
+                                .max_height(80.0)
+                                .show(ui, |ui| {
+                                    if render_rows(ui, &mut state.rows, busy).clicked() {
+                                        copy_first_password(&mut state.rows);
+                                    }
+                                });
+                        }
+
+                        if let Some(state) = &self.extract_here_password {
+                            if let Some(error) = &state.error {
+                                ui.add_space(4.0);
+                                ui.colored_label(ui.visuals().error_fg_color, error);
+                            }
+                            if state.busy {
+                                ui.add_space(4.0);
+                                ui.horizontal(|ui| {
+                                    ui.spinner();
+                                    ui.weak("Checking password...");
+                                });
+                            }
+                        }
+                    });
+                });
+            });
+
+        if cancel {
+            self.extract_here_password = None;
+            self.exit_requested = true;
+        } else if submit {
+            let Some(state) = &mut self.extract_here_password else {
+                return;
+            };
+            let passwords = state.passwords();
+            let archive = self.archive.clone();
+            let (sender, receiver) = mpsc::channel();
+            state.result = Some(receiver);
+            state.error = None;
+            state.busy = true;
+            let context = ui.ctx().clone();
+            std::thread::spawn(move || {
+                let result = verify_unlock_passwords_with_overlay(&archive, None, passwords);
+                let _ = sender.send(result);
+                context.request_repaint();
+            });
+        }
+        if self.extract_here_password.as_ref().is_some_and(|s| s.busy) {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(50));
+        }
+    }
 }
 
 #[cfg(test)]

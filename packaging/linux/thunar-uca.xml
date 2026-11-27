@@ -2,51 +2,6 @@
 <actions>
   <action>
     <icon>zarg</icon>
-    <name>ZAR - Create Archive...</name>
-    <unique-id>2026061001</unique-id>
-    <command>zarg --context create -- %F</command>
-    <description>Create a ZAR archive from the selected files and folders</description>
-    <range/>
-    <patterns>*</patterns>
-    <directories/>
-    <audio-files/>
-    <image-files/>
-    <other-files/>
-    <text-files/>
-    <video-files/>
-  </action>
-  <action>
-    <icon>zarg</icon>
-    <name>ZAR - Add to Archive...</name>
-    <unique-id>2026061002</unique-id>
-    <command>zarg --context add -- %F</command>
-    <description>Choose a new archive for the selected files and folders</description>
-    <range/>
-    <patterns>*</patterns>
-    <directories/>
-    <audio-files/>
-    <image-files/>
-    <other-files/>
-    <text-files/>
-    <video-files/>
-  </action>
-  <action>
-    <icon>zarg</icon>
-    <name>ZAR - Create Archive (named)</name>
-    <unique-id>2026061003</unique-id>
-    <command>zarg --context create-named -- %F</command>
-    <description>Create a ZAR archive next to the first selected item</description>
-    <range/>
-    <patterns>*</patterns>
-    <directories/>
-    <audio-files/>
-    <image-files/>
-    <other-files/>
-    <text-files/>
-    <video-files/>
-  </action>
-  <action>
-    <icon>zarg</icon>
     <name>ZAR - Open Archive</name>
     <unique-id>2026061004</unique-id>
     <command>zarg --context open -- %F</command>
@@ -77,20 +32,40 @@
   </action>
   <action>
     <icon>zarg</icon>
-    <name>ZAR - Test Archive</name>
-    <unique-id>2026061007</unique-id>
-    <command>zarg --context test -- %F</command>
-    <description>Test the selected ZAR archive</description>
+    <name>ZAR - Create Archive...</name>
+    <unique-id>2026061001</unique-id>
+    <command>zarg --context create -- %F</command>
+    <description>Create a ZAR archive from the selected files and folders</description>
     <range/>
-    <patterns>*.zar</patterns>
+    <patterns>*</patterns>
+    <directories/>
+    <audio-files/>
+    <image-files/>
     <other-files/>
+    <text-files/>
+    <video-files/>
   </action>
   <action>
     <icon>zarg</icon>
-    <name>ZAR - Extract to archive folder</name>
-    <unique-id>2026061008</unique-id>
-    <command>zarg --context extract-to-folder -- %F</command>
-    <description>Extract the selected ZAR archive into a folder named after the archive</description>
+    <name>ZAR - Convert to ZAR</name>
+    <unique-id>2026061007</unique-id>
+    <command>zarg --context convert-to-zar -- %F</command>
+    <description>Convert selected archives to ZAR format</description>
+    <range/>
+    <patterns>*</patterns>
+    <directories/>
+    <audio-files/>
+    <image-files/>
+    <other-files/>
+    <text-files/>
+    <video-files/>
+  </action>
+  <action>
+    <icon>zarg</icon>
+    <name>ZAR - Mount Archive</name>
+    <unique-id>2026061009</unique-id>
+    <command>zarmount --ask %f</command>
+    <description>Mount the selected ZAR archive as a virtual filesystem</description>
     <range/>
     <patterns>*.zar</patterns>
     <other-files/>

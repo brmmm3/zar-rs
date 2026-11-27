@@ -9,7 +9,6 @@ Thumbs.db
 *.swp
 .vscode/
 .idea/
-testdata/
 testresults/
 .VSCodeCounter/
 *.zar
@@ -34,3 +33,10 @@ create-jzarlib-deploy.sh
 # Test data is tracked with Git LFS.
 !testdata/
 !testdata/**
+
+testdata/tools/
+testdata/small_archive/
+testdata/icons/
+testdata/duplicates/
+testdata/linux-4.0.1/
+testdata/linux-6.1.1/

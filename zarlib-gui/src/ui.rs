@@ -305,6 +305,7 @@ pub enum ContextAction {
     ExtractTo,
     ExtractToFolder,
     Test,
+    ConvertToZar,
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
@@ -1083,10 +1084,10 @@ pub(super) struct ArchiveInfoUnlockPrompt {
     pub(super) busy: bool,
 }
 
-struct OpenPasswordRow {
-    id: [u8; 4],
-    encrypted: bool,
-    password: String,
+pub(super) struct OpenPasswordRow {
+    pub(super) id: [u8; 4],
+    pub(super) encrypted: bool,
+    pub(super) password: String,
 }
 
 struct OpenPasswordDialog {
@@ -1103,6 +1104,23 @@ struct UnlockCommitsDialog {
     result: Option<UnlockCommitsResult>,
     error: Option<String>,
     busy: bool,
+}
+
+pub(super) struct ExtractHerePasswordState {
+    pub(super) rows: Vec<OpenPasswordRow>,
+    pub(super) result: Option<UnlockCommitsResult>,
+    pub(super) error: Option<String>,
+    pub(super) busy: bool,
+}
+
+impl ExtractHerePasswordState {
+    pub(super) fn passwords(&self) -> BTreeMap<[u8; 4], String> {
+        self.rows
+            .iter()
+            .filter(|row| row.encrypted && !row.password.is_empty())
+            .map(|row| (row.id, row.password.clone()))
+            .collect()
+    }
 }
 
 fn password_set(passwords: &BTreeMap<[u8; 4], String>, default: Option<&str>) -> PasswordSet {
@@ -1387,6 +1405,40 @@ struct WorkerChannels {
     cancellation: Option<Arc<AtomicBool>>,
 }
 
+struct ConvertProgress {
+    events: Sender<UiEvent>,
+    cancellation: Arc<AtomicBool>,
+}
+
+impl Progress for ConvertProgress {
+    fn message(&self, msg: &str) {
+        let _ = self.events.send(UiEvent::Message(msg.to_owned()));
+    }
+    fn advance(&self, _amount: u64) {}
+    fn is_cancelled(&self) -> bool {
+        self.cancellation.load(Ordering::Relaxed)
+    }
+}
+
+pub(crate) fn converted_zar_path(path: &Path) -> PathBuf {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("archive");
+    let lower = file_name.to_ascii_lowercase();
+    let stem = if lower.ends_with(".tar.gz") {
+        &file_name[..file_name.len() - ".tar.gz".len()]
+    } else if lower.ends_with(".tgz") {
+        &file_name[..file_name.len() - ".tgz".len()]
+    } else if let Some(dot_idx) = file_name.rfind('.') {
+        &file_name[..dot_idx]
+    } else {
+        file_name
+    };
+    parent.join(format!("{stem}.zar"))
+}
+
 pub struct ZargApp {
     icons: IconCache,
     archive: String,
@@ -1437,6 +1489,11 @@ pub struct ZargApp {
     pending_archive_switch: Option<ArchiveSwitchAction>,
     pending_switch_after_save: bool,
     exit_requested: bool,
+    extract_here_mode: bool,
+    extract_to_mode: bool,
+    convert_to_zar_mode: bool,
+    centered_extract_here: bool,
+    extract_here_password: Option<ExtractHerePasswordState>,
     report: Option<String>,
     warnings: Vec<String>,
     filter_text: String,
@@ -1568,6 +1625,11 @@ impl Default for ZargApp {
             pending_archive_switch: None,
             pending_switch_after_save: false,
             exit_requested: false,
+            extract_here_mode: false,
+            extract_to_mode: false,
+            convert_to_zar_mode: false,
+            centered_extract_here: false,
+            extract_here_password: None,
             report: None,
             warnings: Vec::new(),
             filter_text: String::new(),
@@ -1746,6 +1808,26 @@ impl ZargApp {
         self.start_operation(form);
     }
 
+    #[must_use]
+    pub fn is_extract_here_mode(&self) -> bool {
+        self.extract_here_mode
+    }
+
+    #[must_use]
+    pub fn is_extract_to_mode(&self) -> bool {
+        self.extract_to_mode
+    }
+
+    #[must_use]
+    pub fn is_convert_to_zar_mode(&self) -> bool {
+        self.convert_to_zar_mode
+    }
+
+    #[must_use]
+    pub fn has_encrypted_commits(&self) -> bool {
+        self.extract_here_password.is_some()
+    }
+
     pub fn from_context_action(
         action: ContextAction,
         paths: Vec<PathBuf>,
@@ -1753,6 +1835,37 @@ impl ZargApp {
     ) -> Result<Self, String> {
         let mut app = Self::default();
         app.apply_settings(settings);
+        if action == ContextAction::ConvertToZar {
+            let mut candidates = Vec::new();
+            for path in paths {
+                if path.is_file() {
+                    if operations::is_supported_import_archive(&path) {
+                        let target = converted_zar_path(&path);
+                        candidates.push((path, target));
+                    }
+                } else if path.is_dir()
+                    && let Ok(entries) = std::fs::read_dir(&path)
+                {
+                    for entry in entries.flatten() {
+                        let entry_path = entry.path();
+                        if entry_path.is_file()
+                            && operations::is_supported_import_archive(&entry_path)
+                        {
+                            let target = converted_zar_path(&entry_path);
+                            candidates.push((entry_path, target));
+                        }
+                    }
+                }
+            }
+            candidates.sort_by(|a, b| a.0.cmp(&b.0));
+            candidates.dedup_by(|a, b| a.0 == b.0);
+            if candidates.is_empty() {
+                return Err("No supported archives found to convert.".to_owned());
+            }
+            app.convert_to_zar_mode = true;
+            app.start_convert_to_zar(candidates);
+            return Ok(app);
+        }
         match action {
             ContextAction::Create | ContextAction::Add | ContextAction::CreateNamed => {
                 if paths.is_empty() {
@@ -1795,10 +1908,57 @@ impl ZargApp {
                 match action {
                     ContextAction::Open => app.open_archive(PathBuf::from(&archive), None),
                     ContextAction::ExtractHere => {
-                        let form = app.new_operation_form(OperationKind::ExtractArchive, &archive);
-                        app.start_operation(form);
+                        app.extract_here_mode = true;
+                        app.archive = archive.clone();
+                        let has_encrypted =
+                            if operations::is_supported_import_archive(Path::new(&archive)) {
+                                false
+                            } else {
+                                match operations::info_archive(&archive, false) {
+                                    Ok(commits) => {
+                                        let any_encrypted = commits
+                                            .iter()
+                                            .any(|c| c.header_encrypted || c.data_encrypted);
+                                        if any_encrypted {
+                                            let rows = commits
+                                                .into_iter()
+                                                .map(|commit| {
+                                                    let encrypted = commit.header_encrypted
+                                                        || commit.data_encrypted;
+                                                    let password = if encrypted {
+                                                        app.default_password.clone()
+                                                    } else {
+                                                        String::new()
+                                                    };
+                                                    OpenPasswordRow {
+                                                        id: commit.id,
+                                                        encrypted,
+                                                        password,
+                                                    }
+                                                })
+                                                .collect();
+                                            app.extract_here_password =
+                                                Some(ExtractHerePasswordState {
+                                                    rows,
+                                                    result: None,
+                                                    error: None,
+                                                    busy: false,
+                                                });
+                                        }
+                                        any_encrypted
+                                    }
+                                    Err(_) => false,
+                                }
+                            };
+                        if !has_encrypted {
+                            let form =
+                                app.new_operation_form(OperationKind::ExtractArchive, &archive);
+                            app.start_operation(form);
+                        }
                     }
                     ContextAction::ExtractTo => {
+                        app.extract_to_mode = true;
+                        app.archive = archive.clone();
                         app.operation =
                             app.new_operation_form(OperationKind::ExtractArchive, &archive);
                         if !operations::is_supported_import_archive(Path::new(&archive)) {
@@ -1835,13 +1995,75 @@ impl ZargApp {
                             app.new_operation_form(OperationKind::TestArchive, &archive),
                         );
                     }
-                    ContextAction::Create | ContextAction::Add | ContextAction::CreateNamed => {
+                    ContextAction::Create
+                    | ContextAction::Add
+                    | ContextAction::CreateNamed
+                    | ContextAction::ConvertToZar => {
                         unreachable!()
                     }
                 }
             }
+            ContextAction::ConvertToZar => unreachable!(),
         }
         Ok(app)
+    }
+
+    pub(in crate::ui) fn start_convert_to_zar(&mut self, archives: Vec<(PathBuf, PathBuf)>) {
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let (events_tx, events_rx) = mpsc::channel();
+        let (answers_tx, _answers_rx) = mpsc::channel();
+        self.begin_worker_with_cancellation(
+            events_rx,
+            answers_tx,
+            "Converting archives...",
+            Some(cancellation.clone()),
+        );
+        let total = archives.len();
+        std::thread::spawn(move || {
+            let _ = events_tx.send(UiEvent::Total(total as u64));
+            for (index, (source, target)) in archives.iter().enumerate() {
+                if cancellation.load(Ordering::Relaxed) {
+                    let _ =
+                        events_tx.send(UiEvent::Finished(Err("operation cancelled".to_owned())));
+                    return;
+                }
+                let source_name = source
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| source.to_string_lossy().into_owned());
+
+                let _ = events_tx.send(UiEvent::Message(if total > 1 {
+                    format!("Converting {source_name} ({}/{})", index + 1, total)
+                } else {
+                    format!("Converting {source_name}")
+                }));
+
+                let progress_reporter = ConvertProgress {
+                    events: events_tx.clone(),
+                    cancellation: cancellation.clone(),
+                };
+
+                let result = operations::create_archive_with_password_progress(
+                    &target.to_string_lossy(),
+                    std::slice::from_ref(source),
+                    false,
+                    EncodingOptions::default(),
+                    None,
+                    Some(&progress_reporter),
+                    true,
+                );
+                if let Err(error) = result {
+                    let _ = events_tx.send(UiEvent::Finished(Err(format!(
+                        "Cannot convert {source_name}: {error}"
+                    ))));
+                    return;
+                }
+                let _ = events_tx.send(UiEvent::Advance(1));
+            }
+            let _ = events_tx.send(UiEvent::Finished(Ok(format!(
+                "Successfully converted {total} archive(s)."
+            ))));
+        });
     }
 
     fn open_dialog(&mut self) {
@@ -2153,9 +2375,45 @@ impl ZargApp {
     }
 
     fn update_window_title(&mut self, context: &egui::Context) {
-        let title = match Path::new(&self.archive).file_name() {
-            Some(name) => format!("{} - {}", name.to_string_lossy(), crate::WINDOW_TITLE),
-            None => crate::WINDOW_TITLE.to_owned(),
+        let title = if self.convert_to_zar_mode {
+            "Convert to ZAR".to_owned()
+        } else if self.extract_to_mode {
+            let archive_name = Path::new(&self.archive)
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if self.busy {
+                if archive_name.is_empty() {
+                    "Extract Archive".to_owned()
+                } else {
+                    format!("Extracting {archive_name} - {}", crate::WINDOW_TITLE)
+                }
+            } else if archive_name.is_empty() {
+                "Extract".to_owned()
+            } else {
+                format!("Extract - {archive_name}")
+            }
+        } else if self.extract_here_mode {
+            let archive_name = Path::new(&self.archive)
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if self.extract_here_password.is_some() {
+                if archive_name.is_empty() {
+                    "Password Required".to_owned()
+                } else {
+                    format!("Extracting {archive_name} - Password Required")
+                }
+            } else if archive_name.is_empty() {
+                "Extract Archive".to_owned()
+            } else {
+                format!("Extracting {archive_name} - {}", crate::WINDOW_TITLE)
+            }
+        } else {
+            match Path::new(&self.archive).file_name() {
+                Some(name) => format!("{} - {}", name.to_string_lossy(), crate::WINDOW_TITLE),
+                None => crate::WINDOW_TITLE.to_owned(),
+            }
         };
         if self.displayed_window_title.as_ref() != Some(&title) {
             context.send_viewport_cmd_to(
@@ -4612,6 +4870,12 @@ impl ZargApp {
                             {
                                 self.execute_archive_switch(action);
                             }
+                            if self.extract_here_mode
+                                || self.extract_to_mode
+                                || self.convert_to_zar_mode
+                            {
+                                self.exit_requested = true;
+                            }
                         }
                         Err(error) => {
                             if switch_after_save {
@@ -4622,6 +4886,12 @@ impl ZargApp {
                             {
                                 self.status = "Operation cancelled".to_owned();
                                 self.report = None;
+                                if self.extract_here_mode
+                                    || self.extract_to_mode
+                                    || self.convert_to_zar_mode
+                                {
+                                    self.exit_requested = true;
+                                }
                             } else {
                                 self.status = error.clone();
                                 self.report = Some(error);
@@ -6041,6 +6311,7 @@ impl ZargApp {
         let builder = egui::ViewportBuilder::default()
             .with_title(title)
             .with_resizable(resizable)
+            .with_always_on_top()
             .with_clamp_size_to_monitor_size(true);
         Self::focus_new_window(context, viewport_id, viewport_exists);
         if viewport_exists {
@@ -6157,6 +6428,27 @@ impl ZargApp {
         );
 
         (inner_size, max_inner_size, position)
+    }
+
+    fn center_extract_here_window(&mut self, context: &egui::Context) {
+        if self.centered_extract_here {
+            return;
+        }
+        let Some(outer_rect) = context.input(|input| input.viewport().outer_rect) else {
+            return;
+        };
+        if outer_rect.width() <= 1.0 || outer_rect.height() <= 1.0 {
+            return;
+        }
+        if let Some(monitor_rect) = Self::dialog_monitor_rect(context, outer_rect) {
+            let (_, _, position) = Self::clamp_dialog_placement(
+                monitor_rect.center(),
+                monitor_rect,
+                outer_rect.size(),
+            );
+            context.send_viewport_cmd(egui::ViewportCommand::OuterPosition(position));
+            self.centered_extract_here = true;
+        }
     }
 
     fn render_icon_archive_list(&mut self, ui: &mut egui::Ui, context: &egui::Context) {
@@ -6805,6 +7097,13 @@ impl ZargApp {
                 .clone_from(&self.default_password);
             self.operation.password_is_set = true;
         }
+        if let Some(state) = &mut self.extract_here_password {
+            for row in &mut state.rows {
+                if row.encrypted && row.password.is_empty() {
+                    row.password.clone_from(&self.default_password);
+                }
+            }
+        }
     }
 
     pub fn load_default_password(&mut self, context: &egui::Context) {
@@ -7032,21 +7331,145 @@ impl eframe::App for ZargApp {
             self.wayland_drag = None;
             self.x11_drag = None;
         }
-        if let Err(error) = self.current_settings().save() {
+        if !self.extract_here_mode
+            && !self.extract_to_mode
+            && !self.convert_to_zar_mode
+            && let Err(error) = self.current_settings().save()
+        {
             eprintln!("zarg: could not save settings: {error}");
         }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let context = ui.ctx().clone();
-        Self::focus_new_window(
-            &context,
-            egui::ViewportId::ROOT,
-            self.startup_focus_requested,
-        );
+        if self.operation.kind.is_none() {
+            Self::focus_new_window(
+                &context,
+                egui::ViewportId::ROOT,
+                self.startup_focus_requested,
+            );
+        }
         self.startup_focus_requested = true;
         let window_rect = ui.max_rect();
         self.drop_target = None;
+
+        if self.convert_to_zar_mode {
+            self.center_extract_here_window(&context);
+            if context.input(|input| input.viewport().close_requested()) {
+                if let Some(worker) = &self.worker
+                    && let Some(token) = &worker.cancellation
+                {
+                    token.store(true, Ordering::Relaxed);
+                }
+                self.exit_requested = true;
+            }
+            self.apply_control_size(&context);
+            self.poll_worker(&context);
+            if self.busy {
+                context.request_repaint_after(Duration::from_millis(16));
+            }
+            self.render_convert_to_zar_dialog(ui);
+            self.render_operation_error_dialog(&context);
+            #[cfg(windows)]
+            crate::windows_move::install_viewports(_frame);
+            self.update_window_title(&context);
+            if !self.busy && self.report.is_none() {
+                self.exit_requested = true;
+            }
+            if self.exit_requested {
+                self.exit_requested = false;
+                context.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            return;
+        }
+
+        if self.extract_to_mode {
+            self.center_extract_here_window(&context);
+            if context.input(|input| input.viewport().close_requested()) {
+                if let Some(worker) = &self.worker
+                    && let Some(token) = &worker.cancellation
+                {
+                    token.store(true, Ordering::Relaxed);
+                }
+                self.exit_requested = true;
+            }
+            self.apply_control_size(&context);
+            self.poll_default_password();
+            self.poll_worker(&context);
+            if self.busy {
+                context.request_repaint_after(Duration::from_millis(16));
+                self.render_extract_here_dialog(ui);
+            } else if self.operation.kind == Some(OperationKind::ExtractArchive) {
+                self.render_standalone_extract_dialog(ui);
+            }
+            self.render_confirmation_dialog(&context);
+            self.render_open_password_dialog(&context);
+            self.render_operation_error_dialog(&context);
+            #[cfg(windows)]
+            crate::windows_move::install_viewports(_frame);
+            self.update_window_title(&context);
+            if !self.busy
+                && self.operation.kind.is_none()
+                && self.report.is_none()
+                && self.open_password_dialog.is_none()
+                && self.confirmation.is_none()
+            {
+                self.exit_requested = true;
+            }
+            if self.exit_requested {
+                self.exit_requested = false;
+                context.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            return;
+        }
+
+        if self.extract_here_mode {
+            self.center_extract_here_window(&context);
+            if context.input(|input| input.viewport().close_requested()) {
+                if let Some(worker) = &self.worker
+                    && let Some(token) = &worker.cancellation
+                {
+                    token.store(true, Ordering::Relaxed);
+                }
+                self.exit_requested = true;
+            }
+            self.apply_control_size(&context);
+            self.poll_default_password();
+            if self.extract_here_password.is_some() {
+                self.render_extract_here_password_dialog(ui);
+                #[cfg(windows)]
+                crate::windows_move::install_viewports(_frame);
+                self.update_window_title(&context);
+                if self.exit_requested {
+                    self.exit_requested = false;
+                    context.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                return;
+            }
+            self.poll_worker(&context);
+            if self.busy {
+                context.request_repaint_after(Duration::from_millis(16));
+            }
+            self.render_extract_here_dialog(ui);
+            self.render_confirmation_dialog(&context);
+            self.render_open_password_dialog(&context);
+            self.render_operation_error_dialog(&context);
+            #[cfg(windows)]
+            crate::windows_move::install_viewports(_frame);
+            self.update_window_title(&context);
+            if !self.busy
+                && self.report.is_none()
+                && self.open_password_dialog.is_none()
+                && self.confirmation.is_none()
+            {
+                self.exit_requested = true;
+            }
+            if self.exit_requested {
+                self.exit_requested = false;
+                context.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            return;
+        }
         self.handle_global_shortcuts(&context);
         self.handle_archive_shortcuts(&context);
         #[cfg(target_os = "linux")]

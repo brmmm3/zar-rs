@@ -29,6 +29,7 @@ cp -a %{stage_dir}/. %{buildroot}/
 %doc /usr/share/doc/zar-rs/README.md
 /usr/bin/zarc
 /usr/bin/zarg
+/usr/bin/zarmount
 /usr/bin/zarg-install-thunar-actions
 /usr/share/applications/zarg.desktop
 /usr/share/applications/zarg-error.desktop
@@ -59,5 +60,5 @@ if [ -x /usr/bin/gtk-update-icon-cache ]; then
 fi
 
 %changelog
-* Sat Oct 31 2026 The ZAR contributors - %{pkg_version}-1
+* Sat Oct 31 2026 Martin Bammer - %{pkg_version}-1
 - Packaged release %{pkg_version}

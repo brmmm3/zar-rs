@@ -35,10 +35,10 @@ need() {
 
 build_binaries() {
     if [ "${SKIP_BUILD:-0}" != 1 ]; then
-        (cd "$ROOT" && cargo build --release --locked --bins -p zarlib-cli -p zarlib-gui)
+        (cd "$ROOT" && cargo build --release --locked --bins -p zarlib-cli -p zarlib-gui -p zarmount)
     fi
-    [ -x "$BIN_DIR/zarc" ] && [ -x "$BIN_DIR/zarg" ] \
-        || { echo "error: zarc and zarg not found in $BIN_DIR" >&2; exit 1; }
+    [ -x "$BIN_DIR/zarc" ] && [ -x "$BIN_DIR/zarg" ] && [ -x "$BIN_DIR/zarmount" ] \
+        || { echo "error: zarc, zarg or zarmount not found in $BIN_DIR" >&2; exit 1; }
 }
 
 # Lays out an install root shared by deb, rpm and AppImage.
@@ -47,6 +47,7 @@ stage_files() {
     rm -rf "$stage"
     install -Dm755 "$BIN_DIR/zarc" "$stage/usr/bin/zarc"
     install -Dm755 "$BIN_DIR/zarg" "$stage/usr/bin/zarg"
+    install -Dm755 "$BIN_DIR/zarmount" "$stage/usr/bin/zarmount"
     install -Dm644 "$ROOT/zarlib-gui/data/zarg.desktop" "$stage/usr/share/applications/zarg.desktop"
     install -Dm644 "$ROOT/zarlib-gui/data/zarg-error.desktop" \
         "$stage/usr/share/applications/zarg-error.desktop"
@@ -68,14 +69,12 @@ stage_files() {
         mkdir -p "$stage/usr/share/nautilus/scripts"
         local script_name
         for script_name in \
-            "ZAR - Create Archive..." \
-            "ZAR - Add to Archive..." \
-            "ZAR - Create Archive (named)" \
             "ZAR - Open Archive" \
             "ZAR - Extract here" \
             "ZAR - Extract to..." \
-            "ZAR - Extract to archive folder" \
-            "ZAR - Test Archive"; do
+            "ZAR - Create Archive..." \
+            "ZAR - Convert to ZAR" \
+            "ZAR - Mount Archive"; do
             ln -s /usr/libexec/zar-rs/nautilus-script \
                 "$stage/usr/share/nautilus/scripts/$script_name"
         done
@@ -144,7 +143,7 @@ Upstream-Name: zar-rs
 Source: https://github.com/brmmm3/zar-rs
 
 Files: *
-Copyright: 2026 The ZAR contributors
+Copyright: 2026 Martin Bammer
 License: MIT or Apache-2.0
  The full texts are in LICENSE-MIT and LICENSE-APACHE in this directory.
 EOF
