@@ -197,7 +197,7 @@
     <div class="hero-content" id="top">
       <p class="eyebrow">Rust archive format and toolkit</p>
       <h1>Keep your files.<br>Keep their history.</h1>
-      <p>ZAR creates fast, verifiable archives with commit-based updates, data deduplication, and optional authenticated encryption.</p>
+      <p>ZAR creates fast, verifiable archives with commit-based updates, data deduplication, and optional authenticated encryption. Search or mount archives without extracting them.</p>
       <div class="actions">
         <a class="button primary" href="https://github.com/brmmm3/zar-rs#quick-start">Get started</a>
         <a class="button" href="https://github.com/brmmm3/zar-rs">Explore the source</a>
@@ -240,6 +240,18 @@
           <h3>Careful extraction</h3>
           <p>Validate paths and constrain restoration to the selected destination rather than trusting archive entries blindly.</p>
         </article>
+        <article class="card">
+          <h3>Search without extraction</h3>
+          <p>Find text across archived files with path filters, regular expressions, and optional surrounding lines.</p>
+        </article>
+        <article class="card">
+          <h3>Read-only mounting</h3>
+          <p>Browse archive contents as a virtual filesystem on Linux and Windows, including earlier commit states.</p>
+        </article>
+        <article class="card">
+          <h3>Streaming integrations</h3>
+          <p>Create archives from readers and extract individual files to writers without buffering whole files.</p>
+        </article>
       </div>
     </section>
 
@@ -253,7 +265,11 @@
         </article>
         <article class="card">
           <h3><a href="https://github.com/brmmm3/zar-rs/tree/master/zarlib-gui">zarg — desktop manager</a></h3>
-          <p>Browse archive contents and commits, manage files, and restore selected versions with a graphical interface.</p>
+          <p>Browse archive contents and commits, search files, and restore selected versions with a graphical interface.</p>
+        </article>
+        <article class="card">
+          <h3><a href="https://github.com/brmmm3/zar-rs/tree/master/zarmount">zarmount — virtual filesystem</a></h3>
+          <p>Mount ZAR archives read-only with FUSE on Linux or ProjFS on Windows. Select the latest or an earlier commit.</p>
         </article>
         <article class="card">
           <h3><a href="https://github.com/brmmm3/zar-rs/tree/master/zcopy">zcopy — network copy</a></h3>
@@ -280,9 +296,14 @@ zarc info -v backup.zar
 # Add changes, verify, and restore
 zarc add backup.zar documents/
 zarc check backup.zar
+
+# Search archived text without extracting
+zarc grep backup.zar 'TODO|FIXME' --file-filter '*.txt' -B 1 -A 1
+
+# Restore the archive
 zarc extract backup.zar --output ./restored/</code></pre>
       </div>
-      <p class="note">Adding files does not automatically remove deleted paths. Use <code>zarc remove</code> for entries you want to delete. Encryption and other workflows are covered in the CLI guide.</p>
+      <p class="note">Adding files does not automatically remove deleted paths. Use <code>zarc remove</code> for entries you want to delete. For mounting, see the zarmount guide for FUSE or ProjFS prerequisites; keep an archive unchanged while it is mounted.</p>
     </section>
 
     <section id="resources" aria-labelledby="resources-title">
@@ -302,11 +323,15 @@ zarc extract backup.zar --output ./restored/</code></pre>
         </div>
         <div class="resource">
           <strong><a href="https://github.com/brmmm3/zar-rs/blob/master/zarlib-cli/README.md">CLI guide</a></strong>
-          <p>Command reference, configuration, encryption, conversion, and backup workflows.</p>
+          <p>Command reference, search, configuration, encryption, conversion, and backup workflows.</p>
+        </div>
+        <div class="resource">
+          <strong><a href="https://github.com/brmmm3/zar-rs/blob/master/zarmount/README.md">Mounting guide</a></strong>
+          <p>Linux FUSE and Windows ProjFS setup, read-only mounts, history, and limitations.</p>
         </div>
         <div class="resource">
           <strong><a href="https://github.com/brmmm3/zar-rs#language-bindings-and-runtime-packages">Language bindings</a></strong>
-          <p>Python, C, C++, Go, Java, C#, and WebAssembly / Node.js packages.</p>
+          <p>Python, C, C++, Go, Java, C#, Lua, and WebAssembly / Node.js packages.</p>
         </div>
         <div class="resource">
           <strong><a href="https://github.com/brmmm3/zar-rs/blob/master/doc/benchmarks/README.md">Benchmark reports</a></strong>
