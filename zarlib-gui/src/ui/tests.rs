@@ -1323,7 +1323,7 @@ fn extract_to_standalone_dialog_extracts_and_requests_exit_when_finished() {
     let input = archive_dir.join("sample.txt");
     std::fs::write(&input, b"extract to content").unwrap();
     let archive = archive_dir.join("sample.zar");
-    operations::create_archive(archive.to_str().unwrap(), &[input.clone()]).unwrap();
+    operations::create_archive(archive.to_str().unwrap(), std::slice::from_ref(&input)).unwrap();
     std::fs::remove_file(&input).unwrap();
     assert!(!input.exists());
 
@@ -1400,7 +1400,7 @@ fn extract_here_context_action_extracts_and_requests_exit_when_finished() {
     let input = archive_dir.join("extracted_file.txt");
     std::fs::write(&input, b"extract here content").unwrap();
     let archive = archive_dir.join("sample.zar");
-    operations::create_archive(archive.to_str().unwrap(), &[input.clone()]).unwrap();
+    operations::create_archive(archive.to_str().unwrap(), std::slice::from_ref(&input)).unwrap();
     std::fs::remove_file(&input).unwrap();
     assert!(!input.exists());
 
