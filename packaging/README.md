@@ -244,7 +244,8 @@ Actions under `/Library/Services`. The DMG includes the same workflows in a
 `Finder Quick Actions` folder; copy them to `~/Library/Services` to install
 them for only the current user. The app registers `.zar` as an alternate
 archive viewer without changing the default handler, using the icon derived
-from `application-x-zar.png`. Packages are ad-hoc signed unless
+from `application-x-zar.png`. `zarmount` and its Finder mount action are not
+included because mounting is not supported on macOS. Packages are ad-hoc signed unless
 `CODESIGN_IDENTITY` (Developer ID Application) and
 `INSTALLER_IDENTITY` (Developer ID Installer) are set. Notarization is not
 included.

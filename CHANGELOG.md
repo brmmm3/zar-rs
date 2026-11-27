@@ -59,6 +59,8 @@ until a version is released.
 ### Fixed
 
 - Fixed Linux zarmount dialogs failing after the running binary is rebuilt.
+- Fixed macOS packaging failing because it required the unsupported
+  `zarmount` binary; removed the corresponding Finder mount action.
 
 ## 0.16.0 - 2026-11-21
 

@@ -41,9 +41,9 @@ APP="$WORK/Zarg.app"
 
 build_binaries() {
     if [ "${SKIP_BUILD:-0}" != 1 ]; then
-        (cd "$ROOT" && cargo build --release --bins --locked)
+        (cd "$ROOT" && cargo build --release --bins --locked -p zarlib-cli -p zarlib-gui)
     fi
-    for b in zarc zarg zarmount; do
+    for b in zarc zarg; do
         [ -x "$BIN_DIR/$b" ] || { echo "missing $BIN_DIR/$b" >&2; exit 1; }
     done
 }
@@ -80,34 +80,27 @@ make_app() {
     mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
     cp "$BIN_DIR/zarg" "$APP/Contents/MacOS/zarg"
     cp "$BIN_DIR/zarc" "$APP/Contents/Resources/zarc"
-    cp "$BIN_DIR/zarmount" "$APP/Contents/Resources/zarmount"
     sed "s/@VERSION@/$VERSION/g" "$ROOT/packaging/macos/Info.plist" > "$APP/Contents/Info.plist"
     plutil -lint "$APP/Contents/Info.plist" >/dev/null
     make_icns
     make_zar_icns
     if [ -n "${CODESIGN_IDENTITY:-}" ]; then
         codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" \
-            "$APP/Contents/Resources/zarc" "$APP/Contents/Resources/zarmount" "$APP"
+            "$APP/Contents/Resources/zarc" "$APP"
     else
-        codesign --force --sign - "$APP/Contents/Resources/zarc" "$APP/Contents/Resources/zarmount" "$APP"
+        codesign --force --sign - "$APP/Contents/Resources/zarc" "$APP"
     fi
 }
 
 make_services() {
     local services="$WORK/Services"
-    local action title bundle
+    local action title bundle script
     rm -rf "$services"
     mkdir -p "$services"
     while IFS='|' read -r action title; do
         bundle="$services/ZAR - $title.workflow"
         mkdir -p "$bundle/Contents"
-        if [ "$action" = "mount" ]; then
-            executable="/Applications/Zarg.app/Contents/Resources/zarmount"
-            script="exec \"$executable\" --ask \"\$1\""
-        else
-            executable="/Applications/Zarg.app/Contents/MacOS/zarg"
-            script="exec \"$executable\" --context $action -- \"\$@\""
-        fi
+        script="exec \"/Applications/Zarg.app/Contents/MacOS/zarg\" --context $action -- \"\$@\""
         cat > "$bundle/Contents/Info.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -186,7 +179,6 @@ extract-here|Extract here
 extract-to|Extract to...
 create|Create Archive...
 convert-to-zar|Convert to ZAR
-mount|Mount Archive
 EOF
 }
 
@@ -208,11 +200,10 @@ build_pkg() {
     mkdir -p "$root/Applications" "$root/usr/local/bin" "$root/Library/Services"
     cp -R "$APP" "$root/Applications/"
     cp "$BIN_DIR/zarc" "$root/usr/local/bin/zarc"
-    cp "$BIN_DIR/zarmount" "$root/usr/local/bin/zarmount"
     cp -R "$WORK/Services/." "$root/Library/Services/"
     if [ -n "${CODESIGN_IDENTITY:-}" ]; then
         codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" \
-            "$root/usr/local/bin/zarc" "$root/usr/local/bin/zarmount"
+            "$root/usr/local/bin/zarc"
     fi
     if [ -n "${INSTALLER_IDENTITY:-}" ]; then
         sign=(--sign "$INSTALLER_IDENTITY")
