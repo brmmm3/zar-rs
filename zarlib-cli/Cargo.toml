@@ -65,7 +65,7 @@ libc = "0.2"
 regex = { version = "1.13.1", default-features = false, features = ["std"] }
 rustyline = { version = "19", default-features = false }
 serde_json.workspace = true
-zarlib = { version = "0.17.0", path = "../zarlib" }
+zarlib = { version = "0.17.1", path = "../zarlib" }
 
 [dev-dependencies]
 flate2 = "1.1"

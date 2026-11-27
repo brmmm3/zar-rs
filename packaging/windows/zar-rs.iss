@@ -6,7 +6,7 @@
 ; the tasks page or pass /ALLUSERS on the command line.
 ;
 ; Build (from the repository root, after `cargo build --release --bins`):
-;   iscc /DAppVersion=0.17.0 packaging\windows\zar-rs.iss
+;   iscc /DAppVersion=0.17.1 packaging\windows\zar-rs.iss
 ; Options:
 ;   /DSourceDir=<dir>   directory containing zarc.exe, zarg.exe, zcopy.exe and
 ;                       zarmount.exe (default: target\release; use
@@ -14,7 +14,7 @@
 ;   /DArch=arm64        build the installer for Windows on ARM (default: x64)
 
 #ifndef AppVersion
-  #define AppVersion "0.17.0"
+  #define AppVersion "0.17.1"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\..\target\release"

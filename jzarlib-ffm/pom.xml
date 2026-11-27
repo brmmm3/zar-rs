@@ -4,7 +4,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>io.github.brmmm3</groupId>
   <artifactId>jzarlib-ffm</artifactId>
-  <version>0.17.0</version>
+  <version>0.17.1</version>
   <name>jzarlib-ffm</name>
   <description>Java Foreign Function and Memory API bindings for the ZAR archive library.</description>
   <url>https://github.com/brmmm3/zar-rs</url>

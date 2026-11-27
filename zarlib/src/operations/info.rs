@@ -1073,6 +1073,106 @@ mod tests {
     }
 
     #[test]
+    fn sparse_block_indices_keep_file_counts_and_compression_ratios() {
+        use crate::{ArchivePath, HeaderBlockIndexEntry};
+
+        let first = 4_000_001;
+        let header = LogicalHeader::with_block_size(
+            vec![
+                TocChange::PutFile {
+                    path: ArchivePath::new("large").unwrap(),
+                    entry: FileEntry::new(48, vec![first, first + 1]).unwrap(),
+                },
+                TocChange::PutFile {
+                    path: ArchivePath::new("shared").unwrap(),
+                    entry: FileEntry::new(4, vec![first]).unwrap(),
+                },
+            ],
+            32,
+        );
+        let entries = [
+            HeaderBlockIndexEntry {
+                index: first,
+                offset: 0,
+                encoded_size: 36,
+            },
+            HeaderBlockIndexEntry {
+                index: first + 1,
+                offset: 36,
+                encoded_size: 28,
+            },
+        ];
+        let blocks = build_blocks_from_header(&header, &entries, false).unwrap();
+        assert_eq!(blocks[0].file_count, 2);
+        assert_eq!(blocks[0].file_groups, vec!["big files", "tiny files"]);
+        assert_eq!(blocks[0].compressed_size, 16);
+        assert_eq!(blocks[0].ratio_percent, Some(50.0));
+        assert_eq!(blocks[1].file_count, 1);
+        assert_eq!(blocks[1].ratio_percent, Some(50.0));
+
+        let encrypted = build_blocks_from_header(&header, &entries, true).unwrap();
+        assert_eq!(encrypted[0].compressed_size, 4);
+        assert!(encrypted.iter().all(|block| block.ratio_percent.is_none()));
+    }
+
+    #[cfg(not(target_os = "wasi"))]
+    #[test]
+    fn indexed_and_sequential_scans_report_the_same_block_details() {
+        use crate::{ArchivePath, HeaderBlockIndexEntry};
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("blocks");
+        let frames = [
+            BlockFrame::from_stored(0, b"abc").unwrap(),
+            BlockFrame::from_uncompressed(1, &[42; 256], 3).unwrap(),
+        ];
+        let mut bytes = Vec::new();
+        let mut entries = Vec::new();
+        for (index, frame) in frames.iter().enumerate() {
+            let offset = bytes.len() as u64;
+            frame.write_to(&mut bytes).unwrap();
+            entries.push(HeaderBlockIndexEntry {
+                index: index as u32,
+                offset,
+                encoded_size: bytes.len() as u64 - offset,
+            });
+        }
+        std::fs::write(&path, &bytes).unwrap();
+        let header = LogicalHeader::with_block_size(
+            vec![
+                TocChange::PutFile {
+                    path: ArchivePath::new("tiny").unwrap(),
+                    entry: FileEntry::new(3, vec![0]).unwrap(),
+                },
+                TocChange::PutFile {
+                    path: ArchivePath::new("large").unwrap(),
+                    entry: FileEntry::new(256, vec![1]).unwrap(),
+                },
+            ],
+            256,
+        )
+        .with_block_index(entries);
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(2)
+            .build()
+            .unwrap();
+        let params = |mmap| ScanDataParams {
+            path: path.to_str().unwrap(),
+            data_start: 0,
+            data_section_size: bytes.len() as u64,
+            limits: CommitValidationLimits::default(),
+            mmap,
+        };
+        let sequential = scan_commit_blocks(params(None), Some(&header), 1, None).unwrap();
+        let indexed =
+            scan_commit_blocks(params(Some(&bytes)), Some(&header), 2, Some(&pool)).unwrap();
+        assert_eq!(indexed, sequential);
+        assert_eq!(indexed[0].file_groups, vec!["tiny files"]);
+        assert_eq!(indexed[1].file_groups, vec!["big files"]);
+        assert!(scan_commit_blocks(params(Some(&bytes[..1])), Some(&header), 1, None).is_err());
+    }
+
+    #[test]
     fn summarize_files_counts_groups_deduplication_and_encrypted_blocks() {
         use crate::{ArchivePath, DeviceKind};
 

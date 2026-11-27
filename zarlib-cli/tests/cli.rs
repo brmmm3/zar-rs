@@ -38,6 +38,280 @@ where
         .unwrap()
 }
 
+#[cfg(unix)]
+fn zarc_with_terminal(args: &[&OsStr], prompts: &[(&str, &str)]) -> Output {
+    use std::io::Read;
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::time::{Duration, Instant};
+
+    struct ChildGuard(std::process::Child);
+    impl Drop for ChildGuard {
+        fn drop(&mut self) {
+            if matches!(self.0.try_wait(), Ok(None)) {
+                let _ = self.0.kill();
+            }
+            let _ = self.0.wait();
+        }
+    }
+
+    let mut master = -1;
+    let mut slave = -1;
+    assert_eq!(
+        unsafe {
+            libc::openpty(
+                &mut master,
+                &mut slave,
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                std::ptr::null(),
+            )
+        },
+        0
+    );
+    let mut terminal = unsafe { std::fs::File::from_raw_fd(master) };
+    let input = unsafe { std::fs::File::from_raw_fd(slave) };
+    let mut child = ChildGuard(
+        Command::new(env!("CARGO_BIN_EXE_zarc"))
+            .arg("--no-config")
+            .args(args)
+            .stdin(Stdio::from(input))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    let mut stderr = child.0.stderr.take().unwrap();
+    let mut errors = Vec::new();
+    for (prompt, password) in prompts {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !errors.ends_with(prompt.as_bytes()) {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            assert!(!remaining.is_zero(), "timed out waiting for {prompt:?}");
+            let mut fd = libc::pollfd {
+                fd: stderr.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            let ready = unsafe { libc::poll(&mut fd, 1, remaining.as_millis() as i32) };
+            assert!(ready > 0, "could not read prompt {prompt:?}: {ready}");
+            let mut byte = [0];
+            assert_eq!(
+                stderr.read(&mut byte).unwrap(),
+                1,
+                "process exited before prompt {prompt:?}: {}",
+                String::from_utf8_lossy(&errors)
+            );
+            errors.push(byte[0]);
+        }
+        let mut attributes = std::mem::MaybeUninit::<libc::termios>::uninit();
+        assert_eq!(
+            unsafe { libc::tcgetattr(terminal.as_raw_fd(), attributes.as_mut_ptr()) },
+            0
+        );
+        assert_eq!(unsafe { attributes.assume_init() }.c_lflag & libc::ECHO, 0);
+        writeln!(terminal, "{password}").unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let status = loop {
+        if let Some(status) = child.0.try_wait().unwrap() {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "zarc did not exit");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let mut attributes = std::mem::MaybeUninit::<libc::termios>::uninit();
+    assert_eq!(
+        unsafe { libc::tcgetattr(terminal.as_raw_fd(), attributes.as_mut_ptr()) },
+        0
+    );
+    assert_ne!(unsafe { attributes.assume_init() }.c_lflag & libc::ECHO, 0);
+    stderr.read_to_end(&mut errors).unwrap();
+    let mut stdout = Vec::new();
+    child
+        .0
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_end(&mut stdout)
+        .unwrap();
+    Output {
+        status,
+        stdout,
+        stderr: errors,
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn cli_interactively_encrypts_and_decrypts_a_commit() {
+    let temp = TestDirectory::new();
+    let source = temp.path().join("input.txt");
+    let archive = temp.path().join("plain.zar");
+    let encrypted = temp.path().join("encrypted.zar");
+    let decrypted = temp.path().join("decrypted.zar");
+    let destination = temp.path().join("output");
+    std::fs::write(&source, b"interactive encryption").unwrap();
+    let created = zarc([
+        OsStr::new("--no-config"),
+        OsStr::new("create"),
+        OsStr::new("--no-progress"),
+        archive.as_os_str(),
+        source.as_os_str(),
+    ]);
+    assert!(created.status.success(), "{created:?}");
+    let json = zarc([
+        OsStr::new("--no-config"),
+        OsStr::new("info"),
+        OsStr::new("--json"),
+        archive.as_os_str(),
+    ]);
+    assert!(json.status.success(), "{json:?}");
+    let info: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    let id = OsStr::new(info["commits"][0]["id"].as_str().unwrap());
+
+    let result = zarc_with_terminal(
+        &[
+            OsStr::new("encrypt"),
+            archive.as_os_str(),
+            OsStr::new("--from"),
+            id,
+            OsStr::new("--to"),
+            id,
+            OsStr::new("--output"),
+            encrypted.as_os_str(),
+            OsStr::new("--aead"),
+            OsStr::new("chacha20-poly1305"),
+            OsStr::new("--encryption-scope"),
+            OsStr::new("header-and-data"),
+            OsStr::new("--strict"),
+        ],
+        &[("New encryption password: ", "test password")],
+    );
+    assert!(result.status.success(), "{result:?}");
+    assert!(String::from_utf8_lossy(&result.stdout).contains("transformation completed"));
+    let commit_prompt = format!("Password for commit {}: ", id.to_string_lossy());
+    let duplicate = zarc_with_terminal(
+        &[
+            OsStr::new("decrypt"),
+            encrypted.as_os_str(),
+            OsStr::new("--from"),
+            id,
+            OsStr::new("--to"),
+            id,
+            OsStr::new("--password-for"),
+            id,
+            OsStr::new("--password-for"),
+            id,
+        ],
+        &[(&commit_prompt, "test password")],
+    );
+    assert!(!duplicate.status.success(), "{duplicate:?}");
+    assert!(String::from_utf8_lossy(&duplicate.stderr).contains("specified more than once"));
+    let result = zarc_with_terminal(
+        &[
+            OsStr::new("decrypt"),
+            encrypted.as_os_str(),
+            OsStr::new("--from"),
+            id,
+            OsStr::new("--to"),
+            id,
+            OsStr::new("--output"),
+            decrypted.as_os_str(),
+            OsStr::new("--password-for"),
+            id,
+            OsStr::new("--strict"),
+        ],
+        &[(&commit_prompt, "test password")],
+    );
+    assert!(result.status.success(), "{result:?}");
+    assert!(String::from_utf8_lossy(&result.stdout).contains("transformation completed"));
+    assert!(!String::from_utf8_lossy(&result.stderr).contains("test password"));
+    let extracted = zarc([
+        OsStr::new("--no-config"),
+        OsStr::new("extract"),
+        OsStr::new("--no-progress"),
+        decrypted.as_os_str(),
+        OsStr::new("--output"),
+        destination.as_os_str(),
+    ]);
+    assert!(extracted.status.success(), "{extracted:?}");
+    assert_eq!(
+        std::fs::read(destination.join("input.txt")).unwrap(),
+        b"interactive encryption"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn cli_interactively_creates_and_adds_with_commit_passwords() {
+    let temp = TestDirectory::new();
+    let first = temp.path().join("first.txt");
+    let second = temp.path().join("second.txt");
+    let archive = temp.path().join("archive.zar");
+    std::fs::write(&first, b"first secret").unwrap();
+    std::fs::write(&second, b"second secret").unwrap();
+    let created = zarc_with_terminal(
+        &[
+            OsStr::new("create"),
+            OsStr::new("--no-progress"),
+            OsStr::new("--password"),
+            OsStr::new("--encryption-scope"),
+            OsStr::new("data"),
+            archive.as_os_str(),
+            first.as_os_str(),
+        ],
+        &[("Archive password: ", "first password")],
+    );
+    assert!(created.status.success(), "{created:?}");
+    let info = zarc([
+        OsStr::new("--no-config"),
+        OsStr::new("info"),
+        OsStr::new("--json"),
+        archive.as_os_str(),
+    ]);
+    assert!(info.status.success(), "{info:?}");
+    let info: serde_json::Value = serde_json::from_slice(&info.stdout).unwrap();
+    let id = OsStr::new(info["commits"][0]["id"].as_str().unwrap());
+    let commit_prompt = format!("Password for commit {}: ", id.to_string_lossy());
+    let added = zarc_with_terminal(
+        &[
+            OsStr::new("add"),
+            OsStr::new("--no-progress"),
+            OsStr::new("--password"),
+            OsStr::new("--password-for"),
+            id,
+            OsStr::new("--encryption-scope"),
+            OsStr::new("header"),
+            OsStr::new("--aead"),
+            OsStr::new("chacha20-poly1305"),
+            archive.as_os_str(),
+            second.as_os_str(),
+        ],
+        &[
+            ("New commit password: ", "second password"),
+            (&commit_prompt, "first password"),
+        ],
+    );
+    assert!(added.status.success(), "{added:?}");
+    let info = zarc([
+        OsStr::new("--no-config"),
+        OsStr::new("info"),
+        OsStr::new("--json"),
+        archive.as_os_str(),
+    ]);
+    assert!(info.status.success(), "{info:?}");
+    let info: serde_json::Value = serde_json::from_slice(&info.stdout).unwrap();
+    assert_eq!(info["commit_count"], 2);
+    assert_eq!(info["commits"][0]["header_encrypted"], false);
+    assert_eq!(info["commits"][0]["data_encrypted"], true);
+    assert_eq!(info["commits"][1]["header_encrypted"], true);
+    assert_eq!(info["commits"][1]["data_encrypted"], false);
+    assert_eq!(
+        info["commits"][1]["encryption_algorithm"],
+        "chacha20-poly1305"
+    );
+}
+
 #[test]
 fn cli_grep_returns_context_and_preserves_bytes() {
     let temp = TestDirectory::new();
@@ -522,6 +796,94 @@ fn cli_encrypted_round_trip_with_password_stdin() {
         let output = child.wait_with_output().unwrap();
         assert!(!output.status.success(), "{output:?}");
         assert!(!String::from_utf8_lossy(&output.stderr).contains("wrong password"));
+    }
+}
+
+#[test]
+fn cli_reports_encrypted_archives_without_disclosing_contents() {
+    let temp = TestDirectory::new();
+    let source = temp.path().join("secret.txt");
+    std::fs::write(&source, b"secret content").unwrap();
+    for algorithm in ["aes-256-gcm", "chacha20-poly1305"] {
+        let archive = temp.path().join(format!("{algorithm}.zar"));
+        let mut child = Command::new(env!("CARGO_BIN_EXE_zarc"))
+            .args([
+                "--no-config",
+                "create",
+                "--no-progress",
+                "--password-stdin",
+                "--aead",
+                algorithm,
+            ])
+            .arg(&archive)
+            .arg(&source)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"password\n")
+            .unwrap();
+        let created = child.wait_with_output().unwrap();
+        assert!(created.status.success(), "{created:?}");
+
+        let json = zarc([
+            OsStr::new("--no-config"),
+            OsStr::new("info"),
+            OsStr::new("--json"),
+            archive.as_os_str(),
+        ]);
+        assert!(json.status.success(), "{json:?}");
+        let info: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+        assert_eq!(info["commits"][0]["encryption_algorithm"], algorithm);
+        assert_eq!(info["commits"][0]["header_encrypted"], true);
+        assert_eq!(info["commits"][0]["data_encrypted"], true);
+
+        let info = zarc([
+            OsStr::new("--no-config"),
+            OsStr::new("info"),
+            OsStr::new("--verbose"),
+            archive.as_os_str(),
+        ]);
+        assert!(info.status.success(), "{info:?}");
+        let info = String::from_utf8(info.stdout).unwrap();
+        assert!(
+            info.contains("detailed file statistics unavailable"),
+            "{info}"
+        );
+        assert!(info.contains("unavailable (encrypted header)"), "{info}");
+
+        let check = zarc([
+            OsStr::new("--no-config"),
+            OsStr::new("check"),
+            OsStr::new("--no-progress"),
+            archive.as_os_str(),
+        ]);
+        assert!(check.status.success(), "{check:?}");
+        let check = String::from_utf8(check.stdout).unwrap();
+        assert!(check.contains("content not checked:"), "{check}");
+        assert!(
+            check.contains("logical TOC consistency not fully checked"),
+            "{check}"
+        );
+
+        let list = zarc([
+            OsStr::new("--no-config"),
+            OsStr::new("list"),
+            OsStr::new("--verbose"),
+            archive.as_os_str(),
+        ]);
+        assert!(list.status.success(), "{list:?}");
+        let list = String::from_utf8(list.stdout).unwrap();
+        assert!(!list.contains("secret.txt"), "{list}");
+        assert!(
+            list.contains("Ignored commits (password not provided)"),
+            "{list}"
+        );
     }
 }
 

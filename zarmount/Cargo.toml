@@ -40,7 +40,7 @@ pkg-fmt = "zip"
 
 [dependencies]
 clap.workspace = true
-zarlib = { version = "0.17.0", path = "../zarlib" }
+zarlib = { version = "0.17.1", path = "../zarlib" }
 zeroize.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]

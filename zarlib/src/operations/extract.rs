@@ -4077,6 +4077,57 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn prepared_extraction_rejects_same_size_replacement_with_same_mtime() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("input.txt");
+        let archive = directory.path().join("archive.zar");
+        let replacement = directory.path().join("replacement.zar");
+        std::fs::write(&input, b"original").unwrap();
+        super::super::create_archive(archive.to_str().unwrap(), &[input]).unwrap();
+        let prepared =
+            PreparedExtraction::new(archive.to_str().unwrap(), None, &PasswordSet::default())
+                .unwrap();
+        let metadata = std::fs::metadata(&archive).unwrap();
+        std::fs::copy(&archive, &replacement).unwrap();
+        OpenOptions::new()
+            .write(true)
+            .open(&replacement)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(metadata.modified().unwrap()))
+            .unwrap();
+        std::fs::rename(&replacement, &archive).unwrap();
+        let new_metadata = std::fs::metadata(&archive).unwrap();
+        assert_eq!(new_metadata.len(), metadata.len());
+        assert_eq!(
+            new_metadata.modified().unwrap(),
+            metadata.modified().unwrap()
+        );
+        let error = prepared.read_file_range("input.txt", 0, 8).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("archive changed since validation")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn destination_directory_creation_refuses_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let actual = directory.path().join("actual");
+        let link = directory.path().join("link");
+        std::fs::create_dir(&actual).unwrap();
+        symlink(&actual, &link).unwrap();
+        let error = create_destination_directory(&link).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(error.to_string().contains("refusing destination symlink"));
+        assert!(std::fs::read_dir(actual).unwrap().next().is_none());
+    }
+
     #[test]
     fn special_targets_reject_links_outside_extraction_root() {
         let directory = tempfile::tempdir().unwrap();

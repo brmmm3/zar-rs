@@ -1,11 +1,11 @@
 {
-    "version": "0.17.0",
+    "version": "0.17.1",
     "description": "ZAR archive tools (AVX2 optimized).",
     "homepage": "https://github.com/brmmm3/zar-rs",
     "license": "MIT|Apache-2.0",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/brmmm3/zar-rs/releases/download/0.17.0/zar-rs-windows-x86_64-v3.zip",
+            "url": "https://github.com/brmmm3/zar-rs/releases/download/0.17.1/zar-rs-windows-x86_64-v3.zip",
             "hash": "ed151220e1a39aba1c35396c479d2de6b0a9c7d97baed1cd97675b7a2cb8e569",
             "extract_dir": "zar-rs-windows-x86_64-v3"
         }

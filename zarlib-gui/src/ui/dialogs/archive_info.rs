@@ -782,6 +782,48 @@ mod tests {
     }
 
     #[test]
+    fn disconnected_info_worker_reports_error_in_the_active_view() {
+        let context = egui::Context::default();
+        for unlocking in [false, true] {
+            let (sender, receiver) = mpsc::channel();
+            let mut app = ZargApp {
+                info_loading: Some(receiver),
+                ..Default::default()
+            };
+            if unlocking {
+                app.info_unlock_prompt = Some(ArchiveInfoUnlockPrompt {
+                    commit_id: [1, 0, 0, 0],
+                    password: String::new(),
+                    error: None,
+                    busy: true,
+                });
+            }
+            app.poll_archive_info(&context);
+            assert!(app.info_loading.is_some());
+            drop(sender);
+            app.poll_archive_info(&context);
+            assert!(app.info_loading.is_none());
+            if let Some(prompt) = &app.info_unlock_prompt {
+                assert!(!prompt.busy);
+                assert_eq!(
+                    prompt.error.as_deref(),
+                    Some("Archive information worker stopped unexpectedly")
+                );
+                assert!(app.report.is_none());
+            } else {
+                assert_eq!(
+                    app.report.as_deref(),
+                    Some("Archive information worker stopped unexpectedly")
+                );
+                assert_eq!(
+                    app.status,
+                    "Archive information worker stopped unexpectedly"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn info_unlock_is_remembered_only_after_success_and_survives_closing() {
         let directory = tempfile::tempdir().unwrap();
         let input = directory.path().join("input.txt");

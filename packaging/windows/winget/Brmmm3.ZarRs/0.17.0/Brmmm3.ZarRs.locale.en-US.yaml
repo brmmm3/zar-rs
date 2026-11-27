@@ -1,5 +1,5 @@
 PackageIdentifier: Brmmm3.ZarRs
-PackageVersion: 0.17.0
+PackageVersion: 0.17.1
 PackageLocale: en-US
 Publisher: Martin Bammer
 PublisherUrl: https://github.com/brmmm3
@@ -7,8 +7,8 @@ PublisherSupportUrl: https://github.com/brmmm3/zar-rs/issues
 PackageName: zarc
 PackageUrl: https://github.com/brmmm3/zar-rs
 License: MIT OR Apache-2.0
-LicenseUrl: https://github.com/brmmm3/zar-rs/blob/0.17.0/LICENSE-MIT
+LicenseUrl: https://github.com/brmmm3/zar-rs/blob/0.17.1/LICENSE-MIT
 ShortDescription: Command-line archiver for ZAR archives.
-ReleaseNotesUrl: https://github.com/brmmm3/zar-rs/releases/tag/0.17.0
+ReleaseNotesUrl: https://github.com/brmmm3/zar-rs/releases/tag/0.17.1
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0

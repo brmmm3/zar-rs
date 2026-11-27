@@ -2,7 +2,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>zar-rs-v3</id>
-    <version>0.17.0</version>
+    <version>0.17.1</version>
     <title>ZAR Archive Tools (AVX2 optimized)</title>
     <authors>Martin Bammer</authors>
     <copyright>Copyright (c) 2026 Martin Bammer</copyright>
@@ -13,9 +13,9 @@
     <bugTrackerUrl>https://github.com/brmmm3/zar-rs/issues</bugTrackerUrl>
     <packageSourceUrl>
       https://github.com/brmmm3/zar-rs/tree/master/packaging/windows/chocolatey/zar-rs</packageSourceUrl>
-    <iconUrl>https://cdn.jsdelivr.net/gh/brmmm3/zar-rs@0.17.0/zarlib-gui/assets/zarg-icon.ico</iconUrl>
+    <iconUrl>https://cdn.jsdelivr.net/gh/brmmm3/zar-rs@0.17.1/zarlib-gui/assets/zarg-icon.ico</iconUrl>
     <licenseUrl>https://github.com/brmmm3/zar-rs/blob/master/LICENSE-MIT</licenseUrl>
-    <releaseNotes>https://github.com/brmmm3/zar-rs/releases/tag/0.17.0</releaseNotes>
+    <releaseNotes>https://github.com/brmmm3/zar-rs/releases/tag/0.17.1</releaseNotes>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <summary>Archive tools with compression, deduplication, and commit-based history.</summary>
     <description>ZAR is an archive format and toolkit with compression, deduplication, and

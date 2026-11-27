@@ -1,5 +1,5 @@
 PackageIdentifier: Brmmm3.ZarRs
-PackageVersion: 0.17.0
+PackageVersion: 0.17.1
 InstallerType: zip
 NestedInstallerType: portable
 Installers:
@@ -13,7 +13,7 @@ Installers:
     PortableCommandAlias: zcopy
   - RelativeFilePath: zar-rs-windows-x86_64\zarmcp.exe
     PortableCommandAlias: zarmcp
-  InstallerUrl: https://github.com/brmmm3/zar-rs/releases/download/0.17.0/zar-rs-windows-x86_64.zip
+  InstallerUrl: https://github.com/brmmm3/zar-rs/releases/download/0.17.1/zar-rs-windows-x86_64.zip
   InstallerSha256: 044c811d287c8236e214eec3b0f7e310374a3af30cd4bcd846417333a10eedb9
 - Architecture: arm64
   NestedInstallerFiles:
@@ -25,7 +25,7 @@ Installers:
     PortableCommandAlias: zcopy
   - RelativeFilePath: zar-rs-windows-aarch64\zarmcp.exe
     PortableCommandAlias: zarmcp
-  InstallerUrl: https://github.com/brmmm3/zar-rs/releases/download/0.17.0/zar-rs-windows-aarch64.zip
+  InstallerUrl: https://github.com/brmmm3/zar-rs/releases/download/0.17.1/zar-rs-windows-aarch64.zip
   InstallerSha256: 9c47bb18bdcdb05762690ebe7a36dbdac73b24028cae50da88eaee23db764ec6
 ManifestType: installer
 ManifestVersion: 1.6.0

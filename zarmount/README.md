@@ -64,7 +64,8 @@ Windows-only.
 
 ### Prerequisites
 
-ProjFS must be enabled on your Windows machine. Run as Administrator:
+ProjFS must be enabled on your Windows machine. If not installed `zarmount` enable it, but needs admin rights.
+Or run as Administrator manually:
 
 ```powershell
 Enable-WindowsOptionalFeature -Online -FeatureName Client-ProjFS -NoRestart

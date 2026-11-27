@@ -1307,7 +1307,7 @@ dependencies = [
 
 [[package]]
 name = "cxxzarlib"
-version = "0.17.0"
+version = "0.17.1"
 dependencies = [
  "cxx",
  "cxx-build",
@@ -1316,7 +1316,7 @@ dependencies = [
 
 [[package]]
 name = "czarlib"
-version = "0.17.0"
+version = "0.17.1"
 dependencies = [
  "mimalloc",
  "serde_json",
@@ -4319,7 +4319,7 @@ dependencies = [
 
 [[package]]
 name = "pyzarlib"
-version = "0.17.0"
+version = "0.17.1"
 dependencies = [
  "mimalloc",
  "pyo3",
@@ -5733,7 +5733,7 @@ checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
 name = "wasizarlib"
-version = "0.17.0"
+version = "0.17.1"
 dependencies = [
  "czarlib",
  "wit-bindgen",
@@ -6810,7 +6810,7 @@ dependencies = [
 
 [[package]]
 name = "zarlib"
-version = "0.17.0"
+version = "0.17.1"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -6842,7 +6842,7 @@ dependencies = [
 
 [[package]]
 name = "zarlib-cli"
-version = "0.17.0"
+version = "0.17.1"
 dependencies = [
  "clap",
  "crossterm",
@@ -6861,7 +6861,7 @@ dependencies = [
 
 [[package]]
 name = "zarlib-gui"
-version = "0.17.0"
+version = "0.17.1"
 dependencies = [
  "ab_glyph",
  "catppuccin-egui",
@@ -6888,7 +6888,7 @@ dependencies = [
 
 [[package]]
 name = "zarlib-zcopy"
-version = "0.17.0"
+version = "0.17.1"
 dependencies = [
  "clap",
  "getrandom 0.4.3",
@@ -6904,7 +6904,7 @@ dependencies = [
 
 [[package]]
 name = "zarmcp"
-version = "0.17.0"
+version = "0.17.1"
 dependencies = [
  "base64 0.23.1",
  "clap",
@@ -6922,7 +6922,7 @@ dependencies = [
 
 [[package]]
 name = "zarmount"
-version = "0.17.0"
+version = "0.17.1"
 dependencies = [
  "catppuccin-egui",
  "clap",

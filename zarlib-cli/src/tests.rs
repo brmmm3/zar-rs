@@ -782,6 +782,67 @@ fn verbose_info_renders_block_details() {
 }
 
 #[test]
+fn info_summary_reports_encryption_scopes_and_unavailable_details() {
+    let mut commit = CommitInfo {
+        id: [1, 0, 0, 0],
+        size: 128,
+        header_size: 64,
+        data_size: 64,
+        uncompressed_size: None,
+        ratio_percent: None,
+        header_compression: None,
+        header_changes: None,
+        cross_commit_references: None,
+        created_unix_millis: None,
+        user: Some("alice".to_owned()),
+        details: None,
+        header_encrypted: false,
+        data_encrypted: false,
+        encryption_algorithm: None,
+    };
+    for (header, data, scope, algorithm, name) in [
+        (false, false, "none", None, "none"),
+        (
+            false,
+            true,
+            "data",
+            Some(ContentAead::Aes256Gcm),
+            "aes-256-gcm",
+        ),
+        (
+            true,
+            false,
+            "header",
+            Some(ContentAead::ChaCha20Poly1305),
+            "chacha20-poly1305",
+        ),
+        (
+            true,
+            true,
+            "header-and-data",
+            Some(ContentAead::Aes256Gcm),
+            "aes-256-gcm",
+        ),
+    ] {
+        commit.header_encrypted = header;
+        commit.data_encrypted = data;
+        commit.encryption_algorithm = algorithm;
+        let output = format_commit_summary(&commit);
+        assert!(output.contains(&format!("encryption={scope} algorithm={name}")));
+        assert!(output.contains("uncompressed=unavailable (encrypted header) ratio=n/a"));
+    }
+    assert_eq!(render_commit_metadata(&commit), "  user: alice\n");
+    let block = BlockInfo {
+        index: 7,
+        compressed_size: 4,
+        ratio_percent: None,
+        file_count: 0,
+        file_groups: Vec::new(),
+    };
+    assert!(render_block_summaries(&[block]).contains("ratio=n/a groups=unavailable"));
+}
+
+#[test]
 fn convert_parser_accepts_filter_output_and_overwrite_options() {
     let cli = Cli::try_parse_from([
         "zarc",

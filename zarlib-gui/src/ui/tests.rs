@@ -45,6 +45,110 @@ fn about_dialog_renders_product_and_version() {
 }
 
 #[test]
+fn menu_navigation_changes_view_and_opens_dialogs() {
+    fn text_positions(shape: &egui::Shape, texts: &mut Vec<(String, egui::Pos2)>) {
+        match shape {
+            egui::Shape::Text(text) => texts.push((
+                text.galley.job.text.clone(),
+                text.pos + text.galley.size() * 0.5,
+            )),
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    text_positions(shape, texts);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn frame(
+        context: &egui::Context,
+        app: &mut ZargApp,
+        events: Vec<egui::Event>,
+    ) -> Vec<(String, egui::Pos2)> {
+        let output = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1000.0, 800.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| app.render_menus(ui),
+        );
+        let mut texts = Vec::new();
+        for shape in &output.shapes {
+            text_positions(&shape.shape, &mut texts);
+        }
+        output.drop_without_applying_deltas();
+        texts
+    }
+
+    fn click(context: &egui::Context, app: &mut ZargApp, label: &str) {
+        let texts = frame(context, app, Vec::new());
+        let position = texts
+            .iter()
+            .find_map(|(text, position)| (text == label).then_some(*position))
+            .unwrap_or_else(|| panic!("missing menu label {label:?}: {texts:?}"));
+        for pressed in [true, false] {
+            frame(
+                context,
+                app,
+                vec![
+                    egui::Event::PointerMoved(position),
+                    egui::Event::PointerButton {
+                        pos: position,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+    }
+
+    let context = egui::Context::default();
+    let mut app = ZargApp {
+        entries: vec![
+            ("first.txt".into(), EntryData::File(3)),
+            ("second.txt".into(), EntryData::File(7)),
+        ],
+        visible_entry_indices: vec![0, 1],
+        ..Default::default()
+    };
+    click(&context, &mut app, "File");
+    let texts = frame(&context, &mut app, Vec::new());
+    assert!(texts.iter().any(|(text, _)| text == "New archive"));
+    assert!(texts.iter().any(|(text, _)| text == "Recent archives"));
+    click(&context, &mut app, "New archive");
+    assert_eq!(app.operation.kind, Some(OperationKind::NewArchive));
+    click(&context, &mut app, "Edit");
+    click(&context, &mut app, "Select all");
+    assert_eq!(app.selected.len(), 2);
+    click(&context, &mut app, "Edit");
+    click(&context, &mut app, "Invert selection");
+    assert!(app.selected.is_empty());
+    click(&context, &mut app, "Edit");
+    click(&context, &mut app, "Select all");
+    click(&context, &mut app, "Edit");
+    click(&context, &mut app, "Clear selection");
+    assert!(app.selected.is_empty());
+    click(&context, &mut app, "View");
+    click(&context, &mut app, "Details");
+    assert_eq!(app.archive_view, ArchiveView::Details);
+    click(&context, &mut app, "View");
+    click(&context, &mut app, "Uncompressed size");
+    assert_eq!(app.sort_by, SortBy::UncompressedSize);
+    click(&context, &mut app, "Tools");
+    click(&context, &mut app, "Settings...");
+    assert!(app.show_settings);
+    click(&context, &mut app, "Help");
+    click(&context, &mut app, "About zarg");
+    assert!(app.show_about);
+}
+
+#[test]
 fn about_dialog_takes_focus_only_when_opened() {
     let context = egui::Context::default();
     let mut app = ZargApp {
@@ -1948,6 +2052,66 @@ fn change_commits_encrypt_job_writes_to_requested_archive() {
     assert!(encrypted[0].data_encrypted);
     let password_set = PasswordSet::new(Some(b"GoodPassword9!".to_vec()));
     operations::list_archive_with_passwords(output.to_str().unwrap(), None, &password_set).unwrap();
+
+    let changed = directory.path().join("changed.zar");
+    let decrypted = directory.path().join("decrypted.zar");
+    for (action, input, result, old_password, new_password) in [
+        (2, &output, &changed, "GoodPassword9!", "Replacement9!"),
+        (1, &changed, &decrypted, "Replacement9!", ""),
+    ] {
+        let mut form = OperationForm::new(OperationKind::ChangeCommits, input.to_str().unwrap());
+        form.commit_ids = vec![commit_id.clone()];
+        form.from_id.clone_from(&commit_id);
+        form.to_id.clone_from(&commit_id);
+        form.transform_output = result.to_string_lossy().into_owned();
+        form.existing_password = old_password.to_owned();
+        form.password = new_password.to_owned();
+        form.transform_strict = true;
+        form.transform_action = action;
+        let (_answers, answer_rx) = mpsc::channel();
+        let progress = UiProgress {
+            events: events.clone(),
+            answers: Arc::new(Mutex::new(answer_rx)),
+            cancellation: None,
+            limit_status_updates: false,
+            last_status_update: Mutex::new(None),
+        };
+        let message = build_job(
+            OperationKind::ChangeCommits,
+            form,
+            events.clone(),
+            progress,
+            None,
+            ExtractionChecksum::Always,
+        )
+        .unwrap()()
+        .unwrap();
+        assert!(message.contains(if action == 2 { "Changed" } else { "Decrypted" }));
+    }
+    let changed_info = operations::info_archive(changed.to_str().unwrap(), false).unwrap();
+    assert!(changed_info[0].header_encrypted && changed_info[0].data_encrypted);
+    let changed_password = PasswordSet::new(Some(b"Replacement9!".to_vec()));
+    let changed_contents =
+        operations::list_archive_with_passwords(changed.to_str().unwrap(), None, &changed_password)
+            .unwrap();
+    assert!(
+        changed_contents
+            .iter()
+            .any(|(path, _)| path.as_str() == "source.txt")
+    );
+    let decrypted_info = operations::info_archive(decrypted.to_str().unwrap(), false).unwrap();
+    assert!(!decrypted_info[0].header_encrypted && !decrypted_info[0].data_encrypted);
+    let decrypted_contents = operations::list_archive_with_passwords(
+        decrypted.to_str().unwrap(),
+        None,
+        &PasswordSet::default(),
+    )
+    .unwrap();
+    assert!(
+        decrypted_contents
+            .iter()
+            .any(|(path, _)| path.as_str() == "source.txt")
+    );
     let mut app = ZargApp {
         read_archive: output.to_string_lossy().into_owned(),
         archive_password: Some("GoodPassword9!".to_owned()),
@@ -1961,6 +2125,74 @@ fn change_commits_encrypt_job_writes_to_requested_archive() {
         Some(ArchiveSwitchAction::New)
     ));
     assert!(app.report.is_none(), "{:?}", app.report);
+}
+
+#[test]
+fn operation_jobs_check_list_edit_metadata_and_extract_selected_files() {
+    let directory = tempfile::tempdir().unwrap();
+    let first = directory.path().join("first.txt");
+    let second = directory.path().join("second.txt");
+    let archive = directory.path().join("archive.zar");
+    let destination = directory.path().join("output");
+    std::fs::write(&first, b"first").unwrap();
+    std::fs::write(&second, b"second").unwrap();
+    let archive = archive.to_str().unwrap();
+    operations::create_archive(archive, &[first, second]).unwrap();
+
+    let run = |kind, form| {
+        let (events, _event_rx) = mpsc::channel();
+        let (_answers, answer_rx) = mpsc::channel();
+        let progress = UiProgress {
+            events: events.clone(),
+            answers: Arc::new(Mutex::new(answer_rx)),
+            cancellation: None,
+            limit_status_updates: false,
+            last_status_update: Mutex::new(None),
+        };
+        build_job(
+            kind,
+            form,
+            events,
+            progress,
+            None,
+            ExtractionChecksum::Always,
+        )
+        .unwrap()()
+        .unwrap()
+    };
+
+    let kind = OperationKind::ListArchive;
+    assert!(run(kind, OperationForm::new(kind, archive)).contains("Loaded 2 entries"));
+    let kind = OperationKind::TestArchive;
+    assert!(run(kind, OperationForm::new(kind, archive)).contains("Validated 1 commit(s)"));
+
+    let kind = OperationKind::CustomMetadata;
+    let mut form = OperationForm::new(kind, archive);
+    form.meta_new.push(("project".into(), "test".into()));
+    assert!(run(kind, form).contains("1 set, 0 removed"));
+    assert_eq!(
+        operations::read_custom_metadata(archive)
+            .unwrap()
+            .get("project"),
+        Some(&zarlib::MetadataType::String("test".into()))
+    );
+
+    let kind = OperationKind::ExtractArchive;
+    for dry_run in [true, false] {
+        let mut form = OperationForm::new(kind, archive);
+        form.destination = destination.to_string_lossy().into_owned();
+        form.extract_selected_only = true;
+        form.extract_selected_paths.insert("first.txt".into());
+        form.dry_run = dry_run;
+        let message = run(kind, form);
+        assert!(message.contains(if dry_run { "planned" } else { "extracted" }));
+        assert_eq!(destination.join("first.txt").exists(), !dry_run);
+        assert!(!destination.join("second.txt").exists());
+    }
+    assert_eq!(
+        std::fs::read(destination.join("first.txt")).unwrap(),
+        b"first"
+    );
 }
 
 #[test]

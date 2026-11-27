@@ -23,9 +23,32 @@ documentation before changing those components.
 The GitHub Actions workflows run formatting, Clippy, and workspace tests. They
 also build and test the C API, Python and C# bindings, Java bindings, and the
 WASI/Node.js package, and build binaries for supported platforms.
+Linux CI also runs the isolated X11 drag tests under Xvfb.
 
 The main workflow is [`ci.yml`](.github/workflows/ci.yml); packaging jobs are
 defined in [`packaging.yml`](.github/workflows/packaging.yml).
+
+### Measuring Rust coverage
+
+With `cargo-llvm-cov`, Rust's `llvm-tools` component, Xvfb, and xauth installed,
+collect line coverage for the library and applications on Linux:
+
+```bash
+CARGO_BUILD_RUSTC_WRAPPER='' cargo llvm-cov -p zarlib -p zarlib-cli -p zarlib-gui --json --summary-only --output-path coverage.json
+xvfb-run -a -s '-screen 0 1600x1000x24 -noreset' sh -c '
+  ZARG_X11_TEST_DISPLAY="$DISPLAY" CARGO_BUILD_RUSTC_WRAPPER="" cargo llvm-cov --no-clean \
+    -p zarlib -p zarlib-cli -p zarlib-gui \
+    -- x11_drag::tests:: --ignored --skip gui_drag_transfers_extracted_file_to_x11_target --test-threads=1
+'
+CARGO_BUILD_RUSTC_WRAPPER='' cargo llvm-cov report --json --summary-only --output-path coverage.json
+python3 scripts/check_rust_coverage.py coverage.json
+```
+
+The report includes instrumented test code. The full GUI drag-and-drop
+end-to-end test remains ignored because it also requires separately built GUI
+and CLI executables. The compiler-cache override avoids path remapping that can
+otherwise produce duplicate source entries. The checker requires each crate
+individually to exceed 95% line coverage and returns a nonzero status otherwise.
 
 ### Running the CI workflow locally
 
@@ -49,6 +72,7 @@ skipped; run the script on each CI host to cover the full matrix.
 The Go tests build the C library in `target/debug`, matching the wrapper's
 configured cgo linker and runtime search paths.
 The Lua job requires its [dependencies](luazarlib/README.md#requirements-and-build).
+The isolated X11 tests require the separate Xvfb command above.
 GitHub checkout, artifact reuse, uploads, and publication are not performed.
 Linux wheels are built on the host rather than in the CI manylinux container,
 so their portability may differ. Cross-host job dependencies cannot be enforced

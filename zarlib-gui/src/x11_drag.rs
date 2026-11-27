@@ -859,17 +859,6 @@ mod tests {
                     connection
                         .warp_pointer(NONE, child, 0, 0, 0, 0, 30, 30)
                         .unwrap();
-                    x11rb::protocol::xtest::fake_input(
-                        &connection,
-                        x11rb::protocol::xproto::BUTTON_RELEASE_EVENT,
-                        1,
-                        CURRENT_TIME,
-                        root,
-                        0,
-                        0,
-                        0,
-                    )
-                    .unwrap();
                     connection.flush().unwrap();
                     returned = true;
                 } else if event.type_ == atoms.XdndLeave {
@@ -886,6 +875,18 @@ mod tests {
             returned && left,
             "the external target did not receive a leave event"
         );
+        x11rb::protocol::xtest::fake_input(
+            &connection,
+            x11rb::protocol::xproto::BUTTON_RELEASE_EVENT,
+            1,
+            CURRENT_TIME,
+            root,
+            0,
+            0,
+            0,
+        )
+        .unwrap();
+        connection.flush().unwrap();
         assert_eq!(
             target_at_pointer(&connection, root, atoms.XdndAware, origin).unwrap(),
             None

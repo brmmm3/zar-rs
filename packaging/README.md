@@ -52,8 +52,8 @@ prerequisites and Flatpak runtimes; Windows may install Rust and Inno Setup.
 From the repository root, use Python 3.11 or newer:
 
 ```sh
-python3 scripts/update_version.py 0.17.0 --dry-run
-python3 scripts/update_version.py 0.17.0
+python3 scripts/update_version.py 0.17.1 --dry-run
+python3 scripts/update_version.py 0.17.1
 ```
 
 The script updates the Rust workspace and local dependency versions, Cargo and
@@ -65,8 +65,8 @@ Scoop and Chocolatey checksums are deliberately left unchanged. After the releas
 assets are published, update them before publishing or installing the packages:
 
 ```sh
-python3 scripts/update_checksums.py 0.17.0 --dry-run
-python3 scripts/update_checksums.py 0.17.0
+python3 scripts/update_checksums.py 0.17.1 --dry-run
+python3 scripts/update_checksums.py 0.17.1
 ```
 
 The checksum updater fetches SHA-256 digests from GitHub and defaults to the Scoop
@@ -78,7 +78,7 @@ and checksum remain pinned and must be updated separately before building.
 
 ```powershell
 cargo build --release --bins
-iscc /DAppVersion=0.17.0 packaging\windows\zar-rs.iss
+iscc /DAppVersion=0.17.1 packaging\windows\zar-rs.iss
 ```
 
 Use `/DSourceDir=target\<triple>\release` when building with `--target`, and
@@ -123,7 +123,7 @@ package locally, for example:
 Push-Location packaging\windows\chocolatey\zar-rs
 choco pack zarg.nuspec --output-directory "$env:TEMP"
 Pop-Location
-choco install zar-rs --version 0.17.0 --source "$env:TEMP" -y
+choco install zar-rs --version 0.17.1 --source "$env:TEMP" -y
 ```
 
 For the x86-64-v3 package, pack
@@ -190,7 +190,7 @@ published to Nixpkgs.
 ### Arch Linux
 
 The local PKGBUILD builds `zarc`, `zarg`, `zcopy`, `zarmcp`, and `zarmount`
-from a pinned 0.16.0 development commit. It also installs the same desktop and
+from a pinned 0.17.1 development commit. It also installs the same desktop and
 file-manager integration as the deb and RPM packages. On Arch Linux or Arch
 Linux ARM, install `base-devel` and run:
 

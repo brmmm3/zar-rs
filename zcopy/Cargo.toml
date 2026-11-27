@@ -65,7 +65,7 @@ indicatif.workspace = true
 zstd = "0.14.3"
 scandir = "4.0"
 
-zarlib = { version = "0.17.0", path = "../zarlib" }
+zarlib = { version = "0.17.1", path = "../zarlib" }
 
 [dev-dependencies]
 tempfile = "3"

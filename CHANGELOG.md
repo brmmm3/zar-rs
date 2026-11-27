@@ -5,7 +5,16 @@ until a version is released.
 
 ## Unreleased
 
-## 0.17.0 - 2026-11-24
+## 0.17.1 - 2026-11-28
+
+### Changed
+
+- Expanded zarlib, zarc, and zarg tests for archive information, extraction,
+  encryption, GUI operations, and interactive CLI password handling.
+- Added a per-crate Rust coverage checker and enabled isolated X11 drag tests
+  in Linux CI.
+
+## 0.17.0 - 2026-11-28
 
 ### Added
 

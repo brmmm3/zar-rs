@@ -3,7 +3,7 @@
 [![crates.io](https://img.shields.io/crates/v/zarlib?style=flat-square&logo=rust)](https://crates.io/crates/zarlib)
 [![docs.rs](https://img.shields.io/badge/docs.rs-zarlib-4c8bfd?logo=docs.rs&style=flat-square)](https://docs.rs/zarlib)
 [![PyPI](https://img.shields.io/pypi/v/pyzarlib?style=flat-square&logo=pypi&logoColor=white&cacheSeconds=60)](https://pypi.org/project/pyzarlib/)
-[![CI](https://github.com/brmmm3/zar-rs/actions/workflows/ci.yml/badge.svg?branch=0.17.0)](https://github.com/brmmm3/zar-rs/actions/workflows/ci.yml)
+[![CI](https://github.com/brmmm3/zar-rs/actions/workflows/ci.yml/badge.svg?branch=0.17.1)](https://github.com/brmmm3/zar-rs/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue?style=flat-square)](LICENSE-MIT)
 
 **ZAR is a modern replacement for tar/zip/7z with fast parallel zstd compression, instant random access, commit-based history, deduplication, FUSE mounting (`zarmount`) and streaming support.**
@@ -370,7 +370,7 @@ cargo binstall zarlib-cli    # zarc
 cargo binstall zarlib-gui    # zarg
 cargo binstall zarlib-zcopy  # zcopy
 cargo binstall zarmcp
-cargo binstall zarmount      # Linux only
+cargo binstall zarmount
 ```
 
 For crates.io publication, publish the matching `zarlib` version first, then
@@ -405,7 +405,7 @@ The [packaging](./packaging) directory contains installer definitions for the
   with `Zarg.app` and a `.pkg` that also installs `zarc`.
 
 ```sh
-iscc /DAppVersion=0.17.0 packaging\windows\zar-rs.iss  # Windows
+iscc /DAppVersion=0.17.1 packaging\windows\zar-rs.iss  # Windows
 packaging/linux/build-packages.sh deb                  # Linux
 ```
 
@@ -448,6 +448,11 @@ zarc extract backup.zar --to 00000001 --output ./restored-initial/
 zarc meta backup.zar --set project=example --set revision=3
 zarc meta backup.zar
 zarc meta backup.zar --remove revision
+
+# Search in archives without extracting
+zarc grep backup.zar TODO
+# Start shell for searching in archives
+zarc grep backup.zar --shell
 
 # Mount without extracting (instant readonly-access)
 zarmount backup.zar /mnt/archive
@@ -586,6 +591,13 @@ mode is a one-way update, not a deletion-propagating mirror.
   exit status; see [CLI exit behavior](./zarlib-cli/README.md#exit-behavior). For
   encrypted archives, also confirm the correct passwords and operation
   restrictions.
+- **System is reacting slowly while ZAR is de-/compressing:** By default ZAR uses
+  all CPU cores. With following environment variables a slowly reacting system can
+  be avoided:
+
+  - `ZARLIB_CPU_PRIORITY`: Reduce priorty of de-/compression threads by this value.
+  - `ZARLIB_MAX_CPU_COUNT`: Limit number of CPU cores to use. Negative value defines
+    number of spare cores.
 
 ## Format and safety notes
 
@@ -630,8 +642,8 @@ use `manylinux_2_28_x86_64`. Operating-system, system-library, and Flatpak
 runtime requirements still apply to all assets.
 
 To rebuild v3 assets for an existing release, run
-`gh workflow run ci-v3.yml -f tag=0.17.0`. To rebuild just its packages,
-run `gh workflow run packaging-v3.yml -f tag=0.17.0` after the v3 binary assets
+`gh workflow run ci-v3.yml -f tag=0.17.1`. To rebuild just its packages,
+run `gh workflow run packaging-v3.yml -f tag=0.17.1` after the v3 binary assets
 have been published.
 
 To explicitly build locally for the baseline:
