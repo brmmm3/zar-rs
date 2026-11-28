@@ -96,11 +96,9 @@ impl ksni::Tray for Tray {
     }
 
     fn icon_pixmap(&self) -> Vec<ksni::Icon> {
-        let icon = image::load_from_memory(include_bytes!(
-            "../../zarlib-gui/assets/application-x-zar.png"
-        ))
-        .expect("bundled icon must be valid")
-        .into_rgba8();
+        let icon = image::load_from_memory(include_bytes!("../assets/application-x-zar.png"))
+            .expect("bundled icon must be valid")
+            .into_rgba8();
         let (width, height) = icon.dimensions();
         let pixels = icon
             .pixels()

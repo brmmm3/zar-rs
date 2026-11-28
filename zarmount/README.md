@@ -98,6 +98,11 @@ must be an empty directory (it will be created if it does not exist).
 
 ## Common options
 
+The tray Settings dialog offers the same color themes as zarg and a choice of
+Crystal or Flat icons. The choice is saved for future dialogs. When no zarmount
+icon theme has been saved, it uses zarg's icon theme if available, otherwise
+Crystal.
+
 To select an earlier archive state, pass an eight-digit commit ID:
 
 ```sh

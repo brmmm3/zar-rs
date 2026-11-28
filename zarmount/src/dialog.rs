@@ -18,7 +18,7 @@ use std::sync::OnceLock;
 use eframe::egui;
 use zarlib::operations::{self, PasswordSet};
 
-use crate::dialog_style::{self, ButtonIcon};
+use crate::dialog_style::{self, ButtonIcon, IconTheme};
 use crate::drive;
 use crate::settings::{FileManager, Settings};
 use crate::theme::{self, ThemeMode};
@@ -27,9 +27,6 @@ use crate::theme::{self, ThemeMode};
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 // Bundled icons (shared with zarg).
-const ICON_CANCEL: &[u8] = include_bytes!("../../zarlib-gui/assets/flat/actions/dialog-cancel.png");
-const ICON_OK: &[u8] = include_bytes!("../../zarlib-gui/assets/flat/actions/dialog-ok.png");
-const ICON_CLOSE: &[u8] = include_bytes!("../../zarlib-gui/assets/flat/actions/dialog-close.png");
 const ICON_ERROR_LARGE: &[u8] = include_bytes!("../../zarlib-gui/assets/zarg-error.png");
 const ICON_APP: &[u8] = include_bytes!("../../zarlib-gui/assets/application-x-zar.png");
 
@@ -45,17 +42,9 @@ fn load_icon(ctx: &egui::Context, name: &str, bytes: &'static [u8]) -> egui::Tex
     )
 }
 
-fn icon_button(
-    ui: &mut egui::Ui,
-    icon_name: &str,
-    icon_bytes: &'static [u8],
-    label: impl Into<egui::WidgetText>,
-) -> egui::Response {
-    let texture = load_icon(ui.ctx(), icon_name, icon_bytes);
-    ui.add(egui::Button::image_and_text(
-        egui::Image::new(&texture).fit_to_exact_size(egui::vec2(16.0, 16.0)),
-        label,
-    ))
+fn install_settings(ctx: &egui::Context, settings: &Settings) {
+    theme::install(ctx, settings.theme_mode);
+    dialog_style::set_icon_theme(ctx, settings.icon_theme);
 }
 
 fn app_icon() -> egui::IconData {
@@ -195,7 +184,7 @@ pub fn run_ask_dialog(temp_path: &Path, out_file: &Path) -> ExitCode {
         "Mount options",
         options,
         Box::new(move |creation_context| {
-            theme::install(&creation_context.egui_ctx, settings.theme_mode);
+            install_settings(&creation_context.egui_ctx, &settings);
             Ok(Box::new(app))
         }),
     );
@@ -266,12 +255,11 @@ impl eframe::App for MapDriveDialogApp {
             .frame(egui::Frame::new().inner_margin(6))
             .show(ui, |ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if icon_button(ui, "zarmount-cancel", ICON_CANCEL, "Cancel").clicked()
-                        || do_cancel
+                    if dialog_style::button(ui, ButtonIcon::Cancel, "Cancel").clicked() || do_cancel
                     {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
-                    if (icon_button(ui, "zarmount-map", ICON_OK, "Map").clicked() || do_map)
+                    if (dialog_style::button(ui, ButtonIcon::Ok, "Map").clicked() || do_map)
                         && !self.selected_drive.is_empty()
                     {
                         let _ =
@@ -330,7 +318,7 @@ pub fn run_map_drive_dialog(out_file: &Path) -> ExitCode {
         "Map drive letter",
         options,
         Box::new(move |creation_context| {
-            theme::install(&creation_context.egui_ctx, settings.theme_mode);
+            install_settings(&creation_context.egui_ctx, &settings);
             Ok(Box::new(app))
         }),
     );
@@ -389,13 +377,11 @@ impl eframe::App for ProjFsDialogApp {
             .frame(egui::Frame::new().inner_margin(6))
             .show(ui, |ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if icon_button(ui, "zarmount-cancel", ICON_CANCEL, "Cancel").clicked()
-                        || do_cancel
+                    if dialog_style::button(ui, ButtonIcon::Cancel, "Cancel").clicked() || do_cancel
                     {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
-                    if icon_button(ui, "zarmount-enable", ICON_OK, "Enable").clicked() || do_enable
-                    {
+                    if dialog_style::button(ui, ButtonIcon::Ok, "Enable").clicked() || do_enable {
                         let _ = fs::write(&self.out_file, "enable\n");
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
@@ -441,7 +427,7 @@ pub fn run_projfs_dialog(out_file: &Path) -> ExitCode {
         "Enable ProjFS",
         options,
         Box::new(move |creation_context| {
-            theme::install(&creation_context.egui_ctx, settings.theme_mode);
+            install_settings(&creation_context.egui_ctx, &settings);
             Ok(Box::new(app))
         }),
     );
@@ -479,6 +465,7 @@ pub fn spawn_projfs_dialog() -> bool {
 
 struct SettingsDialogApp {
     settings: Settings,
+    error: Option<String>,
 }
 
 impl eframe::App for SettingsDialogApp {
@@ -504,8 +491,10 @@ impl eframe::App for SettingsDialogApp {
                 ui.separator();
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if dialog_style::button(ui, ButtonIcon::Close, "Close").clicked() || do_close {
-                        let _ = self.settings.save();
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        match self.settings.save() {
+                            Ok(()) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                            Err(error) => self.error = Some(error.to_string()),
+                        }
                     }
                 });
             });
@@ -553,10 +542,33 @@ impl eframe::App for SettingsDialogApp {
 
                 if theme_changed {
                     theme::apply_theme(&ctx, self.settings.theme_mode);
-                    let _ = self.settings.save();
                 }
-                if fm_changed {
-                    let _ = self.settings.save();
+                ui.add_space(10.0);
+                ui.label("Icon theme:");
+                let mut icon_theme_changed = false;
+                egui::ComboBox::from_id_salt("settings-icon-theme")
+                    .selected_text(self.settings.icon_theme.label())
+                    .show_ui(ui, |ui| {
+                        for icon_theme in IconTheme::ALL {
+                            icon_theme_changed |= ui
+                                .selectable_value(
+                                    &mut self.settings.icon_theme,
+                                    icon_theme,
+                                    icon_theme.label(),
+                                )
+                                .changed();
+                        }
+                    });
+                if icon_theme_changed {
+                    dialog_style::set_icon_theme(&ctx, self.settings.icon_theme);
+                }
+                if (theme_changed || fm_changed || icon_theme_changed)
+                    && let Err(error) = self.settings.save()
+                {
+                    self.error = Some(error.to_string());
+                }
+                if let Some(error) = &self.error {
+                    ui.colored_label(ui.visuals().error_fg_color, error);
                 }
             });
     }
@@ -564,12 +576,14 @@ impl eframe::App for SettingsDialogApp {
 
 pub fn run_settings_dialog() -> ExitCode {
     let settings = Settings::load();
-    let current_theme = settings.theme_mode;
-    let app = SettingsDialogApp { settings };
+    let app = SettingsDialogApp {
+        settings,
+        error: None,
+    };
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Settings")
-            .with_inner_size([380.0, 200.0])
+            .with_inner_size([380.0, 260.0])
             .with_resizable(false)
             .with_app_id("zarmount-settings")
             .with_icon(app_icon()),
@@ -579,7 +593,7 @@ pub fn run_settings_dialog() -> ExitCode {
         "Settings",
         options,
         Box::new(move |creation_context| {
-            theme::install(&creation_context.egui_ctx, current_theme);
+            install_settings(&creation_context.egui_ctx, &app.settings);
             Ok(Box::new(app))
         }),
     );
@@ -657,7 +671,7 @@ pub fn run_about_dialog() -> ExitCode {
         "About zarmount",
         options,
         Box::new(move |creation_context| {
-            theme::install(&creation_context.egui_ctx, settings.theme_mode);
+            install_settings(&creation_context.egui_ctx, &settings);
             Ok(Box::new(app))
         }),
     );
@@ -756,12 +770,11 @@ impl eframe::App for PasswordDialogApp {
             .frame(egui::Frame::new().inner_margin(6))
             .show(ui, |ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if icon_button(ui, "zarmount-cancel", ICON_CANCEL, "Cancel").clicked()
-                        || do_cancel
+                    if dialog_style::button(ui, ButtonIcon::Cancel, "Cancel").clicked() || do_cancel
                     {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
-                    if icon_button(ui, "zarmount-ok", ICON_OK, "Open").clicked() || do_open {
+                    if dialog_style::button(ui, ButtonIcon::Ok, "Open").clicked() || do_open {
                         let passwords: Vec<([u8; 4], String)> = self
                             .rows
                             .iter()
@@ -828,7 +841,7 @@ pub fn run_password_dialog(archive: &str, out_file: &Path) -> ExitCode {
         "Open encrypted archive",
         options,
         Box::new(move |creation_context| {
-            theme::install(&creation_context.egui_ctx, settings.theme_mode);
+            install_settings(&creation_context.egui_ctx, &settings);
             Ok(Box::new(app))
         }),
     );
@@ -863,8 +876,7 @@ impl eframe::App for ErrorDialogApp {
             .show(ui, |ui| {
                 ui.separator();
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if icon_button(ui, "zarmount-close", ICON_CLOSE, "Close").clicked() || do_close
-                    {
+                    if dialog_style::button(ui, ButtonIcon::Close, "Close").clicked() || do_close {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 });
@@ -917,7 +929,7 @@ pub fn run_error_dialog(message: &str) -> ExitCode {
         "Operation error",
         options,
         Box::new(move |creation_context| {
-            theme::install(&creation_context.egui_ctx, settings.theme_mode);
+            install_settings(&creation_context.egui_ctx, &settings);
             Ok(Box::new(app))
         }),
     );

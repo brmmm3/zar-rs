@@ -6,7 +6,7 @@ use eframe::egui;
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::dialog_style::{self, ButtonIcon};
+use crate::dialog_style::{self, ButtonIcon, IconTheme};
 use crate::theme::{self, ThemeMode};
 
 #[derive(Serialize, Deserialize)]
@@ -32,6 +32,7 @@ enum Dialog {
 struct App {
     dialog: Dialog,
     error: Option<String>,
+    icon_theme: IconTheme,
 }
 
 fn settings_path() -> io::Result<PathBuf> {
@@ -45,7 +46,32 @@ fn settings_path() -> io::Result<PathBuf> {
         })
 }
 
-fn read_theme() -> io::Result<ThemeMode> {
+fn parse_settings(
+    text: &str,
+    theme: &mut Option<ThemeMode>,
+    icon_theme: &mut Option<IconTheme>,
+) -> io::Result<()> {
+    for line in text.lines() {
+        if let Some((key, value)) = line.split_once('=') {
+            match key.trim() {
+                "theme" if theme.is_none() => {
+                    *theme = Some(ThemeMode::from_setting(value).ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidData, "invalid theme setting")
+                    })?);
+                }
+                "icon_theme" if icon_theme.is_none() => {
+                    *icon_theme = Some(IconTheme::from_setting(value).ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidData, "invalid icon theme setting")
+                    })?);
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+fn read_settings() -> io::Result<(ThemeMode, IconTheme)> {
     let paths = [
         settings_path()?,
         dirs::config_dir()
@@ -57,33 +83,36 @@ fn read_theme() -> io::Result<ThemeMode> {
             })?
             .join("zarg/settings.conf"),
     ];
+    let mut theme = None;
+    let mut icon_theme = None;
     for path in paths {
         match std::fs::read_to_string(path) {
-            Ok(text) => {
-                for line in text.lines() {
-                    if let Some((key, value)) = line.split_once('=')
-                        && key.trim() == "theme"
-                    {
-                        return ThemeMode::from_setting(value.trim()).ok_or_else(|| {
-                            io::Error::new(io::ErrorKind::InvalidData, "invalid theme setting")
-                        });
-                    }
-                }
-            }
+            Ok(text) => parse_settings(&text, &mut theme, &mut icon_theme)?,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(error),
         }
+        if theme.is_some() && icon_theme.is_some() {
+            break;
+        }
     }
-    Ok(ThemeMode::System)
+    Ok((theme.unwrap_or_default(), icon_theme.unwrap_or_default()))
 }
 
-fn save_theme(theme: ThemeMode) -> io::Result<()> {
+fn save_settings(theme: ThemeMode, icon_theme: IconTheme) -> io::Result<()> {
     let path = settings_path()?;
     let parent = path
         .parent()
         .ok_or_else(|| io::Error::other("invalid settings path"))?;
     std::fs::create_dir_all(parent)?;
-    std::fs::write(path, format!("theme={}\n", theme.as_setting()))
+    std::fs::write(path, render_settings(theme, icon_theme))
+}
+
+fn render_settings(theme: ThemeMode, icon_theme: IconTheme) -> String {
+    format!(
+        "theme={}\nicon_theme={}\n",
+        theme.as_setting(),
+        icon_theme.as_setting()
+    )
 }
 
 fn output(value: &impl Serialize) -> Result<(), String> {
@@ -226,7 +255,33 @@ impl eframe::App for App {
                                             .changed()
                                         {
                                             theme::apply_theme(&context, *selected);
-                                            if let Err(error) = save_theme(*selected) {
+                                            if let Err(error) =
+                                                save_settings(*selected, self.icon_theme)
+                                            {
+                                                self.error = Some(error.to_string());
+                                            }
+                                        }
+                                    }
+                                });
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Icon theme:");
+                            egui::ComboBox::from_id_salt("settings-icon-theme")
+                                .selected_text(self.icon_theme.label())
+                                .show_ui(ui, |ui| {
+                                    for icon_theme in IconTheme::ALL {
+                                        if ui
+                                            .selectable_value(
+                                                &mut self.icon_theme,
+                                                icon_theme,
+                                                icon_theme.label(),
+                                            )
+                                            .changed()
+                                        {
+                                            dialog_style::set_icon_theme(&context, self.icon_theme);
+                                            if let Err(error) =
+                                                save_settings(*selected, self.icon_theme)
+                                            {
                                                 self.error = Some(error.to_string());
                                             }
                                         }
@@ -235,7 +290,7 @@ impl eframe::App for App {
                         });
                         ui.weak("System follows your operating system's light/dark preference.");
                         if action {
-                            match save_theme(*selected) {
+                            match save_settings(*selected, self.icon_theme) {
                                 Ok(()) => context.send_viewport_cmd(egui::ViewportCommand::Close),
                                 Err(error) => self.error = Some(error.to_string()),
                             }
@@ -264,7 +319,7 @@ impl eframe::App for App {
 
 pub(crate) fn run(kind: &str, argument: Option<&str>) -> ExitCode {
     let result = (|| -> Result<(), Box<dyn std::error::Error>> {
-        let theme = read_theme()?;
+        let (theme, icon_theme) = read_settings()?;
         let dialog = match kind {
             "ask" => Dialog::Ask {
                 path: argument.ok_or("missing mount path")?.to_owned(),
@@ -299,7 +354,7 @@ pub(crate) fn run(kind: &str, argument: Option<&str>) -> ExitCode {
         };
         let size = match kind {
             "about" => [440.0, 220.0],
-            "settings" => [440.0, 160.0],
+            "settings" => [440.0, 190.0],
             "ask" => [480.0, 130.0],
             _ => [520.0, 240.0],
         };
@@ -315,9 +370,11 @@ pub(crate) fn run(kind: &str, argument: Option<&str>) -> ExitCode {
             options,
             Box::new(move |creation| {
                 theme::install(&creation.egui_ctx, theme);
+                dialog_style::set_icon_theme(&creation.egui_ctx, icon_theme);
                 Ok(Box::new(App {
                     dialog,
                     error: None,
+                    icon_theme,
                 }))
             }),
         )
@@ -330,6 +387,27 @@ pub(crate) fn run(kind: &str, argument: Option<&str>) -> ExitCode {
             eprintln!("zarmount: dialog failed: {error}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn icon_theme_settings_fall_back_per_field() {
+        let mut theme = None;
+        let mut icons = None;
+        parse_settings("theme=dark\n", &mut theme, &mut icons).unwrap();
+        parse_settings("theme=light\nicon_theme=flat\n", &mut theme, &mut icons).unwrap();
+        assert_eq!(theme, Some(ThemeMode::Dark));
+        assert_eq!(icons, Some(IconTheme::Flat));
+        let saved = render_settings(theme.unwrap(), icons.unwrap());
+        let mut saved_theme = None;
+        let mut saved_icons = None;
+        parse_settings(&saved, &mut saved_theme, &mut saved_icons).unwrap();
+        assert_eq!((saved_theme, saved_icons), (theme, icons));
+        assert!(parse_settings("icon_theme=invalid\n", &mut None, &mut None).is_err());
     }
 }
 
