@@ -1,9 +1,11 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="ZAR is a Rust archive format and toolkit for fast, verifiable backups with commit-based history.">
+  <meta name="description"
+    content="ZAR is a Rust archive format and toolkit for fast, verifiable backups with commit-based history.">
   <title>ZAR — Archive format and toolkit</title>
   <style>
     :root {
@@ -18,9 +20,13 @@
       --link: #8bd5a0;
     }
 
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+    }
 
-    html { scroll-behavior: smooth; }
+    html {
+      scroll-behavior: smooth;
+    }
 
     body {
       margin: 0;
@@ -29,9 +35,18 @@
       font: 16px/1.6 "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
 
-    a { color: var(--link); }
-    a:hover { color: #b2f0c1; }
-    a:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+    a {
+      color: var(--link);
+    }
+
+    a:hover {
+      color: #b2f0c1;
+    }
+
+    a:focus-visible {
+      outline: 3px solid var(--accent);
+      outline-offset: 3px;
+    }
 
     .skip-link {
       position: absolute;
@@ -44,14 +59,18 @@
       color: var(--text);
     }
 
-    .skip-link:focus { top: 1rem; }
+    .skip-link:focus {
+      top: 1rem;
+    }
 
     .hero {
       border-bottom: 1px solid var(--border);
       background: linear-gradient(135deg, #141d31 0%, #1d2a44 58%, #17351f 100%);
     }
 
-    .nav, main, footer {
+    .nav,
+    main,
+    footer {
       width: min(1120px, 100%);
       margin: 0 auto;
       padding-right: 24px;
@@ -74,9 +93,21 @@
       text-decoration: none;
     }
 
-    .nav-links { display: flex; flex-wrap: wrap; gap: 18px; }
-    .nav-links a { color: var(--muted); font-size: .92rem; text-decoration: none; }
-    .nav-links a:hover { color: var(--text); }
+    .nav-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 18px;
+    }
+
+    .nav-links a {
+      color: var(--muted);
+      font-size: .92rem;
+      text-decoration: none;
+    }
+
+    .nav-links a:hover {
+      color: var(--text);
+    }
 
     .hero-content {
       max-width: 860px;
@@ -94,10 +125,27 @@
       text-transform: uppercase;
     }
 
-    h1 { margin: 0; font-size: clamp(2.2rem, 6vw, 4rem); line-height: 1.1; }
-    .hero-content > p:not(.eyebrow) { max-width: 720px; margin: 18px auto 0; color: var(--muted); font-size: 1.12rem; }
+    h1 {
+      margin: 0;
+      font-size: clamp(2.2rem, 6vw, 4rem);
+      line-height: 1.1;
+    }
 
-    .actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 26px; }
+    .hero-content>p:not(.eyebrow) {
+      max-width: 720px;
+      margin: 18px auto 0;
+      color: var(--muted);
+      font-size: 1.12rem;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 26px;
+    }
+
     .button {
       display: inline-block;
       padding: 10px 18px;
@@ -109,10 +157,24 @@
       text-decoration: none;
     }
 
-    .button.primary { border-color: var(--accent); background: var(--accent); color: #102018; }
-    .button:hover { filter: brightness(1.08); }
+    .button.primary {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #102018;
+    }
 
-    .badges { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 24px; }
+    .button:hover {
+      filter: brightness(1.08);
+    }
+
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 24px;
+    }
+
     .badge {
       padding: 4px 11px;
       border: 1px solid var(--border);
@@ -122,12 +184,34 @@
       font-size: .82rem;
     }
 
-    main { padding-top: 22px; padding-bottom: 48px; }
-    section { padding-top: 30px; }
-    h2 { margin: 0 0 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border); font-size: 1.65rem; }
-    .section-intro { max-width: 760px; margin: 0 0 20px; color: var(--muted); }
+    main {
+      padding-top: 22px;
+      padding-bottom: 48px;
+    }
 
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 16px; }
+    section {
+      padding-top: 30px;
+    }
+
+    h2 {
+      margin: 0 0 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      font-size: 1.65rem;
+    }
+
+    .section-intro {
+      max-width: 760px;
+      margin: 0 0 20px;
+      color: var(--muted);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+      gap: 16px;
+    }
+
     .card {
       padding: 18px;
       border: 1px solid var(--border);
@@ -135,9 +219,19 @@
       background: var(--panel);
     }
 
-    .card h3 { margin: 0 0 7px; font-size: 1.05rem; }
-    .card p { margin: 0; color: var(--muted); }
-    .card a { font-weight: 650; }
+    .card h3 {
+      margin: 0 0 7px;
+      font-size: 1.05rem;
+    }
+
+    .card p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .card a {
+      font-weight: 650;
+    }
 
     .quick-start {
       overflow-x: auto;
@@ -147,8 +241,15 @@
       background: #111827;
     }
 
-    pre { margin: 0; color: #dce7f8; font: .9rem/1.75 ui-monospace, SFMono-Regular, Consolas, monospace; }
-    code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+    pre {
+      margin: 0;
+      color: #dce7f8;
+      font: .9rem/1.75 ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
 
     .note {
       margin-top: 14px;
@@ -158,9 +259,22 @@
       color: var(--muted);
     }
 
-    .resources { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr)); gap: 10px 24px; }
-    .resource { padding: 12px 0; border-bottom: 1px solid var(--border); }
-    .resource p { margin: 3px 0 0; color: var(--muted); font-size: .92rem; }
+    .resources {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr));
+      gap: 10px 24px;
+    }
+
+    .resource {
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .resource p {
+      margin: 3px 0 0;
+      color: var(--muted);
+      font-size: .92rem;
+    }
 
     footer {
       padding-top: 24px;
@@ -172,16 +286,29 @@
     }
 
     @media (max-width: 620px) {
-      .nav { align-items: flex-start; flex-direction: column; gap: 10px; }
-      .nav-links { gap: 10px 16px; }
-      .hero-content { padding-top: 48px; }
+      .nav {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .nav-links {
+        gap: 10px 16px;
+      }
+
+      .hero-content {
+        padding-top: 48px;
+      }
     }
 
     @media (prefers-reduced-motion: reduce) {
-      html { scroll-behavior: auto; }
+      html {
+        scroll-behavior: auto;
+      }
     }
   </style>
 </head>
+
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="hero">
@@ -197,7 +324,8 @@
     <div class="hero-content" id="top">
       <p class="eyebrow">Rust archive format and toolkit</p>
       <h1>Keep your files.<br>Keep their history.</h1>
-      <p>ZAR creates fast, verifiable archives with commit-based updates, data deduplication, and optional authenticated encryption. Search or mount archives without extracting them.</p>
+      <p>ZAR creates fast, verifiable archives with commit-based updates, data deduplication, and optional authenticated
+        encryption. Search or mount archives without extracting them.</p>
       <div class="actions">
         <a class="button primary" href="https://github.com/brmmm3/zar-rs#quick-start">Get started</a>
         <a class="button" href="https://github.com/brmmm3/zar-rs">Explore the source</a>
@@ -218,11 +346,13 @@
       <div class="grid">
         <article class="card">
           <h3>Fast compression</h3>
-          <p>Compress independent data blocks in parallel with Zstandard for responsive archive creation and extraction.</p>
+          <p>Compress independent data blocks in parallel with Zstandard for responsive archive creation and extraction.
+          </p>
         </article>
         <article class="card">
           <h3>Versioned commits</h3>
-          <p>Add file updates as commits, inspect earlier states, and compact history when older versions are no longer needed.</p>
+          <p>Add file updates as commits, inspect earlier states, and compact history when older versions are no longer
+            needed.</p>
         </article>
         <article class="card">
           <h3>Deduplicated data</h3>
@@ -238,7 +368,8 @@
         </article>
         <article class="card">
           <h3>Careful extraction</h3>
-          <p>Validate paths and constrain restoration to the selected destination rather than trusting archive entries blindly.</p>
+          <p>Validate paths and constrain restoration to the selected destination rather than trusting archive entries
+            blindly.</p>
         </article>
         <article class="card">
           <h3>Search without extraction</h3>
@@ -257,7 +388,8 @@
 
     <section id="tools" aria-labelledby="tools-title">
       <h2 id="tools-title">Choose your interface</h2>
-      <p class="section-intro">Use the same archive format from a terminal, desktop, application, or supported language runtime.</p>
+      <p class="section-intro">Use the same archive format from a terminal, desktop, application, or supported language
+        runtime.</p>
       <div class="grid">
         <article class="card">
           <h3><a href="https://github.com/brmmm3/zar-rs/tree/master/zarlib-cli">zarc — command line</a></h3>
@@ -265,11 +397,13 @@
         </article>
         <article class="card">
           <h3><a href="https://github.com/brmmm3/zar-rs/tree/master/zarlib-gui">zarg — desktop manager</a></h3>
-          <p>Browse archive contents and commits, search files, and restore selected versions with a graphical interface.</p>
+          <p>Browse archive contents and commits, search files, and restore selected versions with a graphical
+            interface.</p>
         </article>
         <article class="card">
           <h3><a href="https://github.com/brmmm3/zar-rs/tree/master/zarmount">zarmount — virtual filesystem</a></h3>
-          <p>Mount ZAR archives read-only with FUSE on Linux or ProjFS on Windows. Select the latest or an earlier commit.</p>
+          <p>Mount ZAR archives read-only with FUSE on Linux or ProjFS on Windows. Select the latest or an earlier
+            commit.</p>
         </article>
         <article class="card">
           <h3><a href="https://github.com/brmmm3/zar-rs/tree/master/zcopy">zcopy — network copy</a></h3>
@@ -284,9 +418,17 @@
 
     <section id="quick-start" aria-labelledby="quick-start-title">
       <h2 id="quick-start-title">Quick start</h2>
-      <p class="section-intro">Install from a local checkout, then create and verify an archive. See the repository for packaged installers.</p>
+      <p class="section-intro">Install from a local checkout, then create and verify an archive. See the repository for
+        packaged installers.</p>
       <div class="quick-start">
-        <pre><code># Install zarc from a local checkout
+        <pre><code># Install CLI binary
+cargo binstall zarlib-cli
+# Install GUI binary
+cargo binstall zarlib-gui
+# Install network copy tool
+cargo binstall zcopy
+
+# Install zarc from a local checkout
 cargo install --path zarlib-cli
 
 # Create an archive and inspect it
@@ -303,7 +445,9 @@ zarc grep backup.zar 'TODO|FIXME' --file-filter '*.txt' -B 1 -A 1
 # Restore the archive
 zarc extract backup.zar --output ./restored/</code></pre>
       </div>
-      <p class="note">Adding files does not automatically remove deleted paths. Use <code>zarc remove</code> for entries you want to delete. For mounting, see the zarmount guide for FUSE or ProjFS prerequisites; keep an archive unchanged while it is mounted.</p>
+      <p class="note">Adding files does not automatically remove deleted paths. Use <code>zarc remove</code> for entries
+        you want to delete. For mounting, see the zarmount guide for FUSE or ProjFS prerequisites; keep an archive
+        unchanged while it is mounted.</p>
     </section>
 
     <section id="resources" aria-labelledby="resources-title">
@@ -314,11 +458,13 @@ zarc extract backup.zar --output ./restored/</code></pre>
           <p>Generated API documentation for the reusable Rust library.</p>
         </div>
         <div class="resource">
-          <strong><a href="https://github.com/brmmm3/zar-rs/blob/master/doc/zar-file-format.md">ZAR file format</a></strong>
+          <strong><a href="https://github.com/brmmm3/zar-rs/blob/master/doc/zar-file-format.md">ZAR file
+              format</a></strong>
           <p>Framing, versions, integrity data, encryption, and archive structure.</p>
         </div>
         <div class="resource">
-          <strong><a href="https://github.com/brmmm3/zar-rs/blob/master/doc/zarlib-developer-guide.md">Library developer guide</a></strong>
+          <strong><a href="https://github.com/brmmm3/zar-rs/blob/master/doc/zarlib-developer-guide.md">Library developer
+              guide</a></strong>
           <p>High-level operations and examples for application developers.</p>
         </div>
         <div class="resource">
@@ -330,19 +476,23 @@ zarc extract backup.zar --output ./restored/</code></pre>
           <p>Linux FUSE and Windows ProjFS setup, read-only mounts, history, and limitations.</p>
         </div>
         <div class="resource">
-          <strong><a href="https://github.com/brmmm3/zar-rs#language-bindings-and-runtime-packages">Language bindings</a></strong>
+          <strong><a href="https://github.com/brmmm3/zar-rs#language-bindings-and-runtime-packages">Language
+              bindings</a></strong>
           <p>Python, C, C++, Go, Java, C#, Lua, and WebAssembly / Node.js packages.</p>
         </div>
         <div class="resource">
-          <strong><a href="https://github.com/brmmm3/zar-rs/blob/master/doc/benchmarks/README.md">Benchmark reports</a></strong>
+          <strong><a href="https://github.com/brmmm3/zar-rs/blob/master/doc/benchmarks/README.md">Benchmark
+              reports</a></strong>
           <p>Compare archive size, compression, extraction, and resource usage across datasets.</p>
         </div>
         <div class="resource">
-          <strong><a href="https://crates.io/crates/zarlib">crates.io</a> · <a href="https://pypi.org/project/pyzarlib/">PyPI</a></strong>
+          <strong><a href="https://crates.io/crates/zarlib">crates.io</a> · <a
+              href="https://pypi.org/project/pyzarlib/">PyPI</a></strong>
           <p>Published Rust and Python packages.</p>
         </div>
         <div class="resource">
-          <strong><a href="https://github.com/brmmm3/zar-rs/blob/master/CONTRIBUTING.md">Contributing</a> · <a href="https://github.com/brmmm3/zar-rs/blob/master/CHANGELOG.md">Changelog</a></strong>
+          <strong><a href="https://github.com/brmmm3/zar-rs/blob/master/CONTRIBUTING.md">Contributing</a> · <a
+              href="https://github.com/brmmm3/zar-rs/blob/master/CHANGELOG.md">Changelog</a></strong>
           <p>Development setup, contribution guidance, and release history.</p>
         </div>
       </div>
@@ -354,4 +504,5 @@ zarc extract backup.zar --output ./restored/</code></pre>
     <a href="https://github.com/brmmm3/zar-rs">View the project on GitHub</a>.
   </footer>
 </body>
+
 </html>
