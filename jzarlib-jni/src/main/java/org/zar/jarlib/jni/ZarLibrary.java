@@ -209,6 +209,10 @@ public final class ZarLibrary {
         return executeJson("list_archive", requestJson);
     }
 
+    public static String diffArchive(String requestJson) throws ZarException {
+        return executeJson("diff_archive", requestJson);
+    }
+
     public static String grepArchive(String requestJson) throws ZarException {
         return executeJson("grep_archive", requestJson);
     }

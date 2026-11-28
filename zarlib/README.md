@@ -63,6 +63,15 @@ writing files. The convenience extraction API defaults to reporting errors
 for existing destination files. Use the options and password-aware variants
 for other policies or encrypted histories.
 
+## Comparing commits
+
+`diff_archive("backup.zar", "00000001", "00000002", None)` compares
+complete snapshots and returns `added`, `removed`, and `changed` maps keyed
+by archive path. Each value contains `old_size` and `new_size` in bytes;
+the absent side is `None`, and non-file entries have size zero. Changes include
+content, type, and stored metadata. Reversing the IDs reverses the comparison.
+Use `diff_archive_with_passwords` for histories with multiple passwords.
+
 ## Search
 
 `grep_archive` searches regular files in an archive using a path glob and a

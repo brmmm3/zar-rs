@@ -92,6 +92,20 @@ do not require a valid configuration file.
 
 ## Common workflows
 
+### Compare commits
+
+```sh
+zarc diff backup.zar 00000001 00000002
+```
+
+The command compares complete snapshots, including directories and links.
+Lines begin with `+` for additions, `-` for removals, and `*` for changes,
+followed by the human-readable size (or signed size difference for changes)
+and archive path. Additions and removals are green and red on a terminal.
+The summary reports category counts and the net end-minus-start size change.
+Reverse the IDs to reverse the comparison. Use `--password` and repeated
+`--password-for COMMIT_ID` to unlock encrypted history.
+
 ### Search archived files
 
 ```sh

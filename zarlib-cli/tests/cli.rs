@@ -38,6 +38,35 @@ where
         .unwrap()
 }
 
+#[test]
+fn diff_reports_commit_changes_and_reverse_sizes() {
+    let directory = TestDirectory::new();
+    let file = directory.path().join("input.txt");
+    let archive = directory.path().join("archive.zar");
+    std::fs::write(&file, b"old").unwrap();
+    let name = archive.to_str().unwrap();
+    zarlib::operations::create_archive(name, std::slice::from_ref(&file)).unwrap();
+    std::fs::write(&file, b"newer").unwrap();
+    zarlib::operations::add_archive(name, &[file]).unwrap();
+    for (start, end, size) in [
+        ("00000001", "00000002", "+2 B"),
+        ("00000002", "00000001", "-2 B"),
+    ] {
+        let output = zarc(["--no-config", "diff", name, start, end]);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(stdout.contains(&format!("* {size} input.txt\n")));
+        assert!(stdout.contains(&format!("size change: {size}")));
+    }
+    let output = zarc(["--no-config", "diff", name, "00000001", "ffffffff"]);
+    assert!(!output.status.success());
+    assert!(!output.stderr.is_empty());
+}
+
 #[cfg(unix)]
 fn zarc_with_terminal(args: &[&OsStr], prompts: &[(&str, &str)]) -> Output {
     use std::io::Read;

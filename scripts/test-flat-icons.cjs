@@ -6,41 +6,41 @@ const { chromium } = require('playwright');
 
 const root = path.resolve(__dirname, '../zarlib-gui/assets');
 
-test('icon themes match names and sizes but have distinct visible artwork', async () => {
+test('lock and unlock icons have distinct shackles at button size', async () => {
   const browser = await chromium.launch({
     headless: true,
     executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
   });
-
-  test('lock and unlock icons have distinct shackles at button size', async () => {
-    const browser = await chromium.launch({
-      headless: true,
-      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
-    });
-    try {
-      const page = await browser.newPage();
-      for (const theme of ['crystal', 'flat']) {
-        const icons = await Promise.all(['document-decrypt.png', 'document-encrypt.png'].map(
-          (name) => fs.readFile(path.join(root, theme, 'actions', name)),
-        ));
-        const alpha = await page.evaluate(async (images) => {
-          return Promise.all(images.map(async (data) => {
-            const image = new Image();
-            image.src = `data:image/png;base64,${data}`;
-            await image.decode();
-            const canvas = document.createElement('canvas');
-            canvas.width = canvas.height = 16;
-            const context = canvas.getContext('2d');
-            context.drawImage(image, 0, 0, 16, 16);
-            return context.getImageData(13, 8, 1, 1).data[3];
-          }));
-        }, icons.map((icon) => icon.toString('base64')));
-        assert.ok(alpha[0] < 128, `${theme}: unlocked shackle is not open`);
-        assert.ok(alpha[1] > 200, `${theme}: locked shackle is not closed`);
-      }
-    } finally {
-      await browser.close();
+  try {
+    const page = await browser.newPage();
+    for (const theme of ['crystal', 'flat']) {
+      const icons = await Promise.all(['document-decrypt.png', 'document-encrypt.png'].map(
+        (name) => fs.readFile(path.join(root, theme, 'actions', name)),
+      ));
+      const alpha = await page.evaluate(async (images) => {
+        return Promise.all(images.map(async (data) => {
+          const image = new Image();
+          image.src = `data:image/png;base64,${data}`;
+          await image.decode();
+          const canvas = document.createElement('canvas');
+          canvas.width = canvas.height = 16;
+          const context = canvas.getContext('2d');
+          context.drawImage(image, 0, 0, 16, 16);
+          return context.getImageData(13, 8, 1, 1).data[3];
+        }));
+      }, icons.map((icon) => icon.toString('base64')));
+      assert.ok(alpha[0] < 128, `${theme}: unlocked shackle is not open`);
+      assert.ok(alpha[1] > 200, `${theme}: locked shackle is not closed`);
     }
+  } finally {
+    await browser.close();
+  }
+});
+
+test('icon themes match names and sizes but have distinct visible artwork', async () => {
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
   });
   try {
     const page = await browser.newPage();

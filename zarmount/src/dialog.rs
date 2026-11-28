@@ -660,7 +660,7 @@ pub fn run_about_dialog() -> ExitCode {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("About zarmount")
-            .with_inner_size([440.0, 220.0])
+            .with_inner_size([440.0, 200.0])
             .with_resizable(false)
             .with_app_id("zarmount-about")
             .with_icon(app_icon()),

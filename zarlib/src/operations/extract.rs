@@ -240,6 +240,14 @@ impl PreparedExtraction {
         &self.state.0
     }
 
+    pub(crate) fn entry_metadata(&self) -> &ArchivedEntryMetadata {
+        &self.state.2
+    }
+
+    pub(crate) fn ensure_unchanged(&self) -> Result<(), Box<dyn std::error::Error>> {
+        self.check_unchanged()
+    }
+
     /// Returns the commit limit used when preparing the archive.
     pub fn to(&self) -> Option<&str> {
         self.to.as_deref()

@@ -61,6 +61,23 @@ public sealed partial class ZarLibTests : IDisposable
     }
 
     [Fact]
+    public void DiffArchiveReturnsSizeMaps()
+    {
+        Write("input.txt", "old");
+        var request = new { archive = "history.zar", paths = new[] { "input.txt" } };
+        ZarLibrary.CreateArchive(request);
+        Write("input.txt", "newer");
+        ZarLibrary.AddArchive(request);
+        using var result = JsonDocument.Parse(ZarLibrary.DiffArchive(new
+        {
+            archive = "history.zar", start = "00000001", end = "00000002"
+        }));
+        var entry = result.RootElement.GetProperty("changed").GetProperty("input.txt");
+        Assert.Equal(3, entry.GetProperty("old_size").GetInt32());
+        Assert.Equal(5, entry.GetProperty("new_size").GetInt32());
+    }
+
+    [Fact]
     public void FullArchiveOperations()
     {
         Fixture();

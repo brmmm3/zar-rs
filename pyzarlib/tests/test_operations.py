@@ -8,6 +8,25 @@ import pytest
 import pyzarlib
 
 
+def test_diff_archive_returns_directional_size_maps(tmp_path: Path) -> None:
+    source = tmp_path / "input.txt"
+    archive = tmp_path / "diff.zar"
+    source.write_bytes(b"old")
+    pyzarlib.create_archive(archive, [source])
+    source.write_bytes(b"newer")
+    pyzarlib.add_archive(archive, [source])
+    assert pyzarlib.diff_archive(archive, "00000001", "00000002") == {
+        "added": {},
+        "removed": {},
+        "changed": {"input.txt": {"old_size": 3, "new_size": 5}},
+    }
+    assert pyzarlib.diff_archive(archive, "00000002", "00000001")["changed"] == {
+        "input.txt": {"old_size": 5, "new_size": 3}
+    }
+    with pytest.raises(RuntimeError):
+        pyzarlib.diff_archive(archive, "00000001", "ffffffff")
+
+
 def test_grep_preserves_bytes_and_context(tmp_path: Path) -> None:
     source = tmp_path / "input.txt"
     source.write_bytes(b"before\n\xffmatch\nafter\n")

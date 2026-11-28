@@ -5,6 +5,11 @@ until a version is released.
 
 ## Unreleased
 
+### Added
+
+- Added commit snapshot diffing to zarlib, zarc, and the language bindings,
+  including directional size changes and encrypted history support.
+
 ### Changed
 
 - Replaced the LGPL Crystal artwork with original, project-licensed glossy

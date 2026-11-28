@@ -36,6 +36,10 @@ Operation errors are thrown. Archive paths must refer to configured preopens.
 The adapter exposes no environment variables, arguments, or network access to
 the component.
 
+`diffArchive({ archive, start, end, password, passwords })` compares commit
+snapshots and returns the decoded category maps described in the
+[C diff schema](../../czarlib/README.md). Password fields are optional.
+
 ## Searching archive files
 
 For an existing `/srv/zar-data/backup.zar`, search `.txt` files with one line

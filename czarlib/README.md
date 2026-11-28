@@ -163,9 +163,16 @@ The output shapes follow the corresponding Python API:
 | `info_archive` | `archive` | `verbose`, `password`, `passwords` |
 | `cross_commit_references` | `archive` | `password`, `passwords` |
 | `list_archive` | `archive` | `to`, `password`, `passwords` |
+| `diff_archive` | `archive`, `start`, `end` | `password`, `passwords` |
 | `grep_archive` | `archive`, `file_filter`, `pattern` | `before`, `after`, `to`, `password`, `passwords` |
 | `extract_archive` | `archive`, `destination` | `dry_run`, `to`, `password`, `passwords`, `collision`, `existing`, `restore_metadata`, `restore_symlinks`, `restore_devices`, file/folder filters |
 | `extract_archive_to_memory` | `archive` | `to`, `password`, `passwords`, `size_limit`, `offset`, file/folder filters |
+
+`diff_archive` compares complete commit snapshots. It returns an object with
+`added`, `removed`, and `changed` objects keyed by archive path. Each value
+has `old_size` and `new_size` in bytes; a missing side is `null`, and non-file
+entries have size zero. Content, type, and stored metadata changes are
+included. Reversing `start` and `end` reverses the comparison.
 
 ## Searching archive files
 

@@ -68,6 +68,16 @@ block, and verifies the file checksum only when reading the whole file.
 If the archive changes or is replaced, subsequent reads fail. The
 [`zarmount` FUSE filesystem](../zarmount/README.md) uses this API.
 
+## Comparing commits
+
+`diff_archive` compares two complete snapshots, including directories, links,
+and special entries. Its `added`, `removed`, and `changed` maps contain
+`DiffEntry` values with uncompressed `old_size` and `new_size`; absent sides
+are `None` and non-file entries have size zero. Content, type, and stored
+metadata changes are reported. Reversing the commit IDs reverses the result.
+Use `diff_archive_with_passwords` for encrypted histories with distinct
+passwords; unavailable headers cause an error rather than an incomplete diff.
+
 ## Searching files
 
 `grep_archive` searches regular files in parallel on native targets (sequentially

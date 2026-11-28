@@ -9,6 +9,40 @@ use zarlib::{
     UNENCRYPTED_DESCRIPTOR, unwrap_dek_with_password, write_container_magic,
 };
 
+#[test]
+fn diff_output_uses_sizes_signs_and_optional_color() {
+    let mut diff = DiffResult::default();
+    diff.added.insert(
+        ArchivePath::new("added").unwrap(),
+        DiffEntry {
+            old_size: None,
+            new_size: Some(2048),
+        },
+    );
+    diff.removed.insert(
+        ArchivePath::new("removed").unwrap(),
+        DiffEntry {
+            old_size: Some(1024),
+            new_size: None,
+        },
+    );
+    diff.changed.insert(
+        ArchivePath::new("changed").unwrap(),
+        DiffEntry {
+            old_size: Some(10),
+            new_size: Some(7),
+        },
+    );
+    let plain = render_diff(&diff, false);
+    assert!(plain.contains("+ 2.00 KiB added\n"));
+    assert!(plain.contains("- 1.00 KiB removed\n"));
+    assert!(plain.contains("* -3 B changed\n"));
+    assert!(plain.contains("Added: 1, removed: 1, changed: 1; size change: +1021 B\n"));
+    let colored = render_diff(&diff, true);
+    assert!(colored.contains("\x1b[32m+ 2.00 KiB added\x1b[0m"));
+    assert!(colored.contains("\x1b[31m- 1.00 KiB removed\x1b[0m"));
+}
+
 fn run_with_default_skip_extensions(test: &str) -> bool {
     if std::env::var_os("ZARLIB_SKIP_COMPRESS_EXTENSIONS").is_none() {
         return false;

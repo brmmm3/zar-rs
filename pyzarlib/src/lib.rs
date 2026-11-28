@@ -582,6 +582,42 @@ fn list_archive(
 }
 
 #[pyfunction]
+#[pyo3(signature = (archive, start, end, *, password = None, passwords = None))]
+fn diff_archive<'py>(
+    py: Python<'py>,
+    archive: PathBuf,
+    start: String,
+    end: String,
+    password: Option<Vec<u8>>,
+    passwords: Option<HashMap<String, Vec<u8>>>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let archive = archive_string(archive)?;
+    let passwords = password_set(password, passwords)?;
+    let result = py
+        .detach(|| {
+            operations::diff_archive_with_passwords(&archive, &start, &end, &passwords)
+                .map_err(|error| error.to_string())
+        })
+        .map_err(runtime_error)?;
+    let output = PyDict::new(py);
+    for (name, entries) in [
+        ("added", result.added),
+        ("removed", result.removed),
+        ("changed", result.changed),
+    ] {
+        let category = PyDict::new(py);
+        for (path, entry) in entries {
+            let sizes = PyDict::new(py);
+            sizes.set_item("old_size", entry.old_size)?;
+            sizes.set_item("new_size", entry.new_size)?;
+            category.set_item(path.as_str(), sizes)?;
+        }
+        output.set_item(name, category)?;
+    }
+    Ok(output)
+}
+
+#[pyfunction]
 #[pyo3(signature = (archive, file_filter, pattern, *, before = 0, after = 0, to = None, password = None, passwords = None))]
 #[allow(clippy::too_many_arguments)]
 fn grep_archive<'py>(
@@ -990,6 +1026,7 @@ fn _pyzarlib(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(cross_commit_references, module)?)?;
     module.add_function(wrap_pyfunction!(list_archive, module)?)?;
     module.add_function(wrap_pyfunction!(grep_archive, module)?)?;
+    module.add_function(wrap_pyfunction!(diff_archive, module)?)?;
     module.add_function(wrap_pyfunction!(extract_archive, module)?)?;
     module.add_function(wrap_pyfunction!(extract_archive_to_memory, module)?)?;
     module.add_function(wrap_pyfunction!(read_custom_metadata, module)?)?;

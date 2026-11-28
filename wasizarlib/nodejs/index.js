@@ -77,6 +77,10 @@ export async function createWasizarlib({ preopens = {} } = {}) {
       if (handles) throw new Error("component operations cannot be reentered");
       return operations.execute(operation, requestJson);
     },
+    diffArchive(request) {
+      if (handles) throw new Error("component operations cannot be reentered");
+      return JSON.parse(operations.execute("diff_archive", JSON.stringify(request)));
+    },
     createFromStreams(archive, inputs, {
       encoding_options: encoding = {},
       password,

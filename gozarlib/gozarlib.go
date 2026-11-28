@@ -163,6 +163,11 @@ func ListArchive(request any) (json.RawMessage, error) {
 	return execute("list_archive", request)
 }
 
+// DiffArchive compares two archive commit snapshots.
+func DiffArchive(request any) (json.RawMessage, error) {
+	return execute("diff_archive", request)
+}
+
 // GrepArchive searches selected archive files for a regular expression.
 func GrepArchive(request any) (json.RawMessage, error) {
 	return execute("grep_archive", request)

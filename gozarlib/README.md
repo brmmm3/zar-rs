@@ -16,6 +16,7 @@ and Go functions for every C-wrapper operation:
 - `CrossCommitReferences`
 - `ListArchive`
 - `GrepArchive`
+- `DiffArchive`
 - `ExtractArchive`
 - `ExtractArchiveToMemory`
 
@@ -26,6 +27,9 @@ formats, encryption scope, per-commit password behavior, and limitations. Create
 and Add requests may include `.zip`, `.7z`, `.tar`, `.tar.gz`, or `.tgz` source
 paths; their contents are imported into the resulting ZAR using the source
 archive's internal paths.
+
+`DiffArchive` returns a `json.RawMessage` containing the category maps in the
+[C diff schema](../czarlib/README.md), or an error.
 
 The Go wrapper provides `ReadCustomMetadata` and `UpdateCustomMetadata`.
 Requests use the same JSON fields as the C API:

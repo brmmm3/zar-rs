@@ -5,7 +5,7 @@ impl ZargApp {
         if self.show_about {
             let mut close_about = false;
             let mut open = true;
-            let size = self.dialog_size("about", [440.0, 220.0]);
+            let size = self.dialog_size("about", [440.0, 200.0]);
             let icons = &self.icons;
             egui::Window::new("About zarg")
                 .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)

@@ -563,6 +563,36 @@ fn list(request: &Value) -> Result<Value, String> {
     Ok(json!(entries))
 }
 
+fn diff(request: &Value) -> Result<Value, String> {
+    let passwords = passwords(request)?;
+    let diff = operations::diff_archive_with_passwords(
+        required_string(request, "archive")?,
+        required_string(request, "start")?,
+        required_string(request, "end")?,
+        &passwords,
+    )
+    .map_err(|error| error.to_string())?;
+    let category = |entries: std::collections::BTreeMap<_, operations::DiffEntry>| {
+        entries
+            .into_iter()
+            .map(|(path, entry): (zarlib::ArchivePath, _)| {
+                (
+                    path.as_str().to_owned(),
+                    json!({
+                        "old_size": entry.old_size,
+                        "new_size": entry.new_size,
+                    }),
+                )
+            })
+            .collect::<Map<_, _>>()
+    };
+    Ok(json!({
+        "added": category(diff.added),
+        "removed": category(diff.removed),
+        "changed": category(diff.changed),
+    }))
+}
+
 fn grep(request: &Value) -> Result<Value, String> {
     let passwords = passwords(request)?;
     let results = operations::grep_archive(
@@ -727,6 +757,7 @@ fn execute(operation: &str, request: &Value) -> Result<Value, String> {
         "info_archive" => info(request),
         "cross_commit_references" => references(request),
         "list_archive" => list(request),
+        "diff_archive" => diff(request),
         "grep_archive" => grep(request),
         "extract_archive" => extract(request),
         "extract_archive_to_memory" => extract_to_memory(request),
@@ -834,6 +865,38 @@ pub unsafe extern "C" fn czarlib_string_free(value: *mut c_char) {
 mod tests {
     use super::execute_json;
     use std::io::Write;
+
+    #[test]
+    fn diff_json_returns_directional_size_maps() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("input.txt");
+        let archive = directory.path().join("archive.zar");
+        std::fs::write(&input, b"old").unwrap();
+        let request = serde_json::json!({"archive": archive, "paths": [input]});
+        execute_json("create_archive", &request.to_string()).unwrap();
+        std::fs::write(&input, b"newer").unwrap();
+        execute_json("add_archive", &request.to_string()).unwrap();
+        let request = serde_json::json!({
+            "archive": archive, "start": "00000001", "end": "00000002"
+        });
+        let result: serde_json::Value =
+            serde_json::from_str(&execute_json("diff_archive", &request.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(
+            result,
+            serde_json::json!({
+                "added": {}, "removed": {},
+                "changed": {"input.txt": {"old_size": 3, "new_size": 5}}
+            })
+        );
+        assert!(
+            execute_json(
+                "diff_archive",
+                r#"{"archive":"missing","start":"bad","end":"bad"}"#
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn grep_json_preserves_bytes_context_and_reports_invalid_arguments() {

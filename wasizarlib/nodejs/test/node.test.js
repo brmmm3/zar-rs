@@ -77,6 +77,27 @@ test("Node.js executes archive operations through the WASI component", async () 
   }
 });
 
+test("Node.js returns directional diff maps", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "wasizarlib-diff-"));
+  try {
+    const input = path.join(directory, "input.txt");
+    const archive = "/data/history.zar";
+    await writeFile(input, "old");
+    const { execute, diffArchive } = await createWasizarlib({ preopens: { "/data": directory } });
+    const request = { archive, paths: ["/data/input.txt"] };
+    execute("create_archive", JSON.stringify(request));
+    await writeFile(input, "newer");
+    execute("add_archive", JSON.stringify(request));
+    const result = diffArchive({ archive, start: "00000001", end: "00000002" });
+    assert.deepEqual(result, {
+      added: {}, removed: {}, changed: { "data/input.txt": { old_size: 3, new_size: 5 } },
+    });
+    assert.throws(() => diffArchive({ archive, start: "invalid", end: "00000002" }));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("WASI exposes commit encryption and decryption operations", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "wasizarlib-transform-"));
 

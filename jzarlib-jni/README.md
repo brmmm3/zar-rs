@@ -12,6 +12,8 @@ are imported into the resulting ZAR using the source archive's internal paths.
 `ZarLibrary.crossCommitReferences(requestJson)` returns the shared JSON
 reference inventory, and `infoArchive` reports per-commit reference counts.
 `ZarLibrary.grepArchive(requestJson)` searches files using the C JSON schema.
+`ZarLibrary.diffArchive(requestJson)` returns commit differences using the
+[C diff schema](../czarlib/README.md).
 
 The JNI wrapper provides `readCustomMetadata` and `updateCustomMetadata` for
 archive-level custom key/value metadata. Reading returns the effective values

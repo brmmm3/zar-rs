@@ -78,6 +78,29 @@ func assertMemoryFile(t *testing.T, response, path string, contents []byte) {
 	}
 }
 
+func TestDiffArchive(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "input.txt")
+	archive := filepath.Join(dir, "history.zar")
+	writeFixture(t, input, []byte("old"))
+	request := map[string]any{"archive": archive, "paths": []string{input}}
+	call(t, "create_archive", request)
+	writeFixture(t, input, []byte("newer"))
+	call(t, "add_archive", request)
+	result, err := DiffArchive(map[string]any{"archive": archive, "start": "00000001", "end": "00000002"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]map[string]map[string]*int
+	if err := json.Unmarshal(result, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	sizes := decoded["changed"]["input.txt"]
+	if len(decoded["added"]) != 0 || len(decoded["removed"]) != 0 || sizes["old_size"] == nil || *sizes["old_size"] != 3 || sizes["new_size"] == nil || *sizes["new_size"] != 5 {
+		t.Fatalf("unexpected diff: %s", result)
+	}
+}
+
 func TestFullArchiveOperations(t *testing.T) {
 	temp := t.TempDir()
 	oldWorkingDirectory, err := os.Getwd()

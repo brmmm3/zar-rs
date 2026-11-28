@@ -764,6 +764,65 @@ fn display_size(size: u64) -> String {
     }
 }
 
+fn display_size_delta(size: i128) -> String {
+    let magnitude = size.unsigned_abs();
+    let mut value = magnitude as f64;
+    let units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"];
+    let mut unit = 0;
+    while value >= 1024.0 && unit < units.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    let sign = if size < 0 {
+        "-"
+    } else if size > 0 {
+        "+"
+    } else {
+        ""
+    };
+    if unit == 0 {
+        format!("{sign}{magnitude} B")
+    } else {
+        format!("{sign}{value:.2} {}", units[unit])
+    }
+}
+
+fn render_diff(diff: &DiffResult, color: bool) -> String {
+    let mut output = String::new();
+    let mut total = 0_i128;
+    for (symbol, entries, ansi) in [
+        ('+', &diff.added, Some("32")),
+        ('-', &diff.removed, Some("31")),
+        ('*', &diff.changed, None),
+    ] {
+        for (path, entry) in entries {
+            let delta =
+                i128::from(entry.new_size.unwrap_or(0)) - i128::from(entry.old_size.unwrap_or(0));
+            total += delta;
+            let size = if symbol == '*' {
+                display_size_delta(delta)
+            } else {
+                display_size(entry.new_size.or(entry.old_size).unwrap_or(0))
+            };
+            let line = format!("{symbol} {size} {path}");
+            if color && let Some(code) = ansi {
+                output.push_str(&format!("\x1b[{code}m{line}\x1b[0m\n"));
+            } else {
+                output.push_str(&line);
+                output.push('\n');
+            }
+        }
+    }
+    output.push_str(&format!(
+        "Added: {}, removed: {}, changed: {}; size change: {}\n",
+        diff.added.len(),
+        diff.removed.len(),
+        diff.changed.len(),
+        display_size_delta(total)
+    ));
+    output
+}
+
 fn format_extraction_plan(plan: &ExtractionPlan) -> Vec<String> {
     let mut lines = vec!["final TOC:".to_owned()];
     for (path, entry) in plan.toc.iter() {
@@ -1658,6 +1717,18 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             } else {
                 println!("Time: {}", format_duration(elapsed));
             }
+            Ok(0)
+        }
+        Command::Diff {
+            archive,
+            start,
+            end,
+            password,
+            password_for,
+        } => {
+            let passwords = prompt_password_set(password, &password_for)?;
+            let diff = diff_archive_with_passwords(&archive, &start, &end, &passwords)?;
+            print!("{}", render_diff(&diff, io::stdout().is_terminal()));
             Ok(0)
         }
         Command::Grep {

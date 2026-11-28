@@ -8,6 +8,12 @@ extract operations.
 [`grep_archive`](#searching-archive-files) searches the contents of selected
 regular files without extracting them.
 
+`diff_archive(archive, start, end, *, password=None, passwords=None)` compares
+complete snapshots and returns `added`, `removed`, and `changed` dictionaries
+keyed by archive path. Each value has `old_size` and `new_size` in bytes;
+missing sides are `None`, and non-file entries have size zero. Changes include
+content, type, and stored metadata. Reversing the IDs reverses the comparison.
+
 `cross_commit_references(archive, password=None, passwords=None)` returns all
 referencing and source commit IDs and paths. `info_archive` returns a
 `cross_commit_reference_count` per commit and accepts the same password

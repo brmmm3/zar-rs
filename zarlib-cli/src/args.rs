@@ -776,6 +776,20 @@ pub(crate) enum Command {
         password_for: Vec<String>,
     },
 
+    #[command(about = "Compare archive contents between two commits")]
+    Diff {
+        #[arg(value_name = "ARCHIVE", help = "Archive file path")]
+        archive: String,
+        #[arg(value_name = "START", help = "Starting commit ID")]
+        start: String,
+        #[arg(value_name = "END", help = "Ending commit ID")]
+        end: String,
+        #[arg(long, help = "Prompt for the default password of encrypted commits")]
+        password: bool,
+        #[arg(long = "password-for", value_name = "COMMIT_ID", action = clap::ArgAction::Append, help = "Prompt for a password for this commit; may be repeated")]
+        password_for: Vec<String>,
+    },
+
     #[command(
         about = "Search archive files for a regular expression",
         long_about = "Search regular files selected by an archive-relative glob. Results contain matching lines and optional surrounding context.\n\n\
