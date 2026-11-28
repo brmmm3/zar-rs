@@ -5,6 +5,11 @@ until a version is released.
 
 ## Unreleased
 
+### Changed
+
+- Replaced the LGPL Crystal artwork with original, project-licensed glossy
+  icons in zarg and zarmount, retaining the existing icon theme settings.
+
 ## 0.17.1 - 2026-11-28
 
 ### Changed
