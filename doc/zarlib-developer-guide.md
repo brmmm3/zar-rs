@@ -13,9 +13,9 @@ For code in this workspace:
 zarlib = { path = "../zarlib" }
 ```
 
-For a consumer outside this workspace, use the appropriate source or package
-reference for your project. The current crate version is `0.1.0`. The workspace
-uses Rust edition 2024.
+For a consumer outside this workspace, use `zarlib = "0.17"` or another
+appropriate source or package reference for your project. The workspace uses
+Rust edition 2024.
 
 ## High-level API
 

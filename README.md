@@ -16,7 +16,7 @@ request guidance.
 
 - **[`zarc`](./zarlib-cli/README.md)** is the command-line application.
 - **[`zarg`](./zarlib-gui/README.md)** is the egui desktop archive manager.
-- **[`zarlib`](./doc/zarlib-developer-guide.md)** is the reusable archive
+- **[`zarlib`](./zarlib/README.md)** is the reusable archive
   format and operations library.
 - **[`zcopy`](./zcopy/README.md)** copies file trees between machines over the
   network using compressed, optionally encrypted ZAR batches. It can update
