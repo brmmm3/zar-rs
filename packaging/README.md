@@ -190,9 +190,8 @@ published to Nixpkgs.
 ### Arch Linux
 
 The local PKGBUILD builds `zarc`, `zarg`, `zcopy`, `zarmcp`, and `zarmount`
-from a pinned 0.17.1 development commit. It also installs the same desktop and
-file-manager integration as the deb and RPM packages. On Arch Linux or Arch
-Linux ARM, install `base-devel` and run:
+from the pinned 0.17.1 release commit. On Arch Linux or Arch Linux ARM,
+install `base-devel` and run:
 
 ```sh
 cd packaging/linux/arch
@@ -202,10 +201,26 @@ makepkg -si
 The package is not published to the AUR. `makepkg` downloads Rust dependencies
 during `prepare()`; subsequent build steps use Cargo's frozen lockfile. The
 source archive is downloaded in full, but its root `testdata` directory is
-excluded when unpacking the build sources. For new releases, update `_commit`
-to the corresponding source revision and run `updpkgsums`; the version updater
-sets `pkgver`.
+excluded when unpacking the build sources. `check()` runs the tests for the
+packaged programs and `zarlib`. For new releases, update `_commit` to the
+release's commit and run `updpkgsums`; the version updater sets `pkgver`.
+
 Thunar users should run `zarg-install-thunar-actions` once after installation.
+Nautilus uses per-user scripts, so each user can enable the packaged actions
+without overwriting existing scripts:
+
+```sh
+scripts_dir="${XDG_DATA_HOME:-$HOME/.local/share}/nautilus/scripts"
+mkdir -p "$scripts_dir"
+for script in /usr/share/nautilus/scripts/"ZAR - "*; do
+  ln -s "$script" "$scripts_dir/"
+done
+```
+
+Resolve any reported name conflicts manually. Remove these user-created links
+when uninstalling the package. Mounting also requires the optional `xdg-utils`
+package for opening the file manager, a D-Bus session, a compatible tray and
+access to FUSE; foreground mounts do not require the desktop integration.
 
 ### Other Linux packages
 

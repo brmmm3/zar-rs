@@ -1,0 +1,7 @@
+post_install() {
+  echo "For Nautilus and Thunar integration, see https://github.com/brmmm3/zar-rs/blob/master/packaging/README.md#arch-linux"
+}
+
+post_upgrade() {
+  post_install
+}
