@@ -34,6 +34,8 @@ pub struct CommitInfo {
     pub cross_commit_references: Option<Vec<CrossCommitReference>>,
     pub created_unix_millis: Option<i64>,
     pub user: Option<String>,
+    pub name: Option<String>,
+    pub description: Option<String>,
     pub details: Option<CommitFileStats>,
     pub header_encrypted: bool,
     pub data_encrypted: bool,
@@ -231,6 +233,18 @@ fn read_archive_info(
                 MetadataType::String(value) => Some(value.clone()),
                 _ => None,
             });
+        let detail = |key| {
+            validated
+                .logical_header
+                .as_ref()
+                .and_then(|header| header.metadata.get(key))
+                .and_then(|value| match value {
+                    MetadataType::String(value) => Some(value.clone()),
+                    _ => None,
+                })
+        };
+        let name = detail(super::commit_details::COMMIT_NAME_KEY);
+        let description = detail(super::commit_details::COMMIT_DESCRIPTION_KEY);
         let data_encrypted = validated.encryption.is_data_encrypted();
         let content_algorithm = encryption_algorithm(&validated.encryption);
         let ratio_percent = uncompressed_size.map(|size| {
@@ -341,6 +355,8 @@ fn read_archive_info(
                 cross_commit_references,
                 created_unix_millis,
                 user,
+                name,
+                description,
                 details,
                 header_encrypted,
                 data_encrypted,

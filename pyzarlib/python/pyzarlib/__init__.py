@@ -20,6 +20,7 @@ from ._pyzarlib import (
     read_custom_metadata,
     undo_archive,
     update_custom_metadata,
+    update_commit_details,
 )
 
 __all__ = [
@@ -42,4 +43,5 @@ __all__ = [
     "read_custom_metadata",
     "undo_archive",
     "update_custom_metadata",
+    "update_commit_details",
 ]

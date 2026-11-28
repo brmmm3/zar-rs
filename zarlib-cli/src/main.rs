@@ -563,6 +563,8 @@ struct InfoJsonCommit {
     cross_commit_reference_count: Option<usize>,
     created_unix_millis: Option<i64>,
     user: Option<String>,
+    name: Option<String>,
+    description: Option<String>,
 }
 
 fn render_info_json(commits: &[InfoJsonCommit]) -> String {
@@ -570,7 +572,7 @@ fn render_info_json(commits: &[InfoJsonCommit]) -> String {
         .iter()
         .map(|commit| {
             format!(
-                "{{\"id\":\"{}\",\"size\":{},\"header_size\":{},\"data_size\":{},\"header_encrypted\":{},\"data_encrypted\":{},\"encryption_algorithm\":{},\"header_changes\":{},\"cross_commit_reference_count\":{},\"created_at\":{},\"created_unix_millis\":{},\"user\":{}}}",
+                "{{\"id\":\"{}\",\"size\":{},\"header_size\":{},\"data_size\":{},\"header_encrypted\":{},\"data_encrypted\":{},\"encryption_algorithm\":{},\"header_changes\":{},\"cross_commit_reference_count\":{},\"created_at\":{},\"created_unix_millis\":{},\"user\":{},\"name\":{},\"description\":{}}}",
                 commit.id,
                 commit.size,
                 commit.header_size,
@@ -594,7 +596,9 @@ fn render_info_json(commits: &[InfoJsonCommit]) -> String {
                 commit.user.as_deref().map_or_else(
                     || "null".to_owned(),
                     render_json_string
-                )
+                ),
+                commit.name.as_deref().map_or_else(|| "null".to_owned(), render_json_string),
+                commit.description.as_deref().map_or_else(|| "null".to_owned(), render_json_string)
             )
         })
         .collect::<Vec<_>>()
@@ -723,6 +727,12 @@ fn render_commit_metadata(commit: &CommitInfo) -> String {
     }
     if let Some(user) = &commit.user {
         output.push_str(&format!("  user: {user}\n"));
+    }
+    if let Some(name) = &commit.name {
+        output.push_str(&format!("  name: {name}\n"));
+    }
+    if let Some(description) = &commit.description {
+        output.push_str(&format!("  description: {description}\n"));
     }
     output
 }
@@ -1187,6 +1197,8 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             creation_time,
             access_time,
             user,
+            commit_name,
+            commit_description,
             special_files,
             include_files,
             exclude_files,
@@ -1221,7 +1233,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             };
             let aead = parse_content_aead(&aead)?;
             let encryption_scope = parse_encryption_scope(&encryption_scope)?;
-            let report = create_archive_with_password_progress_and_filters_and_encryption(
+            let report = create_archive_with_commit_details(
                 &archive,
                 &paths,
                 strict,
@@ -1242,6 +1254,10 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                         verbose,
                     },
                     filters: &filters,
+                },
+                CommitDetails {
+                    name: commit_name.as_deref(),
+                    description: commit_description.as_deref(),
                 },
             )?;
             let has_warnings = !report.warnings.is_empty();
@@ -1280,6 +1296,8 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
             creation_time,
             access_time,
             user,
+            commit_name,
+            commit_description,
             special_files,
             password: encrypt,
             aead,
@@ -1333,7 +1351,7 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                 } else {
                     None
                 };
-            add_archive_with_encoding_progress_and_filters_and_encryption(
+            add_archive_with_commit_details(
                 &archive,
                 &paths,
                 cli_encoding_options(block_size.as_deref(), compression_level.as_deref())?,
@@ -1351,6 +1369,10 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                 &filters,
                 encryption,
                 &passwords,
+                CommitDetails {
+                    name: commit_name.as_deref(),
+                    description: commit_description.as_deref(),
+                },
             )?;
             let elapsed = start.elapsed();
             let total_bytes = progress_callback.total_bytes();
@@ -1454,6 +1476,38 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                     reference.path
                 );
             }
+            Ok(0)
+        }
+        Command::CommitDetails {
+            archive,
+            commit,
+            name,
+            remove_name,
+            description,
+            remove_description,
+            password,
+        } => {
+            let passwords = prompt_password_set(password, &[])?;
+            update_commit_details(
+                &archive,
+                &commit,
+                CommitDetailsUpdate {
+                    name: if remove_name {
+                        CommitField::Remove
+                    } else {
+                        name.as_deref()
+                            .map_or(CommitField::Unchanged, CommitField::Set)
+                    },
+                    description: if remove_description {
+                        CommitField::Remove
+                    } else {
+                        description
+                            .as_deref()
+                            .map_or(CommitField::Unchanged, CommitField::Set)
+                    },
+                },
+                &passwords,
+            )?;
             Ok(0)
         }
         Command::Meta {
@@ -1648,6 +1702,8 @@ fn execute(cli: Cli) -> Result<u8, Box<dyn std::error::Error>> {
                                 .map(Vec::len),
                             created_unix_millis: commit.created_unix_millis,
                             user: commit.user.clone(),
+                            name: commit.name.clone(),
+                            description: commit.description.clone(),
                         }
                     })
                     .collect::<Vec<_>>();

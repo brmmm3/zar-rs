@@ -7,6 +7,9 @@ until a version is released.
 
 ### Added
 
+- Added optional commit names and descriptions to create/add, commit
+  inspection, and commit-detail editing in zarlib, zarc, and the bindings.
+  Editing encrypted commits preserves their encryption and commit IDs.
 - Added commit snapshot diffing to zarlib, zarc, and the language bindings,
   including directional size changes and encrypted history support.
 

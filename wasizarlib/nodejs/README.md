@@ -39,6 +39,8 @@ the component.
 `diffArchive({ archive, start, end, password, passwords })` compares commit
 snapshots and returns the decoded category maps described in the
 [C diff schema](../../czarlib/README.md). Password fields are optional.
+`updateCommitDetails(request)` edits commit details using the
+[C request schema](../../czarlib/README.md).
 
 ## Searching archive files
 

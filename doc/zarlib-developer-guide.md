@@ -80,6 +80,18 @@ the first commit.
 Use `diff_archive_with_passwords` for encrypted histories with distinct
 passwords; unavailable headers cause an error rather than an incomplete diff.
 
+## Commit names and descriptions
+
+`CommitDetails` supplies optional fields when using
+`create_archive_with_commit_details` or `add_archive_with_commit_details`.
+`update_commit_details` accepts `CommitDetailsUpdate`, whose fields are
+`CommitField::Unchanged`, `Set`, or `Remove`. It stages and validates the
+rewritten archive before replacing it, retaining commit IDs and data blocks.
+Encrypted commits require their password; encrypted headers use a fresh nonce.
+Names contain 1-64 ASCII letters, digits, underscores, or periods;
+descriptions contain at most 1024 Unicode characters. Both fields appear in
+`CommitInfo` when the commit header is unlocked.
+
 ## Searching files
 
 `grep_archive` searches regular files in parallel on native targets (sequentially

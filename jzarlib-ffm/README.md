@@ -14,6 +14,8 @@ reference inventory, and `infoArchive` reports per-commit reference counts.
 `ZarLibrary.grepArchive(requestJson)` searches files using the C JSON schema.
 `ZarLibrary.diffArchive(requestJson)` returns commit differences using the
 [C diff schema](../czarlib/README.md).
+`ZarLibrary.updateCommitDetails(requestJson)` edits commit details using the
+[C request schema](../czarlib/README.md).
 
 The FFM wrapper provides `readCustomMetadata` and `updateCustomMetadata` for
 archive-level custom key/value metadata. Reading returns the effective values

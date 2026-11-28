@@ -142,6 +142,7 @@ public static partial class ZarLibrary
     public static string CrossCommitReferences(object request) => Execute("cross_commit_references", request);
     public static string ListArchive(object request) => Execute("list_archive", request);
     public static string DiffArchive(object request) => Execute("diff_archive", request);
+    public static string UpdateCommitDetails(object request) => Execute("update_commit_details", request);
     public static string GrepArchive(object request) => Execute("grep_archive", request);
     public static string ExtractArchive(object request) => Execute("extract_archive", request);
 

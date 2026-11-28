@@ -164,6 +164,10 @@ pub(crate) enum Command {
         access_time: bool,
         #[arg(long, help = "Save the current OS username in the commit metadata")]
         user: bool,
+        #[arg(long, help = "Name of the new commit")]
+        commit_name: Option<String>,
+        #[arg(long, help = "Description of the new commit")]
+        commit_description: Option<String>,
         #[arg(
             long,
             help = "Include named pipes and Unix device nodes found in input paths"
@@ -343,6 +347,10 @@ pub(crate) enum Command {
         access_time: bool,
         #[arg(long, help = "Save the current OS username in the commit metadata")]
         user: bool,
+        #[arg(long, help = "Name of the new commit")]
+        commit_name: Option<String>,
+        #[arg(long, help = "Description of the new commit")]
+        commit_description: Option<String>,
         #[arg(
             long,
             help = "Include named pipes and Unix device nodes found in input paths"
@@ -526,6 +534,23 @@ pub(crate) enum Command {
             help = "Remove a metadata key (may be repeated)"
         )]
         remove: Vec<String>,
+    },
+
+    #[command(about = "Set or remove the name and description of a commit")]
+    CommitDetails {
+        archive: String,
+        #[arg(value_name = "COMMIT_ID")]
+        commit: String,
+        #[arg(long, conflicts_with = "remove_name")]
+        name: Option<String>,
+        #[arg(long, conflicts_with = "name")]
+        remove_name: bool,
+        #[arg(long, conflicts_with = "remove_description")]
+        description: Option<String>,
+        #[arg(long, conflicts_with = "description")]
+        remove_description: bool,
+        #[arg(long, help = "Prompt for the encrypted commit password")]
+        password: bool,
     },
 
     #[command(

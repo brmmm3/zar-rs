@@ -189,6 +189,10 @@ public final class ZarLibrary {
         return executeJson("diff_archive", requestJson);
     }
 
+    public static String updateCommitDetails(String requestJson) throws ZarException {
+        return executeJson("update_commit_details", requestJson);
+    }
+
     public static String grepArchive(String requestJson) throws ZarException {
         return executeJson("grep_archive", requestJson);
     }

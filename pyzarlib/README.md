@@ -19,6 +19,15 @@ Equal IDs compare the commit with its predecessor, or an empty first snapshot.
 referencing and source commit IDs and paths. `info_archive` returns a
 `cross_commit_reference_count` per commit and accepts the same password
 arguments; a locked header has a count of `None`.
+
+`create_archive` and `add_archive` accept optional `commit_name` and
+`commit_description` keywords. Use `update_commit_details(archive, commit,
+name=..., description=..., remove_name=False, remove_description=False,
+password=None, passwords=None)` to change existing fields. `info_archive`
+returns `name` and `description`, or `None` when absent or the header is
+locked. Names contain 1-64 ASCII letters, digits, underscores or periods;
+descriptions contain at most 1024 Unicode characters. Updating preserves the
+commit ID and requires the selected commit's password when encrypted.
 ZIP, 7z, RAR, ISO, TAR, TAR.GZ, TGZ, and GZ paths in `create_archive` and `add_archive` are
 imported by their internal entry paths. Encrypted ZIP/7z/RAR sources and
 ZIP/7z/RAR links are not supported. Multi-volume RAR archives and RAR special

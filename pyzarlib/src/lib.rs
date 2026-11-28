@@ -178,7 +178,9 @@ fn commit_id(id: &[u8; 4]) -> String {
     include_folders = None,
     exclude_folders = None,
     aead = "aes-256-gcm",
-    encryption_scope = "header-and-data"
+    encryption_scope = "header-and-data",
+    commit_name = None,
+    commit_description = None
 ))]
 #[allow(clippy::too_many_arguments)]
 fn create_archive<'py>(
@@ -202,6 +204,8 @@ fn create_archive<'py>(
     exclude_folders: Option<Vec<String>>,
     aead: &str,
     encryption_scope: &str,
+    commit_name: Option<String>,
+    commit_description: Option<String>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let archive = archive_string(archive)?;
     let options = encoding_options(block_size, compression_level)?;
@@ -215,7 +219,7 @@ fn create_archive<'py>(
     let encryption_scope = parse_encryption_scope(encryption_scope)?;
     let report = py
         .detach(move || {
-            operations::create_archive_with_password_progress_and_filters_and_encryption(
+            operations::create_archive_with_commit_details(
                 &archive,
                 &paths,
                 strict,
@@ -236,6 +240,10 @@ fn create_archive<'py>(
                         verbose,
                     },
                     filters: &filters,
+                },
+                operations::CommitDetails {
+                    name: commit_name.as_deref(),
+                    description: commit_description.as_deref(),
                 },
             )
             .map_err(|error| error.to_string())
@@ -275,7 +283,9 @@ fn create_archive<'py>(
     password = None,
     aead = "aes-256-gcm",
     encryption_scope = "header-and-data",
-    passwords = None
+    passwords = None,
+    commit_name = None,
+    commit_description = None
 ))]
 #[allow(clippy::too_many_arguments)]
 fn add_archive<'py>(
@@ -299,6 +309,8 @@ fn add_archive<'py>(
     aead: &str,
     encryption_scope: &str,
     passwords: Option<HashMap<String, Vec<u8>>>,
+    commit_name: Option<String>,
+    commit_description: Option<String>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let archive = archive_string(archive)?;
     let options = encoding_options(block_size, compression_level)?;
@@ -314,7 +326,7 @@ fn add_archive<'py>(
     let encryption = password.as_deref().map(|password| (password, aead, scope));
     let warnings = WarningCollector::new();
     py.detach(|| {
-        operations::add_archive_with_encoding_progress_and_filters_and_encryption(
+        operations::add_archive_with_commit_details(
             &archive,
             &paths,
             options,
@@ -332,6 +344,10 @@ fn add_archive<'py>(
             &filters,
             encryption,
             &passwords,
+            operations::CommitDetails {
+                name: commit_name.as_deref(),
+                description: commit_description.as_deref(),
+            },
         )
         .map_err(|error| error.to_string())
     })
@@ -339,6 +355,55 @@ fn add_archive<'py>(
     let result = PyDict::new(py);
     result.set_item("warnings", warnings.take())?;
     Ok(result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (archive, commit, *, name = None, description = None, remove_name = false, remove_description = false, password = None, passwords = None))]
+#[allow(clippy::too_many_arguments)]
+fn update_commit_details(
+    py: Python<'_>,
+    archive: PathBuf,
+    commit: String,
+    name: Option<String>,
+    description: Option<String>,
+    remove_name: bool,
+    remove_description: bool,
+    password: Option<Vec<u8>>,
+    passwords: Option<HashMap<String, Vec<u8>>>,
+) -> PyResult<()> {
+    if (remove_name && name.is_some()) || (remove_description && description.is_some()) {
+        return Err(value_error(
+            "cannot set and remove the same field".to_owned(),
+        ));
+    }
+    let archive = archive_string(archive)?;
+    let passwords = password_set(password, passwords)?;
+    let name = if remove_name {
+        operations::CommitField::Remove
+    } else {
+        name.as_deref().map_or(
+            operations::CommitField::Unchanged,
+            operations::CommitField::Set,
+        )
+    };
+    let description = if remove_description {
+        operations::CommitField::Remove
+    } else {
+        description.as_deref().map_or(
+            operations::CommitField::Unchanged,
+            operations::CommitField::Set,
+        )
+    };
+    py.detach(|| {
+        operations::update_commit_details(
+            &archive,
+            &commit,
+            operations::CommitDetailsUpdate { name, description },
+            &passwords,
+        )
+        .map_err(|error| error.to_string())
+    })
+    .map_err(runtime_error)
 }
 
 #[pyfunction]
@@ -918,6 +983,8 @@ fn commit_info_dict(py: Python<'_>, commit: CommitInfo) -> PyResult<Bound<'_, Py
     result.set_item("size", commit.size)?;
     result.set_item("header_size", commit.header_size)?;
     result.set_item("data_size", commit.data_size)?;
+    result.set_item("name", &commit.name)?;
+    result.set_item("description", &commit.description)?;
     result.set_item(
         "cross_commit_reference_count",
         commit.cross_commit_references.as_ref().map(Vec::len),
@@ -1031,5 +1098,6 @@ fn _pyzarlib(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(extract_archive_to_memory, module)?)?;
     module.add_function(wrap_pyfunction!(read_custom_metadata, module)?)?;
     module.add_function(wrap_pyfunction!(update_custom_metadata, module)?)?;
+    module.add_function(wrap_pyfunction!(update_commit_details, module)?)?;
     Ok(())
 }

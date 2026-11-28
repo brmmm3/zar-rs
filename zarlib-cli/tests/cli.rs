@@ -78,6 +78,138 @@ fn diff_reports_commit_changes_and_reverse_sizes() {
     assert!(!output.stderr.is_empty());
 }
 
+#[test]
+fn commit_details_create_edit_and_remove() {
+    let directory = TestDirectory::new();
+    let input = directory.path().join("input");
+    let archive = directory.path().join("archive.zar");
+    std::fs::write(&input, b"content").unwrap();
+    let name = archive.to_str().unwrap();
+    let source = input.to_str().unwrap();
+    let created = zarc([
+        "--no-config",
+        "create",
+        name,
+        source,
+        "--commit-name",
+        "first",
+        "--commit-description",
+        "description",
+        "--no-progress",
+    ]);
+    assert!(
+        created.status.success(),
+        "{}",
+        String::from_utf8_lossy(&created.stderr)
+    );
+    let info = zarc(["--no-config", "info", name, "--json"]);
+    let value: serde_json::Value = serde_json::from_slice(&info.stdout).unwrap();
+    assert_eq!(value["commits"][0]["name"], "first");
+    assert_eq!(value["commits"][0]["description"], "description");
+    std::fs::write(&input, b"updated content").unwrap();
+    let added = zarc([
+        "--no-config",
+        "add",
+        name,
+        source,
+        "--commit-name",
+        "second",
+        "--commit-description",
+        "second description",
+        "--no-progress",
+    ]);
+    assert!(
+        added.status.success(),
+        "{}",
+        String::from_utf8_lossy(&added.stderr)
+    );
+    let info = zarc(["--no-config", "info", name, "--json"]);
+    let value: serde_json::Value = serde_json::from_slice(&info.stdout).unwrap();
+    assert_eq!(value["commits"][1]["name"], "second");
+    assert_eq!(value["commits"][1]["description"], "second description");
+    let updated = zarc([
+        "--no-config",
+        "commit-details",
+        name,
+        "00000001",
+        "--name",
+        "edited",
+        "--remove-description",
+    ]);
+    assert!(
+        updated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&updated.stderr)
+    );
+    let info = zarc(["--no-config", "info", name, "--json"]);
+    let value: serde_json::Value = serde_json::from_slice(&info.stdout).unwrap();
+    assert_eq!(value["commits"][0]["name"], "edited");
+    assert!(value["commits"][0]["description"].is_null());
+    let text = zarc(["--no-config", "info", name]);
+    assert!(text.status.success());
+    assert!(String::from_utf8_lossy(&text.stdout).contains("edited"));
+    let invalid = zarc([
+        "--no-config",
+        "commit-details",
+        name,
+        "00000001",
+        "--name",
+        "invalid-name",
+    ]);
+    assert!(!invalid.status.success());
+}
+
+#[cfg(unix)]
+#[test]
+fn cli_edits_encrypted_commit_details() {
+    use zarlib::operations::{
+        CommitDetails, CreateFilterOptions, CreateInputOptions, EncodingOptions, FilterSet,
+        PasswordSet, create_archive_with_commit_details, info_archive_with_passwords,
+    };
+    use zarlib::{ContentAead, EncryptionScope};
+
+    let directory = TestDirectory::new();
+    let input = directory.path().join("input");
+    let archive = directory.path().join("archive.zar");
+    std::fs::write(&input, b"content").unwrap();
+    let name = archive.to_str().unwrap();
+    create_archive_with_commit_details(
+        name,
+        &[input],
+        false,
+        EncodingOptions::default(),
+        Some((b"secret", ContentAead::Aes256Gcm, EncryptionScope::Header)),
+        None,
+        CreateFilterOptions {
+            input: CreateInputOptions::default(),
+            filters: &FilterSet::default(),
+        },
+        CommitDetails::default(),
+    )
+    .unwrap();
+    let output = zarc_with_terminal(
+        &[
+            OsStr::new("commit-details"),
+            archive.as_os_str(),
+            OsStr::new("00000001"),
+            OsStr::new("--name"),
+            OsStr::new("encrypted"),
+            OsStr::new("--password"),
+        ],
+        &[("Default archive password: ", "secret")],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let info =
+        info_archive_with_passwords(name, false, &PasswordSet::new(Some(b"secret".to_vec())))
+            .unwrap();
+    assert_eq!(info[0].name.as_deref(), Some("encrypted"));
+    assert!(info[0].header_encrypted);
+}
+
 #[cfg(unix)]
 fn zarc_with_terminal(args: &[&OsStr], prompts: &[(&str, &str)]) -> Output {
     use std::io::Read;

@@ -92,6 +92,21 @@ do not require a valid configuration file.
 
 ## Common workflows
 
+### Name and describe commits
+
+```sh
+zarc create backup.zar documents/ --commit-name initial --commit-description "First backup"
+zarc add backup.zar documents/ --commit-name update
+zarc commit-details backup.zar 00000001 --name renamed --remove-description
+zarc info backup.zar
+```
+
+`commit-details` accepts `--name`, `--description`, `--remove-name`, and
+`--remove-description`. Use `--password` for an encrypted selected commit.
+The commit ID remains unchanged; the archive is rewritten through a temporary
+file. Names contain 1-64 ASCII letters, digits, underscores, or periods;
+descriptions contain at most 1024 Unicode characters.
+
 ### Compare commits
 
 ```sh

@@ -168,6 +168,11 @@ func DiffArchive(request any) (json.RawMessage, error) {
 	return execute("diff_archive", request)
 }
 
+// UpdateCommitDetails changes or removes the name and description of a commit.
+func UpdateCommitDetails(request any) (json.RawMessage, error) {
+	return execute("update_commit_details", request)
+}
+
 // GrepArchive searches selected archive files for a regular expression.
 func GrepArchive(request any) (json.RawMessage, error) {
 	return execute("grep_archive", request)

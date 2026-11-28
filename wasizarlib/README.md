@@ -20,6 +20,8 @@ The request, result, and `info_archive` reference counts use the C JSON schema.
 same request and byte-array result schema as `czarlib`.
 `execute("diff_archive", requestJson)` compares commits using the
 [C diff schema](../czarlib/README.md).
+`execute("update_commit_details", requestJson)` edits commit details using the
+[C request schema](../czarlib/README.md).
 
 The WASI operation interface supports archive-level custom key/value metadata
 through `read_custom_metadata` and `update_custom_metadata`. Call

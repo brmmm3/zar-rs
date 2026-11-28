@@ -74,6 +74,17 @@ Equal IDs compare that commit with its predecessor, or an empty snapshot for
 the first commit.
 Use `diff_archive_with_passwords` for histories with multiple passwords.
 
+## Commit details
+
+`create_archive_with_commit_details` and `add_archive_with_commit_details`
+accept optional names and descriptions. `update_commit_details` changes or
+removes either field of a selected commit without changing its ID. Use
+`CommitField::Unchanged`, `Set`, or `Remove` to specify each update, and
+provide the selected commit's password if it is encrypted. The archive is
+rewritten through a temporary file. `info_archive_with_passwords` returns the
+fields when the header is readable. Names contain 1-64 ASCII letters, digits,
+underscores or periods; descriptions contain at most 1024 Unicode characters.
+
 ## Search
 
 `grep_archive` searches regular files in an archive using a path glob and a

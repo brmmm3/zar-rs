@@ -8,6 +8,20 @@ import pytest
 import pyzarlib
 
 
+def test_commit_details_create_update_remove(tmp_path: Path) -> None:
+    source = tmp_path / "input.txt"
+    archive = tmp_path / "details.zar"
+    source.write_text("data")
+    pyzarlib.create_archive(archive, [source], commit_name="first", commit_description="initial")
+    assert pyzarlib.info_archive(archive)[0]["name"] == "first"
+    pyzarlib.update_commit_details(archive, "00000001", name="changed", remove_description=True)
+    info = pyzarlib.info_archive(archive)[0]
+    assert info["name"] == "changed"
+    assert info["description"] is None
+    with pytest.raises(ValueError):
+        pyzarlib.update_commit_details(archive, "00000001", name="x", remove_name=True)
+
+
 def test_diff_archive_returns_directional_size_maps(tmp_path: Path) -> None:
     source = tmp_path / "input.txt"
     archive = tmp_path / "diff.zar"

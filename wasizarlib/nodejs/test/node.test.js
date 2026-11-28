@@ -98,6 +98,24 @@ test("Node.js returns directional diff maps", async () => {
   }
 });
 
+test("Node.js updates commit details", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "wasizarlib-details-"));
+  try {
+    await writeFile(path.join(directory, "input.txt"), "content");
+    const { execute, updateCommitDetails } = await createWasizarlib({ preopens: { "/data": directory } });
+    const archive = "/data/history.zar";
+    execute("create_archive", JSON.stringify({ archive, paths: ["/data/input.txt"], commit_name: "first" }));
+    updateCommitDetails({ archive, commit: "00000001", name: "new", description: "description" });
+    const info = JSON.parse(execute("info_archive", JSON.stringify({ archive })));
+    assert.equal(info[0].name, "new");
+    assert.equal(info[0].description, "description");
+    updateCommitDetails({ archive, commit: "00000001", name: null });
+    assert.equal(JSON.parse(execute("info_archive", JSON.stringify({ archive })))[0].name, null);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("WASI exposes commit encryption and decryption operations", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "wasizarlib-transform-"));
 

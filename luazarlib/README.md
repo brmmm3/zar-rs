@@ -55,7 +55,7 @@ or `nil, error_message` on encoding or operation failure. The operation names
 and request and response fields are documented in the
 [`czarlib` guide](../czarlib/README.md#c-abi-and-error-handling). They are:
 `create_archive`, `add_archive`, `remove_archive`, `read_custom_metadata`,
-`update_custom_metadata`, `join_archive`, `undo_archive`,
+`update_custom_metadata`, `update_commit_details`, `join_archive`, `undo_archive`,
 `encrypt_archive_commits`, `decrypt_archive_commits`, `check_archive`,
 `info_archive`, `cross_commit_references`, `list_archive`, `diff_archive`, `grep_archive`, `extract_archive`,
 and `extract_archive_to_memory`.

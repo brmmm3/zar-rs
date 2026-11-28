@@ -17,6 +17,8 @@ Call `execute_json("grep_archive", request)` to search files; its JSON schema
 is documented in the C binding guide.
 Call `execute_json("diff_archive", request)` to compare commits using the
 [C diff schema](../czarlib/README.md).
+Call `execute_json("update_commit_details", request)` to edit commit details
+using the [C request schema](../czarlib/README.md).
 
 The C++ wrapper's `execute_json` dispatcher supports archive-level custom
 key/value metadata through `read_custom_metadata` and

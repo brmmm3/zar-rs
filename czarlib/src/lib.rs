@@ -215,7 +215,7 @@ fn create(request: &Value) -> Result<Value, String> {
     let filters = filters(request)?;
     let aead = content_aead(request)?;
     let scope = encryption_scope(request)?;
-    let report = operations::create_archive_with_password_progress_and_filters_and_encryption(
+    let report = operations::create_archive_with_commit_details(
         archive,
         &input_paths,
         bool_option(request, "strict", false)?,
@@ -236,6 +236,10 @@ fn create(request: &Value) -> Result<Value, String> {
                 verbose: bool_option(request, "verbose", false)?,
             },
             filters: &filters,
+        },
+        operations::CommitDetails {
+            name: optional_string(request, "commit_name")?,
+            description: optional_string(request, "commit_description")?,
         },
     )
     .map_err(|error| error.to_string())?;
@@ -262,7 +266,7 @@ fn add(request: &Value) -> Result<Value, String> {
     let aead = content_aead(request)?;
     let scope = encryption_scope(request)?;
     let passwords = passwords(request)?;
-    operations::add_archive_with_encoding_progress_and_filters_and_encryption(
+    operations::add_archive_with_commit_details(
         archive,
         &input_paths,
         options,
@@ -280,9 +284,33 @@ fn add(request: &Value) -> Result<Value, String> {
         &filters,
         password.as_deref().map(|password| (password, aead, scope)),
         &passwords,
+        operations::CommitDetails {
+            name: optional_string(request, "commit_name")?,
+            description: optional_string(request, "commit_description")?,
+        },
     )
     .map_err(|error| error.to_string())?;
     Ok(json!({ "warnings": warnings.take() }))
+}
+
+fn update_commit_details(request: &Value) -> Result<Value, String> {
+    let field = |key| match request.get(key) {
+        None => Ok(operations::CommitField::Unchanged),
+        Some(Value::Null) => Ok(operations::CommitField::Remove),
+        Some(Value::String(value)) => Ok(operations::CommitField::Set(value)),
+        _ => Err(format!("'{key}' must be a string or null")),
+    };
+    operations::update_commit_details(
+        required_string(request, "archive")?,
+        required_string(request, "commit")?,
+        operations::CommitDetailsUpdate {
+            name: field("name")?,
+            description: field("description")?,
+        },
+        &passwords(request)?,
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(Value::Null)
 }
 
 fn remove(request: &Value) -> Result<Value, String> {
@@ -486,6 +514,8 @@ fn info(request: &Value) -> Result<Value, String> {
                 "size": commit.size,
                 "header_size": commit.header_size,
                 "data_size": commit.data_size,
+                "name": commit.name,
+                "description": commit.description,
                 "cross_commit_reference_count": commit.cross_commit_references.as_ref().map(Vec::len),
                 "uncompressed_size": commit.uncompressed_size,
                 "ratio_percent": commit.ratio_percent,
@@ -749,6 +779,7 @@ fn execute(operation: &str, request: &Value) -> Result<Value, String> {
         "remove_archive" => remove(request),
         "read_custom_metadata" => read_custom_metadata(request),
         "update_custom_metadata" => update_custom_metadata(request),
+        "update_commit_details" => update_commit_details(request),
         "join_archive" => join(request),
         "undo_archive" => undo(request),
         "encrypt_archive_commits" => encrypt_commits(request),
@@ -865,6 +896,32 @@ pub unsafe extern "C" fn czarlib_string_free(value: *mut c_char) {
 mod tests {
     use super::execute_json;
     use std::io::Write;
+
+    #[test]
+    fn commit_details_json_create_update_and_remove() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("input");
+        let archive = directory.path().join("archive.zar");
+        std::fs::write(&input, b"data").unwrap();
+        let create = serde_json::json!({"archive": archive, "paths": [input], "commit_name": "first", "commit_description": "initial"});
+        execute_json("create_archive", &create.to_string()).unwrap();
+        let update = serde_json::json!({"archive": archive, "commit": "00000001", "name": "new", "description": null});
+        execute_json("update_commit_details", &update.to_string()).unwrap();
+        let info = serde_json::json!({"archive": archive});
+        let result: serde_json::Value =
+            serde_json::from_str(&execute_json("info_archive", &info.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(result[0]["name"], "new");
+        assert!(result[0]["description"].is_null());
+        assert!(
+            execute_json(
+                "update_commit_details",
+                &serde_json::json!({"archive": archive, "commit": "00000001", "name": 1})
+                    .to_string()
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn diff_json_returns_directional_size_maps() {

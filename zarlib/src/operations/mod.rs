@@ -5,6 +5,7 @@
 pub mod add;
 mod archive_input;
 pub mod check;
+mod commit_details;
 pub mod common;
 pub mod create;
 pub mod diff;
@@ -30,6 +31,7 @@ mod coverage_tests;
 pub use add::*;
 pub use archive_input::is_supported_import_archive;
 pub use check::*;
+pub use commit_details::{CommitDetails, CommitDetailsUpdate, CommitField};
 pub use common::*;
 pub use create::*;
 pub use diff::*;

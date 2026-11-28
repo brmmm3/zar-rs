@@ -101,6 +101,29 @@ func TestDiffArchive(t *testing.T) {
 	}
 }
 
+func TestUpdateCommitDetails(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "input.txt")
+	archive := filepath.Join(dir, "history.zar")
+	writeFixture(t, input, []byte("data"))
+	call(t, "create_archive", map[string]any{"archive": archive, "paths": []string{input}, "commit_name": "first"})
+	_, err := UpdateCommitDetails(map[string]any{"archive": archive, "commit": "00000001", "name": "new", "description": "note"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result []struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	response, err := InfoArchive(map[string]any{"archive": archive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(response, &result); err != nil || len(result) != 1 || result[0].Name != "new" || result[0].Description != "note" {
+		t.Fatalf("unexpected commit details: %s (%v)", response, err)
+	}
+}
+
 func TestFullArchiveOperations(t *testing.T) {
 	temp := t.TempDir()
 	oldWorkingDirectory, err := os.Getwd()

@@ -51,6 +51,203 @@ enum Transform {
     Decrypt,
 }
 
+/// Atomically rewrites a selected commit's name and/or description.
+///
+/// The commit ID and data blocks are retained. Encrypted commits require their
+/// password; encrypted headers are re-encrypted with a fresh nonce.
+pub fn update_commit_details(
+    archive: &str,
+    commit_id: &str,
+    update: super::CommitDetailsUpdate<'_>,
+    passwords: &PasswordSet,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if matches!(update.name, super::CommitField::Unchanged)
+        && matches!(update.description, super::CommitField::Unchanged)
+    {
+        return Err("nothing to change".into());
+    }
+    let mut validation = HashMap::new();
+    super::commit_details::apply_update(&mut validation, update)?;
+    let requested = parse_commit_id(commit_id)?;
+    let path = std::fs::canonicalize(archive)?;
+    let mut input = File::open(&path)?;
+    let original_metadata = input.metadata()?;
+    let limits = CommitValidationLimits::default();
+    let commits = collect_commits(&mut input, limits)?;
+    let matches: Vec<_> = commits
+        .iter()
+        .filter(|commit| commit.commit_header.commit_id == requested)
+        .collect();
+    if matches.len() != 1 {
+        return Err("commit ID must identify exactly one archive commit".into());
+    }
+    let target = matches[0];
+    let old_header = read_header_descriptor(&mut input, target, limits)?;
+    let (mut descriptor, extensions) =
+        EncryptionDescriptor::decode(&old_header.encryption_descriptor)?;
+    let key = if descriptor.is_header_encrypted() || descriptor.is_data_encrypted() {
+        let password = passwords
+            .password_for(&requested)
+            .ok_or("password required for encrypted commit")?;
+        Some(unwrap_commit_key(password, &descriptor)?)
+    } else {
+        None
+    };
+    input.seek(SeekFrom::Start(target.data_start))?;
+    if let Some(key) = &key {
+        ValidatedCommit::read_body_with_key(&mut input, target.commit_header.clone(), limits, key)?;
+    } else {
+        ValidatedCommit::read_body(&mut input, target.commit_header.clone(), limits)?;
+    }
+    let bytes = Zeroizing::new(if descriptor.is_header_encrypted() {
+        old_header.uncompressed_encrypted(
+            key.as_deref().ok_or("missing encryption key")?,
+            limits.max_logical_header_size,
+        )?
+    } else {
+        old_header.uncompressed(limits.max_logical_header_size)?
+    });
+    let mut logical = crate::LogicalHeader::decode(&bytes)?;
+    super::commit_details::apply_update(&mut logical.metadata, update)?;
+    let bytes = Zeroizing::new(logical.encode()?);
+    if descriptor.is_header_encrypted() {
+        match &mut descriptor {
+            EncryptionDescriptor::Symmetric { nonce, .. }
+            | EncryptionDescriptor::Password { nonce, .. }
+            | EncryptionDescriptor::Recipients { nonce, .. }
+            | EncryptionDescriptor::PasswordAndRecipients { nonce, .. } => {
+                *nonce = crate::generate_nonce()?
+            }
+            EncryptionDescriptor::Unencrypted => return Err("missing encryption descriptor".into()),
+        }
+    }
+    let descriptor_bytes = descriptor.encode_with_extensions(&extensions)?;
+    let provisional = CommitHeader::new(
+        target.commit_header.flags,
+        requested,
+        target.commit_header.data_section_size,
+        0,
+    )?;
+    let make_header = |commit_header| -> Result<HeaderFrame, Box<dyn std::error::Error>> {
+        if descriptor.is_header_encrypted() {
+            Ok(HeaderFrame::from_uncompressed_encrypted(
+                commit_header,
+                &bytes,
+                descriptor_bytes.clone(),
+                TRANSFORM_COMPRESSION_LEVEL,
+                key.as_deref().ok_or("missing encryption key")?,
+            )?)
+        } else {
+            Ok(HeaderFrame::from_uncompressed(
+                commit_header,
+                &bytes,
+                descriptor_bytes.clone(),
+                TRANSFORM_COMPRESSION_LEVEL,
+            )?)
+        }
+    };
+    let size = u32::try_from(make_header(provisional.clone())?.encoded_size()?)?;
+    let new_header = make_header(CommitHeader::new(
+        provisional.flags,
+        requested,
+        provisional.data_section_size,
+        size,
+    )?)?;
+
+    let parent = path.parent().ok_or("archive has no parent directory")?;
+    let stem = path
+        .file_name()
+        .ok_or("archive has no filename")?
+        .to_string_lossy();
+    let id = TEMP_FILE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let staged_path = parent.join(format!(
+        ".{stem}.zarc-details-{}-{id}.tmp",
+        unique_temp_file_id()?
+    ));
+    let mut cleanup = TemporaryFiles(Vec::new());
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut staged = options.open(&staged_path)?;
+    cleanup.0.push(staged_path.clone());
+    crate::ContainerHeader::new(0).write_to(&mut staged)?;
+    let mut previous_next = None;
+    for commit in &commits {
+        let next_position = staged.stream_position()?;
+        staged.write_all(&0_u64.to_le_bytes())?;
+        let data_start = staged.stream_position()?;
+        copy_file_region(
+            &mut input,
+            &mut staged,
+            commit.data_start,
+            commit.commit_header.data_section_size,
+        )?;
+        let header_offset = staged.stream_position()?;
+        if commit.commit_header.commit_id == requested {
+            new_header.write_to(&mut staged)?;
+        } else {
+            copy_file_region(
+                &mut input,
+                &mut staged,
+                commit.header_offset,
+                u64::from(commit.commit_header.header_frame_size),
+            )?;
+        }
+        let end = staged.stream_position()?;
+        staged.seek(SeekFrom::Start(previous_next.unwrap_or(4)))?;
+        staged.write_all(&header_offset.to_le_bytes())?;
+        staged.seek(SeekFrom::Start(end))?;
+        staged.write_all(&header_offset.to_le_bytes())?;
+        if commit.commit_header.commit_id == requested {
+            validate_written_commit(
+                &mut staged,
+                header_offset,
+                header_offset - data_start,
+                limits,
+                key.as_deref(),
+            )?;
+            staged.seek(SeekFrom::End(0))?;
+        }
+        previous_next = Some(next_position);
+    }
+    staged.flush()?;
+    #[cfg(not(target_os = "wasi"))]
+    staged.set_permissions(original_metadata.permissions())?;
+    drop(staged);
+    validate_staged_archive(&staged_path, limits)?;
+    let current_metadata = std::fs::metadata(&path)?;
+    if original_metadata.len() != current_metadata.len()
+        || original_metadata.modified()? != current_metadata.modified()?
+    {
+        return Err("archive changed while updating commit details".into());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if (
+            original_metadata.dev(),
+            original_metadata.ino(),
+            original_metadata.ctime(),
+            original_metadata.ctime_nsec(),
+        ) != (
+            current_metadata.dev(),
+            current_metadata.ino(),
+            current_metadata.ctime(),
+            current_metadata.ctime_nsec(),
+        ) {
+            return Err("archive changed while updating commit details".into());
+        }
+    }
+    drop(input);
+    replace_archive(&staged_path, &path)?;
+    cleanup.0.clear();
+    Ok(())
+}
+
 /// Encrypts commits in the inclusive commit-ID range.
 ///
 /// Existing encrypted commits require their current password in `passwords`.

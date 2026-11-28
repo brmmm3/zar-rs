@@ -14,6 +14,8 @@ inventory. `InfoArchive` reports per-commit cross-reference counts.
 `GrepArchive(request)` returns grep results as JSON using the C schema.
 `DiffArchive(request)` returns commit differences as JSON using the
 [C diff schema](../czarlib/README.md).
+`UpdateCommitDetails(request)` changes or removes commit name and description
+using the [C request schema](../czarlib/README.md).
 
 The C# wrapper provides `ReadCustomMetadata` and `UpdateCustomMetadata`:
 

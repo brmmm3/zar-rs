@@ -219,11 +219,13 @@ fn info_json_includes_commit_ids_and_framing_sizes() {
         cross_commit_reference_count: Some(0),
         created_unix_millis: Some(1_700_000_000_000),
         user: Some("alice".to_owned()),
+        name: None,
+        description: None,
     }]);
 
     assert_eq!(
         json,
-        "{\"commit_count\":1,\"cross_commit_reference_count\":0,\"commits\":[{\"id\":\"00000001\",\"size\":128,\"header_size\":64,\"data_size\":64,\"header_encrypted\":false,\"data_encrypted\":false,\"encryption_algorithm\":null,\"header_changes\":{\"files_added_or_updated\":2,\"directories_added_or_updated\":0,\"symlinks_added_or_updated\":0,\"named_pipes_added_or_updated\":0,\"devices_added_or_updated\":0,\"files_removed\":0,\"directories_removed\":0},\"cross_commit_reference_count\":0,\"created_at\":\"2023-11-14 22:13 UTC\",\"created_unix_millis\":1700000000000,\"user\":\"alice\"}]}"
+        "{\"commit_count\":1,\"cross_commit_reference_count\":0,\"commits\":[{\"id\":\"00000001\",\"size\":128,\"header_size\":64,\"data_size\":64,\"header_encrypted\":false,\"data_encrypted\":false,\"encryption_algorithm\":null,\"header_changes\":{\"files_added_or_updated\":2,\"directories_added_or_updated\":0,\"symlinks_added_or_updated\":0,\"named_pipes_added_or_updated\":0,\"devices_added_or_updated\":0,\"files_removed\":0,\"directories_removed\":0},\"cross_commit_reference_count\":0,\"created_at\":\"2023-11-14 22:13 UTC\",\"created_unix_millis\":1700000000000,\"user\":\"alice\",\"name\":null,\"description\":null}]}"
     );
     assert_eq!(
         render_info_json(&[]),
@@ -381,6 +383,8 @@ fn info_json_roundtrips_user_names_with_control_characters() {
         cross_commit_reference_count: Some(0),
         created_unix_millis: Some(0),
         user: Some(user.to_owned()),
+        name: None,
+        description: None,
     }]);
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(parsed["commits"][0]["user"], user);
@@ -793,6 +797,8 @@ fn info_json_escapes_usernames() {
         cross_commit_reference_count: None,
         created_unix_millis: None,
         user: Some("a\"b".to_owned()),
+        name: None,
+        description: None,
     }]);
 
     assert!(json.contains("\"user\":\"a\\\"b\""));
@@ -829,6 +835,8 @@ fn info_summary_reports_encryption_scopes_and_unavailable_details() {
         cross_commit_references: None,
         created_unix_millis: None,
         user: Some("alice".to_owned()),
+        name: None,
+        description: None,
         details: None,
         header_encrypted: false,
         data_encrypted: false,

@@ -152,8 +152,8 @@ The output shapes follow the corresponding Python API:
 
 | Operation | Required request fields | Useful optional fields |
 |---|---|---|
-| `create_archive` | `archive`, `paths` | `block_size`, `compression_level`, `strict`, `overwrite`, `save_metadata`, `save_modification_time`, `save_creation_time`, `save_access_time`, `include_special_files`, `verbose`, `password`, `aead`, `encryption_scope`, `include_files`, `exclude_files`, `include_folders`, `exclude_folders` |
-| `add_archive` | `archive`, `paths` | Same encoding, scan, and filter fields as create; `password`, `passwords`, `aead`, `encryption_scope` |
+| `create_archive` | `archive`, `paths` | `commit_name`, `commit_description`, `block_size`, `compression_level`, `strict`, `overwrite`, `save_metadata`, `save_modification_time`, `save_creation_time`, `save_access_time`, `include_special_files`, `verbose`, `password`, `aead`, `encryption_scope`, `include_files`, `exclude_files`, `include_folders`, `exclude_folders` |
+| `add_archive` | `archive`, `paths` | `commit_name`, `commit_description`, same encoding, scan, and filter fields as create; `password`, `passwords`, `aead`, `encryption_scope` |
 | `remove_archive` | `archive`, `paths` | — |
 | `join_archive` | `archive`, `from_id`, `to_id` | `block_size`, `compression_level` |
 | `undo_archive` | `archive`, `commits` | — |
@@ -164,6 +164,7 @@ The output shapes follow the corresponding Python API:
 | `cross_commit_references` | `archive` | `password`, `passwords` |
 | `list_archive` | `archive` | `to`, `password`, `passwords` |
 | `diff_archive` | `archive`, `start`, `end` | `password`, `passwords` |
+| `update_commit_details` | `archive`, `commit` | `name`, `description`, `password`, `passwords` |
 | `grep_archive` | `archive`, `file_filter`, `pattern` | `before`, `after`, `to`, `password`, `passwords` |
 | `extract_archive` | `archive`, `destination` | `dry_run`, `to`, `password`, `passwords`, `collision`, `existing`, `restore_metadata`, `restore_symlinks`, `restore_devices`, file/folder filters |
 | `extract_archive_to_memory` | `archive` | `to`, `password`, `passwords`, `size_limit`, `offset`, file/folder filters |
@@ -174,6 +175,15 @@ has `old_size` and `new_size` in bytes; a missing side is `null`, and non-file
 entries have size zero. Content, type, and stored metadata changes are
 included. Reversing `start` and `end` reverses the comparison. Equal IDs compare
 the selected commit with its predecessor, or an empty snapshot for the first.
+
+Create and add accept `commit_name` and `commit_description`. Use
+`update_commit_details` to edit the selected commit: omit `name` or
+`description` to keep it, use a string to set it, or `null` to remove it.
+At least one field must be provided. `info_archive` reports both fields, or
+`null` when absent or the header is locked. The update rewrites the archive
+without changing commit IDs and requires the selected commit's password if
+encrypted. Names contain 1-64 ASCII letters, digits, underscores or periods;
+descriptions contain at most 1024 Unicode characters.
 
 ## Searching archive files
 

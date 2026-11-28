@@ -158,11 +158,37 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
     archive: &str,
     paths: &[PathBuf],
     strict: bool,
-    mut options: EncodingOptions,
+    options: EncodingOptions,
     encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
     progress: Option<&dyn Progress>,
     filter_options: CreateFilterOptions<'_>,
 ) -> Result<CreateReport, Box<dyn std::error::Error>> {
+    create_archive_with_commit_details(
+        archive,
+        paths,
+        strict,
+        options,
+        encryption,
+        progress,
+        filter_options,
+        super::CommitDetails::default(),
+    )
+}
+
+/// Creates an archive with optional details on its first commit.
+#[allow(clippy::too_many_arguments)]
+pub fn create_archive_with_commit_details(
+    archive: &str,
+    paths: &[PathBuf],
+    strict: bool,
+    mut options: EncodingOptions,
+    encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
+    progress: Option<&dyn Progress>,
+    filter_options: CreateFilterOptions<'_>,
+    details: super::CommitDetails<'_>,
+) -> Result<CreateReport, Box<dyn std::error::Error>> {
+    let mut details_metadata = std::collections::HashMap::new();
+    details.apply(&mut details_metadata)?;
     ProgressReporter::new(progress).check_cancelled()?;
     let CreateFilterOptions {
         input: input_options,
@@ -307,6 +333,7 @@ pub fn create_archive_with_password_progress_and_filters_and_encryption(
     let mut group_sizes = group_size_metadata(&logical_header, &block_sizes)?;
     let username = save_user.then(current_username).transpose()?;
     group_sizes.extend(commit_metadata(username.as_deref())?);
+    group_sizes.extend(details_metadata);
     let header_bytes = logical_header.with_metadata(group_sizes).encode()?;
 
     let (header, commit_header, dek) = if let (Some(dek), Some(descriptor_bytes), Some(scope)) =

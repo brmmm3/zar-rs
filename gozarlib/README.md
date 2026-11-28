@@ -17,6 +17,7 @@ and Go functions for every C-wrapper operation:
 - `ListArchive`
 - `GrepArchive`
 - `DiffArchive`
+- `UpdateCommitDetails`
 - `ExtractArchive`
 - `ExtractArchiveToMemory`
 

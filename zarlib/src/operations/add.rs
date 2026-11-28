@@ -411,6 +411,35 @@ pub fn add_archive_with_encoding_progress_and_filters_and_encryption(
         passwords,
         None,
         None,
+        super::CommitDetails::default(),
+    )
+}
+
+/// Adds a commit with optional name and description.
+#[allow(clippy::too_many_arguments)]
+pub fn add_archive_with_commit_details(
+    archive: &str,
+    paths: &[PathBuf],
+    options: EncodingOptions,
+    progress: Option<&dyn Progress>,
+    input_options: AddInputOptions,
+    filters: &FilterSet,
+    encryption: Option<(&[u8], ContentAead, EncryptionScope)>,
+    passwords: &PasswordSet,
+    details: super::CommitDetails<'_>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    add_with_base(
+        archive,
+        paths,
+        options,
+        progress,
+        input_options,
+        filters,
+        encryption,
+        passwords,
+        None,
+        None,
+        details,
     )
 }
 
@@ -437,6 +466,7 @@ pub fn add_archive_in_folder_with_encoding_progress_and_filters_and_encryption(
         passwords,
         None,
         Some(folder),
+        super::CommitDetails::default(),
     )
 }
 
@@ -464,6 +494,7 @@ pub fn add_overlay_with_encoding_progress_and_filters_and_encryption(
         passwords,
         Some(base),
         None,
+        super::CommitDetails::default(),
     )
 }
 
@@ -491,6 +522,7 @@ pub fn add_overlay_in_folder_with_encoding_progress_and_filters_and_encryption(
         passwords,
         Some(base),
         Some(folder),
+        super::CommitDetails::default(),
     )
 }
 
@@ -506,7 +538,10 @@ fn add_with_base(
     passwords: &PasswordSet,
     base: Option<&str>,
     folder: Option<&ArchivePath>,
+    details: super::CommitDetails<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let mut details_metadata = std::collections::HashMap::new();
+    details.apply(&mut details_metadata)?;
     let AddInputOptions {
         save_metadata,
         save_modification_time,
@@ -655,6 +690,7 @@ fn add_with_base(
     let mut group_sizes = group_size_metadata(&logical_header, &block_sizes)?;
     let username = save_user.then(current_username).transpose()?;
     group_sizes.extend(commit_metadata(username.as_deref())?);
+    group_sizes.extend(details_metadata);
     let header_bytes = logical_header.with_metadata(group_sizes).encode()?;
     let data_size = data.stream_position()?;
     data.flush()?;
