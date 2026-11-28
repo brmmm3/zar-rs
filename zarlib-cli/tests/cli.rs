@@ -62,6 +62,17 @@ fn diff_reports_commit_changes_and_reverse_sizes() {
         assert!(stdout.contains(&format!("* {size} input.txt\n")));
         assert!(stdout.contains(&format!("size change: {size}")));
     }
+    let first = zarc(["--no-config", "diff", name, "00000001", "00000001"]);
+    assert!(first.status.success());
+    let stdout = String::from_utf8(first.stdout).unwrap();
+    assert!(stdout.contains("+ 3 B input.txt\n"));
+    let second = zarc(["--no-config", "diff", name, "00000002", "00000002"]);
+    assert!(second.status.success());
+    assert!(
+        String::from_utf8(second.stdout)
+            .unwrap()
+            .contains("* +2 B input.txt\n")
+    );
     let output = zarc(["--no-config", "diff", name, "00000001", "ffffffff"]);
     assert!(!output.status.success());
     assert!(!output.stderr.is_empty());

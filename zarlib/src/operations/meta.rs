@@ -133,6 +133,11 @@ fn update_custom_metadata_with_current(
     let mut header_metadata = HashMap::new();
     for (key, value) in set {
         validate_key(key)?;
+        if let MetadataType::String(text) = value
+            && text.chars().count() > 1024
+        {
+            return Err(format!("metadata value for `{key}` exceeds 1024 characters").into());
+        }
         if remove.contains(key) {
             return Err(format!("key `{key}` is both set and removed").into());
         }
@@ -141,7 +146,6 @@ fn update_custom_metadata_with_current(
         }
     }
     for key in remove {
-        validate_key(key)?;
         if !current.contains_key(key) {
             return Err(format!("metadata key not found: {key}").into());
         }
@@ -161,5 +165,40 @@ fn validate_key(key: &str) -> Result<(), Box<dyn std::error::Error>> {
     if key.starts_with(RESERVED_KEY_PREFIX) {
         return Err(format!("metadata keys must not start with `{RESERVED_KEY_PREFIX}`").into());
     }
+    if key.len() > 64
+        || !key
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'.')
+    {
+        return Err(
+            "metadata keys must contain at most 64 ASCII letters, digits, underscores, or periods"
+                .into(),
+        );
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validates_metadata_keys_and_string_values() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("input");
+        let archive = directory.path().join("archive.zar");
+        std::fs::write(&input, b"data").unwrap();
+        let archive = archive.to_str().unwrap();
+        super::super::create_archive(archive, &[input]).unwrap();
+        let set = |key: String, value: String| {
+            update_custom_metadata(archive, &[(key, MetadataType::String(value))], &[])
+        };
+        assert!(set("a".repeat(64), "é".repeat(1024)).is_ok());
+        let before = std::fs::read(archive).unwrap();
+        assert!(set("a".repeat(65), String::new()).is_err());
+        assert!(set("invalid-key".into(), String::new()).is_err());
+        assert!(set("unicodeé".into(), String::new()).is_err());
+        assert!(set("valid".into(), "x".repeat(1025)).is_err());
+        assert_eq!(std::fs::read(archive).unwrap(), before);
+    }
 }

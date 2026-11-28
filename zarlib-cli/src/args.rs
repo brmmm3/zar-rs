@@ -501,7 +501,9 @@ pub(crate) enum Command {
         long_about = "List, set or remove custom key/value metadata stored in the archive.\n\n\
             Without --set and --remove, the current metadata is listed. Changes are recorded in a \
             new commit without file changes. Values are stored as integer, float or string \
-            depending on how they parse. Keys starting with `zar.` are reserved.\n\n\
+            depending on how they parse. Keys are limited to 64 ASCII letters, digits, \
+            underscores, or periods; `zar.` is reserved. String values are limited to \
+            1024 characters.\n\n\
             USAGE EXAMPLES:\n  \
               zarc meta archive.zar\n  \
               zarc meta archive.zar --set author=Jane --set revision=3\n  \

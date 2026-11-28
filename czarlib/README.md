@@ -172,7 +172,8 @@ The output shapes follow the corresponding Python API:
 `added`, `removed`, and `changed` objects keyed by archive path. Each value
 has `old_size` and `new_size` in bytes; a missing side is `null`, and non-file
 entries have size zero. Content, type, and stored metadata changes are
-included. Reversing `start` and `end` reverses the comparison.
+included. Reversing `start` and `end` reverses the comparison. Equal IDs compare
+the selected commit with its predecessor, or an empty snapshot for the first.
 
 ## Searching archive files
 

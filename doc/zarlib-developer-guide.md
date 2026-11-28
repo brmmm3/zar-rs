@@ -75,6 +75,8 @@ and special entries. Its `added`, `removed`, and `changed` maps contain
 `DiffEntry` values with uncompressed `old_size` and `new_size`; absent sides
 are `None` and non-file entries have size zero. Content, type, and stored
 metadata changes are reported. Reversing the commit IDs reverses the result.
+Equal IDs compare that commit with its predecessor, or an empty snapshot for
+the first commit.
 Use `diff_archive_with_passwords` for encrypted histories with distinct
 passwords; unavailable headers cause an error rather than an incomplete diff.
 
@@ -274,7 +276,9 @@ The Rust API can read and update arbitrary archive-level key/value metadata
 through `operations::read_custom_metadata` and
 `operations::update_custom_metadata`. Updates append a metadata-only commit;
 they do not rewrite existing commits. Values are `MetadataType` variants
-(`String`, `I64`, or `F64`), and keys beginning with `zar.` are reserved.
+(`String`, `I64`, or `F64`). Keys are 1–64 ASCII letters, digits, underscores,
+or periods; keys beginning with `zar.` are reserved. String values are limited
+to 1024 Unicode characters.
 Metadata updates currently require an unencrypted archive.
 
 ```rust,no_run

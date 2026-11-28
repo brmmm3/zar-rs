@@ -103,7 +103,8 @@ Lines begin with `+` for additions, `-` for removals, and `*` for changes,
 followed by the human-readable size (or signed size difference for changes)
 and archive path. Additions and removals are green and red on a terminal.
 The summary reports category counts and the net end-minus-start size change.
-Reverse the IDs to reverse the comparison. Use `--password` and repeated
+Reverse the IDs to reverse the comparison. Equal IDs compare that commit with
+its predecessor, or an empty snapshot for the first commit. Use `--password` and repeated
 `--password-for COMMIT_ID` to unlock encrypted history.
 
 ### Search archived files
@@ -277,7 +278,7 @@ zarc add --special-files backup.zar /dev/
 zarc remove backup.zar obsolete.txt old-directory/
 zarc join backup.zar --from 00000001 --to 00000004
 zarc remove-commits backup.zar 00000002 00000004 --output reduced.zar
-zarc meta backup.zar --set author=Jane --remove old-key
+zarc meta backup.zar --set author=Jane --remove old_key
 zarc meta backup.zar
 ```
 
@@ -286,8 +287,10 @@ key/value metadata. Repeat `--set` or `--remove` to change multiple keys.
 Values that parse as integers or finite floating-point numbers are stored
 numerically; other values are strings. Changes append a metadata-only commit,
 so existing commits are not rewritten. Later values override earlier ones,
-and removing a key hides its earlier value. Keys starting with `zar.` are
-reserved. `meta` currently requires an unencrypted archive.
+and removing a key hides its earlier value. Keys contain at most 64 ASCII
+letters, digits, underscores, or periods; keys starting with `zar.` are
+reserved. String values are limited to 1024 Unicode characters. Existing
+legacy keys can still be removed. `meta` currently requires an unencrypted archive.
 
 - `add` appends a commit. New or modified paths replace the corresponding
   entries in the latest TOC; untouched entries remain available.

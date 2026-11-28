@@ -34,12 +34,11 @@ fn compares_snapshots_in_both_directions() {
     assert_eq!(reverse.removed[&path("input/add")].old_size, Some(3));
     assert_eq!(reverse.changed[&path("input/change")].old_size, Some(5));
     assert_eq!(reverse.changed[&path("input/change")].new_size, Some(3));
-    assert!(
-        diff_archive(name, "00000001", "00000001", None)
-            .unwrap()
-            .changed
-            .is_empty()
-    );
+    let first = diff_archive(name, "00000001", "00000001", None).unwrap();
+    assert_eq!(first.added[&path("input/change")].new_size, Some(3));
+    let third = diff_archive(name, "00000003", "00000003", None).unwrap();
+    assert_eq!(third.removed[&path("input/remove")].old_size, Some(6));
+    assert!(third.added.is_empty() && third.changed.is_empty());
     assert!(diff_archive(name, "00000001", "ffffffff", None).is_err());
     assert!(diff_archive(name, "invalid", "00000001", None).is_err());
 }
@@ -84,11 +83,10 @@ fn encrypted_snapshots_require_passwords() {
     .unwrap();
     assert!(diff_archive(name, "00000001", "00000001", None).is_err());
     assert!(diff_archive(name, "00000001", "00000001", Some(b"wrong")).is_err());
-    assert!(
-        diff_archive(name, "00000001", "00000001", Some(b"secret"))
-            .unwrap()
-            .changed
-            .is_empty()
+    let diff = diff_archive(name, "00000001", "00000001", Some(b"secret")).unwrap();
+    assert_eq!(
+        diff.added[&ArchivePath::new("input").unwrap()].new_size,
+        Some(6)
     );
 }
 

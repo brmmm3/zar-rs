@@ -70,6 +70,8 @@ complete snapshots and returns `added`, `removed`, and `changed` maps keyed
 by archive path. Each value contains `old_size` and `new_size` in bytes;
 the absent side is `None`, and non-file entries have size zero. Changes include
 content, type, and stored metadata. Reversing the IDs reverses the comparison.
+Equal IDs compare that commit with its predecessor, or an empty snapshot for
+the first commit.
 Use `diff_archive_with_passwords` for histories with multiple passwords.
 
 ## Search

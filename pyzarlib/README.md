@@ -13,6 +13,7 @@ complete snapshots and returns `added`, `removed`, and `changed` dictionaries
 keyed by archive path. Each value has `old_size` and `new_size` in bytes;
 missing sides are `None`, and non-file entries have size zero. Changes include
 content, type, and stored metadata. Reversing the IDs reverses the comparison.
+Equal IDs compare the commit with its predecessor, or an empty first snapshot.
 
 `cross_commit_references(archive, password=None, passwords=None)` returns all
 referencing and source commit IDs and paths. `info_archive` returns a
@@ -283,8 +284,10 @@ for path, data in contents.items():
 ```
 
 Read metadata as a dictionary of Python strings, integers, and floats. Set
-and/or remove keys with `update_custom_metadata`; keys beginning with `zar.`
-are reserved, and updates require an unencrypted archive:
+and/or remove keys with `update_custom_metadata`. Keys contain at most 64
+ASCII letters, digits, underscores, or periods; keys beginning with `zar.`
+are reserved. String values are limited to 1024 Unicode characters. Existing
+legacy keys can still be removed. Updates require an unencrypted archive:
 
 ```python
 pyzarlib.update_custom_metadata(

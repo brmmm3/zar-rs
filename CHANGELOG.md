@@ -12,6 +12,10 @@ until a version is released.
 
 ### Changed
 
+- Comparing a commit to itself shows its changes relative to its predecessor,
+  or an empty snapshot for the first commit.
+- Custom metadata keys are limited to 64 ASCII letters, digits, underscores,
+  or periods, and string values to 1024 characters.
 - Replaced the LGPL Crystal artwork with original, project-licensed glossy
   icons in zarg and zarmount, retaining the existing icon theme settings.
 
