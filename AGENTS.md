@@ -18,6 +18,7 @@ This repository contains the complete ZAR archiving and data transfer ecosystem 
 - **Linter check**: `cargo clippy --workspace`
 
 ## Engineering Standards & Guidelines
+- **New UI elements, all subcrates**: Load and follow [the zarg UI skill](.agents/skills/zarg-ui/SKILL.md) whenever adding UI elements anywhere in this repository, including every current or future subcrate, binding and package. This requirement also applies when working under a nested `AGENTS.md`. If the skill is not registered in the current agent's catalog, read the skill file and its referenced dialog inventory directly before designing or implementing the UI.
 - **Microsoft Pragmatic Rust Guidelines**: All code must conform to Microsoft Rust guidelines (`M-*` rules for safety, error handling, naming, and performance).
 - **Zeroize Secrets**: Cryptographic keys, DEKs, and passwords must use `zeroize::Zeroizing`.
 - **Path Normalization**: Internal archive paths always use forward slashes (`/`), stripped of leading slashes and drive letters.
