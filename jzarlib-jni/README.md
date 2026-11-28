@@ -43,11 +43,28 @@ equivalent) relative to the module working directory. Override it with
 On macOS, the JNI library looks for `libczarlib.dylib` alongside itself or in
 the repository's `target/release` directory.
 
-## Maven Central bundle
+## Publishing to Maven Central
 
-The Maven coordinates are `io.github.brmmm3:jzarlib-jni`. To prepare a bundle
-for manual upload to the Central Publisher Portal, configure a GPG signing key
-and publish its public key, then run:
+The Maven coordinates are `io.github.brmmm3:jzarlib-jni`. Configure a GPG
+signing key, publish its public key, and obtain a
+[Central Portal user token](https://central.sonatype.org/publish/generate-portal-token/).
+`gh auth login` does not provide these credentials to Maven. Configure the
+token username and password in Maven's user `settings.xml` under server ID
+`central`; for example, using environment variables:
+
+```xml
+<settings>
+  <servers>
+    <server>
+      <id>central</id>
+      <username>${env.CENTRAL_TOKEN_USERNAME}</username>
+      <password>${env.CENTRAL_TOKEN_PASSWORD}</password>
+    </server>
+  </servers>
+</settings>
+```
+
+Set those variables securely, then run from the repository root:
 
 ```sh
 ./jzarlib-jni/build-native.sh
@@ -55,11 +72,15 @@ cd jzarlib-jni
 mvn -Pcentral deploy
 ```
 
-Upload `target/central-publishing/central-bundle.zip`, not the JAR. The
-`central` profile builds sources and Javadoc, signs the artifacts, and creates
-the Maven-layout bundle with checksums without uploading it. See
+The `central` profile builds and signs the artifacts, uploads a bundle, and
+waits for validation. Publish the validated deployment in the Central Portal.
+
+To create a bundle without uploading it, run
+`mvn -Pcentral deploy -DskipUpload=true` instead, then upload
+`target/central-publishing/central-bundle.zip` manually. See
 [Sonatype's publishing requirements](https://central.sonatype.org/publish/requirements/).
-The normal `mvn deploy` still targets GitHub Packages.
+The normal `mvn deploy` without the profile still targets GitHub Packages and
+requires separate Maven credentials for server ID `github`.
 
 The JAR does not include the JNI shim or `czarlib`; consumers must provide
 both native libraries for their platform.
