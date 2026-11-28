@@ -263,7 +263,7 @@ Linux, native
 file selection uses the XDG desktop portal. The PNG app icon and selected
 Crystal and Flat icons for buttons and archive entry types are embedded in
 the window binary. Select an icon theme in Settings; Crystal is the default.
-Icon attribution and license information is in
+Icon generation and license information is in
 [`assets/crystal/README.md`](./assets/crystal/README.md). Wayland requires a
 matching desktop entry to show the app icon in the dock or app switcher;
 `data/zarg.desktop` provides the entry. After installing the `zarg` executable,

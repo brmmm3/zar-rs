@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-// Generate the flat zarg icon set. Requires the repository's Playwright package.
+// Generate zarg icon themes. Requires the repository's Playwright package.
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { chromium } = require('playwright');
 
 const root = path.resolve(__dirname, '..');
-const source = path.join(root, 'zarlib-gui/assets/crystal');
-const output = path.join(root, 'zarlib-gui/assets/flat');
+const crystal = process.argv.includes('--crystal');
+const source = path.join(root, `zarlib-gui/assets/${crystal ? 'flat' : 'crystal'}`);
+const output = path.join(root, `zarlib-gui/assets/${crystal ? 'crystal' : 'flat'}`);
 const ink = '#27364f';
 const blue = '#2563eb';
 const cyan = '#0891b2';
@@ -32,11 +33,52 @@ const doc = `<path d="M5 2h9l5 5v15H5z" fill="${pale}"/><path d="M14 2v5h5" fill
 const folder = `<path d="M2 5h8l2 2h10v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z" fill="${amber}"/><path d="M2 9h20v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z" fill="#f3b84e"/>`;
 const box = `<rect x="3" y="6" width="18" height="15" rx="2" fill="#e9a23c"/><path d="M3 9h18V6H3z" fill="#c98126"/><path d="M10 6h4v6h-4z" fill="${pale}"/>`;
 const lock = `<rect x="7" y="10" width="10" height="10" rx="2" fill="${blue}"/>${stroke('<path d="M9 10V7a3 3 0 1 1 6 0v3M12 14v2"/>', white, 1.5)}`;
+const documentLock = (open, color) => {
+  const shackle = open
+    ? 'M13 15v-4a3.5 3.5 0 0 1 7-.8'
+    : 'M13 15v-3a3.5 3.5 0 0 1 7 0v3';
+  return `${doc}${strokes(shackle, white, 3.6)}${strokes(shackle, ink, 2)}
+    <rect x="10.5" y="14" width="12" height="8" rx="1.5" fill="${color}" stroke="${white}" stroke-width="1"/>
+    ${strokes('M16.5 17v2', white, 1.5)}`;
+};
 const shield = (color) => `<path d="M12 2 20 5v6c0 5-3 8-8 11-5-3-8-6-8-11V5z" fill="${color}"/>`;
 const circle = (color, content) => `<circle cx="12" cy="12" r="9" fill="${color}"/>${content}`;
 const documentLabel = (label, color = blue) =>
   `${doc}<rect x="3" y="13" width="18" height="7" rx="2" fill="${color}"/>${text(label, 12, 18.1, label.length > 3 ? 5 : 6)}`;
 const strokes = (paths, color = ink, width = 1.8) => stroke(`<path d="${paths}"/>`, color, width);
+const mix = (color, target, amount) => {
+  const channels = color.match(/[0-9a-f]{2}/gi).map((part) => parseInt(part, 16));
+  return `#${channels.map((channel) =>
+    Math.round(channel + (target - channel) * amount).toString(16).padStart(2, '0')).join('')}`;
+};
+function crystalArtwork(artwork) {
+  const gradients = new Map();
+  const shaded = artwork.replace(/fill="(#[0-9a-f]{6})"/gi, (fill, color) => {
+    if (color.toLowerCase() === '#ffffff') return fill;
+    if (!gradients.has(color)) gradients.set(color, `color${gradients.size}`);
+    return `fill="url(#${gradients.get(color)})"`;
+  });
+  const fills = [...gradients].map(([color, id]) =>
+    `<linearGradient id="${id}" x2="0" y2="1"><stop stop-color="${mix(color, 255, .4)}"/><stop offset=".5" stop-color="${color}"/><stop offset="1" stop-color="${mix(color, 0, .28)}"/></linearGradient>`).join('');
+  return `<defs>${fills}
+    <linearGradient id="gloss" x2="0" y2="1">
+      <stop stop-color="#fff" stop-opacity=".35"/>
+      <stop offset=".45" stop-color="#fff" stop-opacity=".08"/>
+      <stop offset=".5" stop-color="#fff" stop-opacity=".02"/>
+      <stop offset="1" stop-color="#102543" stop-opacity=".22"/>
+    </linearGradient>
+    <filter id="bevel" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceAlpha" stdDeviation=".45" result="blur"/>
+      <feSpecularLighting in="blur" surfaceScale="2" specularConstant=".65" specularExponent="18" lighting-color="#fff" result="light">
+        <feDistantLight azimuth="225" elevation="55"/>
+      </feSpecularLighting>
+      <feComposite in="light" in2="SourceAlpha" operator="in" result="shine"/>
+      <feBlend in="SourceGraphic" in2="shine" mode="screen"/>
+    </filter>
+    <mask id="shape" style="mask-type:alpha">${artwork}</mask>
+  </defs><g filter="url(#bevel)">${shaded}</g>
+  <rect width="24" height="24" fill="url(#gloss)" mask="url(#shape)"/>`;
+}
 const glyphs = {
   'application-exit': `${strokes('M10 4H5v16h5 M13 8l4 4-4 4 M8 12h9')}`,
   'archive-extract': box + badge(down, blue),
@@ -54,8 +96,8 @@ const glyphs = {
   'dialog-ok': circle(blue, strokes('m7 12 3 3 7-7', white, 2)),
   'dialog-password': lock,
   'dialog-warning': `<path d="M12 2 23 21H1z" fill="${amber}"/>${strokes('M12 8v6M12 17h0', white, 2)}`,
-  'document-decrypt': doc + badge(stroke('<path d="M16 17v-1a2 2 0 0 1 4 0M15.5 17h5v3h-5z"/>', white, 1), green),
-  'document-encrypt': doc + badge(stroke('<path d="M16 17v-1a2 2 0 0 1 4 0v1m-4.5 0h5v3h-5z"/>', white, 1), blue),
+  'document-decrypt': documentLock(true, green),
+  'document-encrypt': documentLock(false, blue),
   'document-new': doc + badge(plus, green),
   'document-open-folder': folder + badge(stroke('<path d="M15.5 18h5m-2-2 2 2-2 2"/>', white, 1.4)),
   'document-open': folder + `<path d="m3 11 3-3h16l-3 11H2z" fill="#f7c765"/>`,
@@ -108,7 +150,7 @@ const glyphs = {
 };
 
 async function main() {
-  const selected = new Set(process.argv.slice(2));
+  const selected = new Set(process.argv.slice(2).filter((arg) => arg !== '--crystal'));
   const browser = await chromium.launch({
     headless: true,
     executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
@@ -128,18 +170,23 @@ async function main() {
         if (!artwork) throw new Error(`Missing flat icon design: ${category}/${filename}`);
         const png = await fs.readFile(path.join(directory, filename));
         if (png.toString('hex', 0, 8) !== '89504e470d0a1a0a') throw new Error(`Invalid PNG: ${filename}`);
-        const width = png.readUInt32BE(16);
-        const height = png.readUInt32BE(20);
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 24 24">${artwork}</svg>`;
-        await fs.writeFile(path.join(destination, `${name}.svg`), `${svg}\n`);
+        const sourceWidth = png.readUInt32BE(16);
+        const sourceHeight = png.readUInt32BE(20);
+        const resize = sourceWidth < 48 || sourceHeight < 48;
+        const width = resize ? 48 : sourceWidth;
+        const height = resize ? 48 : sourceHeight;
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 24 24">${crystal ? crystalArtwork(artwork) : artwork}</svg>`;
         await page.setViewportSize({ width, height });
         await page.setContent(`<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}</style>${svg}`);
         await page.evaluate(() => document.fonts.ready);
-        await page.screenshot({ path: path.join(destination, filename), omitBackground: true });
+        const result = await page.screenshot({ path: path.join(destination, filename), omitBackground: true });
+        if (crystal && category === 'actions' && ['dialog-close', 'dialog-cancel', 'dialog-ok'].includes(name)) {
+          await fs.writeFile(path.join(root, 'zarmount/assets/crystal/actions', filename), result);
+        }
         count += 1;
       }
     }
-    console.log(`Generated ${count} PNG and SVG icons in ${output}`);
+    console.log(`Generated ${count} ${crystal ? 'Crystal' : 'Flat'} PNG icons in ${output}`);
   } finally {
     await browser.close();
   }

@@ -120,14 +120,6 @@ pub(crate) fn about(ui: &mut egui::Ui) {
     ui.separator();
     ui.label(format!("Author: {}", env!("CARGO_PKG_AUTHORS")));
     ui.label(format!("License: {}", env!("CARGO_PKG_LICENSE")));
-    ui.separator();
-    ui.label("Icons: KDE4 Crystal Diamond 1.1 by Paolino (Paolo Campitelli)");
-    ui.horizontal(|ui| {
-        ui.label("Licensed under the");
-        ui.hyperlink_to("GNU LGPL 3.0", "https://www.gnu.org/licenses/lgpl-3.0.html");
-        ui.label("-");
-        ui.hyperlink_to("paolocampitelli.com", "https://www.paolocampitelli.com/");
-    });
 }
 
 #[cfg(test)]
