@@ -5,7 +5,7 @@ pkgdesc="ZAR archive tools, graphical manager, MCP server and FUSE filesystem"
 arch=('x86_64' 'aarch64')
 options=('!debug')
 url="https://github.com/brmmm3/zar-rs"
-license=('(MIT OR Apache-2.0) AND LGPL-3.0-only')
+license=('MIT OR Apache-2.0')
 depends=('fuse3' 'glibc' 'hicolor-icon-theme' 'libgcc' 'libglvnd' 'libx11' 'zstd'
          'libxcb' 'libxcursor' 'libxi' 'libxkbcommon' 'libxkbcommon-x11'
          'libxrandr' 'shared-mime-info' 'wayland')
@@ -82,8 +82,6 @@ package() {
     "$pkgdir/usr/bin/zarg-install-thunar-actions"
   install -Dm644 LICENSE-MIT "$pkgdir/usr/share/licenses/$pkgname/LICENSE-MIT"
   install -Dm644 LICENSE-APACHE "$pkgdir/usr/share/licenses/$pkgname/LICENSE-APACHE"
-  install -Dm644 zarlib-gui/assets/crystal/COPYING.LGPL-3.0 \
-    "$pkgdir/usr/share/licenses/$pkgname/COPYING.LGPL-3.0"
   install -Dm644 zarlib-gui/assets/crystal/README.md \
     "$pkgdir/usr/share/licenses/$pkgname/crystal-icons.md"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
